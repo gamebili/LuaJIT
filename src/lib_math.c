@@ -225,13 +225,6 @@ LUALIB_API int luaopen_math(lua_State *L)
   lua_setfield(L, -2, "maxinteger");
   lua_pushinteger(L, LJ_MATH_MININTEGER);
   lua_setfield(L, -2, "mininteger");
-#else
-  lua_pushnil(L);
-  lua_setfield(L, -2, "type");
-  lua_pushnil(L);
-  lua_setfield(L, -2, "maxinteger");
-  lua_pushnil(L);
-  lua_setfield(L, -2, "mininteger");
 #endif
   return 1;
 }
