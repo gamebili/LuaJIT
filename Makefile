@@ -170,7 +170,9 @@ amalg:
 clean:
 	$(MAKE) -C src clean
 
-smoketest: all
+smoketest:
+	$(MAKE) clean
+	$(MAKE)
 	./src/luajit test/smoke.lua default
 
 smoketest-lua54compat:

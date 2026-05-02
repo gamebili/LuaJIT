@@ -149,12 +149,12 @@ LJLIB_CF(jit_attach)
   return 0;
 }
 
-/* Keep literal top-N offsets in sync with luaopen_jit() metadata pushes. */
-LJLIB_PUSH(top-6) LJLIB_SET(os)  /* LJ_OS_NAME */
-LJLIB_PUSH(top-5) LJLIB_SET(arch)  /* LJ_ARCH_NAME */
-LJLIB_PUSH(top-4) LJLIB_SET(version_num)  /* LUAJIT_VERSION_NUM */
-LJLIB_PUSH(top-3) LJLIB_SET(version)  /* LUAJIT_VERSION */
-LJLIB_PUSH(top-2) LJLIB_SET(lua54compat)  /* LJ_54 */
+/* lua54compat is pushed first to preserve the original jit.* offsets below. */
+LJLIB_PUSH(top-6) LJLIB_SET(lua54compat)
+LJLIB_PUSH(top-5) LJLIB_SET(os)
+LJLIB_PUSH(top-4) LJLIB_SET(arch)
+LJLIB_PUSH(top-3) LJLIB_SET(version_num)
+LJLIB_PUSH(top-2) LJLIB_SET(version)
 
 #include "lj_libdef.h"
 
@@ -747,11 +747,11 @@ LUALIB_API int luaopen_jit(lua_State *L)
 #if LJ_HASJIT
   jit_init(L);
 #endif
+  setboolV(L->top++, LJ_54);
   lua_pushliteral(L, LJ_OS_NAME);
   lua_pushliteral(L, LJ_ARCH_NAME);
   lua_pushinteger(L, LUAJIT_VERSION_NUM);  /* Deprecated. */
   lua_pushliteral(L, LUAJIT_VERSION);
-  setboolV(L->top++, LJ_54);
   lua_assert(L->top == meta + JIT_LIB_META_FIELDS);
   LJ_LIB_REG(L, LUA_JITLIBNAME, jit);
 #if LJ_HASPROFILE
