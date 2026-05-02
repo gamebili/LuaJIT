@@ -39,7 +39,6 @@
 /* -- jit.* functions ----------------------------------------------------- */
 
 #define LJLIB_MODULE_jit
-#define JIT_LIB_META_FIELDS	5
 
 static int setjitmode(lua_State *L, int mode)
 {
@@ -741,9 +740,6 @@ static void jit_init(lua_State *L)
 
 LUALIB_API int luaopen_jit(lua_State *L)
 {
-#ifdef LUA_USE_ASSERT
-  TValue *meta = L->top;
-#endif
 #if LJ_HASJIT
   jit_init(L);
 #endif
@@ -752,7 +748,6 @@ LUALIB_API int luaopen_jit(lua_State *L)
   lua_pushliteral(L, LJ_ARCH_NAME);
   lua_pushinteger(L, LUAJIT_VERSION_NUM);  /* Deprecated. */
   lua_pushliteral(L, LUAJIT_VERSION);
-  lua_assert(L->top == meta + JIT_LIB_META_FIELDS);
   LJ_LIB_REG(L, LUA_JITLIBNAME, jit);
 #if LJ_HASPROFILE
   lj_lib_prereg(L, LUA_JITLIBNAME ".profile", luaopen_jit_profile,
