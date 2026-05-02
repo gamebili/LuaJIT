@@ -148,7 +148,10 @@ LJLIB_CF(jit_attach)
   return 0;
 }
 
-/* lua54compat is pushed first to preserve the original jit.* offsets below. */
+/* Metadata is copied from values pushed by luaopen_jit() before LJ_LIB_REG.
+** buildvm only accepts literal top-N offsets here. Keep lua54compat first so
+** the original jit.os/arch/version_num/version offsets stay unchanged.
+*/
 LJLIB_PUSH(top-6) LJLIB_SET(lua54compat)
 LJLIB_PUSH(top-5) LJLIB_SET(os)
 LJLIB_PUSH(top-4) LJLIB_SET(arch)
