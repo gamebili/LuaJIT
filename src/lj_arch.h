@@ -726,7 +726,15 @@ extern void *LJ_WIN_LOADLIBA(const char *path);
 #define LJ_UNWIND_JIT		0
 #endif
 
-/* Compatibility with Lua 5.1 vs. 5.2. */
+/* Compatibility with Lua 5.1 vs. 5.2/5.4. */
+#if defined(LUAJIT_ENABLE_LUA54COMPAT) && !defined(LUAJIT_ENABLE_LUA52COMPAT)
+#define LUAJIT_ENABLE_LUA52COMPAT
+#endif
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+#define LJ_54			1
+#else
+#define LJ_54			0
+#endif
 #ifdef LUAJIT_ENABLE_LUA52COMPAT
 #define LJ_52			1
 #else

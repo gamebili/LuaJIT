@@ -100,6 +100,12 @@ XCFLAGS=
 # Note: this does not provide full compatibility with Lua 5.2 at this time.
 #XCFLAGS+= -DLUAJIT_ENABLE_LUA52COMPAT
 #
+# Experimental Lua 5.4 compatibility mode. This keeps the LuaJIT 2.1 build
+# and ABI defaults unless explicitly enabled. It currently selects the Lua 5.2
+# compatibility layer as a baseline and exposes Lua 5.4 version/feature
+# indicators for staged compatibility work.
+#XCFLAGS+= -DLUAJIT_ENABLE_LUA54COMPAT
+#
 # Disable the JIT compiler, i.e. turn LuaJIT into a pure interpreter.
 #XCFLAGS+= -DLUAJIT_DISABLE_JIT
 #

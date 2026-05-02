@@ -148,6 +148,11 @@ LJLIB_CF(jit_attach)
   return 0;
 }
 
+/* Metadata is copied from values pushed by luaopen_jit() before LJ_LIB_REG.
+** buildvm only accepts literal top-N offsets here. Keep lua54compat first so
+** the original jit.os/arch/version_num/version offsets stay unchanged.
+*/
+LJLIB_PUSH(top-6) LJLIB_SET(lua54compat)
 LJLIB_PUSH(top-5) LJLIB_SET(os)
 LJLIB_PUSH(top-4) LJLIB_SET(arch)
 LJLIB_PUSH(top-3) LJLIB_SET(version_num)
@@ -741,6 +746,7 @@ LUALIB_API int luaopen_jit(lua_State *L)
 #if LJ_HASJIT
   jit_init(L);
 #endif
+  setboolV(L->top++, LJ_54);
   lua_pushliteral(L, LJ_OS_NAME);
   lua_pushliteral(L, LJ_ARCH_NAME);
   lua_pushinteger(L, LUAJIT_VERSION_NUM);  /* Deprecated. */
@@ -759,4 +765,3 @@ LUALIB_API int luaopen_jit(lua_State *L)
   L->top -= 2;
   return 1;
 }
-

@@ -7,6 +7,7 @@
 */
 
 #include <stdio.h>
+#include <string.h>
 
 #define lib_base_c
 #define LUA_LIB
@@ -121,6 +122,31 @@ LJLIB_PUSH(lastcl)
 LJLIB_ASM(ipairs)		LJLIB_REC(xpairs 1)
 {
   return ffh_pairs(L, MM_ipairs);
+}
+
+LJLIB_CF(warn)
+{
+  int32_t i, n = (int32_t)(L->top - L->base);
+  for (i = 0; i < n; i++) {
+    GCstr *s;
+    const char *str;
+    if (!tvisstr(L->base+i))
+      lj_err_argt(L, (int)i+1, LUA_TSTRING);
+    s = strV(L->base+i);
+    str = strdata(s);
+    if (i == 0 && s->len > 0 && str[0] == '@') {
+      if (s->len == 3 && memcmp(str, "@on", 3) == 0)
+	G(L)->warn_on = 1;
+      else if (s->len == 4 && memcmp(str, "@off", 4) == 0)
+	G(L)->warn_on = 0;
+      return 0;
+    }
+    if (G(L)->warn_on)
+      fwrite(str, 1, s->len, stderr);
+  }
+  if (G(L)->warn_on && n > 0)
+    fputc('\n', stderr);
+  return 0;
 }
 
 /* -- Base library: getters and setters ----------------------------------- */
@@ -703,7 +729,9 @@ LUALIB_API int luaopen_base(lua_State *L)
   lua_pushliteral(L, LUA_VERSION);  /* top-3. */
   newproxy_weaktable(L);  /* top-2. */
   LJ_LIB_REG(L, "_G", base);
+#if !LJ_54
+  setnilV(lj_tab_setstr(L, env, lj_str_newlit(L, "warn")));
+#endif
   LJ_LIB_REG(L, LUA_COLIBNAME, coroutine);
   return 2;
 }
-

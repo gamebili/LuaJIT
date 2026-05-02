@@ -170,6 +170,19 @@ amalg:
 clean:
 	$(MAKE) -C src clean
 
-.PHONY: all install amalg clean
+smoketest:
+	$(MAKE) clean
+	$(MAKE)
+	./src/luajit test/smoke.lua default
+
+smoketest-lua54compat:
+	$(MAKE) clean
+	$(MAKE) XCFLAGS='-DLUAJIT_ENABLE_LUA54COMPAT'
+	./src/luajit test/smoke.lua lua54compat
+	out=$$(./src/luajit -e 'warn("@on"); warn("lua54 ", "warning")' 2>&1 >/dev/null) && test "$$out" = "lua54 warning"
+
+test: smoketest smoketest-lua54compat
+
+.PHONY: all install amalg clean smoketest smoketest-lua54compat test
 
 ##############################################################################
