@@ -148,10 +148,11 @@ LJLIB_CF(jit_attach)
   return 0;
 }
 
-LJLIB_PUSH(top-5) LJLIB_SET(os)
-LJLIB_PUSH(top-4) LJLIB_SET(arch)
-LJLIB_PUSH(top-3) LJLIB_SET(version_num)
-LJLIB_PUSH(top-2) LJLIB_SET(version)
+LJLIB_PUSH(top-6) LJLIB_SET(os)
+LJLIB_PUSH(top-5) LJLIB_SET(arch)
+LJLIB_PUSH(top-4) LJLIB_SET(version_num)
+LJLIB_PUSH(top-3) LJLIB_SET(version)
+LJLIB_PUSH(top-2) LJLIB_SET(lua54compat)
 
 #include "lj_libdef.h"
 
@@ -745,6 +746,7 @@ LUALIB_API int luaopen_jit(lua_State *L)
   lua_pushliteral(L, LJ_ARCH_NAME);
   lua_pushinteger(L, LUAJIT_VERSION_NUM);  /* Deprecated. */
   lua_pushliteral(L, LUAJIT_VERSION);
+  setboolV(L->top++, LJ_54);
   LJ_LIB_REG(L, LUA_JITLIBNAME, jit);
 #if LJ_HASPROFILE
   lj_lib_prereg(L, LUA_JITLIBNAME ".profile", luaopen_jit_profile,
@@ -759,4 +761,3 @@ LUALIB_API int luaopen_jit(lua_State *L)
   L->top -= 2;
   return 1;
 }
-
