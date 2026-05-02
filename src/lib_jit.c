@@ -40,7 +40,6 @@
 
 #define LJLIB_MODULE_jit
 #define JIT_LIB_META_FIELDS	5
-LJ_STATIC_ASSERT(JIT_LIB_META_FIELDS == 5);
 
 static int setjitmode(lua_State *L, int mode)
 {
@@ -150,12 +149,12 @@ LJLIB_CF(jit_attach)
   return 0;
 }
 
-/* Keep offsets in sync with values pushed by luaopen_jit() before LJ_LIB_REG. */
-LJLIB_PUSH(top-6) LJLIB_SET(os)
-LJLIB_PUSH(top-5) LJLIB_SET(arch)
-LJLIB_PUSH(top-4) LJLIB_SET(version_num)
-LJLIB_PUSH(top-3) LJLIB_SET(version)
-LJLIB_PUSH(top-2) LJLIB_SET(lua54compat)
+/* Keep literal top-N offsets in sync with luaopen_jit() metadata pushes. */
+LJLIB_PUSH(top-6) LJLIB_SET(os)  /* LJ_OS_NAME */
+LJLIB_PUSH(top-5) LJLIB_SET(arch)  /* LJ_ARCH_NAME */
+LJLIB_PUSH(top-4) LJLIB_SET(version_num)  /* LUAJIT_VERSION_NUM */
+LJLIB_PUSH(top-3) LJLIB_SET(version)  /* LUAJIT_VERSION */
+LJLIB_PUSH(top-2) LJLIB_SET(lua54compat)  /* LJ_54 */
 
 #include "lj_libdef.h"
 
