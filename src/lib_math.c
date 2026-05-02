@@ -15,6 +15,7 @@
 #include "lj_obj.h"
 #include "lj_err.h"
 #include "lj_lib.h"
+#include "lj_str.h"
 #include "lj_vm.h"
 #include "lj_prng.h"
 
@@ -98,6 +99,18 @@ LJLIB_ASM_(math_max)		LJLIB_REC(math_minmax IR_MAX)
 
 LJLIB_PUSH(3.14159265358979323846) LJLIB_SET(pi)
 LJLIB_PUSH(1e310) LJLIB_SET(huge)
+
+LJLIB_CF(math_type)
+{
+  cTValue *o = L->base;
+  if (o >= L->top || !tvisnumber(o))
+    setnilV(L->top++);
+  else if (tvisint(o))
+    setstrV(L, L->top++, lj_str_newlit(L, "integer"));
+  else
+    setstrV(L, L->top++, lj_str_newlit(L, "float"));
+  return 1;
+}
 
 /* ------------------------------------------------------------------------ */
 
@@ -200,6 +213,14 @@ LUALIB_API int luaopen_math(lua_State *L)
   PRNGState *rs = (PRNGState *)lua_newuserdata(L, sizeof(PRNGState));
   lj_prng_seed_fixed(rs);
   LJ_LIB_REG(L, LUA_MATHLIBNAME, math);
+#if LJ_54
+  lua_pushinteger(L, (lua_Integer)2147483647);
+  lua_setfield(L, -2, "maxinteger");
+  lua_pushinteger(L, (lua_Integer)-2147483647 - 1);
+  lua_setfield(L, -2, "mininteger");
+#else
+  lua_pushnil(L);
+  lua_setfield(L, -2, "type");
+#endif
   return 1;
 }
-

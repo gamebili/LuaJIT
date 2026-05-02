@@ -12,12 +12,22 @@ if mode == "default" then
   assert(_VERSION == "Lua 5.1", _VERSION)
   assert(jit.lua54compat == false)
   assert(warn == nil)
+  assert(math.type == nil)
   return
 end
 
 assert(_VERSION == "Lua 5.4", _VERSION)
 assert(jit.lua54compat == true)
 assert(type(warn) == "function")
+assert(type(math.type) == "function")
+assert(math.type() == nil)
+assert(math.type(nil) == nil)
+assert(math.type("1") == nil)
+assert(math.type(1.5) == "float")
+assert(math.type(1) == "integer" or math.type(1) == "float")
+assert(math.maxinteger == 2147483647)
+assert(math.mininteger == -2147483648)
+assert(math.maxinteger > 0 and math.mininteger < 0)
 
 do
   local co, ismain = coroutine.running()
