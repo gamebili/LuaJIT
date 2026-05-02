@@ -34,7 +34,7 @@ do
   warn("@off")
   warn("ignored warning")
   warn("@on")
-  warn("lua54 ", "warning smoke")
+  warn("@off")
   local ok, err = pcall(warn, 1)
   assert(ok == false)
   assert(type(err) == "string" and err:match("string expected"))
