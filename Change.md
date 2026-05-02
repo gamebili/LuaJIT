@@ -27,10 +27,13 @@
   - `warn()` 支持 `@on` / `@off` 控制 warning 输出。
   - `warn()` 输出写入 stderr。
   - warning 开关状态保存在 `global_State` 中。
+  - 新增 `math.type()`，用于区分 LuaJIT 内部整数和浮点数值。
+  - 新增 `math.maxinteger` / `math.mininteger`，当前对应 LuaJIT 内部 32 位整数范围。
 - 默认构建中：
   - `_VERSION` 仍为 `Lua 5.1`。
   - `jit.lua54compat` 为 `false`。
   - 不暴露 `warn()`。
+  - 不暴露 `math.type()`、`math.maxinteger` 或 `math.mininteger`。
 
 ## 测试进展
 
@@ -42,6 +45,7 @@
 - 覆盖 `warn()` 是否按模式暴露。
 - 覆盖 `warn()` 参数类型检查。
 - 覆盖 `warn()` stderr 输出。
+- 覆盖 `math.type()`、`math.maxinteger` 和 `math.mininteger` 是否按模式暴露及基本行为。
 
 ## 验证结果
 
