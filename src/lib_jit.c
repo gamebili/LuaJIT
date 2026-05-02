@@ -148,6 +148,7 @@ LJLIB_CF(jit_attach)
   return 0;
 }
 
+/* Keep offsets in sync with values pushed by luaopen_jit() before LJ_LIB_REG. */
 LJLIB_PUSH(top-6) LJLIB_SET(os)
 LJLIB_PUSH(top-5) LJLIB_SET(arch)
 LJLIB_PUSH(top-4) LJLIB_SET(version_num)

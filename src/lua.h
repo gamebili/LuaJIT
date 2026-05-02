@@ -18,7 +18,7 @@
 
 #ifdef LUAJIT_ENABLE_LUA54COMPAT
 #define LUA_VERSION	"Lua 5.4"
-#define LUA_RELEASE	"Lua 5.4"
+#define LUA_RELEASE	"Lua 5.4.0"
 #define LUA_VERSION_NUM	504
 #else
 #define LUA_VERSION	"Lua 5.1"
