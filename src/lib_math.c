@@ -23,6 +23,9 @@
 
 #define LJLIB_MODULE_math
 
+#define LJ_MATH_MAXINTEGER	((lua_Integer)2147483647)
+#define LJ_MATH_MININTEGER	((lua_Integer)-2147483647 - 1)
+
 LJLIB_ASM(math_abs)		LJLIB_REC(.)
 {
   lj_lib_checknumber(L, 1);
@@ -214,13 +217,17 @@ LUALIB_API int luaopen_math(lua_State *L)
   lj_prng_seed_fixed(rs);
   LJ_LIB_REG(L, LUA_MATHLIBNAME, math);
 #if LJ_54
-  lua_pushinteger(L, (lua_Integer)2147483647);
+  lua_pushinteger(L, LJ_MATH_MAXINTEGER);
   lua_setfield(L, -2, "maxinteger");
-  lua_pushinteger(L, (lua_Integer)-2147483647 - 1);
+  lua_pushinteger(L, LJ_MATH_MININTEGER);
   lua_setfield(L, -2, "mininteger");
 #else
   lua_pushnil(L);
   lua_setfield(L, -2, "type");
+  lua_pushnil(L);
+  lua_setfield(L, -2, "maxinteger");
+  lua_pushnil(L);
+  lua_setfield(L, -2, "mininteger");
 #endif
   return 1;
 }

@@ -13,6 +13,8 @@ if mode == "default" then
   assert(jit.lua54compat == false)
   assert(warn == nil)
   assert(math.type == nil)
+  assert(math.maxinteger == nil)
+  assert(math.mininteger == nil)
   return
 end
 
