@@ -124,28 +124,27 @@ LJLIB_ASM(ipairs)		LJLIB_REC(xpairs 1)
   return ffh_pairs(L, MM_ipairs);
 }
 
-static int warn_on = 0;
-
 LJLIB_CF(warn)
 {
   int32_t i, n = (int32_t)(L->top - L->base);
   for (i = 0; i < n; i++) {
     GCstr *s;
+    const char *str;
     if (!tvisstr(L->base+i))
       lj_err_argt(L, (int)i+1, LUA_TSTRING);
     s = strV(L->base+i);
-    const char *str = strdata(s);
+    str = strdata(s);
     if (i == 0 && s->len > 0 && str[0] == '@') {
       if (s->len == 3 && memcmp(str, "@on", 3) == 0)
-	warn_on = 1;
+	G(L)->warn_on = 1;
       else if (s->len == 4 && memcmp(str, "@off", 4) == 0)
-	warn_on = 0;
+	G(L)->warn_on = 0;
       return 0;
     }
-    if (warn_on)
+    if (G(L)->warn_on)
       fwrite(str, 1, s->len, stderr);
   }
-  if (warn_on && n > 0)
+  if (G(L)->warn_on && n > 0)
     fputc('\n', stderr);
   return 0;
 }
