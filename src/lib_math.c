@@ -24,7 +24,7 @@
 #define LJLIB_MODULE_math
 
 #define LJ_MATH_MAXINTEGER	((lua_Integer)2147483647)
-#define LJ_MATH_MININTEGER	((lua_Integer)-2147483647 - 1)
+#define LJ_MATH_MININTEGER	((lua_Integer)(-LJ_MATH_MAXINTEGER - 1))
 
 LJLIB_ASM(math_abs)		LJLIB_REC(.)
 {
@@ -103,7 +103,8 @@ LJLIB_ASM_(math_max)		LJLIB_REC(math_minmax IR_MAX)
 LJLIB_PUSH(3.14159265358979323846) LJLIB_SET(pi)
 LJLIB_PUSH(1e310) LJLIB_SET(huge)
 
-LJLIB_CF(math_type)
+#if LJ_54
+static int lj_cf_math_type(lua_State *L)
 {
   cTValue *o = L->base;
   if (o >= L->top || !tvisnumber(o))
@@ -114,6 +115,7 @@ LJLIB_CF(math_type)
     setstrV(L, L->top++, lj_str_newlit(L, "float"));
   return 1;
 }
+#endif
 
 /* ------------------------------------------------------------------------ */
 
@@ -217,6 +219,8 @@ LUALIB_API int luaopen_math(lua_State *L)
   lj_prng_seed_fixed(rs);
   LJ_LIB_REG(L, LUA_MATHLIBNAME, math);
 #if LJ_54
+  lua_pushcfunction(L, lj_cf_math_type);
+  lua_setfield(L, -2, "type");
   lua_pushinteger(L, LJ_MATH_MAXINTEGER);
   lua_setfield(L, -2, "maxinteger");
   lua_pushinteger(L, LJ_MATH_MININTEGER);
