@@ -1217,3 +1217,17 @@ LUALIB_API int luaopen_base(lua_State *L)
   luaopen_coroutine(L);
   return 2;
 }
+
+#if LJ_54
+LUALIB_API int luaopen_base54(lua_State *L)
+{
+  int n = luaopen_base(L);
+  /* LuaJIT's internal/legacy luaopen_base() returns base plus coroutine.
+  ** External Lua 5.4 headers route luaopen_base to this wrapper so callers
+  ** see the standard single base-library result without changing old ABI users.
+  */
+  while (n-- > 1)
+    lua_pop(L, 1);
+  return 1;
+}
+#endif

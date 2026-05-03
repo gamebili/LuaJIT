@@ -173,6 +173,7 @@
   - `lua.h` / C API 继续新增 Lua 5.4 表面：`lua_arith()`、`lua_compare()`、`lua_len()`、`lua_numbertointeger()`、`lua_rotate()`、`lua_stringtonumber()` 以及 `LUA_OP*` 比较/算术常量。
   - C API 继续新增 `lua_getextraspace()`、`lua_setwarnf()`、`lua_warning()`，并补 `lua_KContext`、`lua_KFunction`、`lua_WarnFunction`、`LUA_RIDX_MAINTHREAD`、`LUA_RIDX_GLOBALS`、`LUA_RIDX_LAST`、`LUA_EXTRASPACE`、`LUA_GNAME`、`LUAMOD_API`、`LUA_LOADED_TABLE`、`LUA_PRELOAD_TABLE`、`LUA_HOOKTAILCALL`、`LUA_GCGEN`、`LUA_GCINC`。
   - C API 新增独立 `luaopen_coroutine()` 入口；`luaL_openlibs()` 仍通过同一路径注册 coroutine 库，Lua 5.4 兼容模式下会一并安装 `coroutine.close()`。
+  - Lua 5.4 外部兼容头下的 `luaopen_base()` 已映射到单返回值包装；LuaJIT 内部和默认构建仍保留 base+coroutine 的旧返回约定。
   - C API 新增 indexed uservalue 表面：`lua_newuserdatauv()`、`lua_getiuservalue()`、`lua_setiuservalue()`；当前用 LuaJIT userdata 环境表保存声明数量和值，超出声明范围按 Lua 5.4 表面返回失败。
   - C API 新增 `lua_resetthread()` 基础兼容入口；当前覆盖无 to-be-closed 变量的 coroutine reset，完整 `<close>` 关闭语义仍保留在 TODO。
   - C API 新增 Lua 5.4 形态的 `lua_resume(L, from, nargs, nresults)` 外部宏和 `lua_resume54()` 包装入口；当前复用 LuaJIT 内部 2 参数 resume ABI，并把 yield/return 后的栈顶结果数写回 `nresults`。
@@ -287,6 +288,7 @@
 - 覆盖 Lua 5.4 外部兼容头暴露 `LUA_EXTRASPACE`，并确认其大小与当前 pointer-sized extraspace 实现一致。
 - 覆盖 Lua 5.4 外部兼容头暴露 `LUA_GNAME` / `LUAMOD_API`，并确认 `LUA_GNAME == "_G"`。
 - 覆盖 Lua 5.4 外部兼容头声明 `luaopen_coroutine()`，并确认独立打开 coroutine 库会返回包含 `create` 的库表。
+- 覆盖 Lua 5.4 外部兼容头中的 `luaopen_base()` 返回 1 个 base 库表，并确认返回表包含 `assert`。
 - 覆盖 `lua_stringtonumber()`、`lua_isnumber()`、`lua_tonumberx()`、`lua_tointegerx()` 和 `luaL_checknumber()` 拒绝 `inf` / `nan` / `0b` 扫描器扩展字符串。
 - 覆盖默认构建 C API smoke：`LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` / `lua_strlen` 仍可见，`lua_objlen()` / `lua_getfenv()` 仍可编译、链接、运行。
 - 覆盖 Lua 5.4 外部兼容头中 `lua_gettable()`、`lua_getfield()`、`lua_geti()`、`lua_rawget()`、`lua_rawgeti()`、`lua_rawgetp()` 的返回类型签名和运行时返回值。

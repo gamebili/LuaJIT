@@ -24,7 +24,12 @@
 #define LUA_JITLIBNAME	"jit"
 #define LUA_FFILIBNAME	"ffi"
 
+#if LUAJIT_EXTERNAL_LUA54
+LUALIB_API int luaopen_base54(lua_State *L);
+#define luaopen_base	luaopen_base54
+#else
 LUALIB_API int luaopen_base(lua_State *L);
+#endif
 LUALIB_API int luaopen_coroutine(lua_State *L);
 LUALIB_API int luaopen_math(lua_State *L);
 LUALIB_API int luaopen_string(lua_State *L);

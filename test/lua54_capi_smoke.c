@@ -69,8 +69,10 @@ typedef struct DumpBuffer {
 
 typedef int (*RawGetI54Sig)(lua_State *L, int idx, lua_Integer n);
 typedef void (*RawSetI54Sig)(lua_State *L, int idx, lua_Integer n);
+typedef int (*LuaOpenBaseSig)(lua_State *L);
 typedef int (*LuaOpenCoroutineSig)(lua_State *L);
 
+static LuaOpenBaseSig luaopen_base_sig = luaopen_base;
 static LuaOpenCoroutineSig luaopen_coroutine_sig = luaopen_coroutine;
 
 static void check(lua_State *L, int cond, const char *msg)
@@ -217,6 +219,12 @@ static void test_stack_and_number_api(lua_State *L)
   lua_pop(L, 1);
   check(L, LUA_RIDX_LAST == LUA_RIDX_GLOBALS, "LUA_RIDX_LAST");
   check(L, strcmp(LUA_GNAME, "_G") == 0, "LUA_GNAME");
+
+  check(L, luaopen_base_sig(L) == 1, "luaopen_base return");
+  check(L, lua_istable(L, -1), "luaopen_base table");
+  lua_getfield(L, -1, "assert");
+  check(L, lua_isfunction(L, -1), "luaopen_base assert");
+  lua_pop(L, 2);
 
   check(L, luaopen_coroutine_sig(L) == 1, "luaopen_coroutine return");
   check(L, lua_istable(L, -1), "luaopen_coroutine table");
