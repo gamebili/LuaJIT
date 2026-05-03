@@ -357,7 +357,19 @@ LJLIB_ASM(setmetatable)		LJLIB_REC(.)
   if (!tvisnil(lj_meta_lookup(L, L->base, MM_metatable)))
     lj_err_caller(L, LJ_ERR_PROTMT);
   setgcref(t->metatable, obj2gco(mt));
-  if (mt) { lj_gc_objbarriert(L, t, mt); }
+  if (mt) {
+    lj_gc_objbarriert(L, t, mt);
+#if LJ_54
+    /* Keep the fast setmetatable path in sync with lua_setmetatable():
+    ** tables only become finalizable if __gc existed when mt was assigned.
+    */
+    {
+      cTValue *gc = lj_tab_getstr(mt, mmname_str(G(L), MM_gc));
+      if (gc && !tvisnil(gc))
+	t->flags54 |= LJ_TAB_HAS_GC;
+    }
+#endif
+  }
   settabV(L, L->base-1-LJ_FR2, t);
   return FFH_RES(1);
 }

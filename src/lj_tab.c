@@ -120,6 +120,9 @@ static GCtab *newtab(lua_State *L, uint32_t asize, uint32_t hbits)
       t->asize = asize;
     }
   }
+#if LJ_54
+  t->flags54 = 0;
+#endif
   if (hbits)
     newhpart(L, t, hbits);
   return t;

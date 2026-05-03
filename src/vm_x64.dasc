@@ -1274,6 +1274,9 @@ static void build_subroutines(BuildCtx *ctx)
   |  jmp <2
   |
   |.ffunc_2 setmetatable
+#if LJ_54
+  |  jmp ->fff_fallback
+#else
   |  mov TAB:RB, [BASE]
   |  mov TAB:TMPR, TAB:RB
   |  checktab TAB:RB, ->fff_fallback
@@ -1290,6 +1293,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  barrierback TAB:RB, RC
   |1:
   |  jmp ->fff_res1
+#endif
   |
   |.ffunc_2 rawget
   |.if X64WIN

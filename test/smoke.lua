@@ -579,6 +579,8 @@ do
   assert(ok == false and err:match("number has no integer representation") ~= nil)
   ok, err = pcall(table.concat, { 1, 2, 3 }, ",", 1, 2.2)
   assert(ok == false and err:match("number has no integer representation") ~= nil)
+  assert(table.concat({}, ",", 1, 0) == "")
+  assert(table.concat({ 1, 2 }, ",", 2, 1) == "")
 end
 do
   local ok, err = pcall(table.insert, { 1, 2 }, 1.2, "x")
@@ -661,6 +663,16 @@ do
   ok, err = pcall(table.sort, { 1, 2, 3, 4 },
                   function(a, b) return a >= b end)
   assert(ok == false and err:match("invalid order function for sorting") ~= nil)
+  ok, err = pcall(table.sort, { 2, 1 }, function()
+    error("sort cmp boom", 0)
+  end)
+  assert(ok == false and err == "sort cmp boom")
+  local always_true = { 1, 2, 3 }
+  table.sort(always_true, function() return true end)
+  assert(table.concat(always_true, ",") == "2,3,1")
+  local always_false = { 3, 2, 1 }
+  table.sort(always_false, function() return false end)
+  assert(table.concat(always_false, ",") == "3,2,1")
   local reads, writes, base = {}, {}, { 3, 2, 1 }
   local proxy = setmetatable({}, {
     __len = function() return 3 end,
@@ -946,6 +958,72 @@ end
 do
   local t = setmetatable({ 1, 2, 3 }, { __len = function() return 54 end })
   assert(#t == 54)
+end
+do
+  local log = {}
+  do
+    local a = setmetatable({}, { __gc = function() log[#log+1] = "a" end })
+    local b = setmetatable({}, { __gc = function() log[#log+1] = "b" end })
+    assert(a and b)
+    a, b = nil, nil
+  end
+  collectgarbage()
+  collectgarbage()
+  assert(table.concat(log, ",") == "b,a")
+
+  log = {}
+  do
+    local mt = {}
+    local t = setmetatable({}, mt)
+    mt.__gc = function() log[#log+1] = "late" end
+    t = nil
+  end
+  collectgarbage()
+  collectgarbage()
+  assert(#log == 0)
+
+  do
+    local mt = { __gc = function() log[#log+1] = "old" end }
+    local t = setmetatable({}, mt)
+    mt.__gc = function() log[#log+1] = "new" end
+    t = nil
+  end
+  collectgarbage()
+  collectgarbage()
+  assert(log[1] == "new" and log[2] == nil)
+
+  log = {}
+  do
+    local mt = { __gc = function() log[#log+1] = "removed" end }
+    local t = setmetatable({}, mt)
+    mt.__gc = nil
+    t = nil
+  end
+  collectgarbage()
+  collectgarbage()
+  assert(#log == 0)
+end
+do
+  local function count(t)
+    local n = 0
+    for _ in pairs(t) do n = n + 1 end
+    return n
+  end
+
+  local weak_keys = setmetatable({}, { __mode = "k" })
+  do
+    local key = {}
+    weak_keys[key] = { key = key }
+    key = nil
+  end
+  for _ = 1, 6 do collectgarbage() end
+  assert(count(weak_keys) == 0)
+
+  local live_keys = setmetatable({}, { __mode = "k" })
+  local live = {}
+  live_keys[live] = { key = live }
+  for _ = 1, 6 do collectgarbage() end
+  assert(count(live_keys) == 1 and live_keys[live] ~= nil)
 end
 
 do

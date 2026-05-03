@@ -124,7 +124,7 @@ static void gc_mark_uv(global_State *g)
   }
 }
 
-/* Mark userdata in mmudata list. */
+/* Mark objects in the finalizer list. */
 static void gc_mark_mmudata(global_State *g)
 {
   GCobj *root = gcref(g->gc.mmudata);
@@ -138,7 +138,49 @@ static void gc_mark_mmudata(global_State *g)
   }
 }
 
-/* Separate userdata objects to be finalized to mmudata list. */
+static void gc_link_mmudata(global_State *g, GCobj *o)
+{
+  if (gcref(g->gc.mmudata)) {  /* Link to end of finalizer list. */
+    GCobj *root = gcref(g->gc.mmudata);
+    setgcrefr(o->gch.nextgc, root->gch.nextgc);
+    setgcref(root->gch.nextgc, o);
+    setgcref(g->gc.mmudata, o);
+  } else {  /* Create circular list. */
+    setgcref(o->gch.nextgc, o);
+    setgcref(g->gc.mmudata, o);
+  }
+}
+
+#if LJ_54
+static int gc_isweakkey(cTValue *o)
+{
+  /* Lua weak keys only apply to collectable keys except strings. Strings are
+  ** interned and treated as strong keys, matching the existing weak clear path.
+  */
+  return tvisgcv(o) && !tvisstr(o);
+}
+
+static int gc_isreachable_weakkey(cTValue *o)
+{
+  return !gc_isweakkey(o) || !iswhite(gcV(o));
+}
+
+static size_t gc_sizetab(GCtab *t)
+{
+  size_t sz = 0;
+  if (t->hmask > 0)
+    sz += sizeof(Node) * (t->hmask + 1);
+  if (t->asize > 0 && LJ_MAX_COLOSIZE != 0 && t->colo <= 0)
+    sz += sizeof(TValue) * t->asize;
+  if (LJ_MAX_COLOSIZE != 0 && t->colo)
+    sz += sizetabcolo((uint32_t)t->colo & 0x7f);
+  else
+    sz += sizeof(GCtab);
+  return sz;
+}
+#endif
+
+/* Separate objects to be finalized to mmudata list. */
 size_t lj_gc_separateudata(global_State *g, int all)
 {
   size_t m = 0;
@@ -154,17 +196,28 @@ size_t lj_gc_separateudata(global_State *g, int all)
       m += sizeudata(gco2ud(o));
       markfinalized(o);
       *p = o->gch.nextgc;
-      if (gcref(g->gc.mmudata)) {  /* Link to end of mmudata list. */
-	GCobj *root = gcref(g->gc.mmudata);
-	setgcrefr(o->gch.nextgc, root->gch.nextgc);
-	setgcref(root->gch.nextgc, o);
-	setgcref(g->gc.mmudata, o);
-      } else {  /* Create circular list. */
-	setgcref(o->gch.nextgc, o);
-	setgcref(g->gc.mmudata, o);
-      }
+      gc_link_mmudata(g, o);
     }
   }
+#if LJ_54
+  p = &g->gc.root;
+  while ((o = gcref(*p)) != NULL) {
+    if (o->gch.gct == ~LJ_TTAB) {
+      GCtab *t = gco2tab(o);
+      if ((iswhite(o) || all) && (t->flags54 & LJ_TAB_HAS_GC)) {
+	/* Lua 5.4 table finalizers are armed when the metatable is assigned,
+	** not when __gc is added later to the existing metatable.
+	*/
+	m += gc_sizetab(t);
+	t->flags54 &= (uint8_t)~LJ_TAB_HAS_GC;
+	*p = o->gch.nextgc;
+	gc_link_mmudata(g, o);
+	continue;
+      }
+    }
+    p = &o->gch.nextgc;
+  }
+#endif
   return m;
 }
 
@@ -214,12 +267,53 @@ static int gc_traverse_tab(global_State *g, GCtab *t)
       if (!tvisnil(&n->val)) {  /* Mark non-empty slot. */
 	lj_assertG(!tvisnil(&n->key), "mark of nil key in non-empty slot");
 	if (!(weak & LJ_GC_WEAKKEY)) gc_marktv(g, &n->key);
-	if (!(weak & LJ_GC_WEAKVAL)) gc_marktv(g, &n->val);
+	if (!(weak & LJ_GC_WEAKVAL)) {
+#if LJ_54
+	  if (!(weak & LJ_GC_WEAKKEY) || !gc_isweakkey(&n->key) ||
+	      !iswhite(gcV(&n->key))) {
+	    /* For weak-key tables, the value is ephemeron-reachable only after
+	    ** the collectable key is reachable from outside this table.
+	    */
+	    gc_marktv(g, &n->val);
+	  }
+#else
+	  gc_marktv(g, &n->val);
+#endif
+	}
       }
     }
   }
   return weak;
 }
+
+#if LJ_54
+/* Complete Lua 5.4 ephemeron marking for weak-key/strong-value tables.
+** A value is only kept after its key is reachable from outside the table, and
+** marking that value can in turn make more ephemeron keys reachable.
+*/
+static int gc_mark_ephemeron(global_State *g, GCobj *o)
+{
+  int marked = 0;
+  while (o) {
+    GCtab *t = gco2tab(o);
+    if ((t->marked & LJ_GC_WEAKKEY) && !(t->marked & LJ_GC_WEAKVAL) &&
+	t->hmask > 0) {
+      Node *node = noderef(t->node);
+      MSize i, hmask = t->hmask;
+      for (i = 0; i <= hmask; i++) {
+	Node *n = &node[i];
+	if (!tvisnil(&n->val) && gc_isreachable_weakkey(&n->key)) {
+	  if (tviswhite(&n->val))
+	    marked = 1;
+	  gc_marktv(g, &n->val);
+	}
+      }
+    }
+    o = gcref(t->gclist);
+  }
+  return marked;
+}
+#endif
 
 /* Traverse a function. */
 static void gc_traverse_func(global_State *g, GCfunc *fn)
@@ -500,7 +594,7 @@ static void gc_clearweak(global_State *g, GCobj *o)
   }
 }
 
-/* Call a userdata or cdata finalizer. */
+/* Call a userdata, table or cdata finalizer. */
 static void gc_call_finalizer(global_State *g, lua_State *L,
 			      cTValue *mo, GCobj *o)
 {
@@ -534,7 +628,7 @@ static void gc_call_finalizer(global_State *g, lua_State *L,
   }
 }
 
-/* Finalize one userdata or cdata object from the mmudata list. */
+/* Finalize one object from the mmudata list. */
 static void gc_finalize(lua_State *L)
 {
   global_State *g = G(L);
@@ -561,6 +655,24 @@ static void gc_finalize(lua_State *L)
       copyTV(L, &tmp, tv);
       setnilV(tv);  /* Clear entry in finalizer table. */
       gc_call_finalizer(g, L, &tmp, o);
+    }
+    return;
+  }
+#endif
+#if LJ_54
+  if (o->gch.gct == ~LJ_TTAB) {
+    /* Reinsert before calling __gc so a resurrected table stays valid.
+    ** The arming flag was cleared during separation, so it runs at most once
+    ** unless user code assigns another __gc-bearing metatable later.
+    */
+    setgcrefr(o->gch.nextgc, g->gc.root);
+    setgcref(g->gc.root, o);
+    makewhite(g, o);
+    {
+      GCtab *mt = tabref(gco2tab(o)->metatable);
+      mo = mt ? lj_tab_getstr(mt, mmname_str(g, MM_gc)) : NULL;
+      if (mo && !tvisnil(mo))
+	gc_call_finalizer(g, L, mo, o);
     }
     return;
   }
@@ -632,14 +744,26 @@ static void atomic(global_State *g, lua_State *L)
   gc_traverse_curtrace(g);  /* Traverse current trace. */
   gc_mark_gcroot(g);  /* Mark GC roots (again). */
   gc_propagate_gray(g);  /* Propagate all of the above. */
+#if LJ_54
+  while (gc_mark_ephemeron(g, gcref(g->gc.weak)))
+    gc_propagate_gray(g);
+#endif
 
   setgcrefr(g->gc.gray, g->gc.grayagain);  /* Empty the 2nd chance list. */
   setgcrefnull(g->gc.grayagain);
   gc_propagate_gray(g);  /* Propagate it. */
+#if LJ_54
+  while (gc_mark_ephemeron(g, gcref(g->gc.weak)))
+    gc_propagate_gray(g);
+#endif
 
   udsize = lj_gc_separateudata(g, 0);  /* Separate userdata to be finalized. */
   gc_mark_mmudata(g);  /* Mark them. */
   udsize += gc_propagate_gray(g);  /* And propagate the marks. */
+#if LJ_54
+  while (gc_mark_ephemeron(g, gcref(g->gc.weak)))
+    udsize += gc_propagate_gray(g);
+#endif
 
   /* All marking done, clear weak tables. */
   gc_clearweak(g, gcref(g->gc.weak));

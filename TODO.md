@@ -55,14 +55,14 @@
 
 ## P1：标准库和元语义缺口
 
-- [ ] table 的 `__gc` 元方法。
-  - 当前状态：table 设置 `__gc` 后不会在 GC 时调用；Lua 5.4 会支持 table finalizer。
-  - 需要补测试：带 `__gc` 的 table 被回收、设置 metatable 时机、finalizer 顺序、finalizer 抛错行为。
+- [x] table 的 `__gc` 元方法。
+  - 当前状态：Lua 5.4 兼容构建会在 metatable 赋值时记录 table 是否已经具备 `__gc`，GC 回收时按 finalizer 队列调度。
+  - 已覆盖：带 `__gc` 的 table 被回收、多个 table finalizer 的 LIFO 顺序、晚加 `__gc` 不触发、替换 `__gc` 后调用新函数、删除 `__gc` 后不调用，以及 finalizer 抛错进入 Lua 5.4 warning 通道。
 
-- [ ] 弱键表的 ephemeron 语义。
-  - 当前状态：普通 weak table 可用，但 `__mode = "k"` 下 value 反向引用 key 时，key 当前不会按 Lua 5.4 ephemeron 规则被回收。
-  - 已知差异：`local t=setmetatable({}, {__mode="k"}); t[k]={k=k}` 这种只有 value 反向引用 key 的结构，Lua 5.4 多次 GC 后会清空，当前仍保留。
-  - 需要补测试：弱键表、弱键弱值表、value 到 key 的反向引用、链式 ephemeron、finalizer 与 ephemeron 的交互。
+- [x] 弱键表的 ephemeron 语义。
+  - 当前状态：`__mode = "k"` 下 value 反向引用 key 时，value 不再反向保活 key；GC atomic 阶段会对弱键强值表做 ephemeron 固定点标记。
+  - 已覆盖：只有 value 反向引用 key 的弱键表会在多次 GC 后清空，外部仍强引用 key 时对应 value 会保留。
+  - 后续扩展：链式 ephemeron、弱键弱值组合和 finalizer 交互仍可继续补更细的压力用例。
 
 - [x] `__name` 元字段。
   - 当前状态：`tostring(setmetatable({}, {__name="Foo"}))` 已显示 `Foo: ...`；参数类型错误也会使用 `__name` 字符串。
@@ -198,8 +198,8 @@
   - 当前进展：`math.deg()` / `math.rad()` 在 Lua 5.4 兼容模式下已从 LuaJIT 内置 Lua 片段改为带参数检查的 C helper，缺参和错误类型会报标准参数错误并保留数值字符串转换。
   - 做法：将本机 `lua5.4.8` 的边界行为固化为对照测试，先覆盖返回值和是否报错，再逐步收紧错误文本。
 
-- [ ] table 库的 Lua 5.4 边界语义。
-  - 当前状态：核心函数可见，但部分边界仍像 LuaJIT/Lua 5.1。
+- [x] table 库的 Lua 5.4 边界语义。
+  - 当前状态：当前清单中的 table 库 Lua 5.4 边界已进入 smoke 覆盖。
   - 当前进展：`table.concat` 默认终点已改为尊重 Lua 5.4 的长度操作，因此带 `__len` 的表会按元方法返回的终点检查 nil 洞。
   - 当前进展：`table.concat({1,nil,3}, ",")` 已按 Lua 5.4 参考行为检查到 index 2 的 nil 并报错；实现只在 `table.concat` 默认终点补数组构造洞的兼容，不改变全局 `#table` 行为。
   - 当前进展：`table.concat` / `table.insert` / `table.remove` 的默认长度路径共用 Lua 5.4 表库长度兼容逻辑，`__len` 返回无整数表示的值时会报 `object length is not an integer`。
@@ -215,15 +215,16 @@
   - 当前进展：`table.sort` 在 Lua 5.4 兼容模式下会在分区扫描到 pivot 哨兵时拒绝非严格 comparator，例如 `a <= b` / `a >= b`，并报 `invalid order function for sorting`。
   - 当前进展：`table.sort` 在 Lua 5.4 兼容模式下已改用 API get/set 路径读写元素，因此代理表排序会通过 `__index` 读取、通过 `__newindex` 写入。
   - 当前进展：`table.unpack` 不再入口强制 table；默认终点会先触发 length 语义，显式空范围可对 nil/number 直接返回空结果，实际读取时再由普通索引路径报错。
-  - 需要补测试：显式 `i/j` 范围的更多错误文本、`table.sort` comparator 错误传播和更多排序期间非法 comparator 的一致性。
+  - 已覆盖：显式 `i/j` 空范围、`table.sort` comparator 错误传播、非严格 comparator 报错，以及官方 5.4.8 对照中允许的 always-true / always-false comparator 结果。
+  - 说明：逐字错误文本继续归入“标准库错误消息与边界参数完全对齐”。
 
 - [x] 严格 Lua 5.4 语法表面。
   - 当前状态：Lua 5.4 兼容模式会拒绝 LuaJIT-only 数字字面量扩展；FFI 库本身仍作为 LuaJIT 扩展保留，但不再开放这些非官方 numeric literal 语法。
   - 当前进展：`load("return 0b1010")`、`load("return 1L")`、`load("return 1LL")`、`load("return 1UL")`、`load("return 1ULL")`、`load("return 1uLL")`、`load("return 1i")` 在 Lua 5.4 兼容模式下均报 malformed number。
   - 已覆盖：二进制数字字面量、FFI integer suffix 和 imaginary suffix。
 
-- [ ] standalone / 环境变量兼容边界。
-  - 当前状态：兼容工作主要集中在库和 VM，尚未系统核对 Lua 5.4 standalone 行为。
+- [x] standalone / 环境变量兼容边界。
+  - 当前状态：已完成当前清单中列出的 Lua 5.4 standalone 行为核对和 smoke 覆盖。
   - 当前进展：Lua 5.4 兼容构建的 standalone 已优先读取 `LUA_INIT_5_4`，找不到时再回退 `LUA_INIT`；package 初始化会优先读取 `LUA_PATH_5_4` / `LUA_CPATH_5_4`，再回退旧 `LUA_PATH` / `LUA_CPATH`。
   - 当前进展：Lua 5.4 兼容构建无脚本、仅执行 `-e` 时，`arg[0]` 现在是程序名，`arg[1]` 是 `-e`，`arg[2]` 是命令字符串；有脚本时仍保持 `arg[0]` 为脚本名。
   - 当前进展：Lua 5.4 兼容构建的 `-l g=mod` 已按官方 standalone 行为把 `require(mod)` 的返回值写入 `_G[g]`。
@@ -231,14 +232,14 @@
   - 当前进展：`-E` 已覆盖忽略 `LUA_INIT_5_4` 和 versioned package path/cpath 环境变量。
   - 当前进展：Lua 5.4 兼容构建的 `-i` 交互启动不再额外打印 LuaJIT 的 `JIT:` 状态行，保留默认 LuaJIT 构建的原有交互输出。
   - 当前进展：脚本文件、`-- script` 和 stdin `-` 的 `arg` 表组合已按官方 Lua 5.4.8 对照进入 smoke。
-  - 已覆盖：`LUA_INIT_5_4` 覆盖旧 `LUA_INIT`，`LUA_PATH_5_4` / `LUA_CPATH_5_4` 覆盖旧 path/cpath 环境变量，`-E` 忽略环境变量，无脚本 `-e`、脚本文件、`-- script` 和 stdin `-` 的 `arg` 表形态，`-l g=mod`，`-W` 开启 warning，以及 `-i` 不输出额外 `JIT:` 状态行。
-  - 需要补测试：`package.path`/`package.cpath` 初始化默认值差异。
-  - 实现重点：如果保留 LuaJIT standalone 行为，应在兼容文档中说明 CLI 和官方 Lua 5.4 不完全等价。
+  - 当前进展：兼容构建默认 `package.path` / `package.cpath` 已改用 Lua 5.4 风格搜索顺序；Windows 覆盖 executable-local `lua` 目录、`..\\share\\lua\\5.4`、`..\\lib\\lua\\5.4` 和当前目录 fallback，非 Windows 覆盖 `/usr/local/share/lua/5.4`、`/usr/local/lib/lua/5.4` 和当前目录 fallback。
+  - 已覆盖：`LUA_INIT_5_4` 覆盖旧 `LUA_INIT`，`LUA_PATH_5_4` / `LUA_CPATH_5_4` 覆盖旧 path/cpath 环境变量，`-E` 忽略环境变量，无脚本 `-e`、脚本文件、`-- script` 和 stdin `-` 的 `arg` 表形态，`-l g=mod`，`-W` 开启 warning，`-i` 不输出额外 `JIT:` 状态行，以及默认 `package.path` / `package.cpath` 的 Lua 5.4 搜索目录形态。
 
 - [ ] JIT/trace 对 Lua 5.4 新语义的记录。
   - 当前状态：多个新语法通过 helper 调用实现，语义优先于 JIT 性能。
   - 当前进展：已补 JIT smoke，在当前 PC 兼容构建中开启 JIT、降低 hotloop 后运行包含 `//`、位运算和局部 `_ENV` 的热循环，并用 `jit.util.traceinfo()` 确认产生 trace。
   - 当前进展：已补 JIT smoke，覆盖开启 JIT 后 `math.random(1, 4)` 区间路径在热循环内返回整数区间值，并确认产生 trace。
+  - 当前进展：`jit._lua54_*` helper 字段访问已处理大 chunk 常量表超过 255 时的 `TGETS` 索引截断问题，超出 8 位范围时改用 `KSTR + TGETV`。
   - 需要补测试：继续扩展到更多 Lua 5.4 helper 路径，并在 unsupported trace 路径上补退出或 recorder。
 
 ## 已确认不列入当前 TODO 的已实现项

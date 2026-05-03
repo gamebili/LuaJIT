@@ -625,6 +625,24 @@ static BCReg expr_toanyreg(FuncState *fs, ExpDesc *e)
 }
 
 #if LJ_54
+static void bcemit_lua54_jit_field(FuncState *fs, BCReg base,
+				   const char *field, size_t len)
+{
+  BCReg idx = const_lit(fs, field, len);
+  if (idx <= BCMAX_C) {
+    bcemit_ABC(fs, BC_TGETS, base, base, idx);
+  } else {
+    BCReg key = fs->freereg;
+    /* TGETS stores the string key in an 8 bit bytecode field. Large chunks can
+    ** push private helper names beyond that range, so load the key explicitly.
+    */
+    bcreg_reserve(fs, 1);
+    bcemit_AD(fs, BC_KSTR, key, idx);
+    bcemit_ABC(fs, BC_TGETV, base, base, key);
+    fs->freereg--;
+  }
+}
+
 static void bcemit_lua54_helper(FuncState *fs, const char *field, size_t len,
 				ExpDesc *e1, ExpDesc *e2, BCReg nargs)
 {
@@ -637,8 +655,8 @@ static void bcemit_lua54_helper(FuncState *fs, const char *field, size_t len,
   bcemit_AD(fs, BC_GGET, base, const_lit(fs, "jit", 3));
   bcreg_reserve(fs, 1);
   if (ls->fr2) bcreg_reserve(fs, 1);
+  bcemit_lua54_jit_field(fs, base, field, len);
   bcreg_reserve(fs, nargs);
-  bcemit_ABC(fs, BC_TGETS, base, base, const_lit(fs, field, len));
   argbase = (BCReg)(base + 1 + ls->fr2);
   expr_toreg(fs, e1, argbase);
   if (nargs == 2)
@@ -660,8 +678,8 @@ static void bcemit_lua54_forstep(FuncState *fs, BCReg step)
   bcemit_AD(fs, BC_GGET, base, const_lit(fs, "jit", 3));
   bcreg_reserve(fs, 1);
   if (ls->fr2) bcreg_reserve(fs, 1);
+  bcemit_lua54_jit_field(fs, base, "_lua54_forstep", 14);
   bcreg_reserve(fs, 1);
-  bcemit_ABC(fs, BC_TGETS, base, base, const_lit(fs, "_lua54_forstep", 14));
   argbase = (BCReg)(base + 1 + ls->fr2);
   bcemit_AD(fs, BC_MOV, argbase, step);
   bcemit_ABC(fs, BC_CALL, base, 2, fs->freereg - base - ls->fr2);

@@ -1562,6 +1562,9 @@ static void build_subroutines(BuildCtx *ctx)
   |  jmp <2
   |
   |.ffunc_2 setmetatable
+#if LJ_54
+  |  jmp ->fff_fallback
+#else
   |  cmp dword [BASE+4], LJ_TTAB;  jne ->fff_fallback
   |  // Fast path: no mt for table yet and not clearing the mt.
   |  mov TAB:RB, [BASE]
@@ -1578,6 +1581,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  barrierback TAB:RB, RC
   |1:
   |  jmp ->fff_res1
+#endif
   |
   |.ffunc_2 rawget
   |  cmp dword [BASE+4], LJ_TTAB;  jne ->fff_fallback

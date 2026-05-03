@@ -1247,6 +1247,10 @@ static void build_subroutines(BuildCtx *ctx)
   |.  ld TAB:RB, DISPATCH_GL(gcroot[GCROOT_BASEMT])-8(TMP0)
   |
   |.ffunc_2 setmetatable
+#if LJ_54
+  |  b ->fff_fallback
+  |.  nop
+#else
   |  // Fast path: no mt for table yet and not clearing the mt.
   |  checktp TMP1, CARG1, -LJ_TTAB, ->fff_fallback
   |  gettp TMP3, CARG2
@@ -1260,6 +1264,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  beqz AT, ->fff_restv
   |.  sd TAB:CARG2, TAB:TMP1->metatable
   |  barrierback TAB:TMP1, TMP2, TMP0, ->fff_restv
+#endif
   |
   |.ffunc rawget
   |  ld CARG2, 0(BASE)

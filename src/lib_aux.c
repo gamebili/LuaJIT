@@ -454,10 +454,19 @@ static int panic(lua_State *L)
 static int error_finalizer(lua_State *L)
 {
   const char *s = lua_tostring(L, -1);
+#if LJ_54
+  /* Lua 5.4 reports finalizer errors through the warning channel, so warning
+  ** state and custom warning callbacks decide whether anything is emitted.
+  */
+  lua_pushfstring(L, "error in __gc (%s)", s ? s : "?");
+  lua_warning(L, lua_tostring(L, -1), 0);
+  lua_pop(L, 1);
+#else
   fputs("ERROR in finalizer: ", stderr);
   fputs(s ? s : "?", stderr);
   fputc('\n', stderr);
   fflush(stderr);
+#endif
   return 0;
 }
 #endif

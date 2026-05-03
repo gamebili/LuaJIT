@@ -1097,6 +1097,9 @@ static void build_subroutines(BuildCtx *ctx)
   |  b <2
   |
   |.ffunc_2 setmetatable
+#if LJ_54
+  |  b ->fff_fallback
+#else
   |  // Fast path: no mt for table yet and not clearing the mt.
   |  checktp TMP1, CARG1, LJ_TTAB, ->fff_fallback
   |   ldr TAB:TMP0, TAB:TMP1->metatable
@@ -1110,6 +1113,7 @@ static void build_subroutines(BuildCtx *ctx)
   |   tbz TMP2w, #2, ->fff_restv	// isblack(table)
   |  barrierback TAB:TMP1, TMP2w, TMP0
   |  b ->fff_restv
+#endif
   |
   |.ffunc rawget
   |  ldr CARG2, [BASE]

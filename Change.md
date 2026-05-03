@@ -40,8 +40,13 @@
 - 已继续补 Lua 5.4 standalone `arg` 表边界：无脚本、仅 `-e` 执行时，兼容构建的 `arg[0]` / `arg[1]` / `arg[2]` 已对齐 Lua 5.4。
 - 已继续补 Lua 5.4 standalone `arg` 表覆盖：脚本文件、`-- script` 和 stdin `-` 的 `arg` 正负索引组合已按官方 Lua 5.4.8 对照进入 smoke。
 - 已继续补 Lua 5.4 standalone `-i` 边界：兼容构建进入交互模式时不再额外打印 LuaJIT 的 `JIT:` 状态行，默认 LuaJIT 构建保留原输出。
+- 已继续补 Lua 5.4 standalone 默认 package 搜索路径：兼容构建的 `package.path` / `package.cpath` 默认值已改用 Lua 5.4 风格的 executable-local、versioned share/lib 和当前目录 fallback。
 - 已重新核对 `<const>` debug API 行为：本机 Lua 5.4.8 允许 `debug.setlocal()` / `debug.setupvalue()` / `debug.upvaluejoin()` 绕过源码级 const 限制，当前行为已补 smoke 并从 TODO 缺口中移除。
 - 已重新核对 GC 选项表面：本机 Lua 5.4.8 不接受 `collectgarbage("minor")` / `"major"`，当前 invalid option 行为已补 smoke。
+- 已继续补 table `__gc` 元方法：Lua 5.4 兼容构建会在 metatable 赋值时 armed table finalizer，GC 回收时按 LIFO 调度，并将 finalizer 抛错转入 Lua 5.4 warning 通道。
+- 已继续收尾 table 库 Lua 5.4 边界：显式空范围、`table.sort` comparator 错误传播、非严格 comparator 和官方允许的 always-true / always-false comparator 结果已进入 smoke。
+- 已继续补弱键表 ephemeron 语义：`__mode="k"` 下 value 反向引用 key 不再保活 key，GC atomic 阶段会对弱键强值表做固定点标记；smoke 覆盖自环 key 被清理和外部强引用 key 被保留。
+- 已修复 Lua 5.4 helper 字段访问的大 chunk 常量索引问题：`jit._lua54_*` helper 名称超过 `BC_TGETS` 8 位常量范围时改用 `KSTR + TGETV`，避免误读成 `generational`、`error` 等其他常量。
 - 已继续补 `string.format("%p")` 的 Lua 5.4 表面：nil、boolean、number 等没有 GC 指针的值输出 `(null)`，string 等 GC 对象仍输出平台 C `%p` 文本。
 - 已继续收紧数值 `for` 的 Lua 5.4 表面：常量 `0` / `0.0` step 会在加载阶段报 `'for' step is zero`，动态变量 `0` 和字符串 `"0"` step 会在进入循环前通过跨平台 helper 报同样错误。
 - 已继续收紧 GC 参数边界：`collectgarbage("setpause", n)` / `("setstepmul", n)` 在 Lua 5.4 兼容模式下会把参数压到 `0..1000`，并按官方 4 点粒度向下取整。
@@ -287,6 +292,8 @@
 - 覆盖 Lua 5.4 standalone `-E` 会忽略 `LUA_INIT_5_4`、`LUA_PATH_5_4` 和 `LUA_CPATH_5_4`。
 - 覆盖 Lua 5.4 standalone `-i` 交互启动不会输出额外 `JIT:` 状态行。
 - 覆盖 Lua 5.4 兼容模式中 main chunk 的伪 `_ENV` debug upvalue、`debug.setupvalue` 替换环境，以及含真实上值闭包的 `_ENV` upvalue 排序。
+- 覆盖弱键表 ephemeron 自环 key 清理，以及外部强引用 key 时 value 保留。
+- 覆盖大 smoke chunk 中 Lua 5.4 数值 `for` / 运算符 helper 字段名不会因常量表超过 255 被截断。
 
 ## 验证结果
 

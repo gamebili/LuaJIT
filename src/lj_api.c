@@ -1668,9 +1668,22 @@ LUA_API int lua_setmetatable(lua_State *L, int idx)
   }
   g = G(L);
   if (tvistab(o)) {
-    setgcref(tabV(o)->metatable, obj2gco(mt));
-    if (mt)
-      lj_gc_objbarriert(L, tabV(o), mt);
+    GCtab *t = tabV(o);
+    setgcref(t->metatable, obj2gco(mt));
+    if (mt) {
+      lj_gc_objbarriert(L, t, mt);
+#if LJ_54
+      /* Lua 5.4 only finalizes tables whose metatable already had __gc when
+      ** the metatable was assigned. The actual __gc function is still looked
+      ** up when the table is finalized, matching changed/removed methods.
+      */
+      {
+	cTValue *gc = lj_tab_getstr(mt, mmname_str(g, MM_gc));
+	if (gc && !tvisnil(gc))
+	  t->flags54 |= LJ_TAB_HAS_GC;
+      }
+#endif
+    }
   } else if (tvisudata(o)) {
     setgcref(udataV(o)->metatable, obj2gco(mt));
     if (mt)
