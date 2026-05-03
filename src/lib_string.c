@@ -212,7 +212,7 @@ LJLIB_ASM(string_char)		LJLIB_REC(.)
 #endif
     if (!checku8(k))
 #if LJ_54
-      string_argerror_named54(L, i, "string.char", "invalid value");
+      string_argerror_named54(L, i, "string.char", "value out of range");
 #else
       lj_err_arg(L, i, LJ_ERR_BADVAL);
 #endif
@@ -1405,7 +1405,7 @@ static int lj_cf_string_char54(lua_State *L)
   for (i = 1; i <= nargs; i++) {
     int32_t k = string_checkint_named54(L, i, "string.char");
     if (!checku8(k))
-      string_argerror_named54(L, i, "string.char", "invalid value");
+      string_argerror_named54(L, i, "string.char", "value out of range");
     buf[i-1] = (char)k;
   }
   lua_pushlstring(L, buf, (size_t)nargs);

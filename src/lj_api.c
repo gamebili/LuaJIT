@@ -745,6 +745,10 @@ LUA_API size_t lua_stringtonumber(lua_State *L, const char *s)
 {
   TValue tv;
   size_t len = strlen(s);
+#if LJ_54
+  if (lj_strscan_rejectnum54(s, (MSize)len))
+    return 0;  /* Keep lua_stringtonumber() aligned with Lua 5.4 tonumber(). */
+#endif
   StrScanFmt fmt = lj_strscan_scan((const uint8_t *)s, (MSize)len, &tv,
 				   LJ_DUALNUM ? STRSCAN_OPT_TOINT :
 						STRSCAN_OPT_TONUM);

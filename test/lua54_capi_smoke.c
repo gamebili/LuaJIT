@@ -83,6 +83,12 @@ static int checkinteger_fraction(lua_State *L)
   return 0;
 }
 
+static int checknumber_arg(lua_State *L)
+{
+  luaL_checknumber(L, 1);
+  return 0;
+}
+
 static int optinteger_fraction(lua_State *L)
 {
   luaL_optinteger(L, 1, 0);
@@ -179,6 +185,7 @@ static int dump_writer(lua_State *L, const void *p, size_t sz, void *ud)
 static void test_stack_and_number_api(lua_State *L)
 {
   lua_Integer iv = 0;
+  int okflag;
   void **extra;
   lua_State *co;
 
@@ -211,6 +218,21 @@ static void test_stack_and_number_api(lua_State *L)
   check_integer(L, -1, 123, "lua_stringtonumber value");
   lua_pop(L, 1);
   check(L, lua_stringtonumber(L, "nope") == 0, "lua_stringtonumber reject");
+  check(L, lua_stringtonumber(L, "inf") == 0, "lua_stringtonumber rejects inf");
+  check(L, lua_stringtonumber(L, "NaN") == 0, "lua_stringtonumber rejects nan");
+  check(L, lua_stringtonumber(L, "0b10") == 0, "lua_stringtonumber rejects binary prefix");
+  lua_pushliteral(L, "inf");
+  check(L, !lua_isnumber(L, -1), "lua_isnumber rejects inf string");
+  okflag = -1;
+  check(L, lua_tonumberx(L, -1, &okflag) == 0 && okflag == 0,
+	"lua_tonumberx rejects inf string");
+  lua_pop(L, 1);
+  lua_pushliteral(L, "0b10");
+  check(L, !lua_isnumber(L, -1), "lua_isnumber rejects binary prefix string");
+  okflag = -1;
+  check(L, lua_tointegerx(L, -1, &okflag) == 0 && okflag == 0,
+	"lua_tointegerx rejects binary prefix string");
+  lua_pop(L, 1);
 
   check(L, lua_numbertointeger((lua_Number)42, &iv) && iv == 42,
 	"lua_numbertointeger integer");
@@ -493,6 +515,14 @@ static void test_lauxlib_api(lua_State *L)
   check(L, strstr(lua_tostring(L, -1),
 		  "number has no integer representation") != NULL,
 	"luaL_optinteger fraction error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, checknumber_arg);
+  lua_pushliteral(L, "nan");
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_checknumber rejects nan string");
+  check(L, strstr(lua_tostring(L, -1), "number expected") != NULL,
+	"luaL_checknumber nan error");
   lua_pop(L, 1);
 
   luaL_pushfail(L);

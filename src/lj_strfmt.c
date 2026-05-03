@@ -367,6 +367,12 @@ SBuf *lj_strfmt_putfnum_uint(SBuf *sb, SFormat sf, lua_Number n)
 }
 
 #if LJ_54
+static void strfmt_argerror_named54(lua_State *L, int arg, const char *msg)
+{
+  lj_err_callermsg(L, lua_pushfstring(L,
+    "bad argument #%d to 'string.format' (%s)", arg, msg));
+}
+
 static int strfmt_numisinf(lua_Number n)
 {
   return n != 0 && n == n * 0.5;
@@ -405,7 +411,7 @@ static lua_Number strfmt_checkintegernum(lua_State *L, int arg)
   int64_t k = lj_num2i64(n);
   /* Lua 5.4 refuses integer formats for numbers without an integer value. */
   if ((lua_Number)k != n)
-    luaL_argerror(L, arg, "number has no integer representation");
+    strfmt_argerror_named54(L, arg, "number has no integer representation");
   return n;
 }
 #endif

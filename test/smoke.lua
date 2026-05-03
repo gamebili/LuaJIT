@@ -483,6 +483,17 @@ do
   assert(ok == false and err:match("thread expected") and err:match("Lua54Smoke"))
 end
 do
+  for _, s in ipairs({
+    "inf", "Inf", "INF", "+inf", "-inf", "infinity",
+    "nan", "NaN", "NAN", "+nan", "-nan", "  inf  "
+  }) do
+    assert(tonumber(s) == nil)
+  end
+  assert(tonumber("0b10") == nil)
+  assert(tonumber("0B10") == nil)
+  assert(tonumber("+0b10") == nil)
+  assert(tonumber("-0B10") == nil)
+  assert(tonumber("  0b10  ") == nil)
   assert(tonumber("0x10", 16) == nil)
   assert(tonumber("10", 16) == 16)
   assert(tonumber("0x10", 34) == 38182)
@@ -491,7 +502,19 @@ do
   assert(tonumber("10", "2") == 2)
 end
 do
+  for _, s in ipairs({ "inf", "NaN", "0b10" }) do
+    local ok, err = pcall(math.abs, s)
+    assert(ok == false and err:match("number expected") ~= nil)
+    assert(math.tointeger(s) == nil)
+    assert(math.type(s) == nil)
+  end
+  assert(math.abs("1e9999") == math.huge)
+end
+do
   assert(select(1, pcall(string.format, "%d", 1.2)) == false)
+  local ok, err = pcall(string.format, "%d", "1.2")
+  assert(ok == false and err:match("string%.format") ~= nil and
+         err:match("integer representation") ~= nil)
   assert(string.format("%d", 12.0) == "12")
   assert(string.format("%q", nil) == "nil")
   assert(string.format("%q", true) == "true")
@@ -522,6 +545,8 @@ do
   expect_bad_integer(string.byte, "abc", 1, 2.2)
   assert(string.byte("abc", "2") == 98)
   expect_bad_integer(string.char, 65.2)
+  local ok, err = pcall(string.char, 256)
+  assert(ok == false and err:match("value out of range") ~= nil)
   expect_bad_integer(string.sub, "abc", 1.2)
   expect_bad_integer(string.sub, "abc", 1, 2.2)
   expect_bad_integer(string.rep, "a", 1.2)
@@ -730,7 +755,8 @@ do
   assert(#utf8.char(0x110000) == 4)
   assert(#utf8.char(0x200000) == 5)
   assert(#utf8.char(0x7fffffff) == 6)
-  assert(select(1, pcall(utf8.char, 0x80000000)) == false)
+  local ok, err = pcall(utf8.char, 0x80000000)
+  assert(ok == false and err:match("value out of range") ~= nil)
   assert(select(1, pcall(utf8.char, 97.2)) == false)
   assert(select(1, pcall(utf8.codepoint, s, 1.2)) == false)
   assert(select(1, pcall(utf8.len, s, 1.2)) == false)

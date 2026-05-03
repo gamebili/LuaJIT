@@ -198,8 +198,13 @@ smoketest-capi-lua54compat: smoketest-lua54compat
 	./src/lua54_capi_smoke.exe
 	rm -f src/lua54_capi_smoke.exe
 
-test: smoketest smoketest-lua54compat smoketest-capi-lua54compat
+smoketest-capi-default: smoketest
+	gcc -I src -x c test/lua51_capi_smoke.c -x none src/lua51.dll -o src/lua51_capi_smoke.exe
+	./src/lua51_capi_smoke.exe
+	rm -f src/lua51_capi_smoke.exe
 
-.PHONY: all install amalg clean smoketest smoketest-lua54compat smoketest-capi-lua54compat test
+test: smoketest-capi-default smoketest-capi-lua54compat
+
+.PHONY: all install amalg clean smoketest smoketest-lua54compat smoketest-capi-default smoketest-capi-lua54compat test
 
 ##############################################################################

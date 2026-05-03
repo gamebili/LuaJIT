@@ -72,6 +72,34 @@
 
 #define casecmp(c, k)	(((c) | 0x20) == k)
 
+#if LJ_54
+int lj_strscan_rejectnum54(const char *sp, MSize len)
+{
+  const uint8_t *p = (const uint8_t *)sp;
+  const uint8_t *e = p + len;
+  while (p < e && lj_char_isspace(*p)) p++;
+  if (p < e && (*p == '+' || *p == '-')) p++;
+  if (e - p >= 3 &&
+      casecmp(p[0], 'i') && casecmp(p[1], 'n') && casecmp(p[2], 'f')) {
+    p += 3;
+    if (e - p >= 5 &&
+	casecmp(p[0], 'i') && casecmp(p[1], 'n') && casecmp(p[2], 'i') &&
+	casecmp(p[3], 't') && casecmp(p[4], 'y'))
+      p += 5;
+    while (p < e && lj_char_isspace(*p)) p++;
+    return p == e;
+  } else if (e - p >= 3 &&
+	     casecmp(p[0], 'n') && casecmp(p[1], 'a') &&
+	     casecmp(p[2], 'n')) {
+    p += 3;
+    while (p < e && lj_char_isspace(*p)) p++;
+    return p == e;
+  }
+  /* LuaJIT accepts binary integer strings as an extension; Lua 5.4 does not. */
+  return e - p >= 2 && p[0] == '0' && casecmp(p[1], 'b');
+}
+#endif
+
 /* Final conversion to double. */
 static void strscan_double(uint64_t x, TValue *o, int32_t ex2, int32_t neg)
 {
@@ -534,6 +562,10 @@ StrScanFmt lj_strscan_scan(const uint8_t *p, MSize len, TValue *o,
 
 int LJ_FASTCALL lj_strscan_num(GCstr *str, TValue *o)
 {
+#if LJ_54
+  if (lj_strscan_rejectnum54(strdata(str), str->len))
+    return 0;  /* Lua 5.4 string-to-number conversion excludes extensions. */
+#endif
   StrScanFmt fmt = lj_strscan_scan((const uint8_t *)strdata(str), str->len, o,
 				   STRSCAN_OPT_TONUM);
   lj_assertX(fmt == STRSCAN_ERROR || fmt == STRSCAN_NUM, "bad scan format");
@@ -543,6 +575,10 @@ int LJ_FASTCALL lj_strscan_num(GCstr *str, TValue *o)
 #if LJ_DUALNUM
 int LJ_FASTCALL lj_strscan_number(GCstr *str, TValue *o)
 {
+#if LJ_54
+  if (lj_strscan_rejectnum54(strdata(str), str->len))
+    return 0;  /* Keep integer-preserving conversion aligned with Lua 5.4. */
+#endif
   StrScanFmt fmt = lj_strscan_scan((const uint8_t *)strdata(str), str->len, o,
 				   STRSCAN_OPT_TOINT);
   lj_assertX(fmt == STRSCAN_ERROR || fmt == STRSCAN_NUM || fmt == STRSCAN_INT,

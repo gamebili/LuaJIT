@@ -101,6 +101,39 @@ static lua_Integer utf8_checkinteger_named(lua_State *L, int narg,
   return (lua_Integer)k;
 }
 
+static lua_Integer utf8_checkchar_named(lua_State *L, int narg)
+{
+  TValue tmp;
+  cTValue *o = L->base + narg-1;
+  lua_Number n;
+  int64_t k;
+  if (o >= L->top)
+    utf8_argtype_named(L, narg, "utf8.char", "number");
+  if (tvisstr(o)) {
+    if (!lj_strscan_number(strV(o), &tmp))
+      utf8_argtype_named(L, narg, "utf8.char", "number");
+    o = &tmp;
+  }
+  if (tvisint(o))
+    return (lua_Integer)intV(o);
+  if (!tvisnum(o))
+    utf8_argtype_named(L, narg, "utf8.char", "number");
+  n = numV(o);
+  /* utf8.char() has its own code point range. Values such as 0x80000000 are
+  ** still integer-representable for Lua 5.4, but outside accepted UTF-8 range.
+  */
+  if (!(n >= (lua_Number)INT64_MIN && n < -((lua_Number)INT64_MIN)))
+    utf8_argerror_named(L, narg, "utf8.char",
+			"number has no integer representation");
+  k = lj_num2i64(n);
+  if ((lua_Number)k != n)
+    utf8_argerror_named(L, narg, "utf8.char",
+			"number has no integer representation");
+  if (k < 0 || k > 0x7fffffffl)
+    utf8_argerror_named(L, narg, "utf8.char", "value out of range");
+  return (lua_Integer)k;
+}
+
 static lua_Integer utf8_optinteger_named(lua_State *L, int narg,
 					 lua_Integer def, const char *fname)
 {
@@ -225,8 +258,7 @@ static int utf8_char(lua_State *L)
   int i, n = lua_gettop(L);
   luaL_buffinit(L, &b);
   for (i = 1; i <= n; i++)
-    utf8_addchar(L, &b, utf8_checkinteger_named(L, i, "utf8.char"),
-		 "utf8.char");
+    utf8_addchar(L, &b, utf8_checkchar_named(L, i), "utf8.char");
   luaL_pushresult(&b);
   return 1;
 }
