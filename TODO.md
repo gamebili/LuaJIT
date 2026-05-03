@@ -137,6 +137,7 @@
   - 当前进展：已补 `lua_KContext`、`lua_KFunction`、`lua_WarnFunction`、`LUA_RIDX_MAINTHREAD`、`LUA_RIDX_GLOBALS`、`LUA_LOADED_TABLE`、`LUA_PRELOAD_TABLE`、`LUA_HOOKTAILCALL`、`LUA_GCGEN`、`LUA_GCINC`；registry 中会写入主线程和全局表；`lua_callk` / `lua_pcallk` / `lua_yieldk` 以不支持 continuation 的宏兼容旧调用形态。
   - 当前进展：Lua 5.4 兼容头已把外部 `lua_resume(L, from, nargs, nresults)` 映射到 `lua_resume54()` 包装入口，内部仍保留 LuaJIT 旧 2 参数 ABI；包装入口会填写 yield/return 的结果数量。
   - 当前进展：Lua 5.4 外部兼容头已隐藏 `LUA_ENVIRONINDEX`、`LUA_GLOBALSINDEX`、`lua_strlen` 以及旧 `lua_equal`、`lua_lessthan`、`lua_objlen`、`lua_cpcall`、`lua_getfenv`、`lua_setfenv` 声明；LuaJIT 内部和命令行 frontend 通过内部标记继续使用旧 ABI。
+  - 当前进展：Lua 5.4 外部兼容头已隐藏旧 lauxlib 注册入口 `luaL_openlib` / `luaL_register` / `luaL_pushmodule`；默认构建仍通过 C API smoke 覆盖这些 LuaJIT/Lua 5.1 API。
   - 当前进展：外部兼容头下的 `lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 已改走 registry globals 表，不再依赖 `LUA_GLOBALSINDEX`。
   - 当前进展：外部兼容头下的 `lua_gettable()`、`lua_getfield()`、`lua_geti()`、`lua_rawget()`、`lua_rawgeti()`、`lua_rawgetp()` 已通过 `*54` 包装入口返回取到值的 Lua 类型，内部仍保留 LuaJIT 旧 `void` ABI。
   - 当前进展：外部兼容头下的 `lua_rawgeti()` / `lua_rawseti()` 索引参数已通过 `*54` 包装入口暴露为 `lua_Integer`，内部仍转发到 LuaJIT 当前 32 位整数表槽路径。
@@ -150,7 +151,7 @@
   - 已覆盖：新增 `test/lua54_capi_smoke.c` 和 `make smoketest-capi-lua54compat`。
   - 需要补 API：`lua_toclose`、真实 continuation 版 `lua_yieldk` / `lua_callk` / `lua_pcallk`；`lua_resetthread` 的 `<close>` 关闭语义仍归入 `<close>` 运行期调度大项。
   - 需要补常量/类型/宏：继续核对完整 ABI 细节。
-  - 需要清理/兼容旧 API：默认构建保留 LuaJIT/Lua 5.1 API；Lua 5.4 外部兼容头已隐藏一批旧 5.1 表面并补了常见 getter 返回值签名，但仍需继续核对更多旧兼容宏和完整 ABI 细节。
+  - 需要清理/兼容旧 API：默认构建保留 LuaJIT/Lua 5.1 API；Lua 5.4 外部兼容头已隐藏一批旧 5.1 表面、旧 lauxlib 注册入口，并补了常见 getter 返回值签名，但仍需继续核对更多旧兼容宏和完整 ABI 细节。
   - 需要补内存分配语义：Lua 5.4 允许 allocator 在缩小内存块时失败；当前仍需核对 LuaJIT 分配器契约和错误处理。
   - 当前进展：已补默认构建 C API smoke，覆盖旧 LuaJIT 5.1 头文件宏和 ABI 入口仍可编译、链接、运行。
   - 需要补测试：更完整 ABI 兼容测试，以及更多旧 LuaJIT API 在默认构建下不受影响的覆盖。

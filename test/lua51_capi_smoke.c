@@ -35,6 +35,17 @@ static void check(lua_State *L, int cond, const char *msg)
   }
 }
 
+static int capi51_answer(lua_State *L)
+{
+  lua_pushinteger(L, 51);
+  return 1;
+}
+
+static const luaL_Reg capi51_reg[] = {
+  { "answer", capi51_answer },
+  { NULL, NULL }
+};
+
 int main(void)
 {
   lua_State *L = luaL_newstate();
@@ -52,6 +63,23 @@ int main(void)
   lua_getfenv(L, -1);
   check(L, lua_istable(L, -1), "lua_getfenv default API");
   lua_pop(L, 2);
+
+  luaL_register(L, "capi51", capi51_reg);
+  lua_getfield(L, -1, "answer");
+  lua_call(L, 0, 1);
+  check(L, lua_tointeger(L, -1) == 51, "luaL_register default API");
+  lua_pop(L, 2);
+
+  lua_newtable(L);
+  luaL_openlib(L, NULL, capi51_reg, 0);
+  lua_getfield(L, -1, "answer");
+  lua_call(L, 0, 1);
+  check(L, lua_tointeger(L, -1) == 51, "luaL_openlib default API");
+  lua_pop(L, 2);
+
+  luaL_pushmodule(L, "capi51.push", 1);
+  check(L, lua_istable(L, -1), "luaL_pushmodule default API");
+  lua_pop(L, 1);
 
   lua_close(L);
   return 0;

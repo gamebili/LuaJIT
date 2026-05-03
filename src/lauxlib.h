@@ -28,10 +28,12 @@ typedef struct luaL_Stream {
   lua_CFunction closef;
 } luaL_Stream;
 
+#if !LUAJIT_EXTERNAL_LUA54
 LUALIB_API void (luaL_openlib) (lua_State *L, const char *libname,
-                                const luaL_Reg *l, int nup);
+				const luaL_Reg *l, int nup);
 LUALIB_API void (luaL_register) (lua_State *L, const char *libname,
-                                const luaL_Reg *l);
+				 const luaL_Reg *l);
+#endif
 LUALIB_API int (luaL_getmetafield) (lua_State *L, int obj, const char *e);
 LUALIB_API int (luaL_callmeta) (lua_State *L, int obj, const char *e);
 LUALIB_API int (luaL_typerror) (lua_State *L, int narg, const char *tname);
@@ -98,8 +100,10 @@ LUALIB_API int (luaL_loadbufferx) (lua_State *L, const char *buff, size_t sz,
 LUALIB_API void luaL_traceback (lua_State *L, lua_State *L1, const char *msg,
 				int level);
 LUALIB_API void (luaL_setfuncs) (lua_State *L, const luaL_Reg *l, int nup);
+#if !LUAJIT_EXTERNAL_LUA54
 LUALIB_API void (luaL_pushmodule) (lua_State *L, const char *modname,
 				   int sizehint);
+#endif
 LUALIB_API int (luaL_getsubtable) (lua_State *L, int idx, const char *fname);
 LUALIB_API void (luaL_requiref) (lua_State *L, const char *modname,
 				 lua_CFunction openf, int glb);

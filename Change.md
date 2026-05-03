@@ -23,6 +23,7 @@
 - 已继续补 lauxlib C API smoke：`luaL_loadbufferx()` / `luaL_loadfilex()` 的 text 模式加载和 binary-only 模式拒绝 text chunk 已进入回归。
 - 已继续补 lauxlib C API smoke：覆盖 `luaL_fileresult()`、`luaL_execresult()`、`luaL_newlib()`、`luaL_setfuncs()`、registered metatable/userdata helper、`luaL_traceback()` 和 `luaL_dostring()`。
 - 已继续清理 Lua 5.4 外部兼容头：旧 `LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` 伪索引和一批 Lua 5.1 API 声明已从外部 5.4 表面隐藏，`lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 改走 registry globals 包装路径。
+- 已继续清理 Lua 5.4 外部 lauxlib 头：`luaL_openlib` / `luaL_register` / `luaL_pushmodule` 不再对外声明，并新增负向编译 gate；默认构建 C smoke 覆盖这些旧 API 仍可用。
 - 已继续补 C API GC 常量覆盖：`LUA_GCCOUNTB` 已进入 smoke，验证 byte remainder 在 `0..1023` 范围内。
 - 已继续补 Lua 5.4 getter 返回值签名：外部兼容头中的 `lua_gettable()` / `lua_getfield()` / `lua_geti()` / `lua_rawget()` / `lua_rawgeti()` / `lua_rawgetp()` 现在通过包装入口返回取到值的 Lua 类型。
 - 已继续补 Lua 5.4 raw integer API 签名：外部兼容头中的 `lua_rawgeti()` / `lua_rawseti()` 索引参数现在通过 `*54` 包装入口暴露为 `lua_Integer`。
@@ -181,6 +182,7 @@
   - C API 新增 `lua_resetthread()` 基础兼容入口；当前覆盖无 to-be-closed 变量的 coroutine reset，完整 `<close>` 关闭语义仍保留在 TODO。
   - C API 新增 Lua 5.4 形态的 `lua_resume(L, from, nargs, nresults)` 外部宏和 `lua_resume54()` 包装入口；当前复用 LuaJIT 内部 2 参数 resume ABI，并把 yield/return 后的栈顶结果数写回 `nresults`。
   - Lua 5.4 外部兼容头不再暴露 `LUA_GLOBALSINDEX`、`LUA_ENVIRONINDEX`、`lua_strlen` 以及旧 `lua_equal`、`lua_lessthan`、`lua_objlen`、`lua_cpcall`、`lua_getfenv`、`lua_setfenv` 声明；LuaJIT 内部和命令行 frontend 仍通过内部标记使用旧 ABI。
+  - Lua 5.4 外部兼容头不再暴露旧 lauxlib 注册入口 `luaL_openlib` / `luaL_register` / `luaL_pushmodule`；默认构建和内部库代码继续保留旧入口。
   - Lua 5.4 外部兼容头下的 `lua_pushglobaltable()`、`lua_getglobal()`、`lua_setglobal()` 已使用 registry globals 表实现，不再依赖旧 `LUA_GLOBALSINDEX`。
   - Lua 5.4 外部兼容头下的 `lua_gettable()`、`lua_getfield()`、`lua_geti()`、`lua_rawget()`、`lua_rawgeti()`、`lua_rawgetp()` 已使用 `*54` 包装入口返回取到值的 Lua 类型；LuaJIT 内部继续使用旧 `void` ABI。
   - Lua 5.4 外部兼容头下的 `lua_load()` 已使用 5 参数宏映射到 `lua_loadx()`，支持传入 `mode`。
@@ -296,6 +298,7 @@
 - 覆盖 Lua 5.4 外部兼容头中的 `luaopen_base()` 返回 1 个 base 库表，并确认返回表包含 `assert`。
 - 覆盖 `lua_stringtonumber()`、`lua_isnumber()`、`lua_tonumberx()`、`lua_tointegerx()` 和 `luaL_checknumber()` 拒绝 `inf` / `nan` / `0b` 扫描器扩展字符串。
 - 覆盖默认构建 C API smoke：`LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` / `lua_strlen` 仍可见，`lua_objlen()` / `lua_getfenv()` 仍可编译、链接、运行。
+- 覆盖 Lua 5.4 外部兼容头的负向编译 gate：`luaL_openlib` / `luaL_register` / `luaL_pushmodule` 不应可编译；默认构建 smoke 覆盖这三个旧 lauxlib API 仍可用。
 - 覆盖 Lua 5.4 外部兼容头中 `lua_gettable()`、`lua_getfield()`、`lua_geti()`、`lua_rawget()`、`lua_rawgeti()`、`lua_rawgetp()` 的返回类型签名和运行时返回值。
 - 覆盖 Lua 5.4 外部兼容头中 `lua_rawgeti54()` / `lua_rawseti54()` 的 `lua_Integer` 索引签名。
 - 覆盖 Lua 5.4 兼容模式拒绝 `0b...` 二进制数字字面量、`L` / `LL` / `UL` / `ULL` / `uLL` 整数后缀和 imaginary `i` 数字字面量。
