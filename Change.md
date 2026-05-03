@@ -22,6 +22,7 @@
 - 已继续补 Lua 5.4 C API 表面：外部兼容头中的 `lua_resume(L, from, nargs, nresults)` 已映射到 `lua_resume54()` 包装入口，并覆盖 yield/return 的结果数量。
 - 已继续补 lauxlib C API smoke：`luaL_loadbufferx()` / `luaL_loadfilex()` 的 text 模式加载和 binary-only 模式拒绝 text chunk 已进入回归。
 - 已继续补 lauxlib C API smoke：覆盖 `luaL_fileresult()`、`luaL_execresult()`、`luaL_newlib()`、`luaL_setfuncs()`、registered metatable/userdata helper、`luaL_traceback()` 和 `luaL_dostring()`。
+- 已继续补 Lua 5.4 lauxlib 头文件宏：新增 `luaL_intop()`，按当前兼容层公开的 32 位整数范围做 unsigned wraparound，并进入 C API smoke。
 - 已继续清理 Lua 5.4 外部兼容头：旧 `LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` 伪索引和一批 Lua 5.1 API 声明已从外部 5.4 表面隐藏，`lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 改走 registry globals 包装路径。
 - 已继续清理 Lua 5.4 外部 lauxlib 头：`luaL_openlib` / `luaL_register` / `luaL_pushmodule` 不再对外声明，并新增负向编译 gate；默认构建 C smoke 覆盖这些旧 API 仍可用。
 - 已继续补 C API GC 常量覆盖：`LUA_GCCOUNTB` 已进入 smoke，验证 byte remainder 在 `0..1023` 范围内。
@@ -198,7 +199,7 @@
   - JIT 开启时，Lua 5.4 兼容模式下的 `tonumber()` 扫描器扩展数字拒绝路径已进入 smoke 回归，并在当前平台确认能产生 trace。
   - registry 初始化会写入 `LUA_RIDX_MAINTHREAD` 和 `LUA_RIDX_GLOBALS`；新线程会复制当前线程的 pointer-sized extraspace。
   - `lua_callk()`、`lua_pcallk()`、`lua_yieldk()` 目前以宏映射到非 continuation 调用，提供编译兼容；真实 yield continuation 语义仍保留在 `TODO.md`。
-  - `lauxlib.h` / 辅助库新增 Lua 5.4 常用表面：`luaL_pushfail()`、`luaL_len()`、`luaL_getsubtable()`、`luaL_requiref()`、`luaL_tolstring()`、`luaL_typeerror()`、`luaL_argexpected()`、`luaL_checkversion()`、`luaL_addgsub()` 和 buffer API。
+  - `lauxlib.h` / 辅助库新增 Lua 5.4 常用表面：`luaL_pushfail()`、`luaL_len()`、`luaL_getsubtable()`、`luaL_requiref()`、`luaL_tolstring()`、`luaL_typeerror()`、`luaL_argexpected()`、`luaL_checkversion()`、`luaL_addgsub()`、`luaL_intop()` 和 buffer API。
   - Lua 5.4 兼容模式下 `luaL_prepbuffsize()` / `luaL_buffinitsize()` 会按请求尺寸增长 buffer，不再被旧 LuaJIT 固定 `LUAL_BUFFERSIZE` 缓冲区限制；默认构建仍保留旧 LuaJIT buffer 结构。
   - `luaL_loadbufferx()` / `luaL_loadfilex()` 的 `mode` 参数路径已通过 C API smoke 覆盖；text 模式可加载源码，binary-only 模式会拒绝 text chunk。
   - `luaL_fileresult()`、`luaL_execresult()`、`luaL_newlib()`、`luaL_setfuncs()`、`luaL_newmetatable()` / `luaL_getmetatable()`、`luaL_setmetatable()`、`luaL_testudata()`、`luaL_checkudata()`、`luaL_traceback()` 和 `luaL_dostring()` 已进入 Lua 5.4 C API smoke。
@@ -309,6 +310,7 @@
 - 覆盖 Lua 5.4 头文件中 `LUA_VERSION_MAJOR` / `LUA_VERSION_MINOR` / `LUA_VERSION_RELEASE` / `LUA_NUMTYPES` 的可见性，以及 `luaL_addgsub()` 的 buffer 替换结果。
 - 覆盖 Lua 5.4 兼容模式下 `luaL_prepbuffsize()` / `luaL_buffinitsize()` 请求大于 `LUAL_BUFFERSIZE` 时的 buffer 写入和最终字符串长度。
 - 覆盖 `luaL_fileresult()` 成功/失败返回形态、`luaL_execresult()` exit 返回形态、`luaL_newlib()` / `luaL_setfuncs()` 注册函数、registered metatable/userdata helper、`luaL_traceback()` 文本和 `luaL_dostring()` 结果。
+- 覆盖 `luaL_intop()` 的加法、减法和 bit-and 结果，其中加减法验证当前 32 位兼容整数范围的 wraparound。
 - 覆盖 `LUA_GCCOUNTB` 返回 `0..1023` 范围内的 byte remainder。
 - 覆盖 `debug.getinfo(function() end, "t").istailcall == false`。
 - 覆盖 `warn()` 无参数调用报错。

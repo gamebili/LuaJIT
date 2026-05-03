@@ -584,6 +584,13 @@ static void test_lauxlib_api(lua_State *L)
   check(L, lua_isnil(L, -1), "luaL_pushfail pushes nil");
   lua_pop(L, 1);
 
+  check(L, luaL_intop(+, LUA_MAXINTEGER, 1) == LUA_MININTEGER,
+	"luaL_intop add wrap");
+  check(L, luaL_intop(-, LUA_MININTEGER, 1) == LUA_MAXINTEGER,
+	"luaL_intop sub wrap");
+  check(L, luaL_intop(&, (lua_Integer)0x33, (lua_Integer)0x55) == 0x11,
+	"luaL_intop bit and");
+
   lua_newtable(L);
   check(L, luaL_getsubtable(L, -1, "child") == 0,
 	"luaL_getsubtable creates");
