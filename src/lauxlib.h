@@ -18,6 +18,12 @@
 /* extra error code for `luaL_load' */
 #define LUA_ERRFILE     (LUA_ERRERR+1)
 
+/* Lua 5.4 declares these standard-library names from lauxlib.h, so C modules
+** that only include the auxiliary header still see the expected constants.
+*/
+#define LUA_GNAME       "_G"
+#define LUA_FILEHANDLE  "FILE*"
+
 typedef struct luaL_Reg {
   const char *name;
   lua_CFunction func;

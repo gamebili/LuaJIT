@@ -8,8 +8,12 @@
 
 #include "lua.h"
 
+#ifndef LUA_GNAME
 #define LUA_GNAME	"_G"
+#endif
+#ifndef LUA_FILEHANDLE
 #define LUA_FILEHANDLE	"FILE*"
+#endif
 
 #define LUA_COLIBNAME	"coroutine"
 #define LUA_MATHLIBNAME	"math"

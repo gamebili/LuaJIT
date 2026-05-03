@@ -23,6 +23,7 @@
 - 已继续补 lauxlib C API smoke：`luaL_loadbufferx()` / `luaL_loadfilex()` 的 text 模式加载和 binary-only 模式拒绝 text chunk 已进入回归。
 - 已继续补 lauxlib C API smoke：覆盖 `luaL_fileresult()`、`luaL_execresult()`、`luaL_newlib()`、`luaL_setfuncs()`、registered metatable/userdata helper、`luaL_traceback()` 和 `luaL_dostring()`。
 - 已继续补 Lua 5.4 lauxlib 头文件宏：新增 `luaL_intop()`，按当前兼容层公开的 32 位整数范围做 unsigned wraparound，并进入 C API smoke。
+- 已继续补 Lua 5.4 lauxlib 头文件宏：`LUA_GNAME` / `LUA_FILEHANDLE` 现在可由 `lauxlib.h` 单独暴露，`lualib.h` 保留保护式定义兼容旧包含顺序。
 - 已继续清理 Lua 5.4 外部兼容头：旧 `LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` 伪索引和一批 Lua 5.1 API 声明已从外部 5.4 表面隐藏，`lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 改走 registry globals 包装路径。
 - 已继续清理 Lua 5.4 外部 lauxlib 头：`luaL_openlib` / `luaL_register` / `luaL_pushmodule` 不再对外声明，并新增负向编译 gate；默认构建 C smoke 覆盖这些旧 API 仍可用。
 - 已继续补 C API GC 常量覆盖：`LUA_GCCOUNTB` 已进入 smoke，验证 byte remainder 在 `0..1023` 范围内。
@@ -176,7 +177,7 @@
   - Lua 5.4 兼容模式禁用 LuaJIT 的 `0b...` 二进制数字字面量、`L` / `LL` / `UL` / `ULL` / `uLL` FFI 整数后缀和 imaginary `i` 数字字面量扩展。
   - `lua.h` / C API 新增一批 Lua 5.4 表面：`lua_Unsigned`、`LUA_MAXINTEGER`、`LUA_MININTEGER`、`lua_absindex()`、`lua_isinteger()`、`lua_rawlen()`、`lua_geti()`、`lua_seti()`、`lua_rawgetp()`、`lua_rawsetp()`、`lua_pushglobaltable()`。
   - `lua.h` / C API 继续新增 Lua 5.4 表面：`lua_arith()`、`lua_compare()`、`lua_len()`、`lua_numbertointeger()`、`lua_rotate()`、`lua_stringtonumber()` 以及 `LUA_OP*` 比较/算术常量。
-  - C API 继续新增 `lua_getextraspace()`、`lua_setwarnf()`、`lua_warning()`，并补 `lua_KContext`、`lua_KFunction`、`lua_WarnFunction`、`LUA_RIDX_MAINTHREAD`、`LUA_RIDX_GLOBALS`、`LUA_RIDX_LAST`、`LUA_EXTRASPACE`、`LUA_GNAME`、`LUAMOD_API`、`LUA_LOADED_TABLE`、`LUA_PRELOAD_TABLE`、`LUA_HOOKTAILCALL`、`LUA_GCGEN`、`LUA_GCINC`。
+  - C API 继续新增 `lua_getextraspace()`、`lua_setwarnf()`、`lua_warning()`，并补 `lua_KContext`、`lua_KFunction`、`lua_WarnFunction`、`LUA_RIDX_MAINTHREAD`、`LUA_RIDX_GLOBALS`、`LUA_RIDX_LAST`、`LUA_EXTRASPACE`、`LUA_GNAME`、`LUA_FILEHANDLE`、`LUAMOD_API`、`LUA_LOADED_TABLE`、`LUA_PRELOAD_TABLE`、`LUA_HOOKTAILCALL`、`LUA_GCGEN`、`LUA_GCINC`。
   - C API 新增独立 `luaopen_coroutine()` 入口；`luaL_openlibs()` 仍通过同一路径注册 coroutine 库，Lua 5.4 兼容模式下会一并安装 `coroutine.close()`。
   - Lua 5.4 外部兼容头下的 `luaopen_base()` 已映射到单返回值包装；LuaJIT 内部和默认构建仍保留 base+coroutine 的旧返回约定。
   - C API 新增 indexed uservalue 表面：`lua_newuserdatauv()`、`lua_getiuservalue()`、`lua_setiuservalue()`；当前用 LuaJIT userdata 环境表保存声明数量和值，超出声明范围按 Lua 5.4 表面返回失败。
@@ -294,7 +295,7 @@
 - 覆盖 Lua 5.4 外部兼容头不会暴露 `LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` / `lua_strlen`，并覆盖 `lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 的 registry globals 路径。
 - 覆盖 Lua 5.4 外部兼容头暴露 `LUA_RIDX_LAST`，并确认其值等于 `LUA_RIDX_GLOBALS`。
 - 覆盖 Lua 5.4 外部兼容头暴露 `LUA_EXTRASPACE`，并确认其大小与当前 pointer-sized extraspace 实现一致。
-- 覆盖 Lua 5.4 外部兼容头暴露 `LUA_GNAME` / `LUAMOD_API`，并确认 `LUA_GNAME == "_G"`。
+- 覆盖 Lua 5.4 外部兼容头通过 `lauxlib.h` 暴露 `LUA_GNAME` / `LUA_FILEHANDLE`，并确认其值分别为 `"_G"` / `"FILE*"`。
 - 覆盖 Lua 5.4 外部兼容头声明 `luaopen_coroutine()`，并确认独立打开 coroutine 库会返回包含 `create` 的库表。
 - 覆盖 Lua 5.4 外部兼容头中的 `luaopen_base()` 返回 1 个 base 库表，并确认返回表包含 `assert`。
 - 覆盖 `lua_stringtonumber()`、`lua_isnumber()`、`lua_tonumberx()`、`lua_tointegerx()` 和 `luaL_checknumber()` 拒绝 `inf` / `nan` / `0b` 扫描器扩展字符串。

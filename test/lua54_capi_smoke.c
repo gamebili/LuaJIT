@@ -8,7 +8,6 @@
 
 #include "lua.h"
 #include "lauxlib.h"
-#include "lualib.h"
 
 #ifdef LUA_GLOBALSINDEX
 #error "Lua 5.4 compatibility header must not expose LUA_GLOBALSINDEX"
@@ -51,8 +50,14 @@
 #endif
 
 #ifndef LUA_GNAME
-#error "Lua 5.4 compatibility header must expose LUA_GNAME"
+#error "Lua 5.4 lauxlib header must expose LUA_GNAME"
 #endif
+
+#ifndef LUA_FILEHANDLE
+#error "Lua 5.4 lauxlib header must expose LUA_FILEHANDLE"
+#endif
+
+#include "lualib.h"
 
 #ifndef LUAMOD_API
 #error "Lua 5.4 compatibility header must expose LUAMOD_API"
@@ -241,6 +246,7 @@ static void test_stack_and_number_api(lua_State *L)
   lua_pop(L, 1);
   check(L, LUA_RIDX_LAST == LUA_RIDX_GLOBALS, "LUA_RIDX_LAST");
   check(L, strcmp(LUA_GNAME, "_G") == 0, "LUA_GNAME");
+  check(L, strcmp(LUA_FILEHANDLE, "FILE*") == 0, "LUA_FILEHANDLE");
 
   check(L, luaopen_base_sig(L) == 1, "luaopen_base return");
   check(L, lua_istable(L, -1), "luaopen_base table");
