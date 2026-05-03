@@ -15,8 +15,10 @@
 #include "lj_obj.h"
 #include "lj_err.h"
 #include "lj_lib.h"
+#include "lj_meta.h"
 #include "lj_str.h"
 #include "lj_strscan.h"
+#include "lj_strfmt.h"
 #include "lj_vm.h"
 #include "lj_prng.h"
 
@@ -88,6 +90,50 @@ static void math_pushintegernum(lua_State *L, lua_Number n)
     }
   }
   setnumV(L->top++, n);
+}
+
+static void math_argtype_named54(lua_State *L, int narg, const char *fname,
+				 const char *xname)
+{
+  TValue *o = L->base + narg-1;
+  const char *tname;
+  MSize tlen;
+  if (o < L->top) {
+    tname = lj_meta_objtypename(L, o, &tlen);
+    UNUSED(tlen);
+  } else {
+    tname = lj_obj_typename[0];
+  }
+  lj_err_callermsg(L,
+    lj_strfmt_pushf(L, "bad argument #%d to '%s' (%s expected, got %s)",
+		    narg, fname, xname, tname));
+}
+
+static void math_argvalue_named54(lua_State *L, int narg, const char *fname)
+{
+  lj_err_callermsg(L,
+    lj_strfmt_pushf(L, "bad argument #%d to '%s' (value expected)",
+		    narg, fname));
+}
+
+static lua_Number math_checknum_named54(lua_State *L, int narg,
+					const char *fname)
+{
+  TValue tmp;
+  cTValue *o = L->base + narg-1;
+  if (o >= L->top)
+    math_argtype_named54(L, narg, fname, "number");
+  if (tvisstr(o)) {
+    if (!lj_strscan_number(strV(o), &tmp))
+      math_argtype_named54(L, narg, fname, "number");
+    o = &tmp;
+  }
+  if (tvisint(o))
+    return (lua_Number)intV(o);
+  if (tvisnum(o))
+    return numV(o);
+  math_argtype_named54(L, narg, fname, "number");
+  return 0;  /* unreachable */
 }
 #endif
 
@@ -169,10 +215,44 @@ LJLIB_PUSH(3.14159265358979323846) LJLIB_SET(pi)
 LJLIB_PUSH(1e310) LJLIB_SET(huge)
 
 #if LJ_54
+static int math_minmax54(lua_State *L, int ismax)
+{
+  int i, top = lua_gettop(L);
+  int best = 1;
+  if (L->base >= L->top)
+    math_argvalue_named54(L, 1, ismax ? "math.max" : "math.min");
+  /* Lua 5.4 math.min/max use ordinary < comparisons, so strings and objects
+  ** with __lt are valid; only the zero-argument case is a value error.
+  */
+  for (i = 2; i <= top; i++) {
+    int take = ismax ? lua_compare(L, best, i, LUA_OPLT) :
+		       lua_compare(L, i, best, LUA_OPLT);
+    if (take)
+      best = i;
+  }
+  lua_pushvalue(L, best);
+  return 1;
+}
+
+static int lj_cf_math_min54(lua_State *L)
+{
+  return math_minmax54(L, 0);
+}
+
+static int lj_cf_math_max54(lua_State *L)
+{
+  return math_minmax54(L, 1);
+}
+
 static int lj_cf_math_type(lua_State *L)
 {
   cTValue *o = L->base;
-  if (o >= L->top || !tvisnumber(o))
+  /* Lua 5.4 returns nil for non-numbers, but still errors when the argument is
+  ** absent; keep the official function name in that argument error.
+  */
+  if (o >= L->top)
+    math_argvalue_named54(L, 1, "math.type");
+  if (!tvisnumber(o))
     setnilV(L->top++);
   else if (tvisint(o))
     setstrV(L, L->top++, lj_str_newlit(L, "integer"));
@@ -195,7 +275,9 @@ static int lj_cf_math_tointeger(lua_State *L)
 {
   int32_t i;
   int isnum;
-  lj_lib_checkany(L, 1);  /* Lua 5.4 errors only when the value is absent. */
+  /* Lua 5.4 errors only when the value is absent. */
+  if (L->base >= L->top)
+    math_argvalue_named54(L, 1, "math.tointeger");
   if (math_toint32(L, 1, &i, &isnum))
     setintV(L->top++, i);
   else
@@ -225,19 +307,35 @@ static int lj_cf_math_modf54(lua_State *L)
   return 2;
 }
 
+static int lj_cf_math_deg54(lua_State *L)
+{
+  setnumV(L->top++, math_checknum_named54(L, 1, "math.deg") *
+		      57.29577951308232);
+  return 1;
+}
+
+static int lj_cf_math_rad54(lua_State *L)
+{
+  setnumV(L->top++, math_checknum_named54(L, 1, "math.rad") *
+		      0.017453292519943295);
+  return 1;
+}
+
 static int lj_cf_math_ult(lua_State *L)
 {
   int32_t a, b;
   int isnum;
   if (!math_toint32(L, 1, &a, &isnum)) {
     if (isnum)
-      luaL_argerror(L, 1, "number has no integer representation");
-    lj_err_argt(L, 1, LUA_TNUMBER);
+      lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #1 to 'math.ult' "
+	"(number has no integer representation)"));
+    math_argtype_named54(L, 1, "math.ult", "number");
   }
   if (!math_toint32(L, 2, &b, &isnum)) {
     if (isnum)
-      luaL_argerror(L, 2, "number has no integer representation");
-    lj_err_argt(L, 2, LUA_TNUMBER);
+      lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #2 to 'math.ult' "
+	"(number has no integer representation)"));
+    math_argtype_named54(L, 2, "math.ult", "number");
   }
   /* The compatibility mode currently uses LuaJIT's internal 32 bit integers. */
   setboolV(L->top++, (uint32_t)a < (uint32_t)b);
@@ -422,12 +520,20 @@ LUALIB_API int luaopen_math(lua_State *L)
   lua_setfield(L, -2, "tointeger");
   lua_pushcfunction(L, lj_cf_math_ult);
   lua_setfield(L, -2, "ult");
+  lua_pushcfunction(L, lj_cf_math_min54);
+  lua_setfield(L, -2, "min");
+  lua_pushcfunction(L, lj_cf_math_max54);
+  lua_setfield(L, -2, "max");
   lua_pushcfunction(L, lj_cf_math_floor54);
   lua_setfield(L, -2, "floor");
   lua_pushcfunction(L, lj_cf_math_ceil54);
   lua_setfield(L, -2, "ceil");
   lua_pushcfunction(L, lj_cf_math_modf54);
   lua_setfield(L, -2, "modf");
+  lua_pushcfunction(L, lj_cf_math_deg54);
+  lua_setfield(L, -2, "deg");
+  lua_pushcfunction(L, lj_cf_math_rad54);
+  lua_setfield(L, -2, "rad");
   lua_pushinteger(L, LJ_MATH_MAXINTEGER);
   lua_setfield(L, -2, "maxinteger");
   lua_pushinteger(L, LJ_MATH_MININTEGER);

@@ -43,7 +43,15 @@ static TValue *cpparser(lua_State *L, lua_CFunction dummy, void *ud)
       if (c == (LJ_FR2 ? 'W' : 'X')) ls->fr2 = !LJ_FR2;
     }
     if (xmode) {
+#if LJ_54
+      /* Lua 5.4 reports which chunk kind was rejected and echoes the mode
+      ** string, which helps callers diagnose text/binary loading mistakes.
+      */
+      lua_pushfstring(L, "attempt to load a %s chunk (mode is '%s')",
+		      bc ? "binary" : "text", ls->mode);
+#else
       setstrV(L, L->top++, lj_err_str(L, LJ_ERR_XMODE));
+#endif
       lj_err_throw(L, LUA_ERRSYNTAX);
     }
   }
@@ -172,14 +180,33 @@ LUALIB_API int luaL_loadstring(lua_State *L, const char *s)
 
 /* -- Dump bytecode ------------------------------------------------------- */
 
-LUA_API int lua_dump(lua_State *L, lua_Writer writer, void *data)
+static int dump_lua_func(lua_State *L, lua_Writer writer, void *data,
+			 uint32_t flags)
 {
   cTValue *o = L->top-1;
-  uint32_t flags = LJ_FR2*BCDUMP_F_FR2;  /* Default mode for legacy C API. */
   lj_checkapi(L->top > L->base, "top slot empty");
   if (tvisfunc(o) && isluafunc(funcV(o)))
     return lj_bcwrite(L, funcproto(funcV(o)), writer, data, flags);
   else
     return 1;
 }
+
+LUA_API int lua_dump(lua_State *L, lua_Writer writer, void *data)
+{
+  uint32_t flags = LJ_FR2*BCDUMP_F_FR2;  /* Default mode for legacy C API. */
+  return dump_lua_func(L, writer, data, flags);
+}
+
+#if LJ_54
+LUA_API int lua_dump54(lua_State *L, lua_Writer writer, void *data, int strip)
+{
+  uint32_t flags = LJ_FR2*BCDUMP_F_FR2;
+  /* Lua 5.4 exposes the strip choice as an API argument; LuaJIT still writes
+  ** LuaJIT bytecode, but forwards the flag to the bytecode writer.
+  */
+  if (strip)
+    flags |= BCDUMP_F_STRIP;
+  return dump_lua_func(L, writer, data, flags);
+}
+#endif
 

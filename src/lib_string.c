@@ -24,12 +24,141 @@
 #include "lj_ff.h"
 #include "lj_bcdump.h"
 #include "lj_char.h"
+#include "lj_strscan.h"
 #include "lj_strfmt.h"
 #include "lj_lib.h"
 
 /* ------------------------------------------------------------------------ */
 
 #define LJLIB_MODULE_string
+
+#if LJ_54
+static void string_argerror_named54(lua_State *L, int narg, const char *fname,
+				    const char *msg)
+{
+  lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #%d to '%s' (%s)",
+				      narg, fname, msg));
+}
+
+static const char *string_argtypename54(lua_State *L, int narg)
+{
+  TValue *o = L->base + narg-1;
+  if (o < L->top) {
+    MSize tlen;
+    const char *tname = lj_meta_objtypename(L, o, &tlen);
+    UNUSED(tlen);
+    return tname;
+  }
+  return lj_obj_typename[0];
+}
+
+static void string_argtype_named54(lua_State *L, int narg, const char *fname,
+				   const char *xname)
+{
+  string_argerror_named54(L, narg, fname,
+    lj_strfmt_pushf(L, "%s expected, got %s", xname,
+		    string_argtypename54(L, narg)));
+}
+
+static GCstr *string_checkstr_named54(lua_State *L, int narg,
+				      const char *fname)
+{
+  TValue *o = L->base + narg-1;
+  if (o < L->top) {
+    if (tvisstr(o)) {
+      return strV(o);
+    } else if (tvisnumber(o)) {
+      GCstr *s = lj_strfmt_number(L, o);
+      setstrV(L, o, s);
+      return s;
+    }
+  }
+  string_argtype_named54(L, narg, fname, "string");
+  return NULL;  /* unreachable */
+}
+
+static const char *string_checklstring_named54(lua_State *L, int narg,
+					       size_t *len,
+					       const char *fname)
+{
+  GCstr *s = string_checkstr_named54(L, narg, fname);
+  if (len)
+    *len = s->len;
+  return strdata(s);
+}
+
+static GCstr *string_optstr_named54(lua_State *L, int narg,
+				    const char *fname)
+{
+  TValue *o = L->base + narg-1;
+  if (o >= L->top || tvisnil(o))
+    return NULL;
+  return string_checkstr_named54(L, narg, fname);
+}
+
+static lua_Number string_checknum_named54(lua_State *L, int narg,
+					  const char *fname)
+{
+  TValue tmp;
+  cTValue *o = L->base + narg-1;
+  if (o >= L->top)
+    string_argtype_named54(L, narg, fname, "number");
+  if (tvisstr(o)) {
+    if (!lj_strscan_number(strV(o), &tmp))
+      string_argtype_named54(L, narg, fname, "number");
+    o = &tmp;
+  }
+  if (tvisint(o))
+    return (lua_Number)intV(o);
+  if (!tvisnum(o))
+    string_argtype_named54(L, narg, fname, "number");
+  return numV(o);
+}
+
+static int32_t string_checkint_named54(lua_State *L, int narg,
+				       const char *fname)
+{
+  lua_Number n = string_checknum_named54(L, narg, fname);
+  int64_t k;
+  /* Lua 5.4 string-library positions and counts use exact integer
+  ** conversion. Keep string numerals, reject fractions instead of truncating.
+  */
+  if (!(n >= (lua_Number)LUA_MININTEGER && n <= (lua_Number)LUA_MAXINTEGER))
+    string_argerror_named54(L, narg, fname,
+			    "number has no integer representation");
+  k = lj_num2i64(n);
+  if ((lua_Number)k != n)
+    string_argerror_named54(L, narg, fname,
+			    "number has no integer representation");
+  return (int32_t)k;
+}
+
+static int32_t string_optint_named54(lua_State *L, int narg, int32_t def,
+				     const char *fname)
+{
+  TValue *o = L->base + narg-1;
+  return (o < L->top && !tvisnil(o)) ?
+	 string_checkint_named54(L, narg, fname) : def;
+}
+
+static GCproto *string_checkLproto_named54(lua_State *L, int narg,
+					   const char *fname)
+{
+  TValue *o = L->base + narg-1;
+  if (o < L->top) {
+    if (tvisproto(o))
+      return protoV(o);
+    if (tvisfunc(o)) {
+      GCfunc *fn = funcV(o);
+      if (isluafunc(fn))
+	return funcproto(fn);
+      return NULL;
+    }
+  }
+  string_argtype_named54(L, narg, fname, "function");
+  return NULL;  /* unreachable */
+}
+#endif
 
 LJLIB_LUA(string_len) /*
   function(s)
@@ -40,10 +169,19 @@ LJLIB_LUA(string_len) /*
 
 LJLIB_ASM(string_byte)		LJLIB_REC(string_range 0)
 {
+#if LJ_54
+  GCstr *s = string_checkstr_named54(L, 1, "string.byte");
+#else
   GCstr *s = lj_lib_checkstr(L, 1);
+#endif
   int32_t len = (int32_t)s->len;
+#if LJ_54
+  int32_t start = string_optint_named54(L, 2, 1, "string.byte");
+  int32_t stop = string_optint_named54(L, 3, start, "string.byte");
+#else
   int32_t start = lj_lib_optint(L, 2, 1);
   int32_t stop = lj_lib_optint(L, 3, start);
+#endif
   int32_t n, i;
   const unsigned char *p;
   if (stop < 0) stop += len+1;
@@ -67,9 +205,17 @@ LJLIB_ASM(string_char)		LJLIB_REC(.)
   int i, nargs = (int)(L->top - L->base);
   char *buf = lj_buf_tmp(L, (MSize)nargs);
   for (i = 1; i <= nargs; i++) {
+#if LJ_54
+    int32_t k = string_checkint_named54(L, i, "string.char");
+#else
     int32_t k = lj_lib_checkint(L, i);
+#endif
     if (!checku8(k))
+#if LJ_54
+      string_argerror_named54(L, i, "string.char", "invalid value");
+#else
       lj_err_arg(L, i, LJ_ERR_BADVAL);
+#endif
     buf[i-1] = (char)k;
   }
   setstrV(L, L->base-1-LJ_FR2, lj_str_new(L, buf, (size_t)nargs));
@@ -78,17 +224,32 @@ LJLIB_ASM(string_char)		LJLIB_REC(.)
 
 LJLIB_ASM(string_sub)		LJLIB_REC(string_range 1)
 {
+#if LJ_54
+  string_checkstr_named54(L, 1, "string.sub");
+#else
   lj_lib_checkstr(L, 1);
+#endif
+#if LJ_54
+  string_checkint_named54(L, 2, "string.sub");
+  setintV(L->base+2, string_optint_named54(L, 3, -1, "string.sub"));
+#else
   lj_lib_checkint(L, 2);
   setintV(L->base+2, lj_lib_optint(L, 3, -1));
+#endif
   return FFH_RETRY;
 }
 
 LJLIB_CF(string_rep)		LJLIB_REC(.)
 {
+#if LJ_54
+  GCstr *s = string_checkstr_named54(L, 1, "string.rep");
+  int32_t rep = string_checkint_named54(L, 2, "string.rep");
+  GCstr *sep = string_optstr_named54(L, 3, "string.rep");
+#else
   GCstr *s = lj_lib_checkstr(L, 1);
   int32_t rep = lj_lib_checkint(L, 2);
   GCstr *sep = lj_lib_optstr(L, 3);
+#endif
   SBuf *sb = lj_buf_tmp_(L);
   if (sep && rep > 1) {
     GCstr *s2 = lj_buf_cat2str(L, sep, s);
@@ -105,7 +266,11 @@ LJLIB_CF(string_rep)		LJLIB_REC(.)
 
 LJLIB_ASM(string_reverse)  LJLIB_REC(string_op IRCALL_lj_buf_putstr_reverse)
 {
+#if LJ_54
+  string_checkstr_named54(L, 1, "string.reverse");
+#else
   lj_lib_checkstr(L, 1);
+#endif
   return FFH_RETRY;
 }
 LJLIB_ASM_(string_lower)  LJLIB_REC(string_op IRCALL_lj_buf_putstr_lower)
@@ -122,7 +287,11 @@ static int writer_buf(lua_State *L, const void *p, size_t size, void *sb)
 
 LJLIB_CF(string_dump)
 {
+#if LJ_54
+  GCproto *pt = string_checkLproto_named54(L, 1, "string.dump");
+#else
   GCproto *pt = lj_lib_checkLproto(L, 1, 1);
+#endif
   uint32_t flags = 0;
   SBuf *sb;
   TValue *o = L->base+1;
@@ -461,11 +630,20 @@ static int push_captures(MatchState *ms, const char *s, const char *e)
   return nlevels;  /* number of strings pushed */
 }
 
-static int str_find_aux(lua_State *L, int find)
+static int str_find_aux(lua_State *L, int find, const char *fname)
 {
+#if LJ_54
+  GCstr *s = string_checkstr_named54(L, 1, fname);
+  GCstr *p = string_checkstr_named54(L, 2, fname);
+#else
   GCstr *s = lj_lib_checkstr(L, 1);
   GCstr *p = lj_lib_checkstr(L, 2);
+#endif
+#if LJ_54
+  int32_t start = string_optint_named54(L, 3, 1, fname);
+#else
   int32_t start = lj_lib_optint(L, 3, 1);
+#endif
   MSize st;
   if (start < 0) start += (int32_t)s->len; else start--;
   if (start < 0) start = 0;
@@ -516,12 +694,12 @@ static int str_find_aux(lua_State *L, int find)
 
 LJLIB_CF(string_find)		LJLIB_REC(.)
 {
-  return str_find_aux(L, 1);
+  return str_find_aux(L, 1, "string.find");
 }
 
 LJLIB_CF(string_match)
 {
-  return str_find_aux(L, 0);
+  return str_find_aux(L, 0, "string.match");
 }
 
 LJLIB_NOREG LJLIB_CF(string_gmatch_aux)
@@ -550,10 +728,19 @@ LJLIB_NOREG LJLIB_CF(string_gmatch_aux)
 
 LJLIB_CF(string_gmatch)
 {
+#if LJ_54
+  GCstr *s = string_checkstr_named54(L, 1, "string.gmatch");
+  int32_t start = string_optint_named54(L, 3, 1, "string.gmatch");
+#else
   GCstr *s = lj_lib_checkstr(L, 1);
   int32_t start = lj_lib_optint(L, 3, 1);
+#endif
   MSize st;
+#if LJ_54
+  string_checkstr_named54(L, 2, "string.gmatch");
+#else
   lj_lib_checkstr(L, 2);
+#endif
   if (start < 0) start += (int32_t)s->len; else start--;
   if (start < 0) start = 0;
   st = (MSize)start;
@@ -621,17 +808,31 @@ static void add_value(MatchState *ms, luaL_Buffer *b,
 LJLIB_CF(string_gsub)
 {
   size_t srcl;
+#if LJ_54
+  const char *src = string_checklstring_named54(L, 1, &srcl, "string.gsub");
+  const char *p = strdata(string_checkstr_named54(L, 2, "string.gsub"));
+#else
   const char *src = luaL_checklstring(L, 1, &srcl);
   const char *p = luaL_checkstring(L, 2);
+#endif
   int  tr = lua_type(L, 3);
+#if LJ_54
+  int max_s = string_optint_named54(L, 4, (int)(srcl+1), "string.gsub");
+#else
   int max_s = luaL_optint(L, 4, (int)(srcl+1));
+#endif
   int anchor = (*p == '^') ? (p++, 1) : 0;
   int n = 0;
   MatchState ms;
   luaL_Buffer b;
   if (!(tr == LUA_TNUMBER || tr == LUA_TSTRING ||
 	tr == LUA_TFUNCTION || tr == LUA_TTABLE))
+#if LJ_54
+    string_argerror_named54(L, 3, "string.gsub",
+			    "string/function/table expected");
+#else
     lj_err_arg(L, 3, LJ_ERR_NOSFT);
+#endif
   luaL_buffinit(L, &b);
   ms.L = L;
   ms.src_init = src;
@@ -665,6 +866,9 @@ LJLIB_CF(string_format)		LJLIB_REC(.)
 {
   int retry = 0;
   SBuf *sb;
+#if LJ_54
+  string_checkstr_named54(L, 1, "string.format");
+#endif
   do {
     sb = lj_buf_tmp_(L);
     retry = lj_strfmt_putarg(L, sb, 1, -retry);
@@ -800,6 +1004,36 @@ static uint64_t string_pack_readint(const unsigned char *s, size_t sz,
 static uint64_t string_pack_checkint(lua_State *L, int arg, size_t sz,
 				     int issigned)
 {
+#if LJ_54
+  lua_Number n = string_checknum_named54(L, arg, "string.pack");
+  int64_t v;
+  if (!(n >= -9223372036854775808.0 && n <= 9223372036854775807.0))
+    string_argerror_named54(L, arg, "string.pack",
+			    "number has no integer representation");
+  v = lj_num2i64(n);
+  /* Pack formats define their own signed/unsigned range. Do the exact
+  ** integer test here instead of using the current 32-bit lua_Integer shim,
+  ** so existing Lua 5.4 pack cases such as I4/4000000000 keep working.
+  */
+  if ((lua_Number)v != n)
+    string_argerror_named54(L, arg, "string.pack",
+			    "number has no integer representation");
+  if (issigned) {
+    if (sz < 8) {
+      int bits = (int)(sz * 8);
+      int64_t minv = -(int64_t)((uint64_t)1 << (bits - 1));
+      int64_t maxv = (int64_t)(((uint64_t)1 << (bits - 1)) - 1);
+      if (v < minv || v > maxv)
+	string_argerror_named54(L, arg, "string.pack", "integer overflow");
+    }
+    return (uint64_t)v;
+  } else {
+    uint64_t maxv = string_pack_umax(sz);
+    if (v < 0 || (uint64_t)v > maxv)
+      string_argerror_named54(L, arg, "string.pack", "unsigned overflow");
+    return (uint64_t)v;
+  }
+#else
   lua_Integer v = luaL_checkinteger(L, arg);
   if (issigned) {
     if (sz < 8) {
@@ -816,6 +1050,7 @@ static uint64_t string_pack_checkint(lua_State *L, int arg, size_t sz,
       luaL_argerror(L, arg, "unsigned overflow");
     return (uint64_t)v;
   }
+#endif
 }
 
 static void string_pack_writenum(luaL_Buffer *b, lua_State *L, int arg,
@@ -826,9 +1061,9 @@ static void string_pack_writenum(luaL_Buffer *b, lua_State *L, int arg,
   size_t i;
   int same = string_pack_endian(endian) == string_pack_native_little();
   if (sz == sizeof(float))
-    u.f = (float)luaL_checknumber(L, arg);
+    u.f = (float)string_checknum_named54(L, arg, "string.pack");
   else
-    u.d = (double)luaL_checknumber(L, arg);
+    u.d = (double)string_checknum_named54(L, arg, "string.pack");
   for (i = 0; i < sz; i++)
     out[i] = (char)(same ? u.b[i] : u.b[sz - 1 - i]);
   luaL_addlstring(b, out, sz);
@@ -857,7 +1092,7 @@ static void string_pack_checkdata(lua_State *L, size_t pos, size_t need,
 
 static int lj_cf_string_pack(lua_State *L)
 {
-  const char *fmt = luaL_checkstring(L, 1);
+  const char *fmt = strdata(string_checkstr_named54(L, 1, "string.pack"));
   int endian = -1;  /* -1 means native; 1 means little; 0 means big. */
   int arg = 2;
   size_t pos = 0, maxalign = 1;
@@ -916,7 +1151,7 @@ static int lj_cf_string_pack(lua_State *L)
       const char *s;
       size_t len, i;
       fmt = string_pack_readsize(fmt, &sz, 0);
-      s = luaL_checklstring(L, arg++, &len);
+      s = string_checklstring_named54(L, arg++, &len, "string.pack");
       if (len > sz)
 	luaL_argerror(L, arg-1, "string longer than given size");
       luaL_addlstring(&b, s, len);
@@ -928,7 +1163,7 @@ static int lj_cf_string_pack(lua_State *L)
     case 'z': {
       const char *s;
       size_t len;
-      s = luaL_checklstring(L, arg++, &len);
+      s = string_checklstring_named54(L, arg++, &len, "string.pack");
       if (memchr(s, '\0', len) != NULL)
 	luaL_argerror(L, arg-1, "string contains zeros");
       luaL_addlstring(&b, s, len);
@@ -941,7 +1176,7 @@ static int lj_cf_string_pack(lua_State *L)
       size_t len;
       fmt = string_pack_readsize(fmt, &sz, 4);
       string_pack_checksize(L, sz);
-      s = luaL_checklstring(L, arg++, &len);
+      s = string_checklstring_named54(L, arg++, &len, "string.pack");
       if (len > string_pack_umax(sz))
 	luaL_argerror(L, arg-1, "string length does not fit in given size");
       pad = string_pack_padding(L, pos, sz, maxalign);
@@ -974,17 +1209,19 @@ static int lj_cf_string_pack(lua_State *L)
 
 static int lj_cf_string_unpack(lua_State *L)
 {
-  const char *fmt = luaL_checkstring(L, 1);
+  const char *fmt = strdata(string_checkstr_named54(L, 1, "string.unpack"));
   size_t len;
   const unsigned char *data =
-    (const unsigned char *)luaL_checklstring(L, 2, &len);
-  lua_Integer init = luaL_optinteger(L, 3, 1);
+    (const unsigned char *)string_checklstring_named54(L, 2, &len,
+						       "string.unpack");
+  lua_Integer init = string_optint_named54(L, 3, 1, "string.unpack");
   size_t pos;
   size_t maxalign = 1;
   int endian = -1;
   int nres = 0;
   if (init < 1)
-    luaL_argerror(L, 3, "initial position out of string");
+    string_argerror_named54(L, 3, "string.unpack",
+			    "initial position out of string");
   pos = (size_t)init - 1;
   while (*fmt) {
     char opt = *fmt++;
@@ -1098,7 +1335,7 @@ static int lj_cf_string_unpack(lua_State *L)
 
 static int lj_cf_string_packsize(lua_State *L)
 {
-  const char *fmt = luaL_checkstring(L, 1);
+  const char *fmt = strdata(string_checkstr_named54(L, 1, "string.packsize"));
   size_t total = 0;
   size_t maxalign = 1;
   while (*fmt) {
@@ -1160,6 +1397,86 @@ static int lj_cf_string_packsize(lua_State *L)
 
 /* ------------------------------------------------------------------------ */
 
+#if LJ_54
+static int lj_cf_string_char54(lua_State *L)
+{
+  int i, nargs = lua_gettop(L);
+  char *buf = lj_buf_tmp(L, (MSize)nargs);
+  for (i = 1; i <= nargs; i++) {
+    int32_t k = string_checkint_named54(L, i, "string.char");
+    if (!checku8(k))
+      string_argerror_named54(L, i, "string.char", "invalid value");
+    buf[i-1] = (char)k;
+  }
+  lua_pushlstring(L, buf, (size_t)nargs);
+  return 1;
+}
+
+static int lj_cf_string_sub54(lua_State *L)
+{
+  size_t len;
+  const char *s = string_checklstring_named54(L, 1, &len, "string.sub");
+  int32_t start = string_checkint_named54(L, 2, "string.sub");
+  int32_t stop = string_optint_named54(L, 3, -1, "string.sub");
+  int32_t l = (int32_t)len;
+  if (start < 0) start += l+1;
+  if (stop < 0) stop += l+1;
+  if (start < 1) start = 1;
+  if (stop > l) stop = l;
+  if (start <= stop)
+    lua_pushlstring(L, s + start-1, (size_t)(stop - start + 1));
+  else
+    lua_pushliteral(L, "");
+  return 1;
+}
+
+static int lj_cf_string_len54(lua_State *L)
+{
+  GCstr *s = string_checkstr_named54(L, 1, "string.len");
+  lua_pushinteger(L, (lua_Integer)s->len);
+  return 1;
+}
+
+static int lj_cf_string_reverse54(lua_State *L)
+{
+  size_t len, i;
+  const char *s = string_checklstring_named54(L, 1, &len, "string.reverse");
+  char *buf = lj_buf_tmp(L, (MSize)len);
+  for (i = 0; i < len; i++)
+    buf[i] = s[len - 1 - i];
+  lua_pushlstring(L, buf, len);
+  return 1;
+}
+
+static int lj_cf_string_lower54(lua_State *L)
+{
+  size_t len, i;
+  const char *s = string_checklstring_named54(L, 1, &len, "string.lower");
+  char *buf = lj_buf_tmp(L, (MSize)len);
+  for (i = 0; i < len; i++) {
+    unsigned char c = (unsigned char)s[i];
+    buf[i] = (char)lj_char_tolower(c);
+  }
+  lua_pushlstring(L, buf, len);
+  return 1;
+}
+
+static int lj_cf_string_upper54(lua_State *L)
+{
+  size_t len, i;
+  const char *s = string_checklstring_named54(L, 1, &len, "string.upper");
+  char *buf = lj_buf_tmp(L, (MSize)len);
+  for (i = 0; i < len; i++) {
+    unsigned char c = (unsigned char)s[i];
+    buf[i] = (char)lj_char_toupper(c);
+  }
+  lua_pushlstring(L, buf, len);
+  return 1;
+}
+#endif
+
+/* ------------------------------------------------------------------------ */
+
 #include "lj_libdef.h"
 
 LUALIB_API int luaopen_string(lua_State *L)
@@ -1174,6 +1491,18 @@ LUALIB_API int luaopen_string(lua_State *L)
   settabV(L, lj_tab_setstr(L, mt, mmname_str(g, MM_index)), tabV(L->top-1));
   mt->nomm = (uint8_t)(~(1u<<MM_index));
 #if LJ_54
+  lua_pushcfunction(L, lj_cf_string_len54);
+  lua_setfield(L, -2, "len");
+  lua_pushcfunction(L, lj_cf_string_char54);
+  lua_setfield(L, -2, "char");
+  lua_pushcfunction(L, lj_cf_string_sub54);
+  lua_setfield(L, -2, "sub");
+  lua_pushcfunction(L, lj_cf_string_reverse54);
+  lua_setfield(L, -2, "reverse");
+  lua_pushcfunction(L, lj_cf_string_lower54);
+  lua_setfield(L, -2, "lower");
+  lua_pushcfunction(L, lj_cf_string_upper54);
+  lua_setfield(L, -2, "upper");
   lua_pushcfunction(L, lj_cf_string_pack);
   lua_setfield(L, -2, "pack");
   lua_pushcfunction(L, lj_cf_string_unpack);

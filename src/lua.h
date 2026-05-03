@@ -17,16 +17,29 @@
 
 
 #ifdef LUAJIT_ENABLE_LUA54COMPAT
+#define LUA_VERSION_MAJOR	"5"
+#define LUA_VERSION_MINOR	"4"
+#define LUA_VERSION_RELEASE	"0"
 #define LUA_VERSION	"Lua 5.4"
 #define LUA_RELEASE	"Lua 5.4.0"
 #define LUA_VERSION_NUM	504
 #else
+#define LUA_VERSION_MAJOR	"5"
+#define LUA_VERSION_MINOR	"1"
+#define LUA_VERSION_RELEASE	"4"
 #define LUA_VERSION	"Lua 5.1"
 #define LUA_RELEASE	"Lua 5.1.4"
 #define LUA_VERSION_NUM	501
 #endif
 #define LUA_COPYRIGHT	"Copyright (C) 1994-2008 Lua.org, PUC-Rio"
 #define LUA_AUTHORS	"R. Ierusalimschy, L. H. de Figueiredo & W. Celes"
+
+#if defined(LUAJIT_ENABLE_LUA54COMPAT) && !defined(LUA_CORE) && \
+    !defined(LUA_LIB) && !defined(LUAJIT_INTERNAL_USE)
+#define LUAJIT_EXTERNAL_LUA54 1
+#else
+#define LUAJIT_EXTERNAL_LUA54 0
+#endif
 
 
 /* mark for precompiled code (`<esc>Lua') */
@@ -40,9 +53,16 @@
 ** pseudo-indices
 */
 #define LUA_REGISTRYINDEX	(-10000)
+#if !LUAJIT_EXTERNAL_LUA54
 #define LUA_ENVIRONINDEX	(-10001)
 #define LUA_GLOBALSINDEX	(-10002)
 #define lua_upvalueindex(i)	(LUA_GLOBALSINDEX-(i))
+#else
+/* Keep external Lua 5.4 headers free of Lua 5.1-only pseudo-index names while
+** preserving LuaJIT's internal upvalue index values for ABI compatibility.
+*/
+#define lua_upvalueindex(i)	(-10002-(i))
+#endif
 
 #define LUA_RIDX_MAINTHREAD	1
 #define LUA_RIDX_GLOBALS	2
@@ -95,6 +115,7 @@ typedef void * (*lua_Alloc) (void *ud, void *ptr, size_t osize, size_t nsize);
 #define LUA_TFUNCTION		6
 #define LUA_TUSERDATA		7
 #define LUA_TTHREAD		8
+#define LUA_NUMTYPES		9
 
 
 
@@ -143,8 +164,14 @@ LUA_API void  (lua_pushvalue) (lua_State *L, int idx);
 LUA_API void  (lua_remove) (lua_State *L, int idx);
 LUA_API void  (lua_insert) (lua_State *L, int idx);
 LUA_API void  (lua_rotate) (lua_State *L, int idx, int n);
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+LUA_API void  (lua_copy) (lua_State *L, int fromidx, int toidx);
+#endif
 LUA_API void  (lua_replace) (lua_State *L, int idx);
 LUA_API int   (lua_checkstack) (lua_State *L, int sz);
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+LUA_API int   (lua_setcstacklimit) (lua_State *L, unsigned int limit);
+#endif
 
 LUA_API void  (lua_xmove) (lua_State *from, lua_State *to, int n);
 
@@ -161,16 +188,20 @@ LUA_API int             (lua_isuserdata) (lua_State *L, int idx);
 LUA_API int             (lua_type) (lua_State *L, int idx);
 LUA_API const char     *(lua_typename) (lua_State *L, int tp);
 
-LUA_API int            (lua_equal) (lua_State *L, int idx1, int idx2);
 LUA_API int            (lua_rawequal) (lua_State *L, int idx1, int idx2);
-LUA_API int            (lua_lessthan) (lua_State *L, int idx1, int idx2);
 LUA_API int            (lua_compare) (lua_State *L, int idx1, int idx2, int op);
+#if !LUAJIT_EXTERNAL_LUA54
+LUA_API int            (lua_equal) (lua_State *L, int idx1, int idx2);
+LUA_API int            (lua_lessthan) (lua_State *L, int idx1, int idx2);
+#endif
 
 LUA_API lua_Number      (lua_tonumber) (lua_State *L, int idx);
 LUA_API lua_Integer     (lua_tointeger) (lua_State *L, int idx);
 LUA_API int             (lua_toboolean) (lua_State *L, int idx);
 LUA_API const char     *(lua_tolstring) (lua_State *L, int idx, size_t *len);
+#if !LUAJIT_EXTERNAL_LUA54
 LUA_API size_t          (lua_objlen) (lua_State *L, int idx);
+#endif
 LUA_API size_t          (lua_rawlen) (lua_State *L, int idx);
 LUA_API void            (lua_len) (lua_State *L, int idx);
 LUA_API lua_CFunction   (lua_tocfunction) (lua_State *L, int idx);
@@ -199,17 +230,34 @@ LUA_API int   (lua_pushthread) (lua_State *L);
 /*
 ** get functions (Lua -> stack)
 */
+#if LUAJIT_EXTERNAL_LUA54
+LUA_API int   (lua_gettable54) (lua_State *L, int idx);
+LUA_API int   (lua_getfield54) (lua_State *L, int idx, const char *k);
+LUA_API int   (lua_geti54) (lua_State *L, int idx, lua_Integer n);
+LUA_API int   (lua_rawget54) (lua_State *L, int idx);
+LUA_API int   (lua_rawgeti54) (lua_State *L, int idx, lua_Integer n);
+LUA_API int   (lua_rawgetp54) (lua_State *L, int idx, const void *p);
+#define lua_gettable(L,idx)	lua_gettable54((L), (idx))
+#define lua_getfield(L,idx,k)	lua_getfield54((L), (idx), (k))
+#define lua_geti(L,idx,n)	lua_geti54((L), (idx), (n))
+#define lua_rawget(L,idx)	lua_rawget54((L), (idx))
+#define lua_rawgeti(L,idx,n)	lua_rawgeti54((L), (idx), (n))
+#define lua_rawgetp(L,idx,p)	lua_rawgetp54((L), (idx), (p))
+#else
 LUA_API void  (lua_gettable) (lua_State *L, int idx);
 LUA_API void  (lua_getfield) (lua_State *L, int idx, const char *k);
 LUA_API void  (lua_geti) (lua_State *L, int idx, lua_Integer n);
 LUA_API void  (lua_rawget) (lua_State *L, int idx);
 LUA_API void  (lua_rawgeti) (lua_State *L, int idx, int n);
 LUA_API void  (lua_rawgetp) (lua_State *L, int idx, const void *p);
+#endif
 LUA_API void  (lua_createtable) (lua_State *L, int narr, int nrec);
 LUA_API void *(lua_newuserdata) (lua_State *L, size_t sz);
 LUA_API void *(lua_newuserdatauv) (lua_State *L, size_t sz, int nuvalue);
 LUA_API int   (lua_getmetatable) (lua_State *L, int objindex);
+#if !LUAJIT_EXTERNAL_LUA54
 LUA_API void  (lua_getfenv) (lua_State *L, int idx);
+#endif
 LUA_API int   (lua_getiuservalue) (lua_State *L, int idx, int n);
 
 
@@ -220,10 +268,17 @@ LUA_API void  (lua_settable) (lua_State *L, int idx);
 LUA_API void  (lua_setfield) (lua_State *L, int idx, const char *k);
 LUA_API void  (lua_seti) (lua_State *L, int idx, lua_Integer n);
 LUA_API void  (lua_rawset) (lua_State *L, int idx);
+#if LUAJIT_EXTERNAL_LUA54
+LUA_API void  (lua_rawseti54) (lua_State *L, int idx, lua_Integer n);
+#define lua_rawseti(L,idx,n)	lua_rawseti54((L), (idx), (n))
+#else
 LUA_API void  (lua_rawseti) (lua_State *L, int idx, int n);
+#endif
 LUA_API void  (lua_rawsetp) (lua_State *L, int idx, const void *p);
 LUA_API int   (lua_setmetatable) (lua_State *L, int objindex);
+#if !LUAJIT_EXTERNAL_LUA54
 LUA_API int   (lua_setfenv) (lua_State *L, int idx);
+#endif
 LUA_API int   (lua_setiuservalue) (lua_State *L, int idx, int n);
 
 
@@ -232,18 +287,45 @@ LUA_API int   (lua_setiuservalue) (lua_State *L, int idx, int n);
 */
 LUA_API void  (lua_call) (lua_State *L, int nargs, int nresults);
 LUA_API int   (lua_pcall) (lua_State *L, int nargs, int nresults, int errfunc);
+#if !LUAJIT_EXTERNAL_LUA54
 LUA_API int   (lua_cpcall) (lua_State *L, lua_CFunction func, void *ud);
+#endif
+#if LUAJIT_EXTERNAL_LUA54
+#define lua_load(L,reader,dt,chunkname,mode) \
+  lua_loadx((L), (reader), (dt), (chunkname), (mode))
+#else
 LUA_API int   (lua_load) (lua_State *L, lua_Reader reader, void *dt,
                                         const char *chunkname);
+#endif
 
+#if LUAJIT_EXTERNAL_LUA54
+LUA_API int (lua_dump54) (lua_State *L, lua_Writer writer, void *data,
+			  int strip);
+#define lua_dump(L,writer,data,strip) \
+  lua_dump54((L), (writer), (data), (strip))
+#else
 LUA_API int (lua_dump) (lua_State *L, lua_Writer writer, void *data);
+#endif
 
 
 /*
 ** coroutine functions
 */
 LUA_API int  (lua_yield) (lua_State *L, int nresults);
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+LUA_API int  (lua_resume54) (lua_State *L, lua_State *from, int nargs,
+			     int *nresults);
+#if LUAJIT_EXTERNAL_LUA54
+/* LuaJIT keeps the legacy 2-argument ABI internally; external Lua 5.4
+** compatibility headers expose the official 4-argument resume surface.
+*/
+#define lua_resume(L,from,nargs,nresults) \
+  lua_resume54((L), (from), (nargs), (nresults))
+#endif
+#else
 LUA_API int  (lua_resume) (lua_State *L, int narg);
+#endif
+LUA_API int  (lua_resetthread) (lua_State *L);
 LUA_API int  (lua_status) (lua_State *L);
 
 /*
@@ -284,6 +366,10 @@ LUA_API void lua_setallocf (lua_State *L, lua_Alloc f, void *ud);
 LUA_API size_t lua_stringtonumber (lua_State *L, const char *s);
 LUA_API void lua_setwarnf (lua_State *L, lua_WarnFunction f, void *ud);
 LUA_API void lua_warning (lua_State *L, const char *msg, int tocont);
+#if LUAJIT_EXTERNAL_LUA54
+LUA_API int lua_getglobal54 (lua_State *L, const char *name);
+LUA_API void lua_setglobal54 (lua_State *L, const char *name);
+#endif
 
 
 
@@ -301,7 +387,9 @@ LUA_API void lua_warning (lua_State *L, const char *msg, int tocont);
 
 #define lua_pushcfunction(L,f)	lua_pushcclosure(L, (f), 0)
 
+#if !LUAJIT_EXTERNAL_LUA54
 #define lua_strlen(L,i)		lua_objlen(L, (i))
+#endif
 
 #define lua_isfunction(L,n)	(lua_type(L, (n)) == LUA_TFUNCTION)
 #define lua_istable(L,n)	(lua_type(L, (n)) == LUA_TTABLE)
@@ -315,10 +403,15 @@ LUA_API void lua_warning (lua_State *L, const char *msg, int tocont);
 #define lua_pushliteral(L, s)	\
 	lua_pushlstring(L, "" s, (sizeof(s)/sizeof(char))-1)
 
+#if LUAJIT_EXTERNAL_LUA54
+#define lua_pushglobaltable(L)	lua_rawgeti((L), LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS)
+#define lua_setglobal(L,s)	lua_setglobal54((L), (s))
+#define lua_getglobal(L,s)	lua_getglobal54((L), (s))
+#else
 #define lua_pushglobaltable(L)	lua_pushvalue(L, LUA_GLOBALSINDEX)
-
 #define lua_setglobal(L,s)	lua_setfield(L, LUA_GLOBALSINDEX, (s))
 #define lua_getglobal(L,s)	lua_getfield(L, LUA_GLOBALSINDEX, (s))
+#endif
 
 #define lua_tostring(L,i)	lua_tolstring(L, (i), NULL)
 
@@ -423,6 +516,13 @@ LUA_API void lua_upvaluejoin (lua_State *L, int idx1, int n1, int idx2, int n2);
 LUA_API int lua_loadx (lua_State *L, lua_Reader reader, void *dt,
 		       const char *chunkname, const char *mode);
 LUA_API const lua_Number *lua_version (lua_State *L);
+#if LUAJIT_EXTERNAL_LUA54
+/* LuaJIT keeps the old pointer-returning ABI internally. External Lua 5.4
+** headers expose the Lua 5.4 value-returning surface without changing the
+** exported symbol.
+*/
+#define lua_version(L)	(*lua_version((L)))
+#endif
 LUA_API void lua_copy (lua_State *L, int fromidx, int toidx);
 LUA_API lua_Number lua_tonumberx (lua_State *L, int idx, int *isnum);
 LUA_API lua_Integer lua_tointegerx (lua_State *L, int idx, int *isnum);

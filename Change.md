@@ -13,6 +13,77 @@
 - 已开始按 `TODO.md` 逐项清理剩余缺口；已完成 `__le`、`string.gmatch(init)`、`warn()` 数字参数、`math.randomseed()` 无参返回、`utf8` lax 模式，以及 `string.pack()` / `string.unpack()` / `string.packsize()` 的 alignment、`X`、`l` / `L` 格式；`//` 已补充字符串数字的算术转换路径；`debug.getinfo(..., "t")` 已支持最小 `istailcall=false` 表面。
 - 已先补 Lua 5.4 C API 烟测 `test/lua54_capi_smoke.c` 和 `make smoketest-capi-lua54compat`，覆盖 `lua_arith`、`lua_compare`、`lua_len`、`lua_rotate`、`lua_stringtonumber`、`lua_numbertointeger` 以及 `luaL_*` 常用兼容入口。
 - C API 烟测继续扩展到 registry 索引、`lua_getextraspace()`、`lua_callk()` / `lua_pcallk()` 宏、warning 回调和 `LUA_GCGEN` / `LUA_GCINC` 模式切换表面。
+- 已继续打通 Lua debug 库和 C API indexed uservalue：C 创建带 declared uservalue 的 userdata 后，`debug.getuservalue()` / `debug.setuservalue()` 已能按 Lua 5.4 表面读写声明槽位。
+- 已继续补 `table.concat({1,nil,3}, ",")` 的 Lua 5.4 边界：默认终点会覆盖 LuaJIT 旧长度搜索提前停在 1 的情况，从而检查到 index 2 的 nil 并报错。
+- 已继续补 `lua_resetthread()` 基础 C API：可把无 `<close>` 状态的 yielded coroutine 重置回 `LUA_OK` 并清空栈。
+- 已继续补 table 库 Lua 5.4 边界：`table.insert` / `table.remove` / `table.move` 的位置参数现在拒绝无整数表示的数值，`table.concat` / `table.insert` / `table.remove` 的默认长度路径会对齐带 `__len` 和中间 nil 洞数组的 Lua 5.4 表库行为。
+- 已继续收紧 `table.move()` 参数检查顺序：Lua 5.4 兼容模式下先检查 `f/e/t` 整数参数，再检查源表和目标表，缺参时优先报第 2 个参数。
+- 已开始把 Lua 5.4 新语义纳入 JIT smoke：当前 PC 构建会在开启 JIT 后运行 `//`、位运算和局部 `_ENV` 热循环，并确认产生 trace。
+- 已继续补 Lua 5.4 C API 表面：外部兼容头中的 `lua_resume(L, from, nargs, nresults)` 已映射到 `lua_resume54()` 包装入口，并覆盖 yield/return 的结果数量。
+- 已继续补 lauxlib C API smoke：`luaL_loadbufferx()` / `luaL_loadfilex()` 的 text 模式加载和 binary-only 模式拒绝 text chunk 已进入回归。
+- 已继续清理 Lua 5.4 外部兼容头：旧 `LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` 伪索引和一批 Lua 5.1 API 声明已从外部 5.4 表面隐藏，`lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 改走 registry globals 包装路径。
+- 已继续补 C API GC 常量覆盖：`LUA_GCCOUNTB` 已进入 smoke，验证 byte remainder 在 `0..1023` 范围内。
+- 已继续补 Lua 5.4 getter 返回值签名：外部兼容头中的 `lua_gettable()` / `lua_getfield()` / `lua_geti()` / `lua_rawget()` / `lua_rawgeti()` / `lua_rawgetp()` 现在通过包装入口返回取到值的 Lua 类型。
+- 已继续补 Lua 5.4 raw integer API 签名：外部兼容头中的 `lua_rawgeti()` / `lua_rawseti()` 索引参数现在通过 `*54` 包装入口暴露为 `lua_Integer`。
+- 已继续扩展 JIT smoke：开启 JIT 后的 `math.random(1, 4)` 区间路径已在热循环中验证返回整数区间值并产生 trace。
+- 已继续补 Lua 5.4 C API 表面：外部兼容头中的 `lua_load(L, reader, data, chunkname, mode)` 已映射到现有 `lua_loadx()`，并覆盖 text/binary mode 行为。
+- 已继续补 Lua 5.4 C API 表面：外部兼容头中的 `lua_dump(L, writer, data, strip)` 已映射到 `lua_dump54()`，并覆盖 full/stripped LuaJIT bytecode 写出和 binary mode 回读。
+- 已继续补 Lua 5.4 standalone 环境变量优先级：兼容构建会优先读取 `LUA_INIT_5_4`、`LUA_PATH_5_4`、`LUA_CPATH_5_4`，再回退旧变量名。
+- 已继续补 Lua 层 binary chunk smoke：`string.dump(f, strip)` 已覆盖 full/stripped 写出、`mode="b"` 回读执行，以及 binary chunk 被 text-only mode 拒绝。
+- 已继续收紧 Lua 5.4 GC 公开表面：兼容构建中 `collectgarbage("setstepmul", n)` 的初始旧值现在对齐 Lua 5.4 的 `100`。
+- 已继续收紧严格 Lua 5.4 语法表面：`L` / `LL` / `UL` / `ULL` / `uLL`、`0b...` 和 imaginary `i` 数字字面量扩展都已进入拒绝用例。
+- 已继续补 Lua 5.4 头文件/辅助库表面：新增 `LUA_VERSION_MAJOR` / `LUA_VERSION_MINOR` / `LUA_VERSION_RELEASE` / `LUA_NUMTYPES` 宏，以及 `luaL_addgsub()`。
+- 已继续收紧 `__name` 错误文本覆盖：Lua 5.4 兼容模式下 `coroutine.resume()` / `coroutine.close()` 的非线程参数会报 `thread expected, got <__name>`。
+- 已继续收紧 coroutine 库参数错误：`coroutine.create()` / `resume()` / `status()` / `wrap()` / `close()` 的基础错误会带 `coroutine.xxx` 函数名，并使用 Lua 5.4 的 `function/thread expected` 文本。
+- 已继续收紧 `coroutine.yield()` 主线程错误：Lua 5.4 兼容模式下主线程直接 yield 会报 `attempt to yield from outside a coroutine`。
+- 已继续补 Lua 5.4 standalone `arg` 表边界：无脚本、仅 `-e` 执行时，兼容构建的 `arg[0]` / `arg[1]` / `arg[2]` 已对齐 Lua 5.4。
+- 已继续补 Lua 5.4 standalone `-i` 边界：兼容构建进入交互模式时不再额外打印 LuaJIT 的 `JIT:` 状态行，默认 LuaJIT 构建保留原输出。
+- 已重新核对 `<const>` debug API 行为：本机 Lua 5.4.8 允许 `debug.setlocal()` / `debug.setupvalue()` / `debug.upvaluejoin()` 绕过源码级 const 限制，当前行为已补 smoke 并从 TODO 缺口中移除。
+- 已重新核对 GC 选项表面：本机 Lua 5.4.8 不接受 `collectgarbage("minor")` / `"major"`，当前 invalid option 行为已补 smoke。
+- 已继续补 `string.format("%p")` 的 Lua 5.4 表面：nil、boolean、number 等没有 GC 指针的值输出 `(null)`，string 等 GC 对象仍输出平台 C `%p` 文本。
+- 已继续收紧数值 `for` 的 Lua 5.4 表面：常量 `0` / `0.0` step 会在加载阶段报 `'for' step is zero`，动态变量 `0` 和字符串 `"0"` step 会在进入循环前通过跨平台 helper 报同样错误。
+- 已继续收紧 GC 参数边界：`collectgarbage("setpause", n)` / `("setstepmul", n)` 在 Lua 5.4 兼容模式下会把参数压到 `0..1000`，并按官方 4 点粒度向下取整。
+- 已继续收紧标准库边界：`math.type()` 现在按 Lua 5.4 在缺少参数时报错，对 nil/string 等非 number 参数仍返回 nil。
+- 已继续收紧 math 新入口错误文本：`math.type()` / `math.tointeger()` / `math.ult()` / `math.min()` / `math.max()` 的缺参参数错误会带 `math.xxx` 函数名，`math.ult()` 的整数表示错误也使用该函数名。
+- 已继续补齐 `pairs()` 的 Lua 5.4 边界：没有 `__pairs` 时不再入口强制 table，会返回原始 `next, value, nil`，由后续 `next()` 调用决定是否报错。
+- 已继续收紧标准库错误文本：Lua 5.4 兼容模式下 `assert()`、`type()`、`tostring()`、`pcall()`、`xpcall()`、`select()`、`error()`、`tonumber()`、`load()`、`loadfile()`、`next()`、`pairs()`、`ipairs()`、`getmetatable()`、`setmetatable()`、`rawget()` / `rawset()` / `rawequal()` / `rawlen()` 的基础参数错误会带实际函数名，`rawlen()` 的期望类型文本对齐为 `table or string`。
+- 已继续收紧 `math.deg()` / `math.rad()` 边界：Lua 5.4 兼容模式下改用带参数检查的 C helper，缺参和错误类型会报标准参数错误，同时保留数值字符串转换。
+- 已继续补齐 Lua 5.4 `math.min` / `math.max` 语义：兼容模式下不再强制 number，改用普通 `<` 比较，因此支持字符串和带 `__lt` 的对象。
+- 已继续收紧 `string.format("%q", number)`：整数输出十进制，负零输出 `-0x0p+0`，NaN 输出 `(0/0)`，正负无穷输出 `1e9999` / `-1e9999`，有限浮点继续输出可读回十六进制浮点。
+- 已继续收紧标准库错误文本：Lua 5.4 兼容模式下 `dofile()` 和 `collectgarbage()` 的 option、字符串参数、整数参数错误会带实际函数名。
+- 已继续收紧 table 库错误文本：Lua 5.4 兼容模式下 `table.concat()` / `insert()` / `remove()` / `sort()` / `move()` 的表、分隔符、整数位置和 comparator 参数错误会带 `table.xxx` 函数名。
+- 已继续收紧 os 库错误文本：Lua 5.4 兼容模式下 `os.date()` / `difftime()` / `execute()` / `getenv()` / `remove()` / `rename()` / `setlocale()` / `time()` 的基础参数错误会带 `os.xxx` 函数名。
+- 已继续收紧 debug 库错误文本：Lua 5.4 兼容模式下 `debug.getinfo()` / `getlocal()` / `setlocal()` / `getupvalue()` / `setupvalue()` / `upvalueid()` / `upvaluejoin()` / `sethook()` / `getuservalue()` / `setuservalue()` / `setcstacklimit()` 的基础参数错误会带 `debug.xxx` 函数名。
+- 已继续收紧 utf8 库错误文本：Lua 5.4 兼容模式下 `utf8.char()` / `codepoint()` / `codes()` / `len()` / `offset()` 的基础参数错误会带 `utf8.xxx` 函数名。
+- 已继续收紧 string 库错误文本：Lua 5.4 兼容模式下 `string.byte()` / `char()` / `dump()` / `find()` / `format()` / `gmatch()` / `gsub()` / `len()` / `lower()` / `match()` / `rep()` / `reverse()` / `sub()` / `upper()` / `pack()` / `unpack()` / `packsize()` 的基础参数错误会带 `string.xxx` 函数名。
+- 已继续补齐 `table.unpack` 的 Lua 5.4 边界：默认终点共用表库兼容长度，能返回 `{ "a", nil, "c" }` 的第三个值；显式 `i` / `j` 会拒绝无整数表示的数值。
+- 已继续补齐 `table.unpack` 的非 table 边界：入口不再强制 table，默认终点先触发 length 语义，显式空范围可直接返回空结果，实际取值时再由普通索引路径报错。
+- 已继续收紧 `table.concat` 的 Lua 5.4 边界：显式 `i` / `j` 会拒绝无整数表示的数值，而不是截断后继续拼接。
+- 已继续收紧 `collectgarbage` 参数边界：`step` / `setpause` / `setstepmul` 的第二参数会拒绝无整数表示的 number，同时保留字符串数字的 Lua 5.4 兼容转换。
+- 已继续收紧 `error(message, level)` 的 Lua 5.4 边界：level 会拒绝无整数表示的 number，而不是截断后继续抛原错误。
+- 已继续收紧 `getmetatable()` 的 Lua 5.4 边界：兼容模式下缺少参数会按 value expected 报错，同时保留 `__metatable` 保护返回值。
+- 已继续收紧 `select(index, ...)` 的 Lua 5.4 边界：index 会拒绝无整数表示的 number，同时保留字符串数字转换。
+- 已继续收紧 debug 库的 Lua 5.4 整数边界：`debug.getinfo` / `getlocal` / `setlocal` / `getupvalue` / `setupvalue` / `upvalueid` / `upvaluejoin` / `sethook` / `traceback` / `getuservalue` / `setuservalue` / `setcstacklimit` 都会拒绝无整数表示的 number，同时保留字符串数字转换。
+- 已继续收紧 string / utf8 库和 C API 的 Lua 5.4 整数边界：`string.byte` / `char` / `sub` / `rep` / `find` / `match` / `gmatch` / `gsub` / `pack` / `unpack`、`utf8.char` / `codepoint` / `len` / `offset`、`lua_tointegerx()`、`luaL_checkinteger()` 和 `luaL_optinteger()` 都已拒绝无整数表示的 number。
+- 已继续补齐 table 库 Lua 5.4 长度边界：`table.sort` 的排序范围现在共用表库兼容长度，会尊重 `__len`，并在 `__len` 返回 fraction number 时按 `object length is not an integer` 报错。
+- 已继续补齐 `table.move` 的 Lua 5.4 元方法边界：兼容模式下移动元素时会通过 `__index` 读取源值、通过 `__newindex` 写入目标值，而不是只做 raw table 拷贝。
+- 已继续收紧 `load()` / `loadfile()` 的 Lua 5.4 mode 错误文本：text/binary chunk 与 mode 不匹配时会报告具体 chunk 类型并回显 mode。
+- 已继续收紧 `require()` / `package.searchpath()` 的 Lua 5.4 错误片段格式：searcher 直接返回的错误不再带前导 `\n\t`，最终 `require()` 错误由 require 自己统一添加缩进。
+- 已同步 C API smoke 中 `luaL_loadbufferx()` / `luaL_loadfilex()` / `lua_load()` 的 mode 错误文本断言，覆盖新的 Lua 5.4 文案。
+- 已继续补齐 debug 信息表面：`debug.getinfo(..., "r")` 和 C API `lua_getinfo(..., "r")` 已接受 Lua 5.4 transfer-info 选项，非 hook 场景返回保守的 `ftransfer=0` / `ntransfer=0`。
+- 已继续补齐 Lua 5.4 standalone 表面：兼容构建现在接受 `-W`，并会在执行 `-e` chunk 或脚本前开启 warning 输出。
+- 已继续收紧 `table.sort` 的 Lua 5.4 comparator 边界：兼容模式会拒绝 `a <= b` / `a >= b` 这类非严格 comparator，并报 `invalid order function for sorting`。
+- 已继续补齐 `table.sort` 的 Lua 5.4 元方法边界：兼容模式排序代理表时会通过 `__index` 读取元素、通过 `__newindex` 写回结果。
+- 已继续收紧 `tonumber` 的 Lua 5.4 base 参数边界：显式 base 会拒绝无整数表示的 number，同时保留字符串数字 base 的兼容转换。
+- 已继续补齐 warning 默认输出表面：`warn("@on")` 和 standalone `-W` 输出现在带 Lua 5.4 的 `Lua warning: ` 前缀。
+- 已继续补 Lua 5.4 C API 头文件表面：兼容头现在声明 `lua_copy()`，C API smoke 覆盖栈槽复制行为。
+- 已继续补 Lua 5.4 lauxlib 头文件表面：新增 `luaL_Stream` 类型定义，并在 C API smoke 中编译覆盖字段访问。
+- 已继续补 Lua 5.4 `io.lines(filename)` 返回形态：现在会返回第 4 个 closing value，并在迭代到 EOF 后关闭文件。
+- 已继续收紧 `string.format("%c", value)` 的 Lua 5.4 数值边界：fraction number 现在报“没有整数表示”，字符串数字仍可转换。
+- 已继续补齐 table 库代理表读取语义：`table.concat` / `table.unpack` 在 Lua 5.4 兼容模式下会通过 `__index` 读取元素。
+- 已继续收紧 `os.rename()` 的 Lua 5.4 错误文本边界：失败时返回原始系统错误字符串，不再拼入源文件名。
+- 已继续补齐 table 库代理表读写语义：`table.insert` / `table.remove` 在 Lua 5.4 兼容模式下会通过 `__index` 移动源元素、通过 `__newindex` 写回目标槽位。
+- 已继续收紧 `string.format("%q", value)` 的 Lua 5.4 字面量规则：table 等没有字面量形式的值即使带 `__tostring` 也会报错。
 
 ## 修改内容
 
@@ -68,20 +139,37 @@
   - `//` helper 支持字符串数字的算术转换，例如 `"5" // 2`；位运算 helper 继续拒绝字符串，符合 Lua 5.4 对 bitwise 的限制。
   - `//`、`&`、`|`、二元 `~`、一元 `~`、`<<`、`>>` 的 helper 在原始数值路径不可用时会查找并调用 Lua 5.4 元方法：`__idiv`、`__band`、`__bor`、`__bxor`、`__bnot`、`__shl`、`__shr`。
   - `__name` 元字段会影响 `tostring()` 的对象类型名前缀，以及参数类型错误中的实际类型名。
+  - `coroutine.resume()` / `coroutine.close()` 在 Lua 5.4 兼容模式下的非线程参数错误会使用 `__name` 参与实际类型名；默认构建继续保留 LuaJIT 旧错误文本。
   - `luaL_newmetatable()` 在 Lua 5.4 兼容模式下会把注册类型名写入 `__name`。
   - `tonumber(s, 16)` 在 Lua 5.4 兼容模式下不再把 `0x` 前缀当成 explicit-base 16 的合法前缀；`base >= 34` 时 `x` 仍按普通数字字符处理。
   - `string.format()` 的整数格式现在拒绝没有整数表示的 number/string number；`%q` 对 number 输出 Lua 5.4 风格的可读回数值文本，`%p` 对 `nil` 输出 `(null)`，非 nil 指针使用平台 C `%p` 文本。
   - `math.type()` 在非 dual-number 构建下会把当前 32 位范围内可精确表示为整数的 number 报告为 `integer`；`math.floor()`、`math.ceil()`、`math.modf()` 的整数结果会尽量返回当前兼容整数表面。
   - `debug.getuservalue()` / `debug.setuservalue()` 在 Lua 5.4 兼容模式下不再暴露 LuaJIT userdata 内部环境表；内置 userdata 的 indexed uservalue 表面返回 `nil`。
   - `table.concat()` 未显式传入终点时会尊重 `__len` 长度元方法，再按该终点检查 nil 洞。
-  - Lua 5.4 兼容模式禁用 LuaJIT 的 `0b...` 二进制数字字面量、`LL` 整数后缀和 imaginary `i` 数字字面量扩展。
+  - Lua 5.4 兼容模式禁用 LuaJIT 的 `0b...` 二进制数字字面量、`L` / `LL` / `UL` / `ULL` / `uLL` FFI 整数后缀和 imaginary `i` 数字字面量扩展。
   - `lua.h` / C API 新增一批 Lua 5.4 表面：`lua_Unsigned`、`LUA_MAXINTEGER`、`LUA_MININTEGER`、`lua_absindex()`、`lua_isinteger()`、`lua_rawlen()`、`lua_geti()`、`lua_seti()`、`lua_rawgetp()`、`lua_rawsetp()`、`lua_pushglobaltable()`。
   - `lua.h` / C API 继续新增 Lua 5.4 表面：`lua_arith()`、`lua_compare()`、`lua_len()`、`lua_numbertointeger()`、`lua_rotate()`、`lua_stringtonumber()` 以及 `LUA_OP*` 比较/算术常量。
   - C API 继续新增 `lua_getextraspace()`、`lua_setwarnf()`、`lua_warning()`，并补 `lua_KContext`、`lua_KFunction`、`lua_WarnFunction`、`LUA_RIDX_MAINTHREAD`、`LUA_RIDX_GLOBALS`、`LUA_LOADED_TABLE`、`LUA_PRELOAD_TABLE`、`LUA_HOOKTAILCALL`、`LUA_GCGEN`、`LUA_GCINC`。
   - C API 新增 indexed uservalue 表面：`lua_newuserdatauv()`、`lua_getiuservalue()`、`lua_setiuservalue()`；当前用 LuaJIT userdata 环境表保存声明数量和值，超出声明范围按 Lua 5.4 表面返回失败。
+  - C API 新增 `lua_resetthread()` 基础兼容入口；当前覆盖无 to-be-closed 变量的 coroutine reset，完整 `<close>` 关闭语义仍保留在 TODO。
+  - C API 新增 Lua 5.4 形态的 `lua_resume(L, from, nargs, nresults)` 外部宏和 `lua_resume54()` 包装入口；当前复用 LuaJIT 内部 2 参数 resume ABI，并把 yield/return 后的栈顶结果数写回 `nresults`。
+  - Lua 5.4 外部兼容头不再暴露 `LUA_GLOBALSINDEX`、`LUA_ENVIRONINDEX`、`lua_strlen` 以及旧 `lua_equal`、`lua_lessthan`、`lua_objlen`、`lua_cpcall`、`lua_getfenv`、`lua_setfenv` 声明；LuaJIT 内部和命令行 frontend 仍通过内部标记使用旧 ABI。
+  - Lua 5.4 外部兼容头下的 `lua_pushglobaltable()`、`lua_getglobal()`、`lua_setglobal()` 已使用 registry globals 表实现，不再依赖旧 `LUA_GLOBALSINDEX`。
+  - Lua 5.4 外部兼容头下的 `lua_gettable()`、`lua_getfield()`、`lua_geti()`、`lua_rawget()`、`lua_rawgeti()`、`lua_rawgetp()` 已使用 `*54` 包装入口返回取到值的 Lua 类型；LuaJIT 内部继续使用旧 `void` ABI。
+  - Lua 5.4 外部兼容头下的 `lua_load()` 已使用 5 参数宏映射到 `lua_loadx()`，支持传入 `mode`。
+  - Lua 5.4 外部兼容头下的 `lua_dump()` 已使用 4 参数宏映射到 `lua_dump54()`，支持把 `strip` 参数转发为 LuaJIT bytecode writer 的 strip 标志；内部旧 3 参数 ABI 不变。
+  - `lua.h` 新增 `LUA_VERSION_MAJOR` / `LUA_VERSION_MINOR` / `LUA_VERSION_RELEASE` / `LUA_NUMTYPES` 宏。
+  - `LUA_GCCOUNTB` 的 C API 表面已进入 smoke，当前覆盖 LuaJIT GC 总量低 10 bit 的 byte remainder 返回范围。
+  - `debug.getuservalue()` / `debug.setuservalue()` 会访问 declared indexed uservalue；内置或未声明 uservalue 的 userdata 仍不暴露 LuaJIT 内部环境表。
+  - `table.concat()` 对新建 list table 中间有 nil、后续仍有数组项的情况，会在 Lua 5.4 兼容模式下继续检查后续数组项对应的默认终点，和官方 Lua 5.4 对 `{1,nil,3}` 的报错行为对齐。
+  - `table.insert()` / `table.remove()` / `table.move()` 在 Lua 5.4 兼容模式下使用严格整数参数检查；无整数表示的位置参数不再被 LuaJIT 旧路径截断。
+  - `table.concat()` / `table.insert()` / `table.remove()` 在 Lua 5.4 兼容模式下的默认位置使用表库专用长度兼容逻辑，带 `__len` 的表和 `{1,nil,3}` 这类新建 list table 会按 Lua 5.4 参考行为检查、插入或删除；`__len` 返回无整数表示的值会报 `object length is not an integer`。
+  - JIT 开启时，Lua 5.4 兼容模式下的 `//`、位运算和局部 `_ENV` 热循环已进入 smoke 回归，并在当前平台确认能产生 trace。
+  - JIT 开启时，Lua 5.4 兼容模式下的 `math.random(1, 4)` 区间随机热循环已进入 smoke 回归，并在当前平台确认能产生 trace。
   - registry 初始化会写入 `LUA_RIDX_MAINTHREAD` 和 `LUA_RIDX_GLOBALS`；新线程会复制当前线程的 pointer-sized extraspace。
   - `lua_callk()`、`lua_pcallk()`、`lua_yieldk()` 目前以宏映射到非 continuation 调用，提供编译兼容；真实 yield continuation 语义仍保留在 `TODO.md`。
-  - `lauxlib.h` / 辅助库新增 Lua 5.4 常用表面：`luaL_pushfail()`、`luaL_len()`、`luaL_getsubtable()`、`luaL_requiref()`、`luaL_tolstring()`、`luaL_typeerror()`、`luaL_argexpected()`、`luaL_checkversion()` 和基础 buffer 宏。
+  - `lauxlib.h` / 辅助库新增 Lua 5.4 常用表面：`luaL_pushfail()`、`luaL_len()`、`luaL_getsubtable()`、`luaL_requiref()`、`luaL_tolstring()`、`luaL_typeerror()`、`luaL_argexpected()`、`luaL_checkversion()`、`luaL_addgsub()` 和基础 buffer 宏。
+  - `luaL_loadbufferx()` / `luaL_loadfilex()` 的 `mode` 参数路径已通过 C API smoke 覆盖；text 模式可加载源码，binary-only 模式会拒绝 text chunk。
   - `lua_Debug` 新增 Lua 5.4 字段：`nparams`、`isvararg`、`istailcall`、`ftransfer`、`ntransfer`；C API `lua_getinfo(..., "ut")` 已能读取参数字段，并对尚未精确支持的 tail/transfer 字段返回保守零值。
   - `debug.getinfo(f, "t")` 不再报 invalid option，并返回 `istailcall=false`；真实 tail-call 识别和 hook transfer 字段仍在 `TODO.md` 保留。
   - 全局 `_ENV` 在 Lua 5.4 兼容模式下指向 `_G`。
@@ -89,6 +177,11 @@
   - `utf8.char()` 在 Lua 5.4 兼容模式下接受 `0..0x7fffffff`，可生成 5/6 字节扩展形式；`utf8.charpattern` 首字节范围同步扩展到 `\xfd`。
   - `string.pack()` / `string.unpack()` / `string.packsize()` 新增 `j` 和 `T` 格式，分别按 `lua_Integer` 和 `size_t` 的本机宽度处理。
   - `string.pack()` / `string.unpack()` / `string.packsize()` 支持 `!n` 对齐控制、`X` 对齐填充，以及 `l` / `L` 本机 long 整数格式；三条路径共享当前位置对齐规则。
+  - `string.dump(f, strip)` 在 Lua 5.4 兼容模式下支持 boolean strip 参数；当前仍写出 LuaJIT bytecode，不是官方 Lua 5.4 binary chunk 格式。
+  - Lua 5.4 兼容构建的 GC 初始 `stepmul` 公开值为 `100`，使 `collectgarbage("setstepmul", n)` 的首次返回值和 Lua 5.4 对齐；默认构建不变。
+  - standalone 初始化在 Lua 5.4 兼容构建中会优先执行 `LUA_INIT_5_4`，未设置时再回退 `LUA_INIT`。
+  - package 路径初始化在 Lua 5.4 兼容构建中会优先读取 `LUA_PATH_5_4` / `LUA_CPATH_5_4`，未设置时再回退旧 `LUA_PATH` / `LUA_CPATH`。
+  - standalone `arg` 表在 Lua 5.4 兼容构建中，无脚本 `-e` 执行时会以程序名作为 `arg[0]`，选项和命令字符串进入正索引；带脚本执行时仍以脚本名作为 `arg[0]`。
 - 默认构建中：
   - `_VERSION` 仍为 `Lua 5.1`。
   - `jit.lua54compat` 为 `false`。
@@ -124,6 +217,7 @@
 - 覆盖默认构建拒绝 `local x <const>` / `local x <close>`。
 - 覆盖 Lua 5.4 兼容构建接受 `local x <const>` / `local x <close>`。
 - 覆盖 `<const>` 局部变量和被闭包捕获后的上值重赋值都会编译失败。
+- 覆盖 `debug.setlocal()`、`debug.setupvalue()`、`debug.upvaluejoin()` 可修改 `<const>` local/upvalue 的官方兼容行为。
 - 覆盖未知局部变量属性会编译失败。
 - 覆盖同一条 local 声明中多个 `<close>` 变量会编译失败。
 - 覆盖默认构建拒绝 `//`、`&`、`|`、`~`、`<<`、`>>`。
@@ -139,14 +233,33 @@
 - 覆盖 Lua 5.4 下 `<=` 缺少 `__le` 时不会回退 `__lt`。
 - 覆盖 `"5" // 2` 和 `"5.5" // 2` 的字符串数字整除；覆盖 `"3" & 1` 仍报错。
 - 覆盖 `//`、`&`、`|`、二元 `~`、一元 `~`、`<<`、`>>` 的 Lua 5.4 元方法调用和反向查找。
-- 覆盖 `__name` 对 `tostring()` 和参数类型错误的影响。
+- 覆盖 `__name` 对 `tostring()`、`math.abs` 参数类型错误、`coroutine.resume()` / `coroutine.close()` 线程类型错误的影响。
+- 覆盖 `coroutine.create()` / `resume()` / `status()` / `wrap()` / `close()` 的基础参数错误函数名。
+- 覆盖主线程直接 `coroutine.yield()` 的 Lua 5.4 错误文本。
 - 覆盖 `tonumber("0x10", 16) == nil`、`tonumber("0x10", 34)` 仍按普通数字解析。
 - 覆盖 `string.format("%d", 1.2)` 报错、`%q` number 输出和 `%p` nil 输出。
 - 覆盖 `math.floor()`、`math.ceil()`、`math.modf()` 的 Lua 5.4 整数返回表面。
+- 覆盖 `math.type()` / `math.tointeger()` / `math.ult()` / `math.min()` / `math.max()` 的缺参错误函数名。
 - 覆盖内置 userdata 的 indexed `debug.getuservalue` / `debug.setuservalue` 返回 `nil`。
-- 覆盖 `table.concat()` 默认终点尊重 `__len` 元方法并检查 nil 洞。
-- 覆盖 Lua 5.4 兼容模式拒绝 `0b...` 二进制数字字面量、`LL` 整数后缀和 imaginary `i` 数字字面量。
+- 覆盖 `table.concat()` 默认终点尊重 `__len` 元方法、检查 nil 洞，并拒绝无整数表示的 `__len` 返回值。
+- 覆盖 `table.insert()` 的无整数表示位置、越界位置、带 `__len` 默认尾插，以及 `{1,nil,3}` 默认尾插。
+- 覆盖 `table.remove()` 的无整数表示位置、越界位置、`len+1` 返回 nil、空表显式 `0`，以及 `{1,nil,3}` 默认尾删。
+- 覆盖 `table.move()` 的 `f/e/t` 无整数表示报错，并保留数字字符串位置参数兼容。
+- 覆盖 `table.move()` 缺参时优先报第 2 个参数，以及源表为 nil 时仍报第 1 个参数。
+- 覆盖 `table.unpack()` 缺参 length 错误、nil/number 的显式空范围返回空结果，以及 nil 的实际索引错误。
+- 覆盖当前 JIT 可用平台下，Lua 5.4 兼容热循环中的 `//`、位运算和局部 `_ENV` 可以在开启 JIT 后执行并产生 trace。
+- 覆盖当前 JIT 可用平台下，Lua 5.4 兼容热循环中的 `math.random(1, 4)` 可以返回整数区间值并产生 trace。
+- 覆盖 Lua 5.4 C API 形态的 `lua_resume(L, from, nargs, nresults)`：yield 两个值和 return 两个值时都会填入正确结果数量。
+- 覆盖 Lua 5.4 外部兼容头不会暴露 `LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` / `lua_strlen`，并覆盖 `lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 的 registry globals 路径。
+- 覆盖 Lua 5.4 外部兼容头中 `lua_gettable()`、`lua_getfield()`、`lua_geti()`、`lua_rawget()`、`lua_rawgeti()`、`lua_rawgetp()` 的返回类型签名和运行时返回值。
+- 覆盖 Lua 5.4 外部兼容头中 `lua_rawgeti54()` / `lua_rawseti54()` 的 `lua_Integer` 索引签名。
+- 覆盖 Lua 5.4 兼容模式拒绝 `0b...` 二进制数字字面量、`L` / `LL` / `UL` / `ULL` / `uLL` 整数后缀和 imaginary `i` 数字字面量。
 - 用临时 C 程序编译/链接验证 `lua_absindex`、`lua_isinteger`、`lua_rawlen`、`lua_geti` / `lua_seti`、`lua_rawgetp` / `lua_rawsetp`、`lua_pushglobaltable` 和 `luaL_newmetatable` 写入 `__name`。
+- 覆盖 `luaL_loadbufferx()` / `luaL_loadfilex()` 的 `mode="t"` 和 `mode="b"` 路径。
+- 覆盖 Lua 5.4 外部兼容头中 `lua_load(..., mode)` 的 `mode="t"` 和 `mode="b"` 路径。
+- 覆盖 Lua 5.4 外部兼容头中 `lua_dump(..., strip)` 的 full/stripped 写出，以及 stripped LuaJIT bytecode 用 `mode="b"` 回读执行。
+- 覆盖 Lua 5.4 头文件中 `LUA_VERSION_MAJOR` / `LUA_VERSION_MINOR` / `LUA_VERSION_RELEASE` / `LUA_NUMTYPES` 的可见性，以及 `luaL_addgsub()` 的 buffer 替换结果。
+- 覆盖 `LUA_GCCOUNTB` 返回 `0..1023` 范围内的 byte remainder。
 - 覆盖 `debug.getinfo(function() end, "t").istailcall == false`。
 - 覆盖 `warn()` 无参数调用报错。
 - 覆盖默认构建中 `_ENV` 保持 `nil`。
@@ -157,6 +270,21 @@
 - 覆盖 `string.packsize("jT")` 和 `<jT` 打包/解包。
 - 覆盖 `string.packsize("!8bi8")`、`string.pack("!8bi8", ...)`、`string.unpack("!8bi8", ...)` 的自动对齐。
 - 覆盖 `X` 格式的 padding-only 行为，以及 `l` / `L` 打包解包。
+- 覆盖 Lua 层 `string.dump(f, strip)` 的 full/stripped 写出、`mode="b"` 回读执行，以及 binary chunk 被 `mode="t"` 拒绝。
+- 覆盖 Lua 5.4 兼容构建中 `LUA_INIT_5_4` 优先于 `LUA_INIT`，`LUA_PATH_5_4` / `LUA_CPATH_5_4` 优先于旧环境变量。
+- 覆盖 Lua 5.4 兼容构建中无脚本 `-e` 的 `arg[0]` / `arg[1]` / `arg[2]` 表形态。
+- 覆盖 Lua 5.4 兼容构建中 `collectgarbage("setpause", n)` 初始返回 `200`、`collectgarbage("setstepmul", n)` 初始返回 `100`，并验证旧值恢复。
+- 覆盖 Lua 5.4 兼容构建中 `collectgarbage("minor")` / `"major"` 仍按官方 Lua 5.4.8 报 invalid option。
+- 覆盖 `pairs(1)` 返回 `next, 1, nil`，并由后续 `next()` 调用报 table 类型错误。
+- 覆盖 `assert()`、`type()`、`tostring()`、`pcall()`、`xpcall()`、`select()`、`error()`、`tonumber()`、`load()`、`loadfile()`、`next()`、`pairs()`、`ipairs()`、`getmetatable()`、`setmetatable()`、`rawget()` / `rawset()` / `rawequal()` / `rawlen()` 的基础参数错误函数名，以及 `rawlen()` 的 `table or string` 期望类型文本。
+- 覆盖 `math.deg()` / `math.rad()` 的缺参/错误类型参数错误，以及数值字符串转换。
+- 覆盖 `luaL_checkversion_()` 对错误版本号和错误 numeric ABI 尺寸的报错路径。
+- 覆盖 Lua 5.4 外部兼容头中 `lua_version(L)` 的数值返回表面。
+- 覆盖 `lua_setcstacklimit()` C API shim 的查询和设置返回值。
+- 覆盖 Lua 5.4 standalone `-l g=mod` 会把 `require(mod)` 的返回值写入指定全局名。
+- 覆盖 Lua 5.4 standalone `-E` 会忽略 `LUA_INIT_5_4`、`LUA_PATH_5_4` 和 `LUA_CPATH_5_4`。
+- 覆盖 Lua 5.4 standalone `-i` 交互启动不会输出额外 `JIT:` 状态行。
+- 覆盖 Lua 5.4 兼容模式中 main chunk 的伪 `_ENV` debug upvalue、`debug.setupvalue` 替换环境，以及含真实上值闭包的 `_ENV` upvalue 排序。
 
 ## 验证结果
 

@@ -9,9 +9,50 @@
 #include "lauxlib.h"
 #include "lualib.h"
 
+#ifdef LUA_GLOBALSINDEX
+#error "Lua 5.4 compatibility header must not expose LUA_GLOBALSINDEX"
+#endif
+
+#ifdef LUA_ENVIRONINDEX
+#error "Lua 5.4 compatibility header must not expose LUA_ENVIRONINDEX"
+#endif
+
+#ifdef lua_strlen
+#error "Lua 5.4 compatibility header must not expose lua_strlen"
+#endif
+
+#ifndef LUA_VERSION_MAJOR
+#error "Lua 5.4 compatibility header must expose LUA_VERSION_MAJOR"
+#endif
+
+#ifndef LUA_VERSION_MINOR
+#error "Lua 5.4 compatibility header must expose LUA_VERSION_MINOR"
+#endif
+
+#ifndef LUA_VERSION_RELEASE
+#error "Lua 5.4 compatibility header must expose LUA_VERSION_RELEASE"
+#endif
+
+#ifndef LUA_NUMTYPES
+#error "Lua 5.4 compatibility header must expose LUA_NUMTYPES"
+#endif
+
 static int require_open_count = 0;
 static char warning_buf[64];
 static int warning_tocont = -1;
+
+typedef struct CApiReaderCtx {
+  const char *src;
+  size_t len;
+} CApiReaderCtx;
+
+typedef struct DumpBuffer {
+  char data[65536];
+  size_t len;
+} DumpBuffer;
+
+typedef int (*RawGetI54Sig)(lua_State *L, int idx, lua_Integer n);
+typedef void (*RawSetI54Sig)(lua_State *L, int idx, lua_Integer n);
 
 static void check(lua_State *L, int cond, const char *msg)
 {
@@ -36,6 +77,18 @@ static void check_integer(lua_State *L, int idx, lua_Integer want,
   check(L, ok && got == want, msg);
 }
 
+static int checkinteger_fraction(lua_State *L)
+{
+  luaL_checkinteger(L, 1);
+  return 0;
+}
+
+static int optinteger_fraction(lua_State *L)
+{
+  luaL_optinteger(L, 1, 0);
+  return 0;
+}
+
 static int len_meta(lua_State *L)
 {
   (void)L;
@@ -53,10 +106,41 @@ static int require_open(lua_State *L)
   return 1;
 }
 
+static int checkversion_bad_version(lua_State *L)
+{
+  luaL_checkversion_(L, LUA_VERSION_NUM - 1, LUAL_NUMSIZES);
+  return 0;
+}
+
+static int checkversion_bad_sizes(lua_State *L)
+{
+  luaL_checkversion_(L, LUA_VERSION_NUM, LUAL_NUMSIZES + 1);
+  return 0;
+}
+
 static int push_answer(lua_State *L)
 {
   lua_pushinteger(L, 42);
   return 1;
+}
+
+static int yield_once(lua_State *L)
+{
+  return lua_yield(L, 0);
+}
+
+static int yield_two(lua_State *L)
+{
+  lua_pushliteral(L, "y1");
+  lua_pushliteral(L, "y2");
+  return lua_yield(L, 2);
+}
+
+static int return_two(lua_State *L)
+{
+  lua_pushliteral(L, "r1");
+  lua_pushliteral(L, "r2");
+  return 2;
 }
 
 static void capture_warning(void *ud, const char *msg, int tocont)
@@ -65,6 +149,31 @@ static void capture_warning(void *ud, const char *msg, int tocont)
   strncpy(warning_buf, msg, sizeof(warning_buf)-1);
   warning_buf[sizeof(warning_buf)-1] = '\0';
   warning_tocont = tocont;
+}
+
+static const char *capi_reader(lua_State *L, void *ud, size_t *sz)
+{
+  CApiReaderCtx *ctx = (CApiReaderCtx *)ud;
+  (void)L;
+  if (ctx->src == NULL) {
+    *sz = 0;
+    return NULL;
+  }
+  *sz = ctx->len;
+  ctx->src = NULL;
+  ctx->len = 0;
+  return "return 64";
+}
+
+static int dump_writer(lua_State *L, const void *p, size_t sz, void *ud)
+{
+  DumpBuffer *b = (DumpBuffer *)ud;
+  (void)L;
+  if (b->len + sz > sizeof(b->data))
+    return 1;
+  memcpy(b->data + b->len, p, sz);
+  b->len += sz;
+  return 0;
 }
 
 static void test_stack_and_number_api(lua_State *L)
@@ -79,6 +188,17 @@ static void test_stack_and_number_api(lua_State *L)
 
   lua_rawgeti(L, LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
   check(L, lua_istable(L, -1), "LUA_RIDX_GLOBALS");
+  lua_pop(L, 1);
+
+  lua_pushglobaltable(L);
+  check(L, lua_istable(L, -1), "lua_pushglobaltable registry path");
+  lua_pushliteral(L, "ok");
+  lua_setglobal(L, "__capi_global");
+  lua_getglobal(L, "__capi_global");
+  check_string(L, -1, "ok", "lua_getglobal after lua_setglobal");
+  lua_pop(L, 1);
+  lua_pushnil(L);
+  lua_setglobal(L, "__capi_global");
   lua_pop(L, 1);
 
   extra = (void **)lua_getextraspace(L);
@@ -96,6 +216,15 @@ static void test_stack_and_number_api(lua_State *L)
 	"lua_numbertointeger integer");
   check(L, !lua_numbertointeger((lua_Number)1.5, &iv),
 	"lua_numbertointeger fraction");
+  lua_pushnumber(L, (lua_Number)1.5);
+  check(L, lua_tointegerx(L, -1, NULL) == 0,
+	"lua_tointegerx fraction value");
+  {
+    int ok = 1;
+    lua_tointegerx(L, -1, &ok);
+    check(L, !ok, "lua_tointegerx fraction status");
+  }
+  lua_pop(L, 1);
 
   lua_pushliteral(L, "a");
   lua_pushliteral(L, "b");
@@ -108,6 +237,12 @@ static void test_stack_and_number_api(lua_State *L)
   check_string(L, -1, "c", "lua_rotate fourth");
   lua_pop(L, 4);
 
+  lua_pushliteral(L, "copy-source");
+  lua_pushnil(L);
+  lua_copy(L, -2, -1);
+  check_string(L, -1, "copy-source", "lua_copy destination");
+  lua_pop(L, 2);
+
   lua_pushcfunction(L, push_answer);
   lua_callk(L, 0, 1, 0, NULL);
   check_integer(L, -1, 42, "lua_callk macro");
@@ -117,10 +252,57 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, lua_pcallk(L, 0, 1, 0, 0, NULL) == LUA_OK, "lua_pcallk macro");
   check_integer(L, -1, 42, "lua_pcallk result");
   lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  lua_pushcfunction(L, yield_once);
+  lua_xmove(L, co, 1);
+  check(L, lua_resume(co, L, 0, NULL) == LUA_YIELD,
+	"lua_resetthread setup yield");
+  check(L, lua_status(co) == LUA_YIELD, "lua_resetthread yielded status");
+  check(L, lua_resetthread(co) == LUA_OK, "lua_resetthread return");
+  check(L, lua_status(co) == LUA_OK, "lua_resetthread status");
+  check(L, lua_gettop(co) == 0, "lua_resetthread clears stack");
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  lua_pushcfunction(L, yield_two);
+  lua_xmove(L, co, 1);
+  {
+    int nres = -1;
+    check(L, lua_resume(co, L, 0, &nres) == LUA_YIELD,
+	  "lua_resume54 yield status");
+    check(L, nres == 2 && lua_gettop(co) == 2,
+	  "lua_resume54 yield result count");
+    check_string(co, 1, "y1", "lua_resume54 yield result #1");
+    check_string(co, 2, "y2", "lua_resume54 yield result #2");
+  }
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  lua_pushcfunction(L, return_two);
+  lua_xmove(L, co, 1);
+  {
+    int nres = -1;
+    check(L, lua_resume(co, L, 0, &nres) == LUA_OK,
+	  "lua_resume54 return status");
+    check(L, nres == 2 && lua_gettop(co) == 2,
+	  "lua_resume54 return result count");
+    check_string(co, 1, "r1", "lua_resume54 return result #1");
+    check_string(co, 2, "r2", "lua_resume54 return result #2");
+  }
+  lua_pop(L, 1);
 }
 
 static void test_compare_len_arith(lua_State *L)
 {
+  static const char pointer_key;
+  int rtype;
+  RawGetI54Sig rawgeti_sig = lua_rawgeti54;
+  RawSetI54Sig rawseti_sig = lua_rawseti54;
+
+  (void)rawgeti_sig;
+  (void)rawseti_sig;
+
   lua_pushinteger(L, 2);
   lua_pushinteger(L, 3);
   check(L, lua_compare(L, -2, -1, LUA_OPLT), "lua_compare lt");
@@ -163,6 +345,52 @@ static void test_compare_len_arith(lua_State *L)
   lua_arith(L, LUA_OPBAND);
   check_integer(L, -1, 2, "lua_arith band");
   lua_pop(L, 1);
+
+  lua_newtable(L);
+  lua_pushliteral(L, "field-value");
+  lua_setfield(L, -2, "field");
+  lua_pushliteral(L, "index-value");
+  lua_seti(L, -2, 7);
+  lua_pushliteral(L, "raw-value");
+  lua_rawseti(L, -2, 8);
+  lua_pushliteral(L, "ptr-value");
+  lua_rawsetp(L, -2, &pointer_key);
+
+  rtype = lua_getfield(L, -1, "field");
+  check(L, rtype == LUA_TSTRING, "lua_getfield return type");
+  check_string(L, -1, "field-value", "lua_getfield return value");
+  lua_pop(L, 1);
+
+  rtype = lua_geti(L, -1, 7);
+  check(L, rtype == LUA_TSTRING, "lua_geti return type");
+  check_string(L, -1, "index-value", "lua_geti return value");
+  lua_pop(L, 1);
+
+  lua_pushliteral(L, "field");
+  rtype = lua_gettable(L, -2);
+  check(L, rtype == LUA_TSTRING, "lua_gettable return type");
+  check_string(L, -1, "field-value", "lua_gettable return value");
+  lua_pop(L, 1);
+
+  lua_pushinteger(L, 8);
+  rtype = lua_rawget(L, -2);
+  check(L, rtype == LUA_TSTRING, "lua_rawget return type");
+  check_string(L, -1, "raw-value", "lua_rawget return value");
+  lua_pop(L, 1);
+
+  rtype = lua_rawgeti(L, -1, 8);
+  check(L, rtype == LUA_TSTRING, "lua_rawgeti return type");
+  check_string(L, -1, "raw-value", "lua_rawgeti return value");
+  lua_pop(L, 1);
+
+  rtype = lua_rawgetp(L, -1, &pointer_key);
+  check(L, rtype == LUA_TSTRING, "lua_rawgetp return type");
+  check_string(L, -1, "ptr-value", "lua_rawgetp return value");
+  lua_pop(L, 1);
+
+  rtype = lua_getglobal(L, "debug");
+  check(L, rtype == LUA_TTABLE, "lua_getglobal return type");
+  lua_pop(L, 2);
 }
 
 static void test_uservalue_api(lua_State *L)
@@ -187,16 +415,85 @@ static void test_uservalue_api(lua_State *L)
   check(L, lua_setiuservalue(L, -2, 3) == 0,
 	"lua_setiuservalue out of range");
   check(L, lua_gettop(L) == top, "lua_setiuservalue invalid pops value");
+
+  lua_getglobal(L, "debug");
+  lua_getfield(L, -1, "getuservalue");
+  lua_pushvalue(L, -3);
+  lua_pushinteger(L, 1);
+  lua_call(L, 2, 1);
+  check_string(L, -1, "uv1", "debug.getuservalue reads declared slot");
   lua_pop(L, 1);
+
+  lua_getfield(L, -1, "setuservalue");
+  lua_pushvalue(L, -3);
+  lua_pushliteral(L, "uv2");
+  lua_pushinteger(L, 2);
+  lua_call(L, 3, 1);
+  check(L, lua_touserdata(L, -1) == ud, "debug.setuservalue returns userdata");
+  lua_pop(L, 1);
+
+  lua_getfield(L, -1, "getuservalue");
+  lua_pushvalue(L, -3);
+  lua_pushinteger(L, 2);
+  lua_call(L, 2, 1);
+  check_string(L, -1, "uv2", "debug.setuservalue updates declared slot");
+  lua_pop(L, 1);
+
+  lua_getfield(L, -1, "setuservalue");
+  lua_pushvalue(L, -3);
+  lua_pushliteral(L, "bad");
+  lua_pushinteger(L, 3);
+  lua_call(L, 3, 1);
+  check(L, lua_isnil(L, -1), "debug.setuservalue rejects undeclared slot");
+  lua_pop(L, 2);
 }
 
 static void test_lauxlib_api(lua_State *L)
 {
   luaL_Buffer b;
+  luaL_Stream stream;
   char *p;
+  int status;
+  CApiReaderCtx reader;
+
+  stream.f = NULL;
+  stream.closef = NULL;
+  check(L, stream.f == NULL && stream.closef == NULL, "luaL_Stream fields");
 
   luaL_checkversion(L);
   luaL_argexpected(L, 1, 1, "truthy condition");
+
+  lua_pushcfunction(L, checkversion_bad_version);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_checkversion_ rejects wrong version");
+  check(L, strstr(lua_tostring(L, -1), "version mismatch") != NULL,
+	"luaL_checkversion_ version error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, checkversion_bad_sizes);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_checkversion_ rejects wrong sizes");
+  check(L, strstr(lua_tostring(L, -1), "incompatible numeric types") != NULL,
+	"luaL_checkversion_ sizes error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, checkinteger_fraction);
+  lua_pushnumber(L, (lua_Number)1.5);
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_checkinteger rejects fraction");
+  check(L, strstr(lua_tostring(L, -1),
+		  "number has no integer representation") != NULL,
+	"luaL_checkinteger fraction error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, optinteger_fraction);
+  lua_pushnumber(L, (lua_Number)1.5);
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_optinteger rejects fraction");
+  check(L, strstr(lua_tostring(L, -1),
+		  "number has no integer representation") != NULL,
+	"luaL_optinteger fraction error");
+  lua_pop(L, 1);
 
   luaL_pushfail(L);
   check(L, lua_isnil(L, -1), "luaL_pushfail pushes nil");
@@ -246,17 +543,106 @@ static void test_lauxlib_api(lua_State *L)
   luaL_pushresultsize(&b, 2);
   check_string(L, -1, "xy", "luaL_pushresultsize");
   lua_pop(L, 1);
+
+  luaL_buffinit(L, &b);
+  luaL_addgsub(&b, "a?$?", "?", "Lua54");
+  luaL_pushresult(&b);
+  check_string(L, -1, "aLua54$Lua54", "luaL_addgsub result");
+  lua_pop(L, 1);
+
+  status = luaL_loadbufferx(L, "return 54", 9, "=capi-buffer", "t");
+  check(L, status == LUA_OK, "luaL_loadbufferx text mode");
+  lua_call(L, 0, 1);
+  check_integer(L, -1, 54, "luaL_loadbufferx loaded function");
+  lua_pop(L, 1);
+
+  status = luaL_loadbufferx(L, "return 54", 9, "=capi-buffer", "b");
+  check(L, status == LUA_ERRSYNTAX, "luaL_loadbufferx binary mode rejects text");
+  check(L, strstr(lua_tostring(L, -1),
+		  "attempt to load a text chunk (mode is 'b')") != NULL,
+	"luaL_loadbufferx wrong mode error");
+  lua_pop(L, 1);
+
+  status = luaL_loadfilex(L, "test/smoke.lua", "t");
+  check(L, status == LUA_OK, "luaL_loadfilex text mode");
+  lua_pop(L, 1);
+
+  status = luaL_loadfilex(L, "test/smoke.lua", "b");
+  check(L, status == LUA_ERRSYNTAX, "luaL_loadfilex binary mode rejects text");
+  check(L, strstr(lua_tostring(L, -1),
+		  "attempt to load a text chunk (mode is 'b')") != NULL,
+	"luaL_loadfilex wrong mode error");
+  lua_pop(L, 1);
+
+  reader.src = "return 64";
+  reader.len = 9;
+  status = lua_load(L, capi_reader, &reader, "=capi-reader", "t");
+  check(L, status == LUA_OK, "lua_load text mode");
+  lua_call(L, 0, 1);
+  check_integer(L, -1, 64, "lua_load loaded function");
+  lua_pop(L, 1);
+
+  reader.src = "return 64";
+  reader.len = 9;
+  status = lua_load(L, capi_reader, &reader, "=capi-reader", "b");
+  check(L, status == LUA_ERRSYNTAX, "lua_load binary mode rejects text");
+  check(L, strstr(lua_tostring(L, -1),
+		  "attempt to load a text chunk (mode is 'b')") != NULL,
+	"lua_load wrong mode error");
+  lua_pop(L, 1);
+}
+
+static void test_dump_api(lua_State *L)
+{
+  const char *src = "return function(a) return a + 1 end";
+  DumpBuffer full;
+  DumpBuffer stripped;
+  int status;
+
+  memset(&full, 0, sizeof(full));
+  memset(&stripped, 0, sizeof(stripped));
+
+  status = luaL_loadbufferx(L, src, strlen(src), "=dump-source", "t");
+  check(L, status == LUA_OK, "lua_dump setup load");
+  lua_call(L, 0, 1);
+  check(L, lua_dump(L, dump_writer, &full, 0) == 0, "lua_dump full");
+  check(L, full.len > 0, "lua_dump full length");
+  check(L, lua_dump(L, dump_writer, &stripped, 1) == 0, "lua_dump stripped");
+  check(L, stripped.len > 0 && stripped.len <= full.len,
+	"lua_dump stripped length");
+  lua_pop(L, 1);
+
+  status = luaL_loadbufferx(L, stripped.data, stripped.len, "=dumped", "b");
+  check(L, status == LUA_OK, "lua_dump stripped reload");
+  lua_pushinteger(L, 41);
+  lua_call(L, 1, 1);
+  check_integer(L, -1, 42, "lua_dump stripped roundtrip");
+  lua_pop(L, 1);
 }
 
 static void test_warning_and_gc_api(lua_State *L)
 {
   int oldmode;
+  int countb;
+  lua_Number version;
   lua_Debug ar;
+
+  version = lua_version(L);
+  check(L, version == (lua_Number)LUA_VERSION_NUM,
+	"lua_version returns numeric Lua 5.4 version");
+  check(L, lua_setcstacklimit(L, 0) == 200,
+	"lua_setcstacklimit query shim");
+  check(L, lua_setcstacklimit(L, 200) == 200,
+	"lua_setcstacklimit set shim");
 
   lua_setwarnf(L, capture_warning, NULL);
   lua_warning(L, "captured", 0);
   check(L, strcmp(warning_buf, "captured") == 0 && warning_tocont == 0,
 	"lua_warning callback");
+
+  (void)lua_gc(L, LUA_GCCOUNT, 0);
+  countb = lua_gc(L, LUA_GCCOUNTB, 0);
+  check(L, countb >= 0 && countb < 1024, "LUA_GCCOUNTB byte remainder");
 
   oldmode = lua_gc(L, LUA_GCGEN, 0);
   check(L, oldmode == LUA_GCGEN || oldmode == LUA_GCINC, "LUA_GCGEN");
@@ -267,7 +653,7 @@ static void test_warning_and_gc_api(lua_State *L)
 
   memset(&ar, 0, sizeof(ar));
   lua_pushcfunction(L, push_answer);
-  check(L, lua_getinfo(L, ">ut", &ar), "lua_getinfo >ut");
+  check(L, lua_getinfo(L, ">utr", &ar), "lua_getinfo >utr");
   check(L, ar.nparams == 0 && ar.isvararg == 1, "lua_Debug u fields");
   check(L, ar.istailcall == 0 && ar.ftransfer == 0 && ar.ntransfer == 0,
 	"lua_Debug t/transfer fields");
@@ -283,6 +669,7 @@ int main(void)
   test_compare_len_arith(L);
   test_uservalue_api(L);
   test_lauxlib_api(L);
+  test_dump_api(L);
   test_warning_and_gc_api(L);
   lua_close(L);
   return 0;

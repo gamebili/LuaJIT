@@ -367,6 +367,38 @@ SBuf *lj_strfmt_putfnum_uint(SBuf *sb, SFormat sf, lua_Number n)
 }
 
 #if LJ_54
+static int strfmt_numisinf(lua_Number n)
+{
+  return n != 0 && n == n * 0.5;
+}
+
+static int strfmt_putqnum_lua54(SBuf *sb, lua_Number n)
+{
+  int64_t k;
+  if (n != n) {
+    lj_buf_putmem(sb, "(0/0)", 5);
+    return 1;
+  }
+  if (strfmt_numisinf(n)) {
+    if (n < 0)
+      lj_buf_putmem(sb, "-1e9999", 7);
+    else
+      lj_buf_putmem(sb, "1e9999", 6);
+    return 1;
+  }
+  if (n == 0 && 1.0 / n < 0) {
+    lj_buf_putmem(sb, "-0x0p+0", 7);
+    return 1;
+  }
+  k = lj_num2i64(n);
+  if (checki32(k) && (lua_Number)k == n) {
+    lj_strfmt_putint(sb, (int32_t)k);
+    return 1;
+  }
+  lj_strfmt_putfnum(sb, STRFMT_A, n);
+  return 1;
+}
+
 static lua_Number strfmt_checkintegernum(lua_State *L, int arg)
 {
   lua_Number n = lj_lib_checknum(L, arg);
@@ -452,10 +484,16 @@ int lj_strfmt_putarg(lua_State *L, SBuf *sb, int arg, int retry)
 	if ((sf & STRFMT_T_QUOTED)) {
 	  /* Lua 5.4 quotes strings, but prints primitive literals directly. */
 	  if (tvisint(o)) { lj_strfmt_putint(sb, intV(o)); break; }
-	  if (tvisnum(o)) { lj_strfmt_putfnum(sb, STRFMT_A, numV(o)); break; }
+	  if (tvisnum(o)) { strfmt_putqnum_lua54(sb, numV(o)); break; }
 	  if (tvisnil(o)) { lj_buf_putmem(sb, "nil", 3); break; }
 	  if (tvisfalse(o)) { lj_buf_putmem(sb, "false", 5); break; }
 	  if (tvistrue(o)) { lj_buf_putmem(sb, "true", 4); break; }
+#if LJ_HASBUFFER
+	  if (!tvisstr(o) && !tvisbuf(o))
+#else
+	  if (!tvisstr(o))
+#endif
+	    luaL_argerror(L, arg, "value has no literal form");
 	}
 #endif
 	if (LJ_UNLIKELY(!tvisstr(o) && !tvisbuf(o)) && retry >= 0 &&
@@ -493,11 +531,20 @@ int lj_strfmt_putarg(lua_State *L, SBuf *sb, int arg, int retry)
 	break;
 	}
       case STRFMT_CHAR:
+#if LJ_54
+	/* %c is an integer conversion in Lua 5.4. Keep string numerals, but
+	** reject fractions instead of truncating them to a byte.
+	*/
+	lj_strfmt_putfchar(sb, sf, lj_num2int(strfmt_checkintegernum(L, arg)));
+#else
 	lj_strfmt_putfchar(sb, sf, lj_lib_checkint(L, arg));
+#endif
 	break;
       case STRFMT_PTR: {  /* No formatting. */
 #if LJ_54
-	if (tvisnil(o)) {
+	if (!tvisgcv(o)) {
+	  /* Lua 5.4 delegates %p to lua_topointer(), so primitive values
+	  ** without an addressable GC object format as a null pointer. */
 	  lj_buf_putmem(sb, "(null)", 6);
 	} else {
 	  char pbuf[64];

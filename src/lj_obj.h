@@ -641,6 +641,7 @@ typedef struct global_State {
   uint8_t dispatchmode;	/* Dispatch mode. */
   uint8_t vmevmask;	/* VM event mask. */
   uint8_t warn_on;	/* Warning state for Lua 5.4 warn(). */
+  uint8_t warn_cont;	/* Warning output is continuing without a newline. */
   uint8_t gc_mode54;	/* Reported GC mode for Lua 5.4 collectgarbage(). */
   lua_WarnFunction warnf;  /* Optional Lua 5.4 C warning callback. */
   void *warnud;

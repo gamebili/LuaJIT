@@ -396,6 +396,28 @@ static int lj_cf_jit__lua54_shr(lua_State *L)
   }
   return lua54_pushbinint(L, lua54_shift(a, sh, 0));
 }
+
+static int lj_cf_jit__lua54_forstep(lua_State *L)
+{
+  TValue tmp;
+  cTValue *o = L->base;
+  if (o >= L->top)
+    lj_err_argt(L, 1, LUA_TNUMBER);
+  if (tvisstr(o)) {
+    if (!lj_strscan_number(strV(o), &tmp))
+      lj_err_argt(L, 1, LUA_TNUMBER);
+    o = &tmp;
+  } else if (!tvisnumber(o)) {
+    lj_err_argt(L, 1, LUA_TNUMBER);
+  }
+  if (tvisint(o) ? intV(o) == 0 : tviszero(o))
+    return luaL_error(L, "'for' step is zero");
+  /* Returning the normalized value keeps string-number steps from reaching
+  ** FORI as strings, while the VM still handles the real loop mechanics.
+  */
+  copyTV(L, L->top++, o);
+  return 1;
+}
 #endif
 
 /* Metadata is copied from values pushed by luaopen_jit() before LJ_LIB_REG.
@@ -1018,6 +1040,8 @@ LUALIB_API int luaopen_jit(lua_State *L)
   lua_setfield(L, -2, "_lua54_shl");
   lua_pushcfunction(L, lj_cf_jit__lua54_shr);
   lua_setfield(L, -2, "_lua54_shr");
+  lua_pushcfunction(L, lj_cf_jit__lua54_forstep);
+  lua_setfield(L, -2, "_lua54_forstep");
   lua_pop(L, 1);
 #endif
 #if LJ_HASPROFILE

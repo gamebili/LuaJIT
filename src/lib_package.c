@@ -318,6 +318,9 @@ static const char *searchpath (lua_State *L, const char *name,
 			       const char *dirsep)
 {
   luaL_Buffer msg;  /* to build error message */
+#if LJ_54
+  int first = 1;
+#endif
   luaL_buffinit(L, &msg);
   if (*sep != '\0')  /* non-empty separator? */
     name = luaL_gsub(L, name, sep, dirsep);  /* replace it by 'dirsep' */
@@ -327,7 +330,17 @@ static const char *searchpath (lua_State *L, const char *name,
     lua_remove(L, -2);  /* remove path template */
     if (readable(filename))  /* does file exist and is readable? */
       return filename;  /* return that file name */
+#if LJ_54
+    /* Lua 5.4 searchers return plain error fragments; require() adds the
+    ** leading newline/tab when it assembles the final module-not-found error.
+    */
+    if (!first)
+      luaL_addstring(&msg, "\n\t");
+    first = 0;
+    lua_pushfstring(L, "no file " LUA_QS, filename);
+#else
     lua_pushfstring(L, "\n\tno file " LUA_QS, filename);
+#endif
     lua_remove(L, -2);  /* remove file name */
     luaL_addvalue(&msg);  /* concatenate error msg. entry */
   }
@@ -410,8 +423,13 @@ static int lj_cf_package_loader_croot(lua_State *L)
   if (filename == NULL) return 1;  /* root not found */
   if ((st = ll_loadfunc(L, filename, name, 0)) != 0) {
     if (st != PACKAGE_ERR_FUNC) loaderror(L, filename);  /* real error */
+#if LJ_54
+    lua_pushfstring(L, "no module " LUA_QS " in file " LUA_QS,
+		    name, filename);
+#else
     lua_pushfstring(L, "\n\tno module " LUA_QS " in file " LUA_QS,
 		    name, filename);
+#endif
     return 1;  /* function not found */
   }
 #if LJ_54
@@ -433,7 +451,11 @@ static int lj_cf_package_loader_preload(lua_State *L)
     const char *bcname = mksymname(L, name, SYMPREFIX_BC);
     const char *bcdata = ll_bcsym(NULL, bcname);
     if (bcdata == NULL || luaL_loadbuffer(L, bcdata, ~(size_t)0, name) != 0)
+#if LJ_54
+      lua_pushfstring(L, "no field package.preload['%s']", name);
+#else
       lua_pushfstring(L, "\n\tno field package.preload['%s']", name);
+#endif
   }
 #if LJ_54
   if (lua_isfunction(L, -1)) {
@@ -483,7 +505,9 @@ static int lj_cf_package_require(lua_State *L)
       break;  /* module loaded successfully */
     else if (lua_isstring(L, -2)) {  /* loader returned error message? */
       lua_pop(L, 1);
-      lua_concat(L, 2);  /* accumulate it */
+      lua_pushliteral(L, "\n\t");
+      lua_insert(L, -2);
+      lua_concat(L, 3);  /* accumulate "\n\t" .. message */
     } else {
       lua_pop(L, 2);
     }
@@ -616,13 +640,21 @@ static int lj_cf_package_seeall(lua_State *L)
 #define AUXMARK		"\1"
 
 static void setpath(lua_State *L, const char *fieldname, const char *envname,
-		    const char *def, int noenv)
+		    const char *envname54, const char *def, int noenv)
 {
 #if LJ_TARGET_CONSOLE
   const char *path = NULL;
   UNUSED(envname);
+  UNUSED(envname54);
 #else
-  const char *path = getenv(envname);
+  const char *path = NULL;
+  /* Lua 5.4 path setup checks versioned names first, then falls back to the
+  ** generic Lua/LuaJIT environment variable for compatibility.
+  */
+  if (envname54 != NULL)
+    path = getenv(envname54);
+  if (path == NULL)
+    path = getenv(envname);
 #endif
   if (path == NULL || noenv) {
     lua_pushstring(L, def);
@@ -689,8 +721,13 @@ LUALIB_API int luaopen_package(lua_State *L)
   lua_getfield(L, LUA_REGISTRYINDEX, "LUA_NOENV");
   noenv = lua_toboolean(L, -1);
   lua_pop(L, 1);
-  setpath(L, "path", LUA_PATH, LUA_PATH_DEFAULT, noenv);
-  setpath(L, "cpath", LUA_CPATH, LUA_CPATH_DEFAULT, noenv);
+#if LJ_54
+  setpath(L, "path", LUA_PATH, LUA_PATH_5_4, LUA_PATH_DEFAULT, noenv);
+  setpath(L, "cpath", LUA_CPATH, LUA_CPATH_5_4, LUA_CPATH_DEFAULT, noenv);
+#else
+  setpath(L, "path", LUA_PATH, NULL, LUA_PATH_DEFAULT, noenv);
+  setpath(L, "cpath", LUA_CPATH, NULL, LUA_CPATH_DEFAULT, noenv);
+#endif
   lua_pushliteral(L, LUA_PATH_CONFIG);
   lua_setfield(L, -2, "config");
   luaL_findtable(L, LUA_REGISTRYINDEX, "_LOADED", 16);

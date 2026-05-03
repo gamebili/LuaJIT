@@ -116,6 +116,18 @@ LUA_API int lua_checkstack(lua_State *L, int size)
   return 1;
 }
 
+#if LJ_54
+LUA_API int lua_setcstacklimit(lua_State *L, unsigned int limit)
+{
+  UNUSED(L);
+  UNUSED(limit);
+  /* LuaJIT keeps its own C stack guard. Expose Lua 5.4's C API entrypoint as
+  ** the same stable compatibility limit used by debug.setcstacklimit().
+  */
+  return 200;
+}
+#endif
+
 LUALIB_API void luaL_checkstack(lua_State *L, int size, const char *msg)
 {
   if (!lua_checkstack(L, size))
@@ -496,9 +508,48 @@ LUALIB_API lua_Number luaL_optnumber(lua_State *L, int idx, lua_Number def)
   return numV(&tmp);
 }
 
+#if LJ_54
+static int luaV_tointeger54(cTValue *o, lua_Integer *ip, int *isnum)
+{
+  TValue tmp;
+  lua_Number n;
+  int64_t k;
+  if (isnum)
+    *isnum = 0;
+  if (tvisstr(o)) {
+    if (!lj_strscan_number(strV(o), &tmp))
+      return 0;
+    o = &tmp;
+  }
+  if (!tvisnumber(o))
+    return 0;
+  if (isnum)
+    *isnum = 1;
+  if (tvisint(o)) {
+    *ip = (lua_Integer)intV(o);
+    return 1;
+  }
+  n = numV(o);
+  /* Lua 5.4 integer conversion is exact. Fractions remain numbers, but they
+  ** are not valid integers for lua_tointegerx/luaL_checkinteger.
+  */
+  if (!(n >= (lua_Number)LUA_MININTEGER && n <= (lua_Number)LUA_MAXINTEGER))
+    return 0;
+  k = lj_num2i64(n);
+  if ((lua_Number)k != n)
+    return 0;
+  *ip = (lua_Integer)k;
+  return 1;
+}
+#endif
+
 LUA_API lua_Integer lua_tointeger(lua_State *L, int idx)
 {
   cTValue *o = index2adr(L, idx);
+#if LJ_54
+  lua_Integer i;
+  return luaV_tointeger54(o, &i, NULL) ? i : 0;
+#else
   TValue tmp;
   lua_Number n;
   if (LJ_LIKELY(tvisint(o))) {
@@ -513,11 +564,18 @@ LUA_API lua_Integer lua_tointeger(lua_State *L, int idx)
     n = numV(&tmp);
   }
   return lj_num2int_type(n, lua_Integer);
+#endif
 }
 
 LUA_API lua_Integer lua_tointegerx(lua_State *L, int idx, int *ok)
 {
   cTValue *o = index2adr(L, idx);
+#if LJ_54
+  lua_Integer i;
+  int success = luaV_tointeger54(o, &i, NULL);
+  if (ok) *ok = success;
+  return success ? i : 0;
+#else
   TValue tmp;
   lua_Number n;
   if (LJ_LIKELY(tvisint(o))) {
@@ -538,11 +596,22 @@ LUA_API lua_Integer lua_tointegerx(lua_State *L, int idx, int *ok)
   }
   if (ok) *ok = 1;
   return lj_num2int_type(n, lua_Integer);
+#endif
 }
 
 LUALIB_API lua_Integer luaL_checkinteger(lua_State *L, int idx)
 {
   cTValue *o = index2adr(L, idx);
+#if LJ_54
+  lua_Integer i;
+  int isnum = 0;
+  if (luaV_tointeger54(o, &i, &isnum))
+    return i;
+  if (isnum)
+    lj_err_arg(L, idx, LJ_ERR_NUMINT);
+  lj_err_argt(L, idx, LUA_TNUMBER);
+  return 0;  /* unreachable */
+#else
   TValue tmp;
   lua_Number n;
   if (LJ_LIKELY(tvisint(o))) {
@@ -557,11 +626,24 @@ LUALIB_API lua_Integer luaL_checkinteger(lua_State *L, int idx)
     n = numV(&tmp);
   }
   return lj_num2int_type(n, lua_Integer);
+#endif
 }
 
 LUALIB_API lua_Integer luaL_optinteger(lua_State *L, int idx, lua_Integer def)
 {
   cTValue *o = index2adr(L, idx);
+#if LJ_54
+  lua_Integer i;
+  int isnum = 0;
+  if (tvisnil(o))
+    return def;
+  if (luaV_tointeger54(o, &i, &isnum))
+    return i;
+  if (isnum)
+    lj_err_arg(L, idx, LJ_ERR_NUMINT);
+  lj_err_argt(L, idx, LUA_TNUMBER);
+  return 0;  /* unreachable */
+#else
   TValue tmp;
   lua_Number n;
   if (LJ_LIKELY(tvisint(o))) {
@@ -578,6 +660,7 @@ LUALIB_API lua_Integer luaL_optinteger(lua_State *L, int idx, lua_Integer def)
     n = numV(&tmp);
   }
   return lj_num2int_type(n, lua_Integer);
+#endif
 }
 
 LUA_API int lua_toboolean(lua_State *L, int idx)
@@ -1233,6 +1316,63 @@ LUA_API void lua_rawgetp(lua_State *L, int idx, const void *p)
   lua_rawget(L, idx);
 }
 
+#if LJ_54
+LUA_API int lua_gettable54(lua_State *L, int idx)
+{
+  lua_gettable(L, idx);
+  return lua_type(L, -1);
+}
+
+LUA_API int lua_getfield54(lua_State *L, int idx, const char *k)
+{
+  lua_getfield(L, idx, k);
+  return lua_type(L, -1);
+}
+
+LUA_API int lua_geti54(lua_State *L, int idx, lua_Integer n)
+{
+  lua_geti(L, idx, n);
+  return lua_type(L, -1);
+}
+
+LUA_API int lua_rawget54(lua_State *L, int idx)
+{
+  lua_rawget(L, idx);
+  return lua_type(L, -1);
+}
+
+LUA_API int lua_rawgeti54(lua_State *L, int idx, lua_Integer n)
+{
+  lua_rawgeti(L, idx, (int)n);
+  return lua_type(L, -1);
+}
+
+LUA_API int lua_rawgetp54(lua_State *L, int idx, const void *p)
+{
+  lua_rawgetp(L, idx, p);
+  return lua_type(L, -1);
+}
+
+LUA_API int lua_getglobal54(lua_State *L, const char *name)
+{
+  lua_rawgeti(L, LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
+  lua_getfield(L, -1, name);
+  lua_remove(L, -2);
+  return lua_type(L, -1);
+}
+
+LUA_API void lua_setglobal54(lua_State *L, const char *name)
+{
+  /* External Lua 5.4 headers hide LUA_GLOBALSINDEX, so set globals through
+  ** the registry globals table while leaving LuaJIT's internal ABI unchanged.
+  */
+  lua_rawgeti(L, LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
+  lua_insert(L, -2);
+  lua_setfield(L, -2, name);
+  lua_pop(L, 1);
+}
+#endif
+
 LUA_API int lua_getmetatable(lua_State *L, int idx)
 {
   cTValue *o = index2adr(L, idx);
@@ -1322,9 +1462,26 @@ LUA_API int lua_next(lua_State *L, int idx)
 
 LUA_API const char *lua_getupvalue(lua_State *L, int idx, int n)
 {
+  cTValue *f = index2adr(L, idx);
   TValue *val;
   GCobj *o;
-  const char *name = lj_debug_uvnamev(index2adr(L, idx), (uint32_t)(n-1), &val, &o);
+  const char *name;
+#if LJ_54
+  if (tvisfunc(f)) {
+    GCfunc *fn = funcV(f);
+    if (lj_debug_hasenvuv(fn)) {
+      if (n == 1) {
+	settabV(L, L->top, tabref(fn->c.env));
+	incr_top(L);
+	return "_ENV";
+      }
+      n--;
+    }
+  }
+#endif
+  if (n <= 0)
+    return NULL;
+  name = lj_debug_uvnamev(f, (uint32_t)(n-1), &val, &o);
   if (name) {
     copyTV(L, L->top, val);
     incr_top(L);
@@ -1335,6 +1492,13 @@ LUA_API const char *lua_getupvalue(lua_State *L, int idx, int n)
 LUA_API void *lua_upvalueid(lua_State *L, int idx, int n)
 {
   GCfunc *fn = funcV(index2adr(L, idx));
+#if LJ_54
+  if (lj_debug_hasenvuv(fn)) {
+    if (n == 1)
+      return (void *)&fn->c.env;
+    n--;
+  }
+#endif
   n--;
   lj_checkapi((uint32_t)n < fn->l.nupvalues, "bad upvalue %d", n);
   return isluafunc(fn) ? (void *)gcref(fn->l.uvptr[n]) :
@@ -1345,6 +1509,31 @@ LUA_API void lua_upvaluejoin(lua_State *L, int idx1, int n1, int idx2, int n2)
 {
   GCfunc *fn1 = funcV(index2adr(L, idx1));
   GCfunc *fn2 = funcV(index2adr(L, idx2));
+#if LJ_54
+  int env1 = lj_debug_hasenvuv(fn1);
+  int env2 = lj_debug_hasenvuv(fn2);
+  if (env1 && n1 == 1) {
+    GCtab *t = NULL;
+    if (env2 && n2 == 1) {
+      t = tabref(fn2->c.env);
+    } else {
+      TValue *tv;
+      GCobj *o;
+      if (env2) n2--;
+      lj_checkapi(isluafunc(fn2), "stack slot %d is not a Lua function", idx2);
+      lj_checkapi((uint32_t)(n2-1) < fn2->l.nupvalues,
+		  "bad upvalue %d", n2);
+      (void)lj_debug_uvnamev(index2adr(L, idx2), (uint32_t)(n2-1), &tv, &o);
+      lj_checkapi(tvistab(tv), "source _ENV upvalue is not a table");
+      t = tabV(tv);
+    }
+    setgcref(fn1->c.env, obj2gco(t));
+    lj_gc_objbarrier(L, fn1, t);
+    return;
+  }
+  if (env1) n1--;
+  if (env2) n2--;
+#endif
   n1--; n2--;
   lj_checkapi(isluafunc(fn1), "stack slot %d is not a Lua function", idx1);
   lj_checkapi(isluafunc(fn2), "stack slot %d is not a Lua function", idx2);
@@ -1445,6 +1634,17 @@ LUA_API void lua_rawseti(lua_State *L, int idx, int n)
   lj_gc_barriert(L, t, dst);
   L->top = src;
 }
+
+#if LJ_54
+LUA_API void lua_rawseti54(lua_State *L, int idx, lua_Integer n)
+{
+  /* Lua 5.4 exposes lua_Integer here. The current compatibility integer range
+  ** is still 32 bit, so the wrapper preserves the external signature while
+  ** delegating to LuaJIT's existing integer table slot helper.
+  */
+  lua_rawseti(L, idx, (int)n);
+}
+#endif
 
 LUA_API void lua_rawsetp(lua_State *L, int idx, const void *p)
 {
@@ -1554,6 +1754,24 @@ LUA_API const char *lua_setupvalue(lua_State *L, int idx, int n)
   GCobj *o;
   const char *name;
   lj_checkapi_slot(1);
+#if LJ_54
+  if (tvisfunc(f)) {
+    GCfunc *fn = funcV(f);
+    if (lj_debug_hasenvuv(fn)) {
+      if (n == 1) {
+	if (!tvistab(L->top-1))
+	  return NULL;  /* Full non-table _ENV needs a real upvalue slot. */
+	setgcref(fn->c.env, obj2gco(tabV(L->top-1)));
+	lj_gc_objbarrier(L, fn, tabV(L->top-1));
+	L->top--;
+	return "_ENV";
+      }
+      n--;
+    }
+  }
+#endif
+  if (n <= 0)
+    return NULL;
   name = lj_debug_uvnamev(f, (uint32_t)(n-1), &val, &o);
   if (name) {
     L->top--;
@@ -1707,7 +1925,51 @@ LUA_API int lua_resume(lua_State *L, int nargs)
   return LUA_ERRRUN;
 }
 
+#if LJ_54
+LUA_API int lua_resume54(lua_State *L, lua_State *from, int nargs,
+			 int *nresults)
+{
+  int status;
+  (void)from;
+  /* The VM still implements LuaJIT's legacy resume ABI. This wrapper exposes
+  ** Lua 5.4's result-count out parameter without changing the internal ABI.
+  */
+  status = lua_resume(L, nargs);
+  if (nresults)
+    *nresults = (status == LUA_OK || status == LUA_YIELD) ? lua_gettop(L) : 0;
+  return status;
+}
+#endif
+
+LUA_API int lua_resetthread(lua_State *L)
+{
+  /* Full Lua 5.4 reset closes to-be-closed variables. This compatibility path
+  ** covers LuaJIT coroutines without <close> state by clearing frames, open
+  ** upvalues and status back to a fresh suspended stack.
+  */
+  lj_func_closeuv(L, tvref(L->stack));
+  L->status = LUA_OK;
+  L->cframe = NULL;
+  L->base = L->top = tvref(L->stack) + 1 + LJ_FR2;
+  return LUA_OK;
+}
+
 /* -- GC and memory management -------------------------------------------- */
+
+#if LJ_54
+static MSize gc_param_lua54(int data)
+{
+  /* Lua 5.4 stores public GC parameters in 4-point units and clamps the
+  ** exposed range to 0..1000. Keep that surface even though LuaJIT's GC is
+  ** still the underlying collector.
+  */
+  if (data <= 0)
+    return 0;
+  if (data >= 1000)
+    return 1000;
+  return (MSize)(data & ~3);
+}
+#endif
 
 LUA_API int lua_gc(lua_State *L, int what, int data)
 {
@@ -1741,11 +2003,19 @@ LUA_API int lua_gc(lua_State *L, int what, int data)
   }
   case LUA_GCSETPAUSE:
     res = (int)(g->gc.pause);
+#if LJ_54
+    g->gc.pause = gc_param_lua54(data);
+#else
     g->gc.pause = (MSize)data;
+#endif
     break;
   case LUA_GCSETSTEPMUL:
     res = (int)(g->gc.stepmul);
+#if LJ_54
+    g->gc.stepmul = gc_param_lua54(data);
+#else
     g->gc.stepmul = (MSize)data;
+#endif
     break;
   case LUA_GCISRUNNING:
     res = (g->gc.threshold != LJ_MAX_MEM);
@@ -1777,12 +2047,21 @@ LUA_API void lua_warning(lua_State *L, const char *msg, int tocont)
   if (g->warnf) {
     g->warnf(g->warnud, msg, tocont);
   } else if (msg && msg[0] == '@') {
-    if (strcmp(msg, "@on") == 0)
+    if (strcmp(msg, "@on") == 0) {
       g->warn_on = 1;
-    else if (strcmp(msg, "@off") == 0)
+      g->warn_cont = 0;
+    } else if (strcmp(msg, "@off") == 0) {
       g->warn_on = 0;
+      g->warn_cont = 0;
+    }
   } else if (g->warn_on && msg) {
+    /* Lua 5.4's default warning function prefixes each fresh warning, but
+    ** not continuation pieces emitted with tocont=true.
+    */
+    if (!g->warn_cont)
+      fputs("Lua warning: ", stderr);
     fputs(msg, stderr);
+    g->warn_cont = (uint8_t)tocont;
     if (!tocont)
       fputc('\n', stderr);
   }

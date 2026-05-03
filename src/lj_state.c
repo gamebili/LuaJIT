@@ -305,7 +305,14 @@ LUA_API lua_State *lua_newstate(lua_Alloc allocf, void *allocd)
   setmref(g->gc.sweep, &g->gc.root);
   g->gc.total = sizeof(GG_State);
   g->gc.pause = LUAI_GCPAUSE;
+#if LJ_54
+  /* Lua 5.4's public collectgarbage("setstepmul") surface starts at 100.
+  ** This only aligns the exposed default; the collector is still LuaJIT's.
+  */
+  g->gc.stepmul = 100;
+#else
   g->gc.stepmul = LUAI_GCMUL;
+#endif
   lj_dispatch_init((GG_State *)L);
   L->status = LUA_ERRERR+1;  /* Avoid touching the stack upon memory error. */
   if (lj_vm_cpcall(L, NULL, NULL, cpluaopen) != 0) {

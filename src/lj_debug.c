@@ -227,6 +227,34 @@ const char *lj_debug_uvname(GCproto *pt, uint32_t idx)
   return (const char *)p;
 }
 
+int lj_debug_hasenvuv(GCfunc *fn)
+{
+#if LJ_54
+  GCproto *pt;
+  BCIns *bc;
+  MSize i;
+  const char *uvname;
+  if (!isluafunc(fn))
+    return 0;
+  pt = funcproto(fn);
+  uvname = pt->sizeuv > 0 ? lj_debug_uvname(pt, 0) : "";
+  if (uvname[0] == '_' && uvname[1] == 'E' && uvname[2] == 'N' &&
+      uvname[3] == 'V' && uvname[4] == '\0')
+    return 0;  /* A lexical _ENV already exists as a real upvalue. */
+  if (pt->firstline == 0)
+    return 1;  /* Main chunks in Lua 5.4 always expose _ENV. */
+  bc = proto_bc(pt);
+  for (i = 1; i < pt->sizebc; i++) {
+    BCOp op = bc_op(bc[i]);
+    if (op == BC_GGET || op == BC_GSET)
+      return 1;  /* Free names still use LuaJIT's function env internally. */
+  }
+#else
+  UNUSED(fn);
+#endif
+  return 0;
+}
+
 /* Get name and value of upvalue. */
 const char *lj_debug_uvnamev(cTValue *o, uint32_t idx, TValue **tvp, GCobj **op)
 {
@@ -487,6 +515,10 @@ int lj_debug_getinfo(lua_State *L, const char *what, lj_Debug *ar, int ext)
       ar->currentline = frame ? debug_frameline(L, fn, nextframe) : -1;
     } else if (*what == 'u') {
       ar->nups = fn->c.nupvalues;
+#if LJ_54
+      if (lj_debug_hasenvuv(fn))
+	ar->nups++;
+#endif
       if (ext) {
 	if (isluafunc(fn)) {
 	  GCproto *pt = funcproto(fn);
@@ -509,11 +541,20 @@ int lj_debug_getinfo(lua_State *L, const char *what, lj_Debug *ar, int ext)
       opt_L = 1;
     } else if (*what == 't') {
       /* Lua 5.4 accepts option 't' for tail-call information. LuaJIT does
-      ** not expose exact tail-call state here yet; the debug library reports
-      ** a conservative false value for now.
+      ** not preserve an exact tail-call marker in the public frame metadata
+      ** yet, so this remains conservative until VM frame support is added.
       */
       if (ext)
 	ar->istailcall = 0;
+      continue;
+    } else if (*what == 'r') {
+      /* Accept Lua 5.4 transfer-info queries. Non-hook queries have no
+      ** transferred value range; hook-time precision is tracked in TODO.md.
+      */
+      if (ext) {
+	ar->ftransfer = 0;
+	ar->ntransfer = 0;
+      }
       continue;
     } else {
       return 0;  /* Bad option. */

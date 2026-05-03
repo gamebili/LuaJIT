@@ -43,9 +43,138 @@
 
 #define LJLIB_MODULE_base
 
+#if LJ_54
+static void base_argerror_named54(lua_State *L, int narg, const char *fname,
+				  const char *msg)
+{
+  lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #%d to '%s' (%s)",
+				      narg, fname, msg));
+}
+
+static const char *base_argtypename54(lua_State *L, int narg)
+{
+  TValue *o = L->base + narg-1;
+  if (o < L->top) {
+    MSize tlen;
+    const char *tname = lj_meta_objtypename(L, o, &tlen);
+    UNUSED(tlen);
+    return tname;
+  }
+  return lj_obj_typename[0];
+}
+
+static void base_argtype_named54(lua_State *L, int narg, const char *fname,
+				 const char *xname)
+{
+  base_argerror_named54(L, narg, fname,
+    lj_strfmt_pushf(L, "%s expected, got %s", xname,
+		    base_argtypename54(L, narg)));
+}
+
+static void base_checkany_named54(lua_State *L, int narg, const char *fname)
+{
+  if (L->base + narg-1 >= L->top)
+    base_argerror_named54(L, narg, fname, "value expected");
+}
+
+static void base_checkfunc_named54(lua_State *L, int narg, const char *fname)
+{
+  TValue *o = L->base + narg-1;
+  if (!(o < L->top && tvisfunc(o)))
+    base_argtype_named54(L, narg, fname, "function");
+}
+
+static GCstr *base_checkstr_named54(lua_State *L, int narg, const char *fname)
+{
+  TValue *o = L->base + narg-1;
+  if (o < L->top) {
+    if (tvisstr(o)) {
+      return strV(o);
+    } else if (tvisnumber(o)) {
+      GCstr *s = lj_strfmt_number(L, o);
+      setstrV(L, o, s);
+      return s;
+    }
+  }
+  base_argtype_named54(L, narg, fname, "string");
+  return NULL;  /* unreachable */
+}
+
+static GCstr *base_optstr_named54(lua_State *L, int narg, const char *fname)
+{
+  TValue *o = L->base + narg-1;
+  if (o >= L->top || tvisnil(o))
+    return NULL;
+  return base_checkstr_named54(L, narg, fname);
+}
+
+static int base_checkopt_named54(lua_State *L, int narg, int def,
+				 const char *lst, const char *fname)
+{
+  GCstr *s = def >= 0 ? base_optstr_named54(L, narg, fname) :
+			 base_checkstr_named54(L, narg, fname);
+  if (s) {
+    const char *opt = strdata(s);
+    MSize len = s->len;
+    int i;
+    for (i = 0; *(const uint8_t *)lst; i++) {
+      if (*(const uint8_t *)lst == len && memcmp(opt, lst+1, len) == 0)
+	return i;
+      lst += 1+*(const uint8_t *)lst;
+    }
+    base_argerror_named54(L, narg, fname,
+			  lj_strfmt_pushf(L, "invalid option '%s'", opt));
+  }
+  return def;
+}
+
+static GCtab *base_checktab_named54(lua_State *L, int narg, const char *fname)
+{
+  TValue *o = L->base + narg-1;
+  if (!(o < L->top && tvistab(o)))
+    base_argtype_named54(L, narg, fname, "table");
+  return tabV(o);
+}
+
+static int32_t base_checkint_named54(lua_State *L, int narg,
+				     const char *fname)
+{
+  TValue tmp;
+  cTValue *o = L->base + narg-1;
+  lua_Number n;
+  int64_t k;
+  if (o >= L->top)
+    base_argtype_named54(L, narg, fname, "number");
+  if (tvisstr(o)) {
+    if (!lj_strscan_number(strV(o), &tmp))
+      base_argtype_named54(L, narg, fname, "number");
+    o = &tmp;
+  }
+  if (tvisint(o))
+    return intV(o);
+  if (!tvisnum(o))
+    base_argtype_named54(L, narg, fname, "number");
+  n = numV(o);
+  if (!(n >= -2147483648.0 && n <= 2147483647.0)) {
+    base_argerror_named54(L, narg, fname,
+			  "number has no integer representation");
+  }
+  k = lj_num2i64(n);
+  if ((lua_Number)k != n) {
+    base_argerror_named54(L, narg, fname,
+			  "number has no integer representation");
+  }
+  return (int32_t)k;
+}
+#endif
+
 LJLIB_ASM(assert)		LJLIB_REC(.)
 {
+#if LJ_54
+  base_checkany_named54(L, 1, "assert");
+#else
   lj_lib_checkany(L, 1);
+#endif
   if (L->top == L->base+1)
     lj_err_caller(L, LJ_ERR_ASSERT);
   else if (tvisstr(L->base+1) || tvisnumber(L->base+1))
@@ -73,6 +202,15 @@ LJLIB_PUSH("number")
 LJLIB_ASM_(type)		LJLIB_REC(.)
 /* Recycle the lj_lib_checkany(L, 1) from assert. */
 
+#if LJ_54
+static int lj_cf_type54(lua_State *L)
+{
+  base_checkany_named54(L, 1, "type");
+  lua_pushstring(L, lua_typename(L, lua_type(L, 1)));
+  return 1;
+}
+#endif
+
 /* -- Base library: iterators --------------------------------------------- */
 
 /* This solves a circular dependency problem -- change FF_next_N as needed. */
@@ -80,7 +218,11 @@ LJ_STATIC_ASSERT((int)FF_next == FF_next_N);
 
 LJLIB_ASM(next)			LJLIB_REC(.)
 {
+#if LJ_54
+  base_checktab_named54(L, 1, "next");
+#else
   lj_lib_checktab(L, 1);
+#endif
   lj_err_msg(L, LJ_ERR_NEXTIDX);
   return FFH_UNREACHABLE;
 }
@@ -140,10 +282,27 @@ static int lj_cf_ipairs_aux54(lua_State *L)
 
 static int lj_cf_ipairs54(lua_State *L)
 {
-  luaL_checkany(L, 1);
+  base_checkany_named54(L, 1, "ipairs");
   lua_pushcfunction(L, lj_cf_ipairs_aux54);
   lua_pushvalue(L, 1);
   lua_pushinteger(L, 0);
+  return 3;
+}
+
+static int lj_cf_pairs54(lua_State *L)
+{
+  base_checkany_named54(L, 1, "pairs");
+  if (luaL_getmetafield(L, 1, "__pairs")) {
+    lua_pushvalue(L, 1);
+    lua_call(L, 1, 3);
+    return 3;
+  }
+  /* Lua 5.4 pairs() does not require a table until next() is actually called.
+  ** This lets custom metatables or later iterator calls define the failure.
+  */
+  lua_pushvalue(L, lua_upvalueindex(1));
+  lua_pushvalue(L, 1);
+  lua_pushnil(L);
   return 3;
 }
 #endif
@@ -164,11 +323,11 @@ LJLIB_CF(warn)
 	G(L)->warn_on = 0;
       return 0;
     }
-    if (G(L)->warn_on)
-      fwrite(str, 1, s->len, stderr);
+    /* Route Lua warn() through lua_warning() so the default output prefix and
+    ** user-installed C warning callbacks share one implementation.
+    */
+    lua_warning(L, str, i != n-1);
   }
-  if (G(L)->warn_on && n > 0)
-    fputc('\n', stderr);
   return 0;
 }
 
@@ -179,8 +338,22 @@ LJLIB_ASM_(getmetatable)	LJLIB_REC(.)
 
 LJLIB_ASM(setmetatable)		LJLIB_REC(.)
 {
+#if LJ_54
+  GCtab *t = base_checktab_named54(L, 1, "setmetatable");
+  GCtab *mt;
+  TValue *mo = L->base+1;
+  if (mo >= L->top || tvisnil(mo)) {
+    mt = NULL;
+  } else if (tvistab(mo)) {
+    mt = tabV(mo);
+  } else {
+    base_argtype_named54(L, 2, "setmetatable", "nil or table");
+    mt = NULL;  /* unreachable */
+  }
+#else
   GCtab *t = lj_lib_checktab(L, 1);
   GCtab *mt = lj_lib_checktabornil(L, 2);
+#endif
   if (!tvisnil(lj_meta_lookup(L, L->base, MM_metatable)))
     lj_err_caller(L, LJ_ERR_PROTMT);
   setgcref(t->metatable, obj2gco(mt));
@@ -237,24 +410,47 @@ LJLIB_CF(setfenv)
 
 LJLIB_ASM(rawget)		LJLIB_REC(.)
 {
+#if LJ_54
+  base_checktab_named54(L, 1, "rawget");
+  base_checkany_named54(L, 2, "rawget");
+#else
   lj_lib_checktab(L, 1);
   lj_lib_checkany(L, 2);
+#endif
   return FFH_UNREACHABLE;
 }
 
 LJLIB_CF(rawset)		LJLIB_REC(.)
 {
+#if LJ_54
+  base_checktab_named54(L, 1, "rawset");
+  base_checkany_named54(L, 2, "rawset");
+  base_checkany_named54(L, 3, "rawset");
+  /* Nil keys are still rejected by lua_rawset() itself with the VM error. */
+  lua_settop(L, 3);
+  lua_rawset(L, 1);
+#else
   lj_lib_checktab(L, 1);
   lj_lib_checkany(L, 2);
   L->top = 1+lj_lib_checkany(L, 3);
   lua_rawset(L, 1);
+#endif
   return 1;
 }
 
 LJLIB_CF(rawequal)		LJLIB_REC(.)
 {
+#if LJ_54
+  cTValue *o1;
+  cTValue *o2;
+  base_checkany_named54(L, 1, "rawequal");
+  base_checkany_named54(L, 2, "rawequal");
+  o1 = L->base;
+  o2 = L->base+1;
+#else
   cTValue *o1 = lj_lib_checkany(L, 1);
   cTValue *o2 = lj_lib_checkany(L, 2);
+#endif
   setboolV(L->top-1, lj_obj_equal(o1, o2));
   return 1;
 }
@@ -266,8 +462,17 @@ LJLIB_CF(rawlen)		LJLIB_REC(.)
   int32_t len;
   if (L->top > o && tvisstr(o))
     len = (int32_t)strV(o)->len;
-  else
+#if LJ_54
+  else {
+    if (!(L->top > o && tvistab(o)))
+      base_argtype_named54(L, 1, "rawlen", "table or string");
+    len = (int32_t)lj_tab_len(tabV(o));
+  }
+#else
+  else {
     len = (int32_t)lj_tab_len(lj_lib_checktab(L, 1));
+  }
+#endif
   setintV(L->top-1, len);
   return 1;
 }
@@ -305,7 +510,11 @@ LJLIB_CF(select)		LJLIB_REC(.)
     setintV(L->top-1, n-1);
     return 1;
   } else {
+#if LJ_54
+    int32_t i = base_checkint_named54(L, 1, "select");
+#else
     int32_t i = lj_lib_checkint(L, 1);
+#endif
     if (i < 0) i = n + i; else if (i > n) i = n;
     if (i < 1)
       lj_err_arg(L, 1, LJ_ERR_IDXRNG);
@@ -317,7 +526,15 @@ LJLIB_CF(select)		LJLIB_REC(.)
 
 LJLIB_ASM(tonumber)		LJLIB_REC(.)
 {
+#if LJ_54
+  /* The explicit base is an integer parameter in Lua 5.4; do not silently
+  ** truncate fractions before the range check.
+  */
+  int32_t base = (L->base+1 < L->top && !tvisnil(L->base+1)) ?
+		 base_checkint_named54(L, 2, "tonumber") : 10;
+#else
   int32_t base = lj_lib_optint(L, 2, 10);
+#endif
   if (base == 10) {
     TValue *o = lj_lib_checkany(L, 1);
     if (lj_strscan_numberobj(o)) {
@@ -382,7 +599,12 @@ badbase:
 
 LJLIB_ASM(tostring)		LJLIB_REC(.)
 {
+#if LJ_54
+  TValue *o = L->base;
+  base_checkany_named54(L, 1, "tostring");
+#else
   TValue *o = lj_lib_checkany(L, 1);
+#endif
   cTValue *mo;
   L->top = o+1;  /* Only keep one argument. */
   if (!tvisnil(mo = lj_meta_lookup(L, o, MM_tostring))) {
@@ -398,7 +620,12 @@ LJLIB_ASM(tostring)		LJLIB_REC(.)
 
 LJLIB_CF(error)
 {
+#if LJ_54
+  int32_t level = (L->base+1 < L->top && !tvisnil(L->base+1)) ?
+		  base_checkint_named54(L, 2, "error") : 1;
+#else
   int32_t level = lj_lib_optint(L, 2, 1);
+#endif
   lua_settop(L, 1);
   if (lua_isstring(L, 1) && level > 0) {
     luaL_where(L, level);
@@ -410,8 +637,15 @@ LJLIB_CF(error)
 
 LJLIB_ASM(pcall)		LJLIB_REC(.)
 {
+#if LJ_54
+  const char *fname = curr_func(L)->c.ffid == FF_xpcall ? "xpcall" : "pcall";
+  base_checkany_named54(L, 1, fname);
+  if (curr_func(L)->c.ffid == FF_xpcall)
+    base_checkfunc_named54(L, 2, fname);
+#else
   lj_lib_checkany(L, 1);
   lj_lib_checkfunc(L, 2);  /* For xpcall only. */
+#endif
   return FFH_UNREACHABLE;
 }
 LJLIB_ASM_(xpcall)		LJLIB_REC(.)
@@ -440,8 +674,13 @@ static int load_aux(lua_State *L, int status, int envarg)
 
 LJLIB_CF(loadfile)
 {
+#if LJ_54
+  GCstr *fname = base_optstr_named54(L, 1, "loadfile");
+  GCstr *mode = base_optstr_named54(L, 2, "loadfile");
+#else
   GCstr *fname = lj_lib_optstr(L, 1);
   GCstr *mode = lj_lib_optstr(L, 2);
+#endif
   int status;
   lua_settop(L, 3);  /* Ensure env arg exists. */
   status = luaL_loadfilex(L, fname ? strdata(fname) : NULL,
@@ -470,8 +709,13 @@ static const char *reader_func(lua_State *L, void *ud, size_t *size)
 
 LJLIB_CF(load)
 {
+#if LJ_54
+  GCstr *name = base_optstr_named54(L, 2, "load");
+  GCstr *mode = base_optstr_named54(L, 3, "load");
+#else
   GCstr *name = lj_lib_optstr(L, 2);
   GCstr *mode = lj_lib_optstr(L, 3);
+#endif
   int status;
   if (L->base < L->top &&
       (tvisstr(L->base) || tvisnumber(L->base) || tvisbuf(L->base))) {
@@ -491,7 +735,11 @@ LJLIB_CF(load)
     status = luaL_loadbufferx(L, s, len, name ? strdata(name) : s,
 			      mode ? strdata(mode) : NULL);
   } else {
+#if LJ_54
+    base_checkfunc_named54(L, 1, "load");
+#else
     lj_lib_checkfunc(L, 1);
+#endif
     lua_settop(L, 5);  /* Reserve a slot for the string from the reader. */
     status = lua_loadx(L, reader_func, NULL, name ? strdata(name) : "=(load)",
 		       mode ? strdata(mode) : NULL);
@@ -506,7 +754,11 @@ LJLIB_CF(loadstring)
 
 LJLIB_CF(dofile)
 {
+#if LJ_54
+  GCstr *fname = base_optstr_named54(L, 1, "dofile");
+#else
   GCstr *fname = lj_lib_optstr(L, 1);
+#endif
   setnilV(L->top);
   L->top = L->base+1;
   if (luaL_loadfile(L, fname ? strdata(fname) : NULL) != LUA_OK)
@@ -543,9 +795,17 @@ LJLIB_CF(collectgarbage)
     }
   }
 #endif
+#if LJ_54
+  opt = base_checkopt_named54(L, 1, LUA_GCCOLLECT,  /* ORDER LUA_GC* */
+    "\4stop\7restart\7collect\5count\1\377\4step\10setpause\12setstepmul\1\377\11isrunning",
+    "collectgarbage");
+  data = (L->base+1 < L->top && !tvisnil(L->base+1)) ?
+	 base_checkint_named54(L, 2, "collectgarbage") : 0;
+#else
   opt = lj_lib_checkopt(L, 1, LUA_GCCOLLECT,  /* ORDER LUA_GC* */
     "\4stop\7restart\7collect\5count\1\377\4step\10setpause\12setstepmul\1\377\11isrunning");
   data = lj_lib_optint(L, 2, 0);
+#endif
   if (opt == LUA_GCCOUNT) {
     setnumV(L->top, (lua_Number)G(L)->gc.total/1024.0);
   } else {
@@ -641,8 +901,13 @@ LJLIB_CF(coroutine_status)
 {
   const char *s;
   lua_State *co;
-  if (!(L->top > L->base && tvisthread(L->base)))
+  if (!(L->top > L->base && tvisthread(L->base))) {
+#if LJ_54
+    base_argtype_named54(L, 1, "coroutine.status", "thread");
+#else
     lj_err_arg(L, 1, LJ_ERR_NOCORO);
+#endif
+  }
   co = threadV(L->base);
   if (co == L) s = "running";
   else if (co->status == LUA_YIELD) s = "suspended";
@@ -676,8 +941,13 @@ LJLIB_CF(coroutine_isyieldable)
 LJLIB_CF(coroutine_create)
 {
   lua_State *L1;
-  if (!(L->base < L->top && tvisfunc(L->base)))
+  if (!(L->base < L->top && tvisfunc(L->base))) {
+#if LJ_54
+    base_argtype_named54(L, 1, "coroutine.create", "function");
+#else
     lj_err_argt(L, 1, LUA_TFUNCTION);
+#endif
+  }
   L1 = lua_newthread(L);
   setfuncV(L, L1->top++, funcV(L->base));
   return 1;
@@ -688,7 +958,7 @@ static int lj_cf_coroutine_close(lua_State *L)
 {
   lua_State *co;
   if (!(L->top > L->base && tvisthread(L->base)))
-    lj_err_arg(L, 1, LJ_ERR_NOCORO);
+    base_argtype_named54(L, 1, "coroutine.close", "thread");
   co = threadV(L->base);
   if (co == L || co->cframe != NULL ||
       (co->status == LUA_OK && co->base > tvref(co->stack)+1+LJ_FR2))
@@ -716,6 +986,10 @@ static int lj_cf_coroutine_close(lua_State *L)
 
 LJLIB_ASM(coroutine_yield)
 {
+#if LJ_54
+  if (L == mainthread(G(L)))
+    lj_err_callermsg(L, "attempt to yield from outside a coroutine");
+#endif
   lj_err_caller(L, LJ_ERR_CYIELD);
   return FFH_UNREACHABLE;
 }
@@ -739,8 +1013,13 @@ static int ffh_resume(lua_State *L, lua_State *co, int wrap)
 
 LJLIB_ASM(coroutine_resume)
 {
-  if (!(L->top > L->base && tvisthread(L->base)))
+  if (!(L->top > L->base && tvisthread(L->base))) {
+#if LJ_54
+    base_argtype_named54(L, 1, "coroutine.resume", "thread");
+#else
     lj_err_arg(L, 1, LJ_ERR_NOCORO);
+#endif
+  }
   return ffh_resume(L, threadV(L->base), 0);
 }
 
@@ -772,7 +1051,14 @@ static void setpc_wrap_aux(lua_State *L, GCfunc *fn);
 LJLIB_CF(coroutine_wrap)
 {
   GCfunc *fn;
+#if LJ_54
+  if (!(L->base < L->top && tvisfunc(L->base)))
+    base_argtype_named54(L, 1, "coroutine.wrap", "function");
+  lua_newthread(L);
+  setfuncV(L, threadV(L->top-1)->top++, funcV(L->base));
+#else
   lj_cf_coroutine_create(L);
+#endif
   fn = lj_lib_pushcc(L, lj_ffh_coroutine_wrap_aux, FF_coroutine_wrap_aux, 1);
   setpc_wrap_aux(L, fn);
   return 1;
@@ -799,6 +1085,18 @@ static void newproxy_weaktable(lua_State *L)
   t->nomm = (uint8_t)(~(1u<<MM_mode));
 }
 
+#if LJ_54
+static int lj_cf_getmetatable54(lua_State *L)
+{
+  base_checkany_named54(L, 1, "getmetatable");
+  if (luaL_getmetafield(L, 1, "__metatable"))
+    return 1;
+  if (!lua_getmetatable(L, 1))
+    lua_pushnil(L);
+  return 1;
+}
+#endif
+
 LUALIB_API int luaopen_base(lua_State *L)
 {
   /* NOBARRIER: Table and value are the same. */
@@ -821,8 +1119,15 @@ LUALIB_API int luaopen_base(lua_State *L)
   setnilV(lj_tab_setstr(L, env, lj_str_newlit(L, "loadstring")));
   setnilV(lj_tab_setstr(L, env, lj_str_newlit(L, "unpack")));
   setnilV(lj_tab_setstr(L, env, lj_str_newlit(L, "gcinfo")));
+  lua_pushcfunction(L, lj_cf_type54);
+  lua_setglobal(L, "type");
+  lua_pushcfunction(L, lj_cf_getmetatable54);
+  lua_setglobal(L, "getmetatable");
   lua_pushcfunction(L, lj_cf_ipairs54);
   lua_setglobal(L, "ipairs");
+  lua_getglobal(L, "next");
+  lua_pushcclosure(L, lj_cf_pairs54, 1);
+  lua_setglobal(L, "pairs");
 #else
   setnilV(lj_tab_setstr(L, env, lj_str_newlit(L, "warn")));
 #endif

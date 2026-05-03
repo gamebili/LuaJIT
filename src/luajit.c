@@ -11,6 +11,10 @@
 #include <string.h>
 
 #define luajit_c
+/* The command-line frontend is built with the public headers but still uses a
+** few LuaJIT/Lua 5.1 compatibility helpers internally.
+*/
+#define LUAJIT_INTERNAL_USE
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -89,6 +93,9 @@ static void print_usage(void)
   "  -i        Enter interactive mode after executing " LUA_QL("script") ".\n"
   "  -v        Show version information.\n"
   "  -E        Ignore environment variables.\n"
+#if LJ_54
+  "  -W        Turn warnings on.\n"
+#endif
   "  --        Stop handling options.\n"
   "  -         Execute stdin and stop handling options.\n", stderr);
   fflush(stderr);
@@ -149,6 +156,7 @@ static void print_version(void)
   fputs(LUAJIT_VERSION " -- " LUAJIT_COPYRIGHT ". " LUAJIT_URL "\n", stdout);
 }
 
+#if !LJ_54
 static void print_jit_status(lua_State *L)
 {
   int n;
@@ -168,6 +176,7 @@ static void print_jit_status(lua_State *L)
   putc('\n', stdout);
   lua_settop(L, 0);  /* clear stack */
 }
+#endif
 
 static void createargtable(lua_State *L, char **argv, int argc, int argf)
 {
@@ -194,6 +203,28 @@ static int dostring(lua_State *L, const char *s, const char *name)
 
 static int dolibrary(lua_State *L, const char *name)
 {
+#if LJ_54
+  const char *eq = strchr(name, '=');
+  if (eq != NULL) {
+    int top = lua_gettop(L);
+    int status;
+    /* Lua 5.4 standalone accepts -l g=mod and stores require(mod) in _G[g].
+    ** Keep this frontend-only so normal require() and default LuaJIT stay
+    ** unchanged.
+    */
+    lua_getglobal(L, "require");
+    lua_pushstring(L, eq+1);
+    status = docall(L, 1, 0);
+    if (status)
+      return report(L, status);
+    lua_pushlstring(L, name, (size_t)(eq - name));
+    name = lua_tostring(L, -1);
+    lua_pushvalue(L, top+1);
+    lua_setglobal(L, name);
+    lua_settop(L, top);
+    return LUA_OK;
+  }
+#endif
   lua_getglobal(L, "require");
   lua_pushstring(L, name);
   return report(L, docall(L, 1, 1));
@@ -413,6 +444,7 @@ static int dobytecode(lua_State *L, char **argv)
 #define FLAGS_EXEC		4
 #define FLAGS_OPTION		8
 #define FLAGS_NOENV		16
+#define FLAGS_WARNING		32
 
 static int collectargs(char **argv, int *flags)
 {
@@ -453,6 +485,12 @@ static int collectargs(char **argv, int *flags)
     case 'E':
       *flags |= FLAGS_NOENV;
       break;
+#if LJ_54
+    case 'W':
+      notail(argv[i]);
+      *flags |= FLAGS_WARNING;
+      break;
+#endif
     default: return -1;  /* invalid option */
     }
   }
@@ -506,15 +544,25 @@ static int handle_luainit(lua_State *L)
 {
 #if LJ_TARGET_CONSOLE
   const char *init = NULL;
+  const char *chunkname = "=" LUA_INIT;
 #else
-  const char *init = getenv(LUA_INIT);
+  const char *init;
+  const char *chunkname = "=" LUA_INIT;
+#if LJ_54
+  /* Lua 5.4 standalone gives LUA_INIT_5_4 priority over the legacy name. */
+  init = getenv(LUA_INIT_5_4);
+  if (init != NULL)
+    chunkname = "=" LUA_INIT_5_4;
+  else
+#endif
+    init = getenv(LUA_INIT);
 #endif
   if (init == NULL)
     return LUA_OK;
   else if (init[0] == '@')
     return dofile(L, init+1);
   else
-    return dostring(L, init, "=" LUA_INIT);
+    return dostring(L, init, chunkname);
 }
 
 static struct Smain {
@@ -549,11 +597,25 @@ static int pmain(lua_State *L)
   luaL_openlibs(L);
   lua_gc(L, LUA_GCRESTART, -1);
 
+#if LJ_54
+  /* Lua 5.4 keeps the program/options at non-negative arg indexes when no
+  ** script is present; with a script, arg[0] is still the script name.
+  */
+  createargtable(L, argv, s->argc, s->argc > argn ? argn : 0);
+#else
   createargtable(L, argv, s->argc, argn);
+#endif
 
   if (!(flags & FLAGS_NOENV)) {
     s->status = handle_luainit(L);
     if (s->status != LUA_OK) return 0;
+  }
+
+  if ((flags & FLAGS_WARNING)) {
+    /* Lua 5.4 standalone -W enables warning output before executing
+    ** command-line chunks or scripts.
+    */
+    lua_warning(L, "@on", 0);
   }
 
   if ((flags & FLAGS_VERSION)) print_version();
@@ -567,12 +629,16 @@ static int pmain(lua_State *L)
   }
 
   if ((flags & FLAGS_INTERACTIVE)) {
+#if !LJ_54
     print_jit_status(L);
+#endif
     dotty(L);
   } else if (s->argc == argn && !(flags & (FLAGS_EXEC|FLAGS_VERSION))) {
     if (lua_stdin_is_tty()) {
       print_version();
+#if !LJ_54
       print_jit_status(L);
+#endif
       dotty(L);
     } else {
       dofile(L, NULL);  /* Executes stdin as a file. */

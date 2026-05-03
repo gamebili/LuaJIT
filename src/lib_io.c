@@ -499,15 +499,33 @@ LJLIB_CF(io_output)
 
 LJLIB_CF(io_lines)
 {
+#if LJ_54
+  GCudata *closing = NULL;
+#endif
   if (L->base == L->top) setnilV(L->top++);
   if (!tvisnil(L->base)) {  /* io.lines(fname) */
     IOFileUD *iof = io_file_open(L, "r");
     iof->type = IOFILE_TYPE_FILE|IOFILE_FLAG_CLOSE;
+#if LJ_54
+    closing = udataV(L->top-1);
+#endif
     L->top--;
     setudataV(L, L->base, udataV(L->top));
   } else {  /* io.lines() iterates over stdin. */
     setudataV(L, L->base, IOSTDF_UD(L, GCROOT_IO_INPUT));
   }
+#if LJ_54
+  if (closing) {
+    /* Lua 5.4 returns the file as the generic-for closing value. The iterator
+    ** still closes it on EOF until full VM-level <close> support is added.
+    */
+    io_file_lines(L);
+    setnilV(L->top++);
+    setnilV(L->top++);
+    setudataV(L, L->top++, closing);
+    return 4;
+  }
+#endif
   return io_file_lines(L);
 }
 

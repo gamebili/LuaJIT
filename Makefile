@@ -179,7 +179,14 @@ smoketest-lua54compat:
 	$(MAKE) clean
 	$(MAKE) XCFLAGS='-DLUAJIT_ENABLE_LUA54COMPAT'
 	./src/luajit test/smoke.lua lua54compat
-	out=$$(./src/luajit -e 'warn("@on"); warn("lua54 ", "warning")' 2>&1 >/dev/null) && test "$$out" = "lua54 warning"
+	out=$$(./src/luajit -e 'warn("@on"); warn("lua54 ", "warning")' 2>&1 >/dev/null) && test "$$out" = "Lua warning: lua54 warning"
+	out=$$(./src/luajit -W -e 'warn("lua54 -W warning")' 2>&1 >/dev/null) && test "$$out" = "Lua warning: lua54 -W warning"
+	LUA_INIT='error("wrong init")' LUA_INIT_5_4='lua54_init_marker=54' ./src/luajit -e 'assert(lua54_init_marker == 54)'
+	LUA_PATH='old/?.lua' LUA_PATH_5_4='v54/?.lua' LUA_CPATH='old/?.dll' LUA_CPATH_5_4='v54/?.dll' ./src/luajit -e 'assert(package.path:match("^v54/%?%.lua")); assert(package.cpath:match("^v54/%?%.dll"))'
+	LUA_INIT_5_4='error("noenv init")' LUA_PATH_5_4='bad/?.lua' LUA_CPATH_5_4='bad/?.dll' ./src/luajit -E -e 'assert(not package.path:match("^bad/")); assert(not package.cpath:match("^bad/"))'
+	./src/luajit -e 'assert(arg[-1] == nil); assert(arg[0]:match("luajit")); assert(arg[1] == "-e"); assert(arg[2]:match("arg%[0%]"))'
+	./src/luajit -l lua54math=math -e 'assert(lua54math.type(1) == "integer")'
+	out=$$(printf 'os.exit()\n' | ./src/luajit -i 2>&1) && case "$$out" in *"JIT:"*) exit 1;; esac
 
 smoketest-capi-lua54compat: smoketest-lua54compat
 	gcc -DLUAJIT_ENABLE_LUA54COMPAT -I src -x c test/lua54_capi_smoke.c -x none src/lua51.dll -o src/lua54_capi_smoke.exe

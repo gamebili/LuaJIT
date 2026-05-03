@@ -7,6 +7,7 @@
 */
 
 #include <errno.h>
+#include <string.h>
 #include <time.h>
 
 #define lib_os_c
@@ -21,6 +22,9 @@
 #include "lj_err.h"
 #include "lj_buf.h"
 #include "lj_str.h"
+#include "lj_meta.h"
+#include "lj_strscan.h"
+#include "lj_strfmt.h"
 #include "lj_lib.h"
 
 #if LJ_TARGET_POSIX
@@ -37,6 +41,113 @@
 
 #define LJLIB_MODULE_os
 
+#if LJ_54
+static void os_argerror_named54(lua_State *L, int narg, const char *fname,
+				const char *msg)
+{
+  lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #%d to '%s' (%s)",
+				      narg, fname, msg));
+}
+
+static const char *os_argtypename54(lua_State *L, int narg)
+{
+  TValue *o = L->base + narg-1;
+  if (o < L->top) {
+    MSize tlen;
+    const char *tname = lj_meta_objtypename(L, o, &tlen);
+    UNUSED(tlen);
+    return tname;
+  }
+  return lj_obj_typename[0];
+}
+
+static void os_argtype_named54(lua_State *L, int narg, const char *fname,
+			       const char *xname)
+{
+  os_argerror_named54(L, narg, fname,
+    lj_strfmt_pushf(L, "%s expected, got %s", xname,
+		    os_argtypename54(L, narg)));
+}
+
+static GCstr *os_checkstr_named54(lua_State *L, int narg, const char *fname)
+{
+  TValue *o = L->base + narg-1;
+  if (o < L->top) {
+    if (tvisstr(o)) {
+      return strV(o);
+    } else if (tvisnumber(o)) {
+      GCstr *s = lj_strfmt_number(L, o);
+      setstrV(L, o, s);
+      return s;
+    }
+  }
+  os_argtype_named54(L, narg, fname, "string");
+  return NULL;  /* unreachable */
+}
+
+static GCstr *os_optstr_named54(lua_State *L, int narg, const char *fname)
+{
+  TValue *o = L->base + narg-1;
+  if (o >= L->top || tvisnil(o))
+    return NULL;
+  return os_checkstr_named54(L, narg, fname);
+}
+
+static lua_Number os_checknum_named54(lua_State *L, int narg,
+				      const char *fname)
+{
+  TValue tmp;
+  cTValue *o = L->base + narg-1;
+  if (o >= L->top)
+    os_argtype_named54(L, narg, fname, "number");
+  if (tvisstr(o)) {
+    if (!lj_strscan_number(strV(o), &tmp))
+      os_argtype_named54(L, narg, fname, "number");
+    o = &tmp;
+  }
+  if (tvisint(o))
+    return (lua_Number)intV(o);
+  if (!tvisnum(o))
+    os_argtype_named54(L, narg, fname, "number");
+  return numV(o);
+}
+
+static lua_Number os_optnum_named54(lua_State *L, int narg, lua_Number def,
+				    const char *fname)
+{
+  cTValue *o = L->base + narg-1;
+  return (o < L->top && !tvisnil(o)) ?
+	 os_checknum_named54(L, narg, fname) : def;
+}
+
+static void os_checktab_named54(lua_State *L, int narg, const char *fname)
+{
+  TValue *o = L->base + narg-1;
+  if (!(o < L->top && tvistab(o)))
+    os_argtype_named54(L, narg, fname, "table");
+}
+
+static int os_checkopt_named54(lua_State *L, int narg, int def,
+			       const char *lst, const char *fname)
+{
+  GCstr *s = def >= 0 ? os_optstr_named54(L, narg, fname) :
+			 os_checkstr_named54(L, narg, fname);
+  if (s) {
+    const char *opt = strdata(s);
+    MSize len = s->len;
+    int i;
+    for (i = 0; *(const uint8_t *)lst; i++) {
+      if (*(const uint8_t *)lst == len && memcmp(opt, lst+1, len) == 0)
+	return i;
+      lst += 1+*(const uint8_t *)lst;
+    }
+    os_argerror_named54(L, narg, fname,
+			lj_strfmt_pushf(L, "invalid option '%s'", opt));
+  }
+  return def;
+}
+#endif
+
 LJLIB_CF(os_execute)
 {
 #if LJ_NO_SYSTEM
@@ -48,7 +159,12 @@ LJLIB_CF(os_execute)
   return 1;
 #endif
 #else
+#if LJ_54
+  GCstr *cmdstr = os_optstr_named54(L, 1, "os.execute");
+  const char *cmd = cmdstr ? strdata(cmdstr) : NULL;
+#else
   const char *cmd = luaL_optstring(L, 1, NULL);
+#endif
   int stat = system(cmd);
 #if LJ_52
   if (cmd)
@@ -63,15 +179,31 @@ LJLIB_CF(os_execute)
 
 LJLIB_CF(os_remove)
 {
+#if LJ_54
+  const char *filename = strdata(os_checkstr_named54(L, 1, "os.remove"));
+#else
   const char *filename = luaL_checkstring(L, 1);
+#endif
   return luaL_fileresult(L, remove(filename) == 0, filename);
 }
 
 LJLIB_CF(os_rename)
 {
+#if LJ_54
+  const char *fromname = strdata(os_checkstr_named54(L, 1, "os.rename"));
+  const char *toname = strdata(os_checkstr_named54(L, 2, "os.rename"));
+#else
   const char *fromname = luaL_checkstring(L, 1);
   const char *toname = luaL_checkstring(L, 2);
+#endif
+#if LJ_54
+  /* Lua 5.4 reports rename failures with the raw system error string; unlike
+  ** os.remove, it does not prepend the source file name.
+  */
+  return luaL_fileresult(L, rename(fromname, toname) == 0, NULL);
+#else
   return luaL_fileresult(L, rename(fromname, toname) == 0, fromname);
+#endif
 }
 
 LJLIB_CF(os_tmpname)
@@ -104,7 +236,11 @@ LJLIB_CF(os_getenv)
 #if LJ_TARGET_CONSOLE
   lua_pushnil(L);
 #else
+#if LJ_54
+  lua_pushstring(L, getenv(strdata(os_checkstr_named54(L, 1, "os.getenv"))));
+#else
   lua_pushstring(L, getenv(luaL_checkstring(L, 1)));  /* if NULL push nil */
+#endif
 #endif
   return 1;
 }
@@ -170,9 +306,16 @@ static int getfield(lua_State *L, const char *key, int d)
 
 LJLIB_CF(os_date)
 {
+#if LJ_54
+  GCstr *fmt = os_optstr_named54(L, 1, "os.date");
+  const char *s = fmt ? strdata(fmt) : "%c";
+  time_t t = lua_isnoneornil(L, 2) ? time(NULL) :
+	     lj_num2int_type(os_checknum_named54(L, 2, "os.date"), time_t);
+#else
   const char *s = luaL_optstring(L, 1, "%c");
   time_t t = lua_isnoneornil(L, 2) ? time(NULL) :
 	     lj_num2int_type(luaL_checknumber(L, 2), time_t);
+#endif
   struct tm *stm;
 #if LJ_TARGET_POSIX
   struct tm rtm;
@@ -234,7 +377,11 @@ LJLIB_CF(os_time)
     t = time(NULL);  /* get current time */
   } else {
     struct tm ts;
+#if LJ_54
+    os_checktab_named54(L, 1, "os.time");
+#else
     luaL_checktype(L, 1, LUA_TTABLE);
+#endif
     lua_settop(L, 1);  /* make sure table is at the top */
     ts.tm_sec = getfield(L, "sec", 0);
     ts.tm_min = getfield(L, "min", 0);
@@ -254,9 +401,16 @@ LJLIB_CF(os_time)
 
 LJLIB_CF(os_difftime)
 {
+#if LJ_54
+  lua_pushnumber(L,
+    difftime(lj_num2int_type(os_checknum_named54(L, 1, "os.difftime"), time_t),
+	     lj_num2int_type(os_optnum_named54(L, 2, (lua_Number)0,
+					       "os.difftime"), time_t)));
+#else
   lua_pushnumber(L,
     difftime(lj_num2int_type(luaL_checknumber(L, 1), time_t),
 	     lj_num2int_type(luaL_optnumber(L, 2, (lua_Number)0), time_t)));
+#endif
   return 1;
 }
 
@@ -267,10 +421,20 @@ LJLIB_CF(os_setlocale)
 #if LJ_TARGET_PSVITA
   lua_pushliteral(L, "C");
 #else
+#if LJ_54
+  GCstr *s = os_optstr_named54(L, 1, "os.setlocale");
+#else
   GCstr *s = lj_lib_optstr(L, 1);
+#endif
   const char *str = s ? strdata(s) : NULL;
+#if LJ_54
+  int opt = os_checkopt_named54(L, 2, 6,
+    "\5ctype\7numeric\4time\7collate\10monetary\1\377\3all",
+    "os.setlocale");
+#else
   int opt = lj_lib_checkopt(L, 2, 6,
     "\5ctype\7numeric\4time\7collate\10monetary\1\377\3all");
+#endif
   if (opt == 0) opt = LC_CTYPE;
   else if (opt == 1) opt = LC_NUMERIC;
   else if (opt == 2) opt = LC_TIME;

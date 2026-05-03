@@ -68,6 +68,12 @@
 #define LUA_PATH	"LUA_PATH"
 #define LUA_CPATH	"LUA_CPATH"
 #define LUA_INIT	"LUA_INIT"
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+/* Lua 5.4 checks versioned environment variables before the generic names. */
+#define LUA_PATH_5_4	"LUA_PATH_5_4"
+#define LUA_CPATH_5_4	"LUA_CPATH_5_4"
+#define LUA_INIT_5_4	"LUA_INIT_5_4"
+#endif
 
 /* Special file system characters. */
 #if defined(_WIN32)

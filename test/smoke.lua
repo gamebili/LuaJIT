@@ -77,6 +77,28 @@ assert(type(table.unpack) == "function")
 do
   local a, b, c = table.unpack({ "a", "b", "c" }, 2)
   assert(a == "b" and b == "c" and c == nil)
+  local n
+  n, a, b, c = select("#", table.unpack({ "a", nil, "c" })),
+	       table.unpack({ "a", nil, "c" })
+  assert(n == 3 and a == "a" and b == nil and c == "c")
+  n, a, b, c = select("#", table.unpack(setmetatable({ "a" }, {
+    __len = function() return 3 end
+  }))), table.unpack(setmetatable({ "a" }, { __len = function() return 3 end }))
+  assert(n == 3 and a == "a" and b == nil and c == nil)
+  local proxy = setmetatable({}, {
+    __len = function() return 3 end,
+    __index = function(_, k) return tostring(k) end,
+  })
+  n, a, b, c = select("#", table.unpack(proxy)), table.unpack(proxy)
+  assert(n == 3 and a == "1" and b == "2" and c == "3")
+  assert(select(1, pcall(table.unpack, {}, 1.2)) == false)
+  assert(select(1, pcall(table.unpack, {}, 1, 1.2)) == false)
+  local ok, err = pcall(table.unpack)
+  assert(ok == false and err:match("attempt to get length") ~= nil)
+  assert(select("#", table.unpack(nil, 1, 0)) == 0)
+  ok, err = pcall(table.unpack, nil, 1, 1)
+  assert(ok == false and err:match("attempt to index a nil value") ~= nil)
+  assert(select("#", table.unpack(1, 1, 0)) == 0)
 end
 assert(math.atan2 == nil)
 assert(math.pow == nil)
@@ -98,11 +120,176 @@ assert(type(string.packsize) == "function")
 assert(type(warn) == "function")
 assert(type(math.type) == "function")
 assert(_ENV == _G)
+assert(select(1, pcall(error, "lua54 error level", 1.2)) == false)
+assert(select(1, pcall(getmetatable)) == false)
+assert(select(1, pcall(select, 1.2, "a", "b")) == false)
+assert(select(1, pcall(select, -1.2, "a", "b")) == false)
+assert(select("1", "a", "b") == "a")
+do
+  local ok, err = pcall(assert)
+  assert(ok == false and err:match("to 'assert'") ~= nil)
+  ok, err = pcall(next)
+  assert(ok == false and err:match("to 'next'") ~= nil)
+  ok, err = pcall(pairs)
+  assert(ok == false and err:match("to 'pairs'") ~= nil)
+  ok, err = pcall(ipairs)
+  assert(ok == false and err:match("to 'ipairs'") ~= nil)
+  ok, err = pcall(setmetatable)
+  assert(ok == false and err:match("to 'setmetatable'") ~= nil)
+  ok, err = pcall(getmetatable)
+  assert(ok == false and err:match("to 'getmetatable'") ~= nil)
+  local iter, state, key = pairs(1)
+  assert(iter == next and state == 1 and key == nil)
+  ok, err = pcall(iter, state, key)
+  assert(ok == false and err:match("to 'next'") ~= nil)
+  for _, name in ipairs({ "create", "resume", "status", "wrap", "close" }) do
+    ok, err = pcall(coroutine[name])
+    assert(ok == false and err:match("coroutine%."..name) ~= nil)
+  end
+  ok, err = pcall(coroutine.yield)
+  assert(ok == false and err:match("outside a coroutine") ~= nil)
+  for _, item in ipairs({
+    { "type", function() return type() end },
+    { "tostring", function() return tostring() end },
+    { "pcall", function() return pcall() end },
+    { "xpcall", function() return xpcall(function() end) end },
+    { "select", function() return select() end },
+    { "error", function() return error(nil, 1.2) end },
+    { "tonumber", function() return tonumber("10", 2.5) end },
+    { "load", function() return load(true) end },
+    { "load", function() return load("return 1", true) end },
+    { "load", function() return load("return 1", nil, true) end },
+    { "loadfile", function() return loadfile(nil, true) end },
+    { "dofile", function() return dofile(true) end },
+    { "collectgarbage", function() return collectgarbage(true) end },
+    { "collectgarbage", function() return collectgarbage(1) end },
+    { "collectgarbage", function() return collectgarbage("step", true) end },
+    { "collectgarbage", function() return collectgarbage("step", 1.2) end },
+  }) do
+    ok, err = pcall(item[2])
+    assert(ok == false and err:match("to '"..item[1].."'") ~= nil)
+  end
+end
+do
+  local ok, err = pcall(rawget)
+  assert(ok == false and err:match("to 'rawget'") ~= nil)
+  ok, err = pcall(rawset, {}, "k")
+  assert(ok == false and err:match("to 'rawset'") ~= nil)
+  ok, err = pcall(rawequal)
+  assert(ok == false and err:match("to 'rawequal'") ~= nil)
+  ok, err = pcall(rawlen, 1)
+  assert(ok == false and err:match("to 'rawlen'") ~= nil and
+         err:match("table or string expected") ~= nil)
+end
+do
+  local locked = setmetatable({}, { __metatable = "locked" })
+  assert(getmetatable(locked) == "locked")
+end
+do
+  local f = assert(load("return x"))
+  local name, env = debug.getupvalue(f, 1)
+  assert(name == "_ENV" and env == _G)
+  assert(debug.getinfo(f, "u").nups == 1)
+  local repl = { x = 54 }
+  assert(debug.setupvalue(f, 1, repl) == "_ENV")
+  assert(f() == 54)
+
+  local no_global = assert(load("local y = 1; return y"))
+  assert(debug.getupvalue(no_global, 1) == "_ENV")
+  assert(debug.getinfo(no_global, "u").nups == 1)
+
+  local function outer()
+    local y = 7
+    return function() return _G, y end
+  end
+  local h = outer()
+  assert(debug.getinfo(h, "u").nups == 2)
+  local n1, v1 = debug.getupvalue(h, 1)
+  local n2, v2 = debug.getupvalue(h, 2)
+  assert(n1 == "_ENV" and v1 == _G)
+  assert(n2 == "y" and v2 == 7)
+end
+do
+  for _, item in ipairs({
+    { "string.byte", function() return pcall(string.byte, nil) end },
+    { "string.char", function() return pcall(string.char, nil) end },
+    { "string.dump", function() return pcall(string.dump, nil) end },
+    { "string.find", function() return pcall(string.find, nil, "x") end },
+    { "string.format", function() return pcall(string.format, nil) end },
+    { "string.gmatch", function() return pcall(string.gmatch, nil, "x") end },
+    { "string.gsub", function() return pcall(string.gsub, nil, "x", "y") end },
+    { "string.len", function() return pcall(string.len, nil) end },
+    { "string.lower", function() return pcall(string.lower, nil) end },
+    { "string.match", function() return pcall(string.match, nil, "x") end },
+    { "string.rep", function() return pcall(string.rep, nil, 2) end },
+    { "string.reverse", function() return pcall(string.reverse, nil) end },
+    { "string.sub", function() return pcall(string.sub, nil, 1) end },
+    { "string.upper", function() return pcall(string.upper, nil) end },
+    { "string.pack", function() return pcall(string.pack, nil) end },
+    { "string.unpack", function() return pcall(string.unpack, nil, "") end },
+    { "string.packsize", function() return pcall(string.packsize, nil) end },
+  }) do
+    local ok, err = item[2]()
+    assert(ok == false and err:match("to '"..item[1].."'") ~= nil)
+  end
+end
+do
+  local function expect_bad_integer(f, ...)
+    local ok, err = pcall(f, ...)
+    assert(ok == false and type(err) == "string" and
+           err:match("integer representation") ~= nil)
+  end
+  local function with_local()
+    local x = 1
+    expect_bad_integer(debug.getinfo, 1.2)
+    expect_bad_integer(debug.getlocal, 1, 1.2)
+    expect_bad_integer(debug.getlocal, 1.2, 1)
+    expect_bad_integer(debug.setlocal, 1, 1.2, x)
+    expect_bad_integer(debug.setlocal, 1.2, 1, x)
+  end
+  local function with_upvalue()
+    local y = 1
+    return function() return y end
+  end
+  local f = with_upvalue()
+  with_local()
+  expect_bad_integer(debug.getupvalue, f, 1.2)
+  expect_bad_integer(debug.setupvalue, f, 1.2, 2)
+  expect_bad_integer(debug.upvalueid, f, 1.2)
+  expect_bad_integer(debug.upvaluejoin, f, 1.2, f, 1)
+  expect_bad_integer(debug.sethook, function() end, "", 1.2)
+  expect_bad_integer(debug.traceback, "lua54 traceback", 1.2)
+  expect_bad_integer(debug.getuservalue, io.stdout, 1.2)
+  expect_bad_integer(debug.setuservalue, io.stdout, {}, 1.2)
+  expect_bad_integer(debug.setcstacklimit, 1.2)
+  assert(debug.getinfo("1", "n") ~= nil)
+end
 do
   assert(collectgarbage("generational") == "generational")
   assert(collectgarbage("incremental") == "generational")
   assert(collectgarbage("incremental") == "incremental")
   assert(collectgarbage("generational") == "incremental")
+  assert(select(1, pcall(collectgarbage, "minor")) == false)
+  assert(select(1, pcall(collectgarbage, "major")) == false)
+  do
+    local oldpause = collectgarbage("setpause", 123)
+    assert(oldpause == 200)
+    assert(collectgarbage("setpause", oldpause) == 120)
+    assert(collectgarbage("setpause", -1) == 200)
+    assert(collectgarbage("setpause", 1001) == 0)
+    assert(collectgarbage("setpause", 200) == 1000)
+    local oldmul = collectgarbage("setstepmul", 321)
+    assert(oldmul == 100)
+    assert(collectgarbage("setstepmul", oldmul) == 320)
+    assert(collectgarbage("setstepmul", -1) == 100)
+    assert(collectgarbage("setstepmul", 1001) == 0)
+    assert(collectgarbage("setstepmul", 100) == 1000)
+    assert(select(1, pcall(collectgarbage, "step", 1.2)) == false)
+    assert(select(1, pcall(collectgarbage, "setpause", 123.5)) == false)
+    assert(select(1, pcall(collectgarbage, "setstepmul", 123.5)) == false)
+    assert(collectgarbage("setpause", "123") == 200)
+    assert(collectgarbage("setstepmul", "123") == 100)
+  end
 end
 do
   assert(assert(load("local x <const> = 1; return x"))() == 1)
@@ -115,11 +302,44 @@ do
   assert(load("local x <unknown> = 1") == nil)
   assert(load("local x <close>, y <close> = false, false") == nil)
   assert(assert(load("local x <close> = false; return x"))() == false)
+  do
+    local setlocal_const = assert(load([[
+    return function()
+      local x <const> = {}
+      local repl = { changed = 1 }
+      assert(debug.setlocal(1, 1, repl) == "x")
+      assert(x == repl and x.changed == 1)
+    end
+    ]]))()
+    setlocal_const()
+    local f = assert(load([[local x <const> = {}; return function() return x end]]))()
+    local repl = { changed = 2 }
+    assert(debug.getupvalue(f, 1) == "x")
+    assert(debug.setupvalue(f, 1, repl) == "x")
+    assert(f() == repl and f().changed == 2)
+    do
+      local y = { joined = 3 }
+      local g = function() return y end
+      debug.upvaluejoin(f, 1, g, 1)
+      assert(f() == y and f().joined == 3)
+    end
+  end
 end
 do
   assert(assert(load("local _ENV = { x = 42 }; return x"))() == 42)
   assert(assert(load("local _ENV = {}; x = 7; return _ENV.x"))() == 7)
   assert(assert(load("local _ENV = { f = function() return 3 end }; return f()"))() == 3)
+end
+do
+  local f, err = load("for i = 1, 3, 0 do end")
+  assert(f == nil and err:match("'for' step is zero") ~= nil)
+  f, err = load("for i = 1, 3, 0.0 do end")
+  assert(f == nil and err:match("'for' step is zero") ~= nil)
+  local ok
+  ok, err = pcall(assert(load("local z = 0; for i = 1, 3, z do end")))
+  assert(ok == false and err:match("'for' step is zero") ~= nil)
+  ok, err = pcall(assert(load([[for i = 1, 3, "0" do end]])))
+  assert(ok == false and err:match("'for' step is zero") ~= nil)
 end
 do
   local function eval(src)
@@ -183,7 +403,12 @@ do
     _G.__lua54_meta_reverse = nil
   end
 end
-assert(math.type() == nil)
+do
+  for _, name in ipairs({ "type", "tointeger", "ult", "min", "max" }) do
+    local ok, err = pcall(math[name])
+    assert(ok == false and err:match("math%."..name) ~= nil)
+  end
+end
 assert(math.type(nil) == nil)
 assert(math.type("1") == nil)
 assert(math.type(1.5) == "float")
@@ -193,7 +418,6 @@ assert(math.mininteger == -2147483648)
 assert(math.maxinteger > 0 and math.mininteger < 0)
 assert(type(math.tointeger) == "function")
 assert(type(math.ult) == "function")
-assert(select(1, pcall(math.tointeger)) == false)
 assert(math.tointeger(nil) == nil)
 assert(math.tointeger("12") == 12)
 assert(math.tointeger(12.0) == 12)
@@ -204,9 +428,30 @@ assert(math.ult(2, 1) == false)
 assert(math.ult(1, -1) == true)
 assert(math.ult(-1, 1) == false)
 assert(select(1, pcall(math.ult, 1.5, 2)) == false)
+assert(math.max("a", "b") == "b")
+assert(math.min("a", "b") == "a")
+assert(math.max(false) == false)
+do
+  local a = setmetatable({ v = 1 }, { __lt = function(x, y) return x.v < y.v end })
+  local b = setmetatable({ v = 2 }, { __lt = function(x, y) return x.v < y.v end })
+  assert(math.max(a, b) == b)
+  assert(math.min(a, b) == a)
+end
+assert(select(1, pcall(math.max)) == false)
+assert(select(1, pcall(math.max, 1, "b")) == false)
 assert(math.type(math.floor(1.2)) == "integer")
 assert(math.floor("1.2") == 1)
 assert(math.type(math.ceil(1.2)) == "integer")
+do
+  local ok, err = pcall(math.deg)
+  assert(ok == false and err:match("math%.deg") ~= nil and
+         err:match("number expected") ~= nil)
+  ok, err = pcall(math.rad, {})
+  assert(ok == false and err:match("math%.rad") ~= nil and
+         err:match("number expected") ~= nil)
+  assert(math.deg(tostring(math.pi)) > 179.999)
+  assert(math.rad("180") > 3.141 and math.rad("180") < 3.142)
+end
 do
   local intpart, fracpart = math.modf(1.2)
   assert(intpart == 1 and math.type(intpart) == "integer")
@@ -214,20 +459,62 @@ do
 end
 
 do
-  assert(tostring(setmetatable({}, { __name = "Lua54Smoke" })):match("^Lua54Smoke: ") ~= nil)
+  local named = setmetatable({}, { __name = "Lua54Smoke" })
+  assert(tostring(named):match("^Lua54Smoke: ") ~= nil)
   local ok, err = pcall(math.abs, setmetatable({}, { __name = "Lua54Number" }))
   assert(ok == false and err:match("Lua54Number") ~= nil)
+  ok, err = pcall(coroutine.resume, named)
+  assert(ok == false and err:match("thread expected") and err:match("Lua54Smoke"))
+  ok, err = pcall(coroutine.close, named)
+  assert(ok == false and err:match("thread expected") and err:match("Lua54Smoke"))
 end
 do
   assert(tonumber("0x10", 16) == nil)
   assert(tonumber("10", 16) == 16)
   assert(tonumber("0x10", 34) == 38182)
+  local ok, err = pcall(tonumber, "10", 2.5)
+  assert(ok == false and err:match("integer representation") ~= nil)
+  assert(tonumber("10", "2") == 2)
 end
 do
   assert(select(1, pcall(string.format, "%d", 1.2)) == false)
   assert(string.format("%d", 12.0) == "12")
+  assert(string.format("%q", nil) == "nil")
+  assert(string.format("%q", true) == "true")
+  assert(string.format("%q", 1) == "1")
   assert(string.format("%q", 1.5) == "0x1.8p+0")
+  assert(string.format("%q", -0.0) == "-0x0p+0")
+  assert(string.format("%q", 0 / 0) == "(0/0)")
+  assert(string.format("%q", math.huge) == "1e9999")
+  assert(string.format("%q", -math.huge) == "-1e9999")
+  assert(select(1, pcall(string.format, "%q", {})) == false)
+  assert(select(1, pcall(string.format, "%q",
+    setmetatable({}, { __tostring = function() return "x" end }))) == false)
+  assert(select(1, pcall(string.format, "%c", 65.5)) == false)
+  assert(string.format("%c", "65") == "A")
   assert(string.format("%p", nil) == "(null)")
+  assert(string.format("%p", false) == "(null)")
+  assert(string.format("%p", true) == "(null)")
+  assert(string.format("%p", 1) == "(null)")
+  assert(string.format("%p", "x") ~= "(null)")
+end
+do
+  local function expect_bad_integer(f, ...)
+    local ok, err = pcall(f, ...)
+    assert(ok == false and type(err) == "string" and
+           err:match("integer representation") ~= nil)
+  end
+  expect_bad_integer(string.byte, "abc", 1.2)
+  expect_bad_integer(string.byte, "abc", 1, 2.2)
+  assert(string.byte("abc", "2") == 98)
+  expect_bad_integer(string.char, 65.2)
+  expect_bad_integer(string.sub, "abc", 1.2)
+  expect_bad_integer(string.sub, "abc", 1, 2.2)
+  expect_bad_integer(string.rep, "a", 1.2)
+  expect_bad_integer(string.find, "abc", "b", 1.2)
+  expect_bad_integer(string.match, "abc", "b", 1.2)
+  expect_bad_integer(string.gmatch, "abc", "b", 1.2)
+  expect_bad_integer(string.gsub, "aaa", "a", "b", 1.2)
 end
 do
   assert(debug.getuservalue(io.stdout) == nil)
@@ -235,12 +522,158 @@ do
   assert(debug.setuservalue(io.stdout, {}, 1) == nil)
 end
 do
+  for _, item in ipairs({
+    { "debug.getinfo", function() return pcall(debug.getinfo, nil) end },
+    { "debug.getinfo", function() return pcall(debug.getinfo, 1, true) end },
+    { "debug.getlocal", function() return pcall(debug.getlocal, nil, 1) end },
+    { "debug.setlocal", function() return pcall(debug.setlocal, nil, 1, true) end },
+    { "debug.getupvalue", function() return pcall(debug.getupvalue, nil, 1) end },
+    { "debug.setupvalue", function() return pcall(debug.setupvalue, nil, 1, true) end },
+    { "debug.upvalueid", function() return pcall(debug.upvalueid, nil, 1) end },
+    { "debug.upvaluejoin", function() return pcall(debug.upvaluejoin, nil, 1, nil, 1) end },
+    { "debug.sethook", function() return pcall(debug.sethook, true) end },
+    { "debug.getuservalue", function() return pcall(debug.getuservalue, nil) end },
+    { "debug.setuservalue", function() return pcall(debug.setuservalue, nil, {}) end },
+    { "debug.setcstacklimit", function() return pcall(debug.setcstacklimit, nil) end },
+  }) do
+    local ok, err = item[2]()
+    assert(ok == false and err:match("to '"..item[1].."'") ~= nil)
+  end
+end
+do
+  local ok, err = pcall(table.concat, nil)
+  assert(ok == false and err:match("to 'table%.concat'") ~= nil)
+  ok, err = pcall(table.concat, {}, true)
+  assert(ok == false and err:match("to 'table%.concat'") ~= nil)
+  ok, err = pcall(table.insert, nil, 1)
+  assert(ok == false and err:match("to 'table%.insert'") ~= nil)
+  ok, err = pcall(table.remove, nil)
+  assert(ok == false and err:match("to 'table%.remove'") ~= nil)
+  ok, err = pcall(table.sort, nil)
+  assert(ok == false and err:match("to 'table%.sort'") ~= nil)
+  ok, err = pcall(table.sort, {}, true)
+  assert(ok == false and err:match("to 'table%.sort'") ~= nil)
+  ok, err = pcall(table.move)
+  assert(ok == false and err:match("to 'table%.move'") ~= nil)
+end
+do
   local t = setmetatable({ 1 }, { __len = function() return 3 end })
   local ok, err = pcall(table.concat, t, ",")
   assert(ok == false and err:match("index 2") ~= nil)
+  t = setmetatable({ 1 }, { __len = function() return 1.2 end })
+  ok, err = pcall(table.concat, t, ",")
+  assert(ok == false and err:match("object length is not an integer") ~= nil)
+end
+do
+  local ok, err = pcall(table.concat, { 1, nil, 3 }, ",")
+  assert(ok == false and err:match("index 2") ~= nil)
+  local proxy = setmetatable({}, {
+    __len = function() return 3 end,
+    __index = function(_, k) return tostring(k) end,
+  })
+  assert(table.concat(proxy, ",") == "1,2,3")
+  ok, err = pcall(table.concat, { 1, 2, 3 }, ",", 1.2, 2)
+  assert(ok == false and err:match("number has no integer representation") ~= nil)
+  ok, err = pcall(table.concat, { 1, 2, 3 }, ",", 1, 2.2)
+  assert(ok == false and err:match("number has no integer representation") ~= nil)
+end
+do
+  local ok, err = pcall(table.insert, { 1, 2 }, 1.2, "x")
+  assert(ok == false and err:match("integer representation") ~= nil)
+  ok, err = pcall(table.insert, { 1, 2 }, 0, "x")
+  assert(ok == false and err:match("position out of bounds") ~= nil)
+  ok, err = pcall(table.insert, { 1, 2 }, 5, "x")
+  assert(ok == false and err:match("position out of bounds") ~= nil)
+  local t = setmetatable({ 1, nil, 3 }, { __len = function() return 3 end })
+  table.insert(t, "x")
+  assert(t[1] == 1 and t[2] == nil and t[3] == 3 and t[4] == "x")
+  local with_hole = { 1, nil, 3 }
+  table.insert(with_hole, "x")
+  assert(with_hole[1] == 1 and with_hole[2] == nil and
+         with_hole[3] == 3 and with_hole[4] == "x")
+  local base = { 1, 2, 3 }
+  local proxy = setmetatable({}, {
+    __len = function() return 3 end,
+    __index = function(_, k) return base[k] end,
+    __newindex = function(_, k, v) base[k] = v end,
+  })
+  table.insert(proxy, 2, "x")
+  assert(base[1] == 1 and base[2] == "x" and base[3] == 2 and base[4] == 3)
+end
+do
+  local ok, err = pcall(table.remove, { 1, 2 }, 1.2)
+  assert(ok == false and err:match("integer representation") ~= nil)
+  ok, err = pcall(table.remove, { 1, 2 }, 0)
+  assert(ok == false and err:match("position out of bounds") ~= nil)
+  ok, err = pcall(table.remove, { 1, 2 }, 4)
+  assert(ok == false and err:match("position out of bounds") ~= nil)
+  local t = { 1, 2 }
+  assert(table.remove(t, 3) == nil and t[1] == 1 and t[2] == 2)
+  assert(table.remove({}, 0) == nil)
+  local with_hole = { 1, nil, 3 }
+  assert(table.remove(with_hole) == 3)
+  assert(with_hole[1] == 1 and with_hole[2] == nil and with_hole[3] == nil)
+  local base = { 1, 2, 3 }
+  local proxy = setmetatable({}, {
+    __len = function() return 3 end,
+    __index = function(_, k) return base[k] end,
+    __newindex = function(_, k, v) base[k] = v end,
+  })
+  assert(table.remove(proxy, 2) == 2)
+  assert(base[1] == 1 and base[2] == 3 and base[3] == nil)
+end
+do
+  local ok, err = pcall(table.move, { 1, 2 }, 1.2, 2, 1, {})
+  assert(ok == false and err:match("integer representation") ~= nil)
+  ok, err = pcall(table.move, { 1, 2 }, 1, 2.2, 1, {})
+  assert(ok == false and err:match("integer representation") ~= nil)
+  ok, err = pcall(table.move, { 1, 2 }, 1, 2, 1.2, {})
+  assert(ok == false and err:match("integer representation") ~= nil)
+  ok, err = pcall(table.move)
+  assert(ok == false and err:match("bad argument #2") ~= nil)
+  ok, err = pcall(table.move, nil, 1, 0, 1)
+  assert(ok == false and err:match("bad argument #1") ~= nil)
+  local dst = {}
+  table.move({ 1, 2 }, "1", 2, "2", dst)
+  assert(dst[2] == 1 and dst[3] == 2)
+  local src = setmetatable({}, {
+    __index = function(_, k) return k * 10 end
+  })
+  dst = setmetatable({}, {
+    __newindex = function(t, k, v) rawset(t, k, v + 1) end
+  })
+  table.move(src, 1, 2, 3, dst)
+  assert(dst[3] == 11 and dst[4] == 21)
+end
+do
+  local t = setmetatable({ 3, 2, 1 }, { __len = function() return 2 end })
+  table.sort(t)
+  assert(t[1] == 2 and t[2] == 3 and t[3] == 1)
+  t = setmetatable({ 3, 2, 1 }, { __len = function() return 1.2 end })
+  local ok, err = pcall(table.sort, t)
+  assert(ok == false and err:match("object length is not an integer") ~= nil)
+  ok, err = pcall(table.sort, { 3, 2, 1, 0 },
+                  function(a, b) return a <= b end)
+  assert(ok == false and err:match("invalid order function for sorting") ~= nil)
+  ok, err = pcall(table.sort, { 1, 2, 3, 4 },
+                  function(a, b) return a >= b end)
+  assert(ok == false and err:match("invalid order function for sorting") ~= nil)
+  local reads, writes, base = {}, {}, { 3, 2, 1 }
+  local proxy = setmetatable({}, {
+    __len = function() return 3 end,
+    __index = function(_, k) reads[#reads+1] = k; return base[k] end,
+    __newindex = function(_, k, v) writes[#writes+1] = k; base[k] = v end,
+  })
+  table.sort(proxy)
+  assert(base[1] == 1 and base[2] == 2 and base[3] == 3)
+  assert(#reads > 0 and #writes > 0)
 end
 assert(load("return 0b1010") == nil)
+assert(load("return 1L") == nil)
 assert(load("return 1LL") == nil)
+assert(load("return 1UL") == nil)
+assert(load("return 1ULL") == nil)
+assert(load("return 1uLL") == nil)
 assert(load("return 1i") == nil)
 
 do
@@ -254,6 +687,17 @@ do
   local lax_seen = {}
   assert(type(utf8) == "table")
   assert(type(utf8.charpattern) == "string")
+  for _, item in ipairs({
+    { "utf8.char", function() return pcall(utf8.char, nil) end },
+    { "utf8.codes", function() return pcall(utf8.codes, nil) end },
+    { "utf8.codepoint", function() return pcall(utf8.codepoint, nil) end },
+    { "utf8.len", function() return pcall(utf8.len, nil) end },
+    { "utf8.offset", function() return pcall(utf8.offset, nil, 1) end },
+    { "utf8.offset", function() return pcall(utf8.offset, "a", nil) end },
+  }) do
+    local ok, err = item[2]()
+    assert(ok == false and err:match("to '"..item[1].."'") ~= nil)
+  end
   assert(utf8.len(s) == 4)
   assert(cps[1] == 97 and cps[2] == 162 and cps[3] == 8364 and cps[4] == 66376)
   assert(utf8.char(97, 162, 8364, 66376) == s)
@@ -261,6 +705,11 @@ do
   assert(#utf8.char(0x200000) == 5)
   assert(#utf8.char(0x7fffffff) == 6)
   assert(select(1, pcall(utf8.char, 0x80000000)) == false)
+  assert(select(1, pcall(utf8.char, 97.2)) == false)
+  assert(select(1, pcall(utf8.codepoint, s, 1.2)) == false)
+  assert(select(1, pcall(utf8.len, s, 1.2)) == false)
+  assert(select(1, pcall(utf8.offset, s, 1.2)) == false)
+  assert(select(1, pcall(utf8.offset, s, 1, 1.2)) == false)
   assert(utf8.charpattern:find("\253", 1, true) ~= nil)
   for p, c in utf8.codes(s) do
     seen[#seen+1] = p..":"..c
@@ -301,6 +750,10 @@ do
   assert(debug.setcstacklimit(-1) == old)
   assert(select(1, pcall(debug.setcstacklimit, "x")) == false)
   assert(debug.getinfo(function() end, "t").istailcall == false)
+  do
+    local info = debug.getinfo(function() end, "r")
+    assert(info.ftransfer == 0 and info.ntransfer == 0)
+  end
 end
 
 do
@@ -371,7 +824,9 @@ do
   assert(string.unpack("x b", "\0\7") == 7)
   assert(string.packsize("bBhH<i2I2<i4I4fdc4x") == 35)
   assert(select(1, pcall(string.packsize, "z")) == false)
+  assert(select(1, pcall(string.pack, "b", 1.2)) == false)
   assert(select(1, pcall(string.pack, "b", 128)) == false)
+  assert(select(1, pcall(string.unpack, "b", "a", 1.2)) == false)
   assert(select(1, pcall(string.unpack, "I4", "\1")) == false)
 end
 
@@ -384,6 +839,22 @@ do
   assert(loaderdata == ":preload:")
   package.loaded.__lua54_smoke_module = nil
   package.preload.__lua54_smoke_module = nil
+end
+
+do
+  local found, searcherr = package.searchpath("__lua54_missing__", "nope/?.lua;none/?.lua")
+  assert(found == nil)
+  assert(not searcherr:match("^\n\t"))
+  assert(searcherr:match("\n\tno file") ~= nil)
+  local preloaderr = package.searchers[1]("__lua54_missing_preload__")
+  assert(type(preloaderr) == "string" and not preloaderr:match("^\n\t"))
+  local old_searchers = package.searchers
+  package.searchers = {
+    function() return "custom missing" end
+  }
+  local ok, err = pcall(require, "__lua54_missing_custom__")
+  assert(ok == false and err:match("module '__lua54_missing_custom__' not found:\n\tcustom missing"))
+  package.searchers = old_searchers
 end
 
 do
@@ -475,6 +946,36 @@ do
 end
 
 do
+  local ok, err = pcall(os.date, true)
+  assert(ok == false and err:match("to 'os%.date'") ~= nil)
+  ok, err = pcall(os.date, "%c", true)
+  assert(ok == false and err:match("to 'os%.date'") ~= nil)
+  ok, err = pcall(os.difftime, 1, true)
+  assert(ok == false and err:match("to 'os%.difftime'") ~= nil)
+  ok, err = pcall(os.execute, true)
+  assert(ok == false and err:match("to 'os%.execute'") ~= nil)
+  ok, err = pcall(os.getenv, true)
+  assert(ok == false and err:match("to 'os%.getenv'") ~= nil)
+  ok, err = pcall(os.remove, true)
+  assert(ok == false and err:match("to 'os%.remove'") ~= nil)
+  ok, err = pcall(os.rename, true, false)
+  assert(ok == false and err:match("to 'os%.rename'") ~= nil)
+  ok, err = pcall(os.setlocale, true)
+  assert(ok == false and err:match("to 'os%.setlocale'") ~= nil)
+  ok, err = pcall(os.setlocale, nil, true)
+  assert(ok == false and err:match("to 'os%.setlocale'") ~= nil)
+  ok, err = pcall(os.time, true)
+  assert(ok == false and err:match("to 'os%.time'") ~= nil)
+end
+
+do
+  local missing = "__lua54_rename_missing__"
+  local ok, msg, code = os.rename(missing, "__lua54_rename_target__")
+  assert(ok == nil and type(msg) == "string" and type(code) == "number")
+  assert(msg:match(missing) == nil)
+end
+
+do
   warn("@off")
   warn("ignored warning")
   warn("@on")
@@ -491,10 +992,88 @@ do
 end
 
 do
+  local fname = "lua54_lines_smoke.tmp"
+  local f = assert(io.open(fname, "w"))
+  f:write("line\n")
+  f:close()
+  local iter, state, ctrl, closing = io.lines(fname)
+  assert(type(iter) == "function" and state == nil and ctrl == nil)
+  assert(io.type(closing) == "file")
+  assert(iter() == "line")
+  assert(iter() == nil)
+  assert(io.type(closing) == "closed file")
+  os.remove(fname)
+end
+
+do
   local first = string.gmatch("abcabc", "a", 2)
   local second = string.gmatch("abcabc", "a", 4)
   local none = string.gmatch("abcabc", "a", -2)
   assert(first() == "a")
   assert(second() == "a")
   assert(none() == nil)
+end
+
+do
+  local function plus(a)
+    return a + 1
+  end
+  local full = string.dump(plus, false)
+  local stripped = string.dump(plus, true)
+  assert(type(full) == "string" and #full > 0)
+  assert(type(stripped) == "string" and #stripped > 0 and #stripped <= #full)
+  local loaded = assert(load(stripped, "=dumped", "b"))
+  assert(loaded(41) == 42)
+  local f, err = load(stripped, "=dumped", "t")
+  assert(f == nil and err:match("attempt to load a binary chunk %(mode is 't'%)"))
+  f, err = load("return 1", "=text", "b")
+  assert(f == nil and err:match("attempt to load a text chunk %(mode is 'b'%)"))
+end
+
+do
+  local ok_util, jutil = pcall(require, "jit.util")
+  local ok_opt, jitopt = pcall(require, "jit.opt")
+  if ok_util and ok_opt and jit.status() then
+    local function trace_highwater()
+      local n = 0
+      for i = 1, 1000 do
+        if jutil.traceinfo(i) then n = i end
+      end
+      return n
+    end
+    local lua54_loop = assert(load([[
+      return function(n)
+        local _ENV = { bias = 3 }
+        local sum = 0
+        for i = 1, n do
+          sum = sum + (i // 2) + ((i & 3) | bias)
+        end
+        return sum
+      end
+    ]]))()
+    local function random_loop(n)
+      math.randomseed(123, 456)
+      local sum = 0
+      for i = 1, n do
+        local v = math.random(1, 4)
+        if math.tointeger(v) ~= v or v < 1 or v > 4 then return false end
+        sum = sum + v
+      end
+      return sum >= n and sum <= 4*n
+    end
+    jit.flush()
+    jit.on()
+    jitopt.start("hotloop=1")
+    local before = trace_highwater()
+    assert(lua54_loop(80) == 1840)
+    assert(lua54_loop(80) == 1840)
+    assert(trace_highwater() > before)
+    jit.flush()
+    before = trace_highwater()
+    assert(random_loop(120) == true)
+    assert(random_loop(120) == true)
+    assert(trace_highwater() > before)
+    jit.flush()
+    jitopt.start("hotloop=56")
+  end
 end

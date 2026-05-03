@@ -648,6 +648,26 @@ static void bcemit_lua54_helper(FuncState *fs, const char *field, size_t len,
   e1->u.s.aux = base;
   fs->freereg = base+1;  /* Leave one result by default, like parse_args(). */
 }
+
+static void bcemit_lua54_forstep(FuncState *fs, BCReg step)
+{
+  LexState *ls = fs->ls;
+  BCReg base = fs->freereg;
+  BCReg argbase;
+  /* Keep the zero-step check out of every VM backend: call a private helper
+  ** once before FORI, then write its normalized step value back to the slot.
+  */
+  bcemit_AD(fs, BC_GGET, base, const_lit(fs, "jit", 3));
+  bcreg_reserve(fs, 1);
+  if (ls->fr2) bcreg_reserve(fs, 1);
+  bcreg_reserve(fs, 1);
+  bcemit_ABC(fs, BC_TGETS, base, base, const_lit(fs, "_lua54_forstep", 14));
+  argbase = (BCReg)(base + 1 + ls->fr2);
+  bcemit_AD(fs, BC_MOV, argbase, step);
+  bcemit_ABC(fs, BC_CALL, base, 2, fs->freereg - base - ls->fr2);
+  bcemit_AD(fs, BC_MOV, step, base);
+  fs->freereg = base;
+}
 #endif
 
 /* Partially discharge expression to a value. */
@@ -2623,11 +2643,20 @@ static void parse_for_num(LexState *ls, GCstr *varname, BCLine line)
   lex_check(ls, ',');
   expr_next(ls);
   if (lex_opt(ls, ',')) {
-    expr_next(ls);
+    ExpDesc step;
+    expr(ls, &step);
+#if LJ_54
+    if (expr_isnumk_nojump(&step) && expr_numiszero(&step))
+      lj_lex_error(ls, 0, LJ_ERR_FORSTEP0);
+#endif
+    expr_tonextreg(fs, &step);
   } else {
     bcemit_AD(fs, BC_KSHORT, fs->freereg, 1);  /* Default step is 1. */
     bcreg_reserve(fs, 1);
   }
+#if LJ_54
+  bcemit_lua54_forstep(fs, (BCReg)(base + FORL_STEP));
+#endif
   var_add(ls, 3);  /* Hidden control variables. */
   lex_check(ls, TK_do);
   loop = bcemit_AJ(fs, BC_FORI, base, NO_JMP);

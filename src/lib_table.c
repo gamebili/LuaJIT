@@ -21,6 +21,9 @@
 #include "lj_meta.h"
 #include "lj_ff.h"
 #include "lj_lib.h"
+#include "lj_strscan.h"
+#include "lj_strfmt.h"
+#include "lj_vm.h"
 
 /* ------------------------------------------------------------------------ */
 
@@ -77,9 +80,193 @@ LJLIB_CF(table_maxn)
   return 1;
 }
 
+#if LJ_54
+#define LJ_TABLE_MAXINTEGER	((lua_Integer)2147483647)
+#define LJ_TABLE_MININTEGER	((lua_Integer)(-LJ_TABLE_MAXINTEGER - 1))
+
+static int32_t table_array_highest(GCtab *t)
+{
+  TValue *array = tvref(t->array);
+  ptrdiff_t i;
+  for (i = (ptrdiff_t)t->asize - 1; i > 0; i--)
+    if (!tvisnil(&array[i]))
+      return (int32_t)i;
+  return 0;
+}
+
+static int table_toint32value54(cTValue *o, int32_t *ip, int *isnum)
+{
+  TValue tmp;
+  double n, ni;
+  if (isnum)
+    *isnum = 0;
+  if (tvisstr(o)) {
+    if (!lj_strscan_number(strV(o), &tmp))
+      return 0;
+    o = &tmp;
+  }
+  if (!tvisnumber(o))
+    return 0;
+  if (isnum)
+    *isnum = 1;
+  if (tvisint(o)) {
+    *ip = intV(o);
+    return 1;
+  }
+  n = numV(o);
+  if (!(n >= (double)LJ_TABLE_MININTEGER &&
+	n <= (double)LJ_TABLE_MAXINTEGER))
+    return 0;
+  ni = lj_vm_floor(n);
+  if (n != ni)
+    return 0;
+  *ip = (int32_t)n;
+  return 1;
+}
+
+static void table_argerror_named54(lua_State *L, int narg, const char *fname,
+				   const char *msg)
+{
+  lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #%d to '%s' (%s)",
+				      narg, fname, msg));
+}
+
+static const char *table_argtypename54(lua_State *L, int narg)
+{
+  TValue *o = L->base + narg-1;
+  if (o < L->top) {
+    MSize tlen;
+    const char *tname = lj_meta_objtypename(L, o, &tlen);
+    UNUSED(tlen);
+    return tname;
+  }
+  return lj_obj_typename[0];
+}
+
+static void table_argtype_named54(lua_State *L, int narg, const char *fname,
+				  const char *xname)
+{
+  table_argerror_named54(L, narg, fname,
+    lj_strfmt_pushf(L, "%s expected, got %s", xname,
+		    table_argtypename54(L, narg)));
+}
+
+static GCtab *table_checktab_named54(lua_State *L, int narg,
+				     const char *fname)
+{
+  TValue *o = L->base + narg-1;
+  if (!(o < L->top && tvistab(o)))
+    table_argtype_named54(L, narg, fname, "table");
+  return tabV(o);
+}
+
+static GCstr *table_checkstr_named54(lua_State *L, int narg,
+				     const char *fname)
+{
+  TValue *o = L->base + narg-1;
+  if (o < L->top) {
+    if (tvisstr(o)) {
+      return strV(o);
+    } else if (tvisnumber(o)) {
+      GCstr *s = lj_strfmt_number(L, o);
+      setstrV(L, o, s);
+      return s;
+    }
+  }
+  table_argtype_named54(L, narg, fname, "string");
+  return NULL;  /* unreachable */
+}
+
+static GCstr *table_optstr_named54(lua_State *L, int narg,
+				   const char *fname)
+{
+  TValue *o = L->base + narg-1;
+  if (o >= L->top || tvisnil(o))
+    return NULL;
+  return table_checkstr_named54(L, narg, fname);
+}
+
+static void table_checkfunc_named54(lua_State *L, int narg,
+				    const char *fname)
+{
+  TValue *o = L->base + narg-1;
+  if (!(o < L->top && tvisfunc(o)))
+    table_argtype_named54(L, narg, fname, "function");
+}
+
+static int32_t table_checkint_named54(lua_State *L, int narg,
+				      const char *fname)
+{
+  cTValue *o = L->base + narg-1;
+  int32_t i;
+  int isnum = 0;
+  if (o < L->top && table_toint32value54(o, &i, &isnum))
+    return i;
+  if (isnum)
+    table_argerror_named54(L, narg, fname,
+			   "number has no integer representation");
+  table_argtype_named54(L, narg, fname, "number");
+  return 0;  /* unreachable */
+}
+
+static int32_t table_len54(lua_State *L, GCtab *t, int narg)
+{
+  cTValue *tabv = L->base + narg-1;
+  cTValue *mo = lj_meta_lookup(L, tabv, MM_len);
+  int32_t len = 0;
+  if (!tvisnil(mo)) {
+    copyTV(L, L->top++, mo);
+    copyTV(L, L->top++, tabv);
+    lua_call(L, 1, 1);
+    if (!table_toint32value54(L->top-1, &len, NULL))
+      luaL_error(L, "object length is not an integer");
+    L->top--;
+    return len;
+  }
+  len = (int32_t)lj_tab_len(t);
+  /* LuaJIT's length search can stop before later constructor array entries
+  ** after nil holes. Keep the Lua 5.4 table-library compatibility local here
+  ** instead of changing the global #table behavior for default LuaJIT code.
+  */
+  if (len < (int32_t)t->asize-1) {
+    int32_t ahigh = table_array_highest(t);
+    if (ahigh > len) len = ahigh;
+  }
+  return len;
+}
+#endif
+
 LJLIB_CF(table_insert)		LJLIB_REC(.)
 {
+#if LJ_54
+  GCtab *t = table_checktab_named54(L, 1, "table.insert");
+  int32_t len = table_len54(L, t, 1);
+  int32_t n, pos = len + 1;
+  int nargs = (int)(L->top - L->base);
+  if (nargs == 3) {
+    pos = table_checkint_named54(L, 2, "table.insert");
+    if (pos < 1 || pos-1 > len)
+      table_argerror_named54(L, 2, "table.insert", "position out of bounds");
+  } else if (nargs != 2) {
+    lj_err_caller(L, LJ_ERR_TABINS);
+  }
+#else
   GCtab *t = lj_lib_checktab(L, 1);
+#endif
+#if LJ_54
+  /* Lua 5.4 rejects non-integer positions and out-of-range insert slots before
+  ** moving elements; only the compatibility build gets the stricter contract.
+  */
+  for (n = len + 1; n > pos; n--) {
+    /* Lua 5.4 table.insert observes __index/__newindex while shifting
+    ** sequence slots, so proxy tables are updated through their metatables.
+    */
+    lua_geti(L, 1, n-1);
+    lua_seti(L, 1, n);
+  }
+  lua_pushvalue(L, nargs);
+  lua_seti(L, 1, pos);
+#else
   int32_t n, i = (int32_t)lj_tab_len(t) + 1;
   int nargs = (int)((char *)L->top - (char *)L->base);
   if (nargs != 2*sizeof(TValue)) {
@@ -103,6 +290,7 @@ LJLIB_CF(table_insert)		LJLIB_REC(.)
     copyTV(L, dst, L->top-1);  /* Set new value. */
     lj_gc_barriert(L, t, dst);
   }
+#endif
   return 0;
 }
 
@@ -150,35 +338,131 @@ LJLIB_LUA(table_move) /*
   end
 */
 
+#if LJ_54
+static int lj_cf_table_remove54(lua_State *L)
+{
+  GCtab *t = table_checktab_named54(L, 1, "table.remove");
+  int32_t len = table_len54(L, t, 1);
+  int32_t pos = len;
+  cTValue *posv = L->base + 1;
+  if (posv < L->top && !tvisnil(posv)) {
+    pos = table_checkint_named54(L, 2, "table.remove");
+    if (pos != len && (pos < 1 || pos-1 > len))
+      table_argerror_named54(L, 2, "table.remove", "position out of bounds");
+  }
+  if (pos >= 1 && pos <= len) {
+    int32_t i;
+    /* Lua 5.4 table.remove reads and writes through the public table API. */
+    lua_geti(L, 1, pos);
+    for (i = pos; i < len; i++) {
+      lua_geti(L, 1, i+1);
+      lua_seti(L, 1, i);
+    }
+    lua_pushnil(L);
+    lua_seti(L, 1, len);
+    return 1;
+  }
+  setnilV(L->top++);
+  return 1;
+}
+
+static int lj_cf_table_move54(lua_State *L)
+{
+  int32_t f = table_checkint_named54(L, 2, "table.move");
+  int32_t e = table_checkint_named54(L, 3, "table.move");
+  int32_t tt = table_checkint_named54(L, 4, "table.move");
+  GCtab *a1 = table_checktab_named54(L, 1, "table.move");
+  GCtab *a2;
+  cTValue *a2v = L->base + 4;
+  int target;
+  if (a2v < L->top && !tvisnil(a2v)) {
+    a2 = table_checktab_named54(L, 5, "table.move");
+    target = 5;
+  } else {
+    a2 = a1;
+    target = 1;
+  }
+  if (e >= f) {
+    int32_t i, d = tt - f;
+    if (tt > e || tt <= f || a2 != a1) {
+      for (i = f; i <= e; i++) {
+	/* Lua 5.4 table.move observes __index/__newindex; use public table
+	** accessors here instead of LuaJIT's raw array helpers.
+	*/
+	lua_geti(L, 1, i);
+	lua_seti(L, target, i+d);
+      }
+    } else {
+      for (i = e; i >= f; i--) {
+	lua_geti(L, 1, i);
+	lua_seti(L, target, i+d);
+	if (i == f) break;
+      }
+    }
+  }
+  lua_pushvalue(L, target);
+  return 1;
+}
+#endif
+
+#if LJ_54
+static int table_concat54(lua_State *L, GCstr *sep, int32_t i, int32_t e)
+{
+  luaL_Buffer b;
+  const char *sepstr = sep ? strdata(sep) : "";
+  size_t seplen = sep ? sep->len : 0;
+  int32_t start = i;
+  luaL_buffinit(L, &b);
+  while (i <= e) {
+    if (i > start && seplen)
+      luaL_addlstring(&b, sepstr, seplen);
+    /* Lua 5.4 table.concat observes __index while reading sequence items. */
+    lua_geti(L, 1, i);
+    if (!lua_isstring(L, -1))
+      luaL_error(L, "invalid value (%s) at index %d in table for 'concat'",
+		 luaL_typename(L, -1), i);
+    luaL_addvalue(&b);
+    i++;
+  }
+  luaL_pushresult(&b);
+  return 1;
+}
+#endif
+
 LJLIB_CF(table_concat)		LJLIB_REC(.)
 {
+#if LJ_54
+  GCtab *t = table_checktab_named54(L, 1, "table.concat");
+  GCstr *sep = table_optstr_named54(L, 2, "table.concat");
+  int32_t i = (L->base+2 < L->top && !tvisnil(L->base+2)) ?
+	      table_checkint_named54(L, 3, "table.concat") : 1;
+#else
   GCtab *t = lj_lib_checktab(L, 1);
   GCstr *sep = lj_lib_optstr(L, 2);
   int32_t i = lj_lib_optint(L, 3, 1);
+#endif
   int32_t e;
+#if !LJ_54
   SBuf *sb, *sbx;
+#endif
   if (L->base+3 < L->top && !tvisnil(L->base+3)) {
+#if LJ_54
+    e = table_checkint_named54(L, 4, "table.concat");
+#else
     e = lj_lib_checkint(L, 4);
+#endif
 #if LJ_54
   } else {
-    cTValue *mo = lj_meta_lookup(L, L->base, MM_len);
-    if (!tvisnil(mo)) {
-      /* Lua 5.4 table.concat obtains the default end via the length
-      ** operation, so a table __len metamethod must affect hole checks.
-      */
-      copyTV(L, L->top++, mo);
-      copyTV(L, L->top++, L->base);
-      lua_call(L, 1, 1);
-      e = (int32_t)luaL_checkinteger(L, -1);
-      L->top--;
-    } else {
-      e = (int32_t)lj_tab_len(t);
-    }
+    e = table_len54(L, t, 1);
 #else
   } else {
     e = (int32_t)lj_tab_len(t);
 #endif
   }
+#if LJ_54
+  UNUSED(t);
+  return table_concat54(L, sep, i, e);
+#else
   sb = lj_buf_tmp_(L);
   sbx = lj_buf_puttab(sb, t, sep, i, e);
   if (LJ_UNLIKELY(!sbx)) {  /* Error: bad element type. */
@@ -190,15 +474,30 @@ LJLIB_CF(table_concat)		LJLIB_REC(.)
   setstrV(L, L->top-1, lj_buf_str(L, sbx));
   lj_gc_check(L);
   return 1;
+#endif
 }
 
 /* ------------------------------------------------------------------------ */
 
 static void set2(lua_State *L, int i, int j)
 {
+#if LJ_54
+  /* Lua 5.4 table.sort reads and writes through the public table API so
+  ** proxy tables with __index/__newindex are sorted consistently.
+  */
+  lua_seti(L, 1, i);
+  lua_seti(L, 1, j);
+#else
   lua_rawseti(L, 1, i);
   lua_rawseti(L, 1, j);
+#endif
 }
+
+#if LJ_54
+#define sort_geti(L, i)	lua_geti((L), 1, (i))
+#else
+#define sort_geti(L, i)	lua_rawgeti((L), 1, (i))
+#endif
 
 static int sort_comp(lua_State *L, int a, int b)
 {
@@ -221,42 +520,55 @@ static void auxsort(lua_State *L, int l, int u)
   while (l < u) {  /* for tail recursion */
     int i, j;
     /* sort elements a[l], a[(l+u)/2] and a[u] */
-    lua_rawgeti(L, 1, l);
-    lua_rawgeti(L, 1, u);
+    sort_geti(L, l);
+    sort_geti(L, u);
     if (sort_comp(L, -1, -2))  /* a[u] < a[l]? */
       set2(L, l, u);  /* swap a[l] - a[u] */
     else
       lua_pop(L, 2);
     if (u-l == 1) break;  /* only 2 elements */
     i = (l+u)/2;
-    lua_rawgeti(L, 1, i);
-    lua_rawgeti(L, 1, l);
+    sort_geti(L, i);
+    sort_geti(L, l);
     if (sort_comp(L, -2, -1)) {  /* a[i]<a[l]? */
       set2(L, i, l);
     } else {
       lua_pop(L, 1);  /* remove a[l] */
-      lua_rawgeti(L, 1, u);
+      sort_geti(L, u);
       if (sort_comp(L, -1, -2))  /* a[u]<a[i]? */
 	set2(L, i, u);
       else
 	lua_pop(L, 2);
     }
     if (u-l == 2) break;  /* only 3 elements */
-    lua_rawgeti(L, 1, i);  /* Pivot */
+    sort_geti(L, i);  /* Pivot */
     lua_pushvalue(L, -1);
-    lua_rawgeti(L, 1, u-1);
+    sort_geti(L, u-1);
     set2(L, i, u-1);
     /* a[l] <= P == a[u-1] <= a[u], only need to sort from l+1 to u-2 */
     i = l; j = u-1;
     for (;;) {  /* invariant: a[l..i] <= P <= a[j..u] */
       /* repeat ++i until a[i] >= P */
-      while (lua_rawgeti(L, 1, ++i), sort_comp(L, -1, -2)) {
+      while (sort_geti(L, ++i), sort_comp(L, -1, -2)) {
+#if LJ_54
+	/* Lua 5.4 rejects non-strict comparators once the scan reaches the
+	** pivot sentinel itself; otherwise a <= b / a >= b can be accepted.
+	*/
+	if (i>=u-1)
+	  lj_err_caller(L, LJ_ERR_TABSORT);
+#else
 	if (i>=u) lj_err_caller(L, LJ_ERR_TABSORT);
+#endif
 	lua_pop(L, 1);  /* remove a[i] */
       }
       /* repeat --j until a[j] <= P */
-      while (lua_rawgeti(L, 1, --j), sort_comp(L, -3, -1)) {
+      while (sort_geti(L, --j), sort_comp(L, -3, -1)) {
+#if LJ_54
+	if (j<i)
+	  lj_err_caller(L, LJ_ERR_TABSORT);
+#else
 	if (j<=l) lj_err_caller(L, LJ_ERR_TABSORT);
+#endif
 	lua_pop(L, 1);  /* remove a[j] */
       }
       if (j<i) {
@@ -265,8 +577,8 @@ static void auxsort(lua_State *L, int l, int u)
       }
       set2(L, i, j);
     }
-    lua_rawgeti(L, 1, u-1);
-    lua_rawgeti(L, 1, i);
+    sort_geti(L, u-1);
+    sort_geti(L, i);
     set2(L, u-1, i);  /* swap pivot (a[u-1]) with a[i] */
     /* a[l..i-1] <= a[i] == P <= a[i+1..u] */
     /* adjust so that smaller half is in [j..i] and larger one in [l..u] */
@@ -281,11 +593,21 @@ static void auxsort(lua_State *L, int l, int u)
 
 LJLIB_CF(table_sort)
 {
+#if LJ_54
+  GCtab *t = table_checktab_named54(L, 1, "table.sort");
+  int32_t n = table_len54(L, t, 1);
+#else
   GCtab *t = lj_lib_checktab(L, 1);
   int32_t n = (int32_t)lj_tab_len(t);
+#endif
   lua_settop(L, 2);
-  if (!tvisnil(L->base+1))
+  if (!tvisnil(L->base+1)) {
+#if LJ_54
+    table_checkfunc_named54(L, 2, "table.sort");
+#else
     lj_lib_checkfunc(L, 2);
+#endif
+  }
   auxsort(L, 1, n);
   return 0;
 }
@@ -293,23 +615,34 @@ LJLIB_CF(table_sort)
 #if LJ_54
 static int lj_cf_table_unpack54(lua_State *L)
 {
-  GCtab *t = lj_lib_checktab(L, 1);
-  int32_t n, i = lj_lib_optint(L, 2, 1);
-  int32_t e = (L->base+2 < L->top && !tvisnil(L->base+2)) ?
-	      lj_lib_checkint(L, 3) : (int32_t)lj_tab_len(t);
+  int32_t n, i = (L->base+1 < L->top && !tvisnil(L->base+1)) ?
+		 table_checkint_named54(L, 2, "table.unpack") : 1;
+  int32_t e;
   uint32_t nu;
+  if (L->base+2 < L->top && !tvisnil(L->base+2)) {
+    e = table_checkint_named54(L, 3, "table.unpack");
+  } else if (L->base < L->top && tvistab(L->base)) {
+    e = table_len54(L, tabV(L->base), 1);
+  } else {
+    lua_Integer len = 0;
+    lua_len(L, 1);
+    if (!lua_numbertointeger(lua_tonumber(L, -1), &len)) {
+      lua_pop(L, 1);
+      luaL_error(L, "object length is not an integer");
+    }
+    lua_pop(L, 1);
+    e = (int32_t)len;
+  }
   if (i > e) return 0;
   nu = (uint32_t)e - (uint32_t)i;
   n = (int32_t)(nu+1);
   if (nu >= LUAI_MAXCSTACK || !lua_checkstack(L, n))
     lj_err_caller(L, LJ_ERR_UNPACK);
   do {
-    cTValue *tv = lj_tab_getint(t, i);
-    if (tv) {
-      copyTV(L, L->top++, tv);
-    } else {
-      setnilV(L->top++);
-    }
+    /* Lua 5.4 table.unpack reads through __index, unlike LuaJIT's raw array
+    ** helper used by the legacy unpack path.
+    */
+    lua_geti(L, 1, i);
     if (i >= e) break;
     i++;
   } while (1);
@@ -372,6 +705,10 @@ LUALIB_API int luaopen_table(lua_State *L)
   lua_pushnil(L); lua_setfield(L, -2, "foreachi");
   lua_pushnil(L); lua_setfield(L, -2, "getn");
   lua_pushnil(L); lua_setfield(L, -2, "maxn");
+  lua_pushcfunction(L, lj_cf_table_remove54);
+  lua_setfield(L, -2, "remove");
+  lua_pushcfunction(L, lj_cf_table_move54);
+  lua_setfield(L, -2, "move");
   lua_pushcfunction(L, lj_cf_table_unpack54);
   lua_setfield(L, -2, "unpack");
 #endif

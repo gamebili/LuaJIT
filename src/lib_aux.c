@@ -192,19 +192,25 @@ LUALIB_API void luaL_requiref(lua_State *L, const char *modname,
   }
 }
 
-LUALIB_API const char *luaL_gsub(lua_State *L, const char *s,
-				 const char *p, const char *r)
+LUALIB_API void luaL_addgsub(luaL_Buffer *B, const char *s,
+			     const char *p, const char *r)
 {
   const char *wild;
   size_t l = strlen(p);
-  luaL_Buffer b;
-  luaL_buffinit(L, &b);
   while ((wild = strstr(s, p)) != NULL) {
-    luaL_addlstring(&b, s, (size_t)(wild - s));  /* push prefix */
-    luaL_addstring(&b, r);  /* push replacement in place of pattern */
+    luaL_addlstring(B, s, (size_t)(wild - s));  /* push prefix */
+    luaL_addstring(B, r);  /* push replacement in place of pattern */
     s = wild + l;  /* continue after `p' */
   }
-  luaL_addstring(&b, s);  /* push last suffix */
+  luaL_addstring(B, s);  /* push last suffix */
+}
+
+LUALIB_API const char *luaL_gsub(lua_State *L, const char *s,
+				 const char *p, const char *r)
+{
+  luaL_Buffer b;
+  luaL_buffinit(L, &b);
+  luaL_addgsub(&b, s, p, r);
   luaL_pushresult(&b);
   return lua_tostring(L, -1);
 }
@@ -303,9 +309,15 @@ LUALIB_API void luaL_buffinit(lua_State *L, luaL_Buffer *B)
 
 LUALIB_API void luaL_checkversion_(lua_State *L, lua_Number ver, size_t sz)
 {
-  (void)L;
-  (void)ver;
-  (void)sz;
+  lua_Number v = *lua_version(L);
+  /* Lua 5.4 modules call this at open time; fail loudly instead of letting
+  ** mismatched headers or numeric ABIs corrupt values later.
+  */
+  if (sz != LUAL_NUMSIZES)
+    luaL_error(L, "core and library have incompatible numeric types");
+  if (v != ver)
+    luaL_error(L, "version mismatch: app. needs %d, Lua core provides %d",
+	       (int)ver, (int)v);
 }
 
 LUALIB_API void luaL_pushfail(lua_State *L)
