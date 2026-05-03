@@ -1163,6 +1163,19 @@ static int lj_cf_getmetatable54(lua_State *L)
 }
 #endif
 
+LUALIB_API int luaopen_coroutine(lua_State *L)
+{
+  LJ_LIB_REG(L, LUA_COLIBNAME, coroutine);
+#if LJ_54
+  /* coroutine.close is a Lua 5.4 addition and is installed here too so the
+  ** standalone luaopen_coroutine() entry matches luaL_openlibs().
+  */
+  lua_pushcfunction(L, lj_cf_coroutine_close);
+  lua_setfield(L, -2, "close");
+#endif
+  return 1;
+}
+
 LUALIB_API int luaopen_base(lua_State *L)
 {
   /* NOBARRIER: Table and value are the same. */
@@ -1201,10 +1214,6 @@ LUALIB_API int luaopen_base(lua_State *L)
 #else
   setnilV(lj_tab_setstr(L, env, lj_str_newlit(L, "warn")));
 #endif
-  LJ_LIB_REG(L, LUA_COLIBNAME, coroutine);
-#if LJ_54
-  lua_pushcfunction(L, lj_cf_coroutine_close);
-  lua_setfield(L, -2, "close");
-#endif
+  luaopen_coroutine(L);
   return 2;
 }
