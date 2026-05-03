@@ -68,9 +68,10 @@
   - 当前进展：`luaL_newmetatable()` 在 Lua 5.4 兼容模式下会把注册类型名写入 `__name`。
   - 当前进展：`luaL_tolstring()` 已使用 `__name` 作为默认对象前缀，C API smoke 已覆盖 lauxlib 路径。
   - 当前进展：`coroutine.resume()` / `coroutine.close()` 的 Lua 5.4 兼容路径已改用通用 `thread expected, got <__name>` 类型错误；默认 LuaJIT 构建仍保留旧 `coroutine expected` 文本。
+  - 当前进展：`coroutine.isyieldable([co])` 已支持 Lua 5.4 可选 thread 参数；挂起或死亡的非主 coroutine 返回 true，非 thread 参数使用 Lua 5.4 风格函数名和 `__name` 类型文本。
   - 当前进展：`coroutine.create()` / `resume()` / `status()` / `wrap()` / `close()` 的基础参数错误会带 `coroutine.xxx` 函数名，并使用 Lua 5.4 的 `function/thread expected` 文本。
   - 当前进展：主线程直接 `coroutine.yield()` 会按 Lua 5.4 报 `attempt to yield from outside a coroutine`；其他不可 yield 的 C 边界仍保留 LuaJIT 现有错误路径。
-  - 已覆盖：`tostring`、`type` 不受 `__name` 影响、非字符串 `__name` 被忽略、`math.abs` 参数类型错误、`coroutine.resume` / `coroutine.close` 线程类型错误、`coroutine` 基础参数错误函数名、`luaL_tolstring`。
+  - 已覆盖：`tostring`、`type` 不受 `__name` 影响、非字符串 `__name` 被忽略、`math.abs` 参数类型错误、`coroutine.resume` / `coroutine.close` / `coroutine.isyieldable` 线程类型错误、`coroutine.isyieldable([co])` 可选 thread 参数、`coroutine` 基础参数错误函数名、`luaL_tolstring`。
   - 说明：其他函数名/逐字错误文本继续归入“标准库错误消息与边界参数完全对齐”。
 
 - [ ] `tonumber` 和 `string.format` 的 Lua 5.4 数值格式规则。
@@ -261,7 +262,7 @@
 
 - `_VERSION == "Lua 5.4"`、`jit.lua54compat == true`。
 - Lua 5.4 模式隐藏旧 Lua 5.1/LuaJIT API：`getfenv`、`setfenv`、`module`、`newproxy`、`loadstring`、全局 `unpack`、`bit` 等。
-- `rawlen`、`table.pack`、`table.unpack`、`table.move`、`coroutine.isyieldable` 已可见。
+- `rawlen`、`table.pack`、`table.unpack`、`table.move`、`coroutine.isyieldable([co])` 已可见并覆盖可选 thread 参数。
 - `load(..., env)` 已能让 chunk 使用传入环境。
 - `pairs` 已支持 `__pairs`；`ipairs` 已按 Lua 5.4 使用普通索引访问，不走旧 `__ipairs`。
 - `package.searchers`、`require` loader data、`utf8` 基础库、`warn`、`math.randomseed(x, y)`、`math.random` 的基础 Lua 5.4 行为已进入 smoke 覆盖。

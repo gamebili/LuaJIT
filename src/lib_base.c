@@ -1000,6 +1000,21 @@ LJLIB_CF(coroutine_running)
 
 LJLIB_CF(coroutine_isyieldable)
 {
+#if LJ_54
+  if (L->base < L->top) {
+    lua_State *co;
+    if (!tvisthread(L->base))
+      base_argtype_named54(L, 1, "coroutine.isyieldable", "thread");
+    co = threadV(L->base);
+    /* Lua 5.4's optional thread argument asks about that coroutine, not the
+    ** currently executing C frame. Suspended/dead non-main coroutines have no
+    ** C frame, so they are yieldable by the public library definition.
+    */
+    setboolV(L->top++, co != mainthread(G(L)) &&
+	     (co->cframe == NULL || cframe_canyield(co->cframe)));
+    return 1;
+  }
+#endif
   setboolV(L->top++, cframe_canyield(L->cframe));
   return 1;
 }

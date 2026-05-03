@@ -34,6 +34,7 @@
 - 已继续收紧严格 Lua 5.4 语法表面：`L` / `LL` / `UL` / `ULL` / `uLL`、`0b...` 和 imaginary `i` 数字字面量扩展都已进入拒绝用例。
 - 已继续补 Lua 5.4 头文件/辅助库表面：新增 `LUA_VERSION_MAJOR` / `LUA_VERSION_MINOR` / `LUA_VERSION_RELEASE` / `LUA_NUMTYPES` 宏，以及 `luaL_addgsub()`。
 - 已继续收紧 `__name` 错误文本覆盖：Lua 5.4 兼容模式下 `coroutine.resume()` / `coroutine.close()` 的非线程参数会报 `thread expected, got <__name>`。
+- 已继续补齐 coroutine 库 Lua 5.4 表面：`coroutine.isyieldable([co])` 支持可选 thread 参数，挂起/死亡的非主 coroutine 返回 true，非 thread 参数走 Lua 5.4 风格错误文本。
 - 已完成 `__name` 元字段当前兼容闭环：覆盖 `tostring()` 前缀、参数类型错误、`type()` 不受影响、非字符串 `__name` 忽略、`luaL_newmetatable()` 和 `luaL_tolstring()` 路径。
 - 已继续收紧 coroutine 库参数错误：`coroutine.create()` / `resume()` / `status()` / `wrap()` / `close()` 的基础错误会带 `coroutine.xxx` 函数名，并使用 Lua 5.4 的 `function/thread expected` 文本。
 - 已继续收紧 `coroutine.yield()` 主线程错误：Lua 5.4 兼容模式下主线程直接 yield 会报 `attempt to yield from outside a coroutine`。
@@ -162,6 +163,7 @@
   - `//`、`&`、`|`、二元 `~`、一元 `~`、`<<`、`>>` 的 helper 在原始数值路径不可用时会查找并调用 Lua 5.4 元方法：`__idiv`、`__band`、`__bor`、`__bxor`、`__bnot`、`__shl`、`__shr`。
   - `__name` 元字段会影响 `tostring()` 的对象类型名前缀，以及参数类型错误中的实际类型名。
   - `coroutine.resume()` / `coroutine.close()` 在 Lua 5.4 兼容模式下的非线程参数错误会使用 `__name` 参与实际类型名；默认构建继续保留 LuaJIT 旧错误文本。
+  - `coroutine.isyieldable([co])` 支持 Lua 5.4 的可选 thread 参数；传入挂起、死亡或尚未启动的非主 coroutine 时返回 true，传入非 thread 参数时报 `thread expected`。
   - `luaL_newmetatable()` 在 Lua 5.4 兼容模式下会把注册类型名写入 `__name`。
   - `tonumber(s, 16)` 在 Lua 5.4 兼容模式下不再把 `0x` 前缀当成 explicit-base 16 的合法前缀；`base >= 34` 时 `x` 仍按普通数字字符处理。
   - `string.format()` 的整数格式现在拒绝没有整数表示的 number/string number；`%q` 对 number 输出 Lua 5.4 风格的可读回数值文本，`%p` 对 `nil` 输出 `(null)`，非 nil 指针使用平台 C `%p` 文本。
@@ -263,6 +265,7 @@
 - 覆盖 `"5" // 2` 和 `"5.5" // 2` 的字符串数字整除；覆盖 `"3" & 1` 仍报错。
 - 覆盖 `//`、`&`、`|`、二元 `~`、一元 `~`、`<<`、`>>` 的 Lua 5.4 元方法调用和反向查找。
 - 覆盖 `__name` 对 `tostring()`、`math.abs` 参数类型错误、`coroutine.resume()` / `coroutine.close()` 线程类型错误的影响。
+- 覆盖 `coroutine.isyieldable([co])` 的 Lua 5.4 可选 thread 参数：主线程默认 false、coroutine 内默认 true、挂起/死亡 coroutine 参数 true，以及非 thread 参数错误文本。
 - 覆盖 `coroutine.create()` / `resume()` / `status()` / `wrap()` / `close()` 的基础参数错误函数名。
 - 覆盖主线程直接 `coroutine.yield()` 的 Lua 5.4 错误文本。
 - 覆盖 `tonumber("0x10", 16) == nil`、`tonumber("0x10", 34)` 仍按普通数字解析，并覆盖 `inf` / `infinity` / `nan` 与 `0b` / `0B` 字符串在 Lua 5.4 兼容模式下返回 `nil`。

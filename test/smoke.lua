@@ -481,6 +481,22 @@ do
   assert(ok == false and err:match("thread expected") and err:match("Lua54Smoke"))
   ok, err = pcall(coroutine.close, named)
   assert(ok == false and err:match("thread expected") and err:match("Lua54Smoke"))
+  ok, err = pcall(coroutine.isyieldable, named)
+  assert(ok == false and err:match("thread expected") and err:match("Lua54Smoke"))
+end
+do
+  local co = coroutine.create(function()
+    assert(coroutine.isyieldable() == true)
+    coroutine.yield("paused")
+  end)
+  assert(coroutine.isyieldable() == false)
+  assert(coroutine.isyieldable(co) == true)
+  assert(select(1, coroutine.resume(co)) == true)
+  assert(coroutine.status(co) == "suspended")
+  assert(coroutine.isyieldable(co) == true)
+  assert(select(1, coroutine.resume(co)) == true)
+  assert(coroutine.status(co) == "dead")
+  assert(coroutine.isyieldable(co) == true)
 end
 do
   for _, s in ipairs({
