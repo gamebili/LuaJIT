@@ -16,8 +16,9 @@
   - 当前状态：显式 `local _ENV = ...` 和 `load(..., env)` 的基础访问已可用，但隐式全局访问没有暴露为名为 `_ENV` 的第一个 upvalue。
   - 当前进展：Lua 5.4 兼容模式下，main chunk 以及仍使用 LuaJIT 函数环境访问全局名的 Lua 函数，会通过 debug API 暴露一个伪 `_ENV` upvalue；`debug.getupvalue` / `debug.getinfo(..., "u")` / `debug.setupvalue` 已覆盖基础路径。
   - 已知差异：当前仍把 `_ENV` 写进了 `_G` 表，`rawget(_G, "_ENV") == _G`，而 Lua 5.4 官方环境里 `rawget(_G, "_ENV") == nil`；伪 `_ENV` 仍依赖 LuaJIT 函数环境，不能完整表达非 table `_ENV` upvalue。
-  - 已覆盖：chunk 的 `_ENV` upvalue 名称/位置、`debug.setupvalue` 用 table 替换环境、带真实上值且访问全局的闭包会把 `_ENV` 排在第一个 debug upvalue。
-  - 仍需补测试/实现：闭包继承局部 `_ENV` 的更多层级、`_G` 表中不应额外暴露 `_ENV` 键、非 table `_ENV` upvalue、`debug.upvalueid` / `debug.upvaluejoin` 的完整 upvalue identity。
+  - 当前进展：Lua 5.4 兼容模式下 `rawget(_G, "_ENV")` 已对齐官方返回 `nil`，`next(_G)` / `pairs(_G)` 也会跳过内部兼容 `_ENV` 键，同时保留裸 `_ENV == _G` 的当前兼容表面。
+  - 已覆盖：chunk 的 `_ENV` upvalue 名称/位置、`debug.setupvalue` 用 table 替换环境、带真实上值且访问全局的闭包会把 `_ENV` 排在第一个 debug upvalue、`rawget(_G, "_ENV") == nil`、`next(_G)` / `pairs(_G)` 不枚举 `_ENV`。
+  - 仍需补测试/实现：闭包继承局部 `_ENV` 的更多层级、非 table `_ENV` upvalue、`debug.upvalueid` / `debug.upvaluejoin` 的完整 upvalue identity。
 
 - [x] `<const>` 的 debug API 行为核对。
   - 当前状态：编译期赋值检查已覆盖；经本机 Lua 5.4.8 对照，`debug.setlocal`、`debug.setupvalue`、`debug.upvaluejoin` 可以绕过 `<const>` 的源码级赋值限制，当前实现保留该行为。

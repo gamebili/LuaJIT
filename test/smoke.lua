@@ -120,6 +120,17 @@ assert(type(string.packsize) == "function")
 assert(type(warn) == "function")
 assert(type(math.type) == "function")
 assert(_ENV == _G)
+assert(rawget(_G, "_ENV") == nil)
+do
+  local k = nil
+  repeat
+    k = next(_G, k)
+    assert(k ~= "_ENV")
+  until k == nil
+  for name in pairs(_G) do
+    assert(name ~= "_ENV")
+  end
+end
 assert(select(1, pcall(error, "lua54 error level", 1.2)) == false)
 assert(select(1, pcall(getmetatable)) == false)
 assert(select(1, pcall(select, 1.2, "a", "b")) == false)

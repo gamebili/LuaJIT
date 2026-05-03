@@ -227,6 +227,39 @@ LJLIB_ASM(next)			LJLIB_REC(.)
   return FFH_UNREACHABLE;
 }
 
+#if LJ_54
+static int base_isglobalenv(lua_State *L, GCtab *t)
+{
+  return t == tabref(L->env);
+}
+
+static int base_isenvkey(cTValue *o)
+{
+  if (tvisstr(o)) {
+    GCstr *k = strV(o);
+    return k->len == 4 && memcmp(strdata(k), "_ENV", 4) == 0;
+  }
+  return 0;
+}
+
+static int lj_cf_next54(lua_State *L)
+{
+  GCtab *t = base_checktab_named54(L, 1, "next");
+  int hide_env = base_isglobalenv(L, t);
+  if (lua_gettop(L) < 2)
+    lua_pushnil(L);
+  else
+    lua_settop(L, 2);
+  while (lua_next(L, 1)) {
+    if (!hide_env || !base_isenvkey(L->top-2))
+      return 2;
+    /* _ENV is an internal compatibility binding, not an official global key. */
+    lua_pop(L, 1);
+  }
+  return 0;
+}
+#endif
+
 #if LJ_52 || LJ_HASFFI
 static int ffh_pairs(lua_State *L, MMS mm)
 {
@@ -431,6 +464,24 @@ LJLIB_ASM(rawget)		LJLIB_REC(.)
 #endif
   return FFH_UNREACHABLE;
 }
+
+#if LJ_54
+static int lj_cf_rawget54(lua_State *L)
+{
+  GCtab *t = base_checktab_named54(L, 1, "rawget");
+  base_checkany_named54(L, 2, "rawget");
+  if (base_isglobalenv(L, t) && base_isenvkey(L->base+1)) {
+    /* Keep the current compatibility binding usable for bare _ENV lookups,
+    ** but do not expose it as a raw global table entry.
+    */
+    lua_pushnil(L);
+    return 1;
+  }
+  lua_settop(L, 2);
+  lua_rawget(L, 1);
+  return 1;
+}
+#endif
 
 LJLIB_CF(rawset)		LJLIB_REC(.)
 {
@@ -1135,6 +1186,10 @@ LUALIB_API int luaopen_base(lua_State *L)
   lua_setglobal(L, "type");
   lua_pushcfunction(L, lj_cf_getmetatable54);
   lua_setglobal(L, "getmetatable");
+  lua_pushcfunction(L, lj_cf_next54);
+  lua_setglobal(L, "next");
+  lua_pushcfunction(L, lj_cf_rawget54);
+  lua_setglobal(L, "rawget");
   lua_pushcfunction(L, lj_cf_ipairs54);
   lua_setglobal(L, "ipairs");
   lua_getglobal(L, "next");
