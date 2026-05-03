@@ -21,6 +21,7 @@
 - 已开始把 Lua 5.4 新语义纳入 JIT smoke：当前 PC 构建会在开启 JIT 后运行 `//`、位运算和局部 `_ENV` 热循环，并确认产生 trace。
 - 已继续补 Lua 5.4 C API 表面：外部兼容头中的 `lua_resume(L, from, nargs, nresults)` 已映射到 `lua_resume54()` 包装入口，并覆盖 yield/return 的结果数量。
 - 已继续补 lauxlib C API smoke：`luaL_loadbufferx()` / `luaL_loadfilex()` 的 text 模式加载和 binary-only 模式拒绝 text chunk 已进入回归。
+- 已继续补 lauxlib C API smoke：覆盖 `luaL_fileresult()`、`luaL_execresult()`、`luaL_newlib()`、`luaL_setfuncs()`、registered metatable/userdata helper、`luaL_traceback()` 和 `luaL_dostring()`。
 - 已继续清理 Lua 5.4 外部兼容头：旧 `LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` 伪索引和一批 Lua 5.1 API 声明已从外部 5.4 表面隐藏，`lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 改走 registry globals 包装路径。
 - 已继续补 C API GC 常量覆盖：`LUA_GCCOUNTB` 已进入 smoke，验证 byte remainder 在 `0..1023` 范围内。
 - 已继续补 Lua 5.4 getter 返回值签名：外部兼容头中的 `lua_gettable()` / `lua_getfield()` / `lua_geti()` / `lua_rawget()` / `lua_rawgeti()` / `lua_rawgetp()` 现在通过包装入口返回取到值的 Lua 类型。
@@ -198,6 +199,7 @@
   - `lauxlib.h` / 辅助库新增 Lua 5.4 常用表面：`luaL_pushfail()`、`luaL_len()`、`luaL_getsubtable()`、`luaL_requiref()`、`luaL_tolstring()`、`luaL_typeerror()`、`luaL_argexpected()`、`luaL_checkversion()`、`luaL_addgsub()` 和 buffer API。
   - Lua 5.4 兼容模式下 `luaL_prepbuffsize()` / `luaL_buffinitsize()` 会按请求尺寸增长 buffer，不再被旧 LuaJIT 固定 `LUAL_BUFFERSIZE` 缓冲区限制；默认构建仍保留旧 LuaJIT buffer 结构。
   - `luaL_loadbufferx()` / `luaL_loadfilex()` 的 `mode` 参数路径已通过 C API smoke 覆盖；text 模式可加载源码，binary-only 模式会拒绝 text chunk。
+  - `luaL_fileresult()`、`luaL_execresult()`、`luaL_newlib()`、`luaL_setfuncs()`、`luaL_newmetatable()` / `luaL_getmetatable()`、`luaL_setmetatable()`、`luaL_testudata()`、`luaL_checkudata()`、`luaL_traceback()` 和 `luaL_dostring()` 已进入 Lua 5.4 C API smoke。
   - `lua_Debug` 新增 Lua 5.4 字段：`nparams`、`isvararg`、`istailcall`、`ftransfer`、`ntransfer`；C API `lua_getinfo(..., "ut")` 已能读取参数字段，并对尚未精确支持的 tail/transfer 字段返回保守零值。
   - `debug.getinfo(f, "t")` 不再报 invalid option，并返回 `istailcall=false`；真实 tail-call 识别和 hook transfer 字段仍在 `TODO.md` 保留。
   - 全局 `_ENV` 在 Lua 5.4 兼容模式下指向 `_G`。
@@ -303,6 +305,7 @@
 - 覆盖 Lua 5.4 外部兼容头中 `lua_dump(..., strip)` 的 full/stripped 写出，以及 stripped LuaJIT bytecode 用 `mode="b"` 回读执行。
 - 覆盖 Lua 5.4 头文件中 `LUA_VERSION_MAJOR` / `LUA_VERSION_MINOR` / `LUA_VERSION_RELEASE` / `LUA_NUMTYPES` 的可见性，以及 `luaL_addgsub()` 的 buffer 替换结果。
 - 覆盖 Lua 5.4 兼容模式下 `luaL_prepbuffsize()` / `luaL_buffinitsize()` 请求大于 `LUAL_BUFFERSIZE` 时的 buffer 写入和最终字符串长度。
+- 覆盖 `luaL_fileresult()` 成功/失败返回形态、`luaL_execresult()` exit 返回形态、`luaL_newlib()` / `luaL_setfuncs()` 注册函数、registered metatable/userdata helper、`luaL_traceback()` 文本和 `luaL_dostring()` 结果。
 - 覆盖 `LUA_GCCOUNTB` 返回 `0..1023` 范围内的 byte remainder。
 - 覆盖 `debug.getinfo(function() end, "t").istailcall == false`。
 - 覆盖 `warn()` 无参数调用报错。

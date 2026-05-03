@@ -4,6 +4,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <errno.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -150,6 +151,22 @@ static int push_answer(lua_State *L)
   lua_pushinteger(L, 42);
   return 1;
 }
+
+static int push_upvalue(lua_State *L)
+{
+  lua_pushvalue(L, lua_upvalueindex(1));
+  return 1;
+}
+
+static const luaL_Reg capi_newlib[] = {
+  { "answer", push_answer },
+  { NULL, NULL }
+};
+
+static const luaL_Reg capi_setfuncs[] = {
+  { "upvalue", push_upvalue },
+  { NULL, NULL }
+};
 
 static int yield_once(lua_State *L)
 {
@@ -512,6 +529,8 @@ static void test_lauxlib_api(lua_State *L)
   luaL_Stream stream;
   char *p;
   int status;
+  int rtype;
+  void *ud;
   CApiReaderCtx reader;
 
   stream.f = NULL;
@@ -585,6 +604,67 @@ static void test_lauxlib_api(lua_State *L)
   lua_pop(L, 2);
   luaL_requiref(L, "capi.mod", require_open, 1);
   check(L, require_open_count == 1, "luaL_requiref reuses loaded module");
+  lua_pop(L, 1);
+
+  check(L, luaL_fileresult(L, 1, NULL) == 1, "luaL_fileresult success arity");
+  check(L, lua_toboolean(L, -1), "luaL_fileresult success value");
+  lua_pop(L, 1);
+
+  errno = ENOENT;
+  check(L, luaL_fileresult(L, 0, "missing.lua") == 3,
+	"luaL_fileresult failure arity");
+  check(L, lua_isnil(L, -3), "luaL_fileresult failure nil");
+  check(L, strstr(lua_tostring(L, -2), "missing.lua") != NULL,
+	"luaL_fileresult failure filename");
+  check_integer(L, -1, ENOENT, "luaL_fileresult errno");
+  lua_pop(L, 3);
+
+  check(L, luaL_execresult(L, 0) == 3, "luaL_execresult success arity");
+  check(L, lua_toboolean(L, -3), "luaL_execresult success bool");
+  check_string(L, -2, "exit", "luaL_execresult success kind");
+  check_integer(L, -1, 0, "luaL_execresult success code");
+  lua_pop(L, 3);
+
+  luaL_newlib(L, capi_newlib);
+  lua_getfield(L, -1, "answer");
+  lua_call(L, 0, 1);
+  check_integer(L, -1, 42, "luaL_newlib function");
+  lua_pop(L, 2);
+
+  lua_newtable(L);
+  lua_pushliteral(L, "captured-upvalue");
+  luaL_setfuncs(L, capi_setfuncs, 1);
+  lua_getfield(L, -1, "upvalue");
+  lua_call(L, 0, 1);
+  check_string(L, -1, "captured-upvalue", "luaL_setfuncs upvalue");
+  lua_pop(L, 2);
+
+  check(L, luaL_newmetatable(L, "capi.ud") == 1, "luaL_newmetatable creates");
+  rtype = lua_getfield(L, -1, "__name");
+  check(L, rtype == LUA_TSTRING, "luaL_newmetatable __name type");
+  check_string(L, -1, "capi.ud", "luaL_newmetatable __name value");
+  lua_pop(L, 2);
+  check(L, luaL_getmetatable(L, "capi.ud") == LUA_TTABLE,
+	"luaL_getmetatable type");
+  lua_pop(L, 1);
+  ud = lua_newuserdatauv(L, 1, 0);
+  luaL_setmetatable(L, "capi.ud");
+  check(L, luaL_testudata(L, -1, "capi.ud") == ud, "luaL_testudata match");
+  check(L, luaL_testudata(L, -1, "capi.other") == NULL,
+	"luaL_testudata mismatch");
+  check(L, luaL_checkudata(L, -1, "capi.ud") == ud, "luaL_checkudata match");
+  lua_pop(L, 1);
+
+  luaL_traceback(L, L, "trace-msg", 0);
+  check(L, strstr(lua_tostring(L, -1), "trace-msg") != NULL,
+	"luaL_traceback message");
+  check(L, strstr(lua_tostring(L, -1), "stack traceback") != NULL,
+	"luaL_traceback stack");
+  lua_pop(L, 1);
+
+  status = luaL_dostring(L, "return 12");
+  check(L, status == LUA_OK, "luaL_dostring status");
+  check_integer(L, -1, 12, "luaL_dostring result");
   lua_pop(L, 1);
 
   lua_pushboolean(L, 1);
