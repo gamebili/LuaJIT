@@ -136,6 +136,22 @@ static GCfunc *func_newL(lua_State *L, GCproto *pt, GCtab *env)
   return fn;
 }
 
+#if LJ_54
+void lj_func_inituv_env(lua_State *L, GCfunc *fn, GCtab *env)
+{
+  if (isluafunc(fn) && fn->l.nupvalues > 0) {
+    GCupval *uv = &gcref(fn->l.uvptr[0])->uv;
+    TValue *tv = uvval(uv);
+    /* Lua 5.4 load() initializes the first upvalue of a loaded closure to
+    ** the selected environment; LuaJIT's function env alone is not enough
+    ** for bytecode that actually reads upvalue slot 0.
+    */
+    settabV(L, tv, env);
+    lj_gc_barrier(L, obj2gco(uv), tv);
+  }
+}
+#endif
+
 /* Create a new Lua function with empty upvalues. */
 GCfunc *lj_func_newL_empty(lua_State *L, GCproto *pt, GCtab *env)
 {

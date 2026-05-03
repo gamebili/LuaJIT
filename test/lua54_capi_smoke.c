@@ -575,6 +575,33 @@ static void test_lauxlib_api(lua_State *L)
   lua_pop(L, 1);
 
   luaL_buffinit(L, &b);
+  {
+    size_t big = LUAL_BUFFERSIZE + 32;
+    p = luaL_prepbuffsize(&b, big);
+    memset(p, 'z', big);
+    luaL_addsize(&b, big);
+    check(L, luaL_bufflen(&b) == big, "luaL_prepbuffsize big length");
+    luaL_pushresult(&b);
+    check(L, lua_rawlen(L, -1) == big, "luaL_prepbuffsize big result size");
+    check(L, lua_tostring(L, -1)[0] == 'z' &&
+	     lua_tostring(L, -1)[big - 1] == 'z',
+	  "luaL_prepbuffsize big result bytes");
+    lua_pop(L, 1);
+  }
+
+  {
+    size_t big = LUAL_BUFFERSIZE + 17;
+    p = luaL_buffinitsize(L, &b, big);
+    memset(p, 'q', big);
+    luaL_pushresultsize(&b, big);
+    check(L, lua_rawlen(L, -1) == big, "luaL_buffinitsize big result size");
+    check(L, lua_tostring(L, -1)[0] == 'q' &&
+	     lua_tostring(L, -1)[big - 1] == 'q',
+	  "luaL_buffinitsize big result bytes");
+    lua_pop(L, 1);
+  }
+
+  luaL_buffinit(L, &b);
   luaL_addgsub(&b, "a?$?", "?", "Lua54");
   luaL_pushresult(&b);
   check_string(L, -1, "aLua54$Lua54", "luaL_addgsub result");

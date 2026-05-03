@@ -151,27 +151,54 @@ LUALIB_API void (luaL_setmetatable) (lua_State *L, const char *tname);
 
 
 
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+typedef struct luaL_Buffer {
+  char *b;			/* buffer address */
+  size_t size;			/* buffer size */
+  size_t n;			/* number of characters in buffer */
+  lua_State *L;
+  char initb[LUAL_BUFFERSIZE];
+} luaL_Buffer;
+#else
 typedef struct luaL_Buffer {
   char *p;			/* current position in buffer */
   int lvl;  /* number of strings in the stack (level) */
   lua_State *L;
   char buffer[LUAL_BUFFERSIZE];
 } luaL_Buffer;
+#endif
 
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+#define luaL_addchar(B,c) \
+  ((void)(((B)->n < (B)->size) || luaL_prepbuffsize((B), 1)), \
+   ((B)->b[(B)->n++] = (char)(c)))
+#else
 #define luaL_addchar(B,c) \
   ((void)((B)->p < ((B)->buffer+LUAL_BUFFERSIZE) || luaL_prepbuffer(B)), \
    (*(B)->p++ = (char)(c)))
+#endif
 
 /* compatibility only */
 #define luaL_putchar(B,c)	luaL_addchar(B,c)
 
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+#define luaL_addsize(B,sz_)	((B)->n += (sz_))
+#define luaL_buffaddr(B)	((B)->b)
+#define luaL_bufflen(B)		((B)->n)
+#define luaL_buffsub(B,sz_)	((B)->n -= (sz_))
+#else
 #define luaL_addsize(B,n)	((B)->p += (n))
 #define luaL_buffaddr(B)	((B)->buffer)
 #define luaL_bufflen(B)		((size_t)((B)->p - (B)->buffer))
 #define luaL_buffsub(B,n)	((B)->p -= (n))
+#endif
 #define luaL_pushresultsize(B,sz) \
   (luaL_addsize((B), (sz)), luaL_pushresult((B)))
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+LUALIB_API char *(luaL_prepbuffsize) (luaL_Buffer *B, size_t sz);
+#else
 #define luaL_prepbuffsize(B,sz)	luaL_prepbuffer((B))
+#endif
 #define luaL_buffinitsize(L,B,sz) \
   (luaL_buffinit((L), (B)), luaL_prepbuffsize((B), (sz)))
 

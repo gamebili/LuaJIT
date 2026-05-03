@@ -17,6 +17,7 @@
 #include "lauxlib.h"
 
 #include "lj_obj.h"
+#include "lj_gc.h"
 #include "lj_err.h"
 #include "lj_state.h"
 #include "lj_trace.h"
@@ -217,6 +218,95 @@ LUALIB_API const char *luaL_gsub(lua_State *L, const char *s,
 
 /* -- Buffer handling ----------------------------------------------------- */
 
+#if LJ_54
+
+#define bufffree(B)	((B)->size - (B)->n)
+
+static char *resizebuffer(luaL_Buffer *B, size_t sz)
+{
+  lua_State *L = B->L;
+  size_t need = B->n + sz;
+  size_t newsize = B->size ? B->size * 2 : LUAL_BUFFERSIZE;
+  char *newbuf;
+  if (need < B->n)
+    lj_err_mem(L);
+  while (newsize < need) {
+    size_t oldsize = newsize;
+    newsize *= 2;
+    if (newsize <= oldsize) {
+      newsize = need;
+      break;
+    }
+  }
+  /* Lua 5.4's buffer API promises that luaL_prepbuffsize() returns a block
+  ** large enough for the requested write. LuaJIT's old fixed buffer cannot
+  ** satisfy large writes, so compat mode grows a side buffer through the Lua
+  ** allocator and frees it in luaL_pushresult().
+  */
+  newbuf = (char *)lj_mem_realloc(L, NULL, 0, (GCSize)newsize);
+  if (B->n)
+    memcpy(newbuf, B->b, B->n);
+  if (B->b != B->initb)
+    lj_mem_realloc(L, B->b, (GCSize)B->size, 0);
+  B->b = newbuf;
+  B->size = newsize;
+  return B->b + B->n;
+}
+
+LUALIB_API char *luaL_prepbuffsize(luaL_Buffer *B, size_t sz)
+{
+  if (sz <= bufffree(B))
+    return B->b + B->n;
+  return resizebuffer(B, sz);
+}
+
+LUALIB_API char *luaL_prepbuffer(luaL_Buffer *B)
+{
+  return luaL_prepbuffsize(B, LUAL_BUFFERSIZE);
+}
+
+LUALIB_API void luaL_addlstring(luaL_Buffer *B, const char *s, size_t l)
+{
+  char *p = luaL_prepbuffsize(B, l);
+  memcpy(p, s, l);
+  B->n += l;
+}
+
+LUALIB_API void luaL_addstring(luaL_Buffer *B, const char *s)
+{
+  luaL_addlstring(B, s, strlen(s));
+}
+
+LUALIB_API void luaL_pushresult(luaL_Buffer *B)
+{
+  lua_State *L = B->L;
+  lua_pushlstring(L, B->b, B->n);
+  if (B->b != B->initb)
+    lj_mem_realloc(L, B->b, (GCSize)B->size, 0);
+  B->b = B->initb;
+  B->size = LUAL_BUFFERSIZE;
+  B->n = 0;
+}
+
+LUALIB_API void luaL_addvalue(luaL_Buffer *B)
+{
+  lua_State *L = B->L;
+  size_t vl;
+  const char *s = lua_tolstring(L, -1, &vl);
+  luaL_addlstring(B, s, vl);
+  lua_pop(L, 1);
+}
+
+LUALIB_API void luaL_buffinit(lua_State *L, luaL_Buffer *B)
+{
+  B->L = L;
+  B->b = B->initb;
+  B->size = LUAL_BUFFERSIZE;
+  B->n = 0;
+}
+
+#else
+
 #define bufflen(B)	((size_t)((B)->p - (B)->buffer))
 #define bufffree(B)	((size_t)(LUAL_BUFFERSIZE - bufflen(B)))
 
@@ -304,6 +394,8 @@ LUALIB_API void luaL_buffinit(lua_State *L, luaL_Buffer *B)
   B->p = B->buffer;
   B->lvl = 0;
 }
+
+#endif
 
 /* -- Lua 5.4 auxiliary compatibility ------------------------------------ */
 

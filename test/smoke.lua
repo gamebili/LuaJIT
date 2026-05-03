@@ -1142,10 +1142,38 @@ do
   assert(type(stripped) == "string" and #stripped > 0 and #stripped <= #full)
   local loaded = assert(load(stripped, "=dumped", "b"))
   assert(loaded(41) == 42)
+  local upvalue = 42
+  local with_upvalue = string.dump(function() return upvalue end, true)
+  loaded = assert(load(with_upvalue, "=dumped-upvalue", "b"))
+  assert(loaded() == _G)
+  local dump_env = { marker = "dump-env" }
+  loaded = assert(load(with_upvalue, "=dumped-upvalue", "b", dump_env))
+  assert(loaded() == dump_env)
+  local n, v = debug.getupvalue(loaded, 1)
+  assert(n == "" and v == dump_env)
+  assert(debug.getupvalue(loaded, 2) == nil)
+  loaded = assert(load(string.dump(function() return 54 end, true), "=dumped-plain", "b"))
+  assert(debug.getupvalue(loaded, 1) == nil)
+  loaded = assert(load(string.dump(function() return math.type(1) end, true), "=dumped-global", "b"))
+  n, v = debug.getupvalue(loaded, 1)
+  assert(n == "_ENV" and v == _G)
+  assert(debug.getupvalue(loaded, 2) == nil)
   local f, err = load(stripped, "=dumped", "t")
   assert(f == nil and err:match("attempt to load a binary chunk %(mode is 't'%)"))
   f, err = load("return 1", "=text", "b")
   assert(f == nil and err:match("attempt to load a text chunk %(mode is 'b'%)"))
+  -- Prebuilt Lua 5.4.8 dump of: function() return 54 end.
+  -- The compat mode supports LuaJIT bytecode only, so reject official chunks
+  -- explicitly instead of silently accepting an incompatible format.
+  local official54 = string.char(
+    27,76,117,97,84,0,25,147,13,10,26,10,4,8,8,120,
+    86,0,0,0,0,0,0,0,0,0,0,0,40,119,64,0,
+    128,129,129,0,0,2,131,1,128,26,128,72,0,2,
+    0,71,0,1,0,128,128,128,128,128,128,128)
+  f, err = load(official54, "=official54", "b")
+  assert(f == nil and err:match("cannot load incompatible bytecode"))
+  f, err = load(official54, "=official54", "t")
+  assert(f == nil and err:match("attempt to load a binary chunk %(mode is 't'%)"))
 end
 
 do
@@ -1179,6 +1207,17 @@ do
       end
       return sum >= n and sum <= 4*n
     end
+    local function reject_number_string_loop(n)
+      -- Keep scanner-only number spellings rejected after this path is traced.
+      local bad = { "inf", "nan", "0b10" }
+      local c = 0
+      for i = 1, n do
+        if tonumber(bad[(i % 3) + 1]) == nil then
+          c = c + 1
+        end
+      end
+      return c
+    end
     jit.flush()
     jit.on()
     jitopt.start("hotloop=1")
@@ -1190,6 +1229,11 @@ do
     before = trace_highwater()
     assert(random_loop(120) == true)
     assert(random_loop(120) == true)
+    assert(trace_highwater() > before)
+    jit.flush()
+    before = trace_highwater()
+    assert(reject_number_string_loop(80) == 80)
+    assert(reject_number_string_loop(80) == 80)
     assert(trace_highwater() > before)
     jit.flush()
     jitopt.start("hotloop=56")

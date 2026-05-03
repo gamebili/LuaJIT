@@ -241,14 +241,14 @@ int lj_debug_hasenvuv(GCfunc *fn)
   if (uvname[0] == '_' && uvname[1] == 'E' && uvname[2] == 'N' &&
       uvname[3] == 'V' && uvname[4] == '\0')
     return 0;  /* A lexical _ENV already exists as a real upvalue. */
-  if (pt->firstline == 0)
-    return 1;  /* Main chunks in Lua 5.4 always expose _ENV. */
   bc = proto_bc(pt);
   for (i = 1; i < pt->sizebc; i++) {
     BCOp op = bc_op(bc[i]);
     if (op == BC_GGET || op == BC_GSET)
       return 1;  /* Free names still use LuaJIT's function env internally. */
   }
+  if (pt->firstline == 0 && proto_uvinfo(pt) != NULL)
+    return 1;  /* Source main chunks in Lua 5.4 always expose _ENV. */
 #else
   UNUSED(fn);
 #endif

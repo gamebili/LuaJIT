@@ -144,7 +144,7 @@
   - 当前进展：Lua 5.4 兼容头已声明现有 `lua_copy()`，C API smoke 覆盖把一个栈槽复制到另一个栈槽。
   - 当前进展：已补 `lua_setcstacklimit()` C API shim，和 Lua 层 `debug.setcstacklimit()` 一样返回稳定兼容上限。
   - 当前进展：`LUA_GCCOUNTB` 已进入 C API smoke，覆盖返回 0..1023 byte remainder 的基础契约。
-  - 当前进展：已补 lauxlib 常用 Lua 5.4 表面：`luaL_pushfail`、`luaL_len`、`luaL_getsubtable`、`luaL_requiref`、`luaL_tolstring`、`luaL_typeerror`、`luaL_argexpected`、`luaL_checkversion` 以及基础 buffer 宏；`luaL_checkversion_()` 现在会实际校验版本号和 numeric ABI 尺寸。
+  - 当前进展：已补 lauxlib 常用 Lua 5.4 表面：`luaL_pushfail`、`luaL_len`、`luaL_getsubtable`、`luaL_requiref`、`luaL_tolstring`、`luaL_typeerror`、`luaL_argexpected`、`luaL_checkversion` 以及 buffer API；`luaL_checkversion_()` 现在会实际校验版本号和 numeric ABI 尺寸。
   - 已覆盖：新增 `test/lua54_capi_smoke.c` 和 `make smoketest-capi-lua54compat`。
   - 需要补 API：`lua_toclose`、真实 continuation 版 `lua_yieldk` / `lua_callk` / `lua_pcallk`；`lua_resetthread` 的 `<close>` 关闭语义仍归入 `<close>` 运行期调度大项。
   - 需要补常量/类型/宏：继续核对完整 ABI 细节。
@@ -156,11 +156,12 @@
 - [ ] Lua 5.4 auxiliary library / lauxlib 兼容。
   - 当前状态：`lauxlib.h` 仍以 Lua 5.1/LuaJIT 接口为主，只补了部分 5.2+ 辅助函数。
   - 当前进展：`luaL_addgsub`、`luaL_argexpected`、`luaL_buffaddr`、`luaL_bufflen`、`luaL_buffsub`、`luaL_checkversion`、`luaL_getsubtable`、`luaL_len`、`luaL_newmetatable` 设置 `__name`、`luaL_pushfail`、`luaL_pushresultsize`、`luaL_requiref`、`luaL_tolstring`、`luaL_typeerror` 已补。
+  - 当前进展：Lua 5.4 兼容模式下 `luaL_prepbuffsize()` / `luaL_buffinitsize()` 会按请求尺寸增长 buffer，不再被旧 LuaJIT 固定 `LUAL_BUFFERSIZE` 缓冲区截断；默认构建仍保留旧 LuaJIT buffer 结构。
   - 当前进展：`lauxlib.h` 已补 Lua 5.4 的 `luaL_Stream` 类型定义，并进入 C API smoke 编译覆盖。
   - 当前进展：`luaL_loadfilex` / `luaL_loadbufferx` 的 `mode` 参数已进入 C API smoke，覆盖 text 模式加载以及 binary-only 模式拒绝 text chunk。
   - 当前进展：`luaL_loadfilex` / `luaL_loadbufferx` 的 mode 不匹配错误文本已按 Lua 5.4 收紧，C API smoke 覆盖 `attempt to load a text chunk (mode is 'b')`。
   - 当前进展：Lua 5.4 兼容模式下 `luaL_checkinteger()` / `luaL_optinteger()` 已拒绝无整数表示的 number，并进入 C API smoke。
-  - 已覆盖：最小 C 程序覆盖 buffer API、`luaL_addgsub`、`luaL_tolstring`、`luaL_pushfail`、`luaL_getsubtable`、`luaL_requiref`、`luaL_loadbufferx`、`luaL_loadfilex`。
+  - 已覆盖：最小 C 程序覆盖 buffer API、`luaL_prepbuffsize()` / `luaL_buffinitsize()` 大于 `LUAL_BUFFERSIZE` 的写入、`luaL_addgsub`、`luaL_tolstring`、`luaL_pushfail`、`luaL_getsubtable`、`luaL_requiref`、`luaL_loadbufferx`、`luaL_loadfilex`。
   - 已覆盖：`luaL_checkinteger()` / `luaL_optinteger()` 的 fraction number 错误，以及 `lua_tointegerx()` 的 fraction status。
   - 剩余：完整 lauxlib 头文件表面仍需继续核对。
 
@@ -168,11 +169,20 @@
   - 当前状态：仍使用 LuaJIT 自身 bytecode 格式，不兼容官方 Lua 5.4 binary chunk。
   - 当前进展：C API `lua_dump(..., strip)` 已支持 Lua 5.4 外部调用表面，并可写出带 strip 标志的 LuaJIT bytecode；这不是官方 Lua 5.4 binary chunk 格式兼容。
   - 当前进展：Lua 层 `string.dump(f, strip)` 已进入 smoke，覆盖 full/stripped LuaJIT bytecode 写出、`mode="b"` 回读执行，以及 binary chunk 被 `mode="t"` 拒绝。
-  - 已知差异：`string.dump` 后再 `load` 带 upvalue 的函数，Lua 5.4 会把第一个 upvalue 初始化为全局环境；当前 LuaJIT dump 重新加载后该 upvalue 是 `nil`。
-  - 需要补测试：官方 Lua 5.4 dump 的加载失败说明、LuaJIT dump 在兼容模式下的 `_ENV`/upvalue 表现、mode=`"b"`/`"t"` 的错误消息差异。
+  - 当前进展：已将官方 Lua 5.4.8 dump 的加载失败固化为 smoke；兼容构建会明确拒绝官方 Lua 5.4 binary chunk，并保留 `mode="t"` 的 binary chunk 拒绝错误。
+  - 当前进展：LuaJIT dump 回读时，带真实 upvalue 的函数会按 Lua 5.4 `load` 规则把第一个 upvalue 初始化为当前全局环境；带第 4 个 env 参数时会初始化为指定 env。
+  - 当前进展：LuaJIT stripped dump 回读后的 debug upvalue 枚举已避免把无真实 upvalue 的 plain dump 误暴露为伪 `_ENV`，带真实 upvalue 的 stripped dump 也不再额外插入伪 `_ENV`。
+  - 已知差异：LuaJIT stripped dump 中使用全局名的函数仍通过兼容层伪 `_ENV` 表达环境，名称显示为 `_ENV`，而官方 Lua 5.4 stripped dump 的 upvalue 名称为 `(no name)`。
+  - 需要补测试：mode=`"b"`/`"t"` 的更多错误消息差异，以及更复杂嵌套 dump 的 `_ENV`/upvalue 表现。
   - 实现重点：如不支持官方 bytecode，应在文档中明确边界；如支持，需要单独的 reader/writer。
 
 ## P2：继续做一致性回归的边缘面
+
+- [ ] Android / iOS / PC / Emscripten 64 位构建矩阵。
+  - 当前状态：当前环境已反复覆盖 Windows PC 64 位默认构建和 `LUAJIT_ENABLE_LUA54COMPAT` 构建，并通过 `make test`。
+  - 已知缺口：尚未在当前仓库内形成 Android ARM64、iOS ARM64、Emscripten wasm/wasm64 或相关 64 位目标的一键构建验证脚本；也未验证这些目标下 Lua 5.4 兼容 smoke 和 JIT/解释器降级边界。
+  - 需要补测试/脚本：按实际工具链补 Android NDK ARM64、iOS SDK ARM64、PC x64、Emscripten 的构建入口；每个目标至少验证编译完成、`LUAJIT_ENABLE_LUA54COMPAT` 可打开、目标可运行时执行 smoke，不可直接运行时产出可检查 artifact。
+  - 实现重点：Emscripten 通常不能使用传统本机 JIT，需要明确解释器/wasm 可行路径；Android/iOS 需要分别确认 JIT 权限、mcode 分配和平台 ABI。
 
 - [ ] 标准库错误消息与边界参数完全对齐。
   - 范围：`math`、`utf8`、`string.pack`、`table.move`、`require`、`load`/`loadfile`。
@@ -242,6 +252,7 @@
   - 当前状态：多个新语法通过 helper 调用实现，语义优先于 JIT 性能。
   - 当前进展：已补 JIT smoke，在当前 PC 兼容构建中开启 JIT、降低 hotloop 后运行包含 `//`、位运算和局部 `_ENV` 的热循环，并用 `jit.util.traceinfo()` 确认产生 trace。
   - 当前进展：已补 JIT smoke，覆盖开启 JIT 后 `math.random(1, 4)` 区间路径在热循环内返回整数区间值，并确认产生 trace。
+  - 当前进展：已补 JIT smoke，覆盖开启 JIT 后 `tonumber()` 在热循环中仍拒绝 `inf` / `nan` / `0b` 等 LuaJIT 扫描器扩展数字字符串，并确认产生 trace。
   - 当前进展：`jit._lua54_*` helper 字段访问已处理大 chunk 常量表超过 255 时的 `TGETS` 索引截断问题，超出 8 位范围时改用 `KSTR + TGETV`。
   - 需要补测试：继续扩展到更多 Lua 5.4 helper 路径，并在 unsupported trace 路径上补退出或 recorder。
 

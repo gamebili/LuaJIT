@@ -62,6 +62,11 @@
 - 已继续收紧 `tonumber()` 的 Lua 5.4 扩展数字拒绝规则：兼容模式下 `0b` / `0B` 二进制前缀字符串及符号、空白变体会返回 `nil`，不再走 LuaJIT 扩展扫描。
 - 已继续同步 Lua 5.4 通用字符串数字转换表面：`math.abs()` / `math.tointeger()` / `math.type()` 以及 `lua_isnumber()` / `lua_tonumberx()` / `lua_tointegerx()` / `luaL_checknumber()` 现在同样拒绝 `inf` / `nan` / `0b` 等 LuaJIT 扩展数字字符串。
 - 已继续同步 Lua 5.4 C API 数字扫描表面：`lua_stringtonumber()` 现在同样拒绝 `inf` / `nan` / `0b` 等 LuaJIT 扩展数字字符串。
+- 已继续扩展 JIT smoke：开启 JIT 后，`tonumber()` 在热循环中仍会拒绝 `inf` / `nan` / `0b` 等 LuaJIT 扫描器扩展数字字符串，并确认该路径产生 trace。
+- 已继续明确 binary chunk 兼容边界：预生成的官方 Lua 5.4.8 `string.dump(function() return 54 end, true)` 会被兼容构建明确拒绝为 incompatible bytecode，当前只支持 LuaJIT bytecode。
+- 已继续补齐 LuaJIT bytecode 回读的 upvalue 初始化：`load(string.dump(function() return upvalue end, true), ..., "b")` 会按 Lua 5.4 规则把第一个真实 upvalue 初始化为当前全局环境，传入第 4 个 env 参数时初始化为指定 env。
+- 已继续收紧 LuaJIT stripped bytecode 的 debug upvalue 枚举：plain dump 不再误暴露伪 `_ENV`，带真实 upvalue 的 stripped dump 不再额外插入伪 `_ENV`。
+- 已补充平台构建 TODO：把 Android ARM64、iOS ARM64、PC x64、Emscripten 的 64 位构建和 smoke 验证矩阵列为独立未完成项；当前已验证范围仍是本机 Windows PC 64 位 `make test`。
 - 已继续补默认构建 C API 回归：新增 `test/lua51_capi_smoke.c` 和 `make smoketest-capi-default`，确认 Lua 5.4 兼容头改动不影响旧 LuaJIT 5.1 宏和 ABI 入口。
 - 已继续清理 `TODO.md` 过期状态：`string.gmatch(init)`、`utf8` lax、`math.randomseed()` 无参、`string.pack` alignment/`X` 和 `_ENV` raw global 表面已按当前验证结果修正。
 - 已继续收紧 string 库错误文本：Lua 5.4 兼容模式下 `string.char(256)` 的越界错误现在包含 `value out of range`，不再使用 LuaJIT 旧 `invalid value` 文本。
@@ -183,9 +188,11 @@
   - `table.concat()` / `table.insert()` / `table.remove()` 在 Lua 5.4 兼容模式下的默认位置使用表库专用长度兼容逻辑，带 `__len` 的表和 `{1,nil,3}` 这类新建 list table 会按 Lua 5.4 参考行为检查、插入或删除；`__len` 返回无整数表示的值会报 `object length is not an integer`。
   - JIT 开启时，Lua 5.4 兼容模式下的 `//`、位运算和局部 `_ENV` 热循环已进入 smoke 回归，并在当前平台确认能产生 trace。
   - JIT 开启时，Lua 5.4 兼容模式下的 `math.random(1, 4)` 区间随机热循环已进入 smoke 回归，并在当前平台确认能产生 trace。
+  - JIT 开启时，Lua 5.4 兼容模式下的 `tonumber()` 扫描器扩展数字拒绝路径已进入 smoke 回归，并在当前平台确认能产生 trace。
   - registry 初始化会写入 `LUA_RIDX_MAINTHREAD` 和 `LUA_RIDX_GLOBALS`；新线程会复制当前线程的 pointer-sized extraspace。
   - `lua_callk()`、`lua_pcallk()`、`lua_yieldk()` 目前以宏映射到非 continuation 调用，提供编译兼容；真实 yield continuation 语义仍保留在 `TODO.md`。
-  - `lauxlib.h` / 辅助库新增 Lua 5.4 常用表面：`luaL_pushfail()`、`luaL_len()`、`luaL_getsubtable()`、`luaL_requiref()`、`luaL_tolstring()`、`luaL_typeerror()`、`luaL_argexpected()`、`luaL_checkversion()`、`luaL_addgsub()` 和基础 buffer 宏。
+  - `lauxlib.h` / 辅助库新增 Lua 5.4 常用表面：`luaL_pushfail()`、`luaL_len()`、`luaL_getsubtable()`、`luaL_requiref()`、`luaL_tolstring()`、`luaL_typeerror()`、`luaL_argexpected()`、`luaL_checkversion()`、`luaL_addgsub()` 和 buffer API。
+  - Lua 5.4 兼容模式下 `luaL_prepbuffsize()` / `luaL_buffinitsize()` 会按请求尺寸增长 buffer，不再被旧 LuaJIT 固定 `LUAL_BUFFERSIZE` 缓冲区限制；默认构建仍保留旧 LuaJIT buffer 结构。
   - `luaL_loadbufferx()` / `luaL_loadfilex()` 的 `mode` 参数路径已通过 C API smoke 覆盖；text 模式可加载源码，binary-only 模式会拒绝 text chunk。
   - `lua_Debug` 新增 Lua 5.4 字段：`nparams`、`isvararg`、`istailcall`、`ftransfer`、`ntransfer`；C API `lua_getinfo(..., "ut")` 已能读取参数字段，并对尚未精确支持的 tail/transfer 字段返回保守零值。
   - `debug.getinfo(f, "t")` 不再报 invalid option，并返回 `istailcall=false`；真实 tail-call 识别和 hook transfer 字段仍在 `TODO.md` 保留。
@@ -195,6 +202,9 @@
   - `string.pack()` / `string.unpack()` / `string.packsize()` 新增 `j` 和 `T` 格式，分别按 `lua_Integer` 和 `size_t` 的本机宽度处理。
   - `string.pack()` / `string.unpack()` / `string.packsize()` 支持 `!n` 对齐控制、`X` 对齐填充，以及 `l` / `L` 本机 long 整数格式；三条路径共享当前位置对齐规则。
   - `string.dump(f, strip)` 在 Lua 5.4 兼容模式下支持 boolean strip 参数；当前仍写出 LuaJIT bytecode，不是官方 Lua 5.4 binary chunk 格式。
+  - 官方 Lua 5.4.8 binary chunk 已进入 smoke，当前兼容构建会明确拒绝该非 LuaJIT bytecode 格式。
+  - LuaJIT bytecode 回读时，带真实 upvalue 的顶层 closure 会把第一个 upvalue 初始化为 `load` 选择的 env，避免回读后该 upvalue 仍为 nil。
+  - LuaJIT stripped bytecode 回读后的 debug upvalue 枚举会区分“真实全局访问需要伪 `_ENV`”和“stripped plain/upvalue dump 不应额外伪造 `_ENV`”。
   - Lua 5.4 兼容构建的 GC 初始 `stepmul` 公开值为 `100`，使 `collectgarbage("setstepmul", n)` 的首次返回值和 Lua 5.4 对齐；默认构建不变。
   - standalone 初始化在 Lua 5.4 兼容构建中会优先执行 `LUA_INIT_5_4`，未设置时再回退 `LUA_INIT`。
   - package 路径初始化在 Lua 5.4 兼容构建中会优先读取 `LUA_PATH_5_4` / `LUA_CPATH_5_4`，未设置时再回退旧 `LUA_PATH` / `LUA_CPATH`。
@@ -269,6 +279,7 @@
 - 覆盖 `table.unpack()` 缺参 length 错误、nil/number 的显式空范围返回空结果，以及 nil 的实际索引错误。
 - 覆盖当前 JIT 可用平台下，Lua 5.4 兼容热循环中的 `//`、位运算和局部 `_ENV` 可以在开启 JIT 后执行并产生 trace。
 - 覆盖当前 JIT 可用平台下，Lua 5.4 兼容热循环中的 `math.random(1, 4)` 可以返回整数区间值并产生 trace。
+- 覆盖当前 JIT 可用平台下，Lua 5.4 兼容热循环中的 `tonumber()` 会拒绝 LuaJIT 扫描器扩展数字字符串并产生 trace。
 - 覆盖 Lua 5.4 C API 形态的 `lua_resume(L, from, nargs, nresults)`：yield 两个值和 return 两个值时都会填入正确结果数量。
 - 覆盖 Lua 5.4 外部兼容头不会暴露 `LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` / `lua_strlen`，并覆盖 `lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 的 registry globals 路径。
 - 覆盖 `lua_stringtonumber()`、`lua_isnumber()`、`lua_tonumberx()`、`lua_tointegerx()` 和 `luaL_checknumber()` 拒绝 `inf` / `nan` / `0b` 扫描器扩展字符串。
@@ -281,6 +292,7 @@
 - 覆盖 Lua 5.4 外部兼容头中 `lua_load(..., mode)` 的 `mode="t"` 和 `mode="b"` 路径。
 - 覆盖 Lua 5.4 外部兼容头中 `lua_dump(..., strip)` 的 full/stripped 写出，以及 stripped LuaJIT bytecode 用 `mode="b"` 回读执行。
 - 覆盖 Lua 5.4 头文件中 `LUA_VERSION_MAJOR` / `LUA_VERSION_MINOR` / `LUA_VERSION_RELEASE` / `LUA_NUMTYPES` 的可见性，以及 `luaL_addgsub()` 的 buffer 替换结果。
+- 覆盖 Lua 5.4 兼容模式下 `luaL_prepbuffsize()` / `luaL_buffinitsize()` 请求大于 `LUAL_BUFFERSIZE` 时的 buffer 写入和最终字符串长度。
 - 覆盖 `LUA_GCCOUNTB` 返回 `0..1023` 范围内的 byte remainder。
 - 覆盖 `debug.getinfo(function() end, "t").istailcall == false`。
 - 覆盖 `warn()` 无参数调用报错。
@@ -293,6 +305,9 @@
 - 覆盖 `string.packsize("!8bi8")`、`string.pack("!8bi8", ...)`、`string.unpack("!8bi8", ...)` 的自动对齐。
 - 覆盖 `X` 格式的 padding-only 行为，以及 `l` / `L` 打包解包。
 - 覆盖 Lua 层 `string.dump(f, strip)` 的 full/stripped 写出、`mode="b"` 回读执行，以及 binary chunk 被 `mode="t"` 拒绝。
+- 覆盖官方 Lua 5.4.8 binary chunk 在兼容构建中被明确拒绝，记录当前只支持 LuaJIT bytecode 的边界。
+- 覆盖 LuaJIT bytecode 回读带 upvalue 函数时，第一个真实 upvalue 默认初始化为 `_G`，并且会跟随 `load(..., env)` 的第 4 个 env 参数。
+- 覆盖 LuaJIT stripped bytecode 回读后的 debug upvalue 枚举：plain dump 没有 upvalue，带真实 upvalue 的 dump 只暴露真实 upvalue，带全局访问的 dump 保留伪 `_ENV`。
 - 覆盖 Lua 5.4 兼容构建中 `LUA_INIT_5_4` 优先于 `LUA_INIT`，`LUA_PATH_5_4` / `LUA_CPATH_5_4` 优先于旧环境变量。
 - 覆盖 Lua 5.4 兼容构建中无脚本 `-e` 的 `arg[0]` / `arg[1]` / `arg[2]` 表形态。
 - 覆盖 Lua 5.4 兼容构建中 `collectgarbage("setpause", n)` 初始返回 `200`、`collectgarbage("setstepmul", n)` 初始返回 `100`，并验证旧值恢复。
