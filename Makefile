@@ -185,6 +185,9 @@ smoketest-lua54compat:
 	LUA_PATH='old/?.lua' LUA_PATH_5_4='v54/?.lua' LUA_CPATH='old/?.dll' LUA_CPATH_5_4='v54/?.dll' ./src/luajit -e 'assert(package.path:match("^v54/%?%.lua")); assert(package.cpath:match("^v54/%?%.dll"))'
 	LUA_INIT_5_4='error("noenv init")' LUA_PATH_5_4='bad/?.lua' LUA_CPATH_5_4='bad/?.dll' ./src/luajit -E -e 'assert(not package.path:match("^bad/")); assert(not package.cpath:match("^bad/"))'
 	./src/luajit -e 'assert(arg[-1] == nil); assert(arg[0]:match("luajit")); assert(arg[1] == "-e"); assert(arg[2]:match("arg%[0%]"))'
+	tmp=test/lua54_arg_smoke.tmp; printf 'assert(arg[-1]:match("luajit")); assert(arg[0]:match("lua54_arg_smoke")); assert(arg[1] == "a"); assert(arg[2] == "b")\n' > $$tmp && ./src/luajit $$tmp a b && rm -f $$tmp
+	tmp=test/lua54_arg_smoke.tmp; printf 'assert(arg[-2]:match("luajit")); assert(arg[-1] == "--"); assert(arg[0]:match("lua54_arg_smoke")); assert(arg[1] == "a"); assert(arg[2] == "b")\n' > $$tmp && ./src/luajit -- $$tmp a b && rm -f $$tmp
+	printf 'assert(arg[-1]:match("luajit")); assert(arg[0] == "-"); assert(arg[1] == "a"); assert(arg[2] == "b")\n' | ./src/luajit - a b
 	./src/luajit -l lua54math=math -e 'assert(lua54math.type(1) == "integer")'
 	out=$$(printf 'os.exit()\n' | ./src/luajit -i 2>&1) && case "$$out" in *"JIT:"*) exit 1;; esac
 

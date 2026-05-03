@@ -460,7 +460,10 @@ end
 
 do
   local named = setmetatable({}, { __name = "Lua54Smoke" })
+  local nonstr = setmetatable({}, { __name = 123 })
+  assert(type(named) == "table")
   assert(tostring(named):match("^Lua54Smoke: ") ~= nil)
+  assert(tostring(nonstr):match("^table: ") ~= nil)
   local ok, err = pcall(math.abs, setmetatable({}, { __name = "Lua54Number" }))
   assert(ok == false and err:match("Lua54Number") ~= nil)
   ok, err = pcall(coroutine.resume, named)

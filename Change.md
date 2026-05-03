@@ -34,9 +34,11 @@
 - 已继续收紧严格 Lua 5.4 语法表面：`L` / `LL` / `UL` / `ULL` / `uLL`、`0b...` 和 imaginary `i` 数字字面量扩展都已进入拒绝用例。
 - 已继续补 Lua 5.4 头文件/辅助库表面：新增 `LUA_VERSION_MAJOR` / `LUA_VERSION_MINOR` / `LUA_VERSION_RELEASE` / `LUA_NUMTYPES` 宏，以及 `luaL_addgsub()`。
 - 已继续收紧 `__name` 错误文本覆盖：Lua 5.4 兼容模式下 `coroutine.resume()` / `coroutine.close()` 的非线程参数会报 `thread expected, got <__name>`。
+- 已完成 `__name` 元字段当前兼容闭环：覆盖 `tostring()` 前缀、参数类型错误、`type()` 不受影响、非字符串 `__name` 忽略、`luaL_newmetatable()` 和 `luaL_tolstring()` 路径。
 - 已继续收紧 coroutine 库参数错误：`coroutine.create()` / `resume()` / `status()` / `wrap()` / `close()` 的基础错误会带 `coroutine.xxx` 函数名，并使用 Lua 5.4 的 `function/thread expected` 文本。
 - 已继续收紧 `coroutine.yield()` 主线程错误：Lua 5.4 兼容模式下主线程直接 yield 会报 `attempt to yield from outside a coroutine`。
 - 已继续补 Lua 5.4 standalone `arg` 表边界：无脚本、仅 `-e` 执行时，兼容构建的 `arg[0]` / `arg[1]` / `arg[2]` 已对齐 Lua 5.4。
+- 已继续补 Lua 5.4 standalone `arg` 表覆盖：脚本文件、`-- script` 和 stdin `-` 的 `arg` 正负索引组合已按官方 Lua 5.4.8 对照进入 smoke。
 - 已继续补 Lua 5.4 standalone `-i` 边界：兼容构建进入交互模式时不再额外打印 LuaJIT 的 `JIT:` 状态行，默认 LuaJIT 构建保留原输出。
 - 已重新核对 `<const>` debug API 行为：本机 Lua 5.4.8 允许 `debug.setlocal()` / `debug.setupvalue()` / `debug.upvaluejoin()` 绕过源码级 const 限制，当前行为已补 smoke 并从 TODO 缺口中移除。
 - 已重新核对 GC 选项表面：本机 Lua 5.4.8 不接受 `collectgarbage("minor")` / `"major"`，当前 invalid option 行为已补 smoke。

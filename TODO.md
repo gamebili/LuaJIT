@@ -64,15 +64,15 @@
   - 已知差异：`local t=setmetatable({}, {__mode="k"}); t[k]={k=k}` 这种只有 value 反向引用 key 的结构，Lua 5.4 多次 GC 后会清空，当前仍保留。
   - 需要补测试：弱键表、弱键弱值表、value 到 key 的反向引用、链式 ephemeron、finalizer 与 ephemeron 的交互。
 
-- [ ] `__name` 元字段。
+- [x] `__name` 元字段。
   - 当前状态：`tostring(setmetatable({}, {__name="Foo"}))` 已显示 `Foo: ...`；参数类型错误也会使用 `__name` 字符串。
   - 当前进展：`luaL_newmetatable()` 在 Lua 5.4 兼容模式下会把注册类型名写入 `__name`。
   - 当前进展：`luaL_tolstring()` 已使用 `__name` 作为默认对象前缀，C API smoke 已覆盖 lauxlib 路径。
   - 当前进展：`coroutine.resume()` / `coroutine.close()` 的 Lua 5.4 兼容路径已改用通用 `thread expected, got <__name>` 类型错误；默认 LuaJIT 构建仍保留旧 `coroutine expected` 文本。
   - 当前进展：`coroutine.create()` / `resume()` / `status()` / `wrap()` / `close()` 的基础参数错误会带 `coroutine.xxx` 函数名，并使用 Lua 5.4 的 `function/thread expected` 文本。
   - 当前进展：主线程直接 `coroutine.yield()` 会按 Lua 5.4 报 `attempt to yield from outside a coroutine`；其他不可 yield 的 C 边界仍保留 LuaJIT 现有错误路径。
-  - 已覆盖：`tostring`、`math.abs` 参数类型错误、`coroutine.resume` / `coroutine.close` 线程类型错误、`coroutine` 基础参数错误函数名、`luaL_tolstring`。
-  - 剩余：其他边缘错误文本仍可继续和官方逐字收紧。
+  - 已覆盖：`tostring`、`type` 不受 `__name` 影响、非字符串 `__name` 被忽略、`math.abs` 参数类型错误、`coroutine.resume` / `coroutine.close` 线程类型错误、`coroutine` 基础参数错误函数名、`luaL_tolstring`。
+  - 说明：其他函数名/逐字错误文本继续归入“标准库错误消息与边界参数完全对齐”。
 
 - [ ] `tonumber` 和 `string.format` 的 Lua 5.4 数值格式规则。
   - 当前状态：已补 `tonumber("0x10", 16) == nil`；`tonumber` 的显式 base 参数会拒绝无整数表示的 number，仍接受字符串数字；整数格式 `%d`/`%i`/`%u`/`%x`/`%o` 和字符格式 `%c` 已拒绝无整数表示的 number/string number；`string.format("%q", number)` 已输出可读回文本，覆盖整数、十六进制浮点、负零、NaN 和正负无穷；`%q` 对 table 等没有 Lua 字面量形式的值会报错，不再走 `__tostring`；`string.format("%p", nil/boolean/number)` 已输出 `(null)`，GC 对象继续使用平台 C `%p` 文本。
@@ -230,8 +230,9 @@
   - 当前进展：Lua 5.4 兼容构建已支持 standalone `-W`，会在执行 `-e` chunk 或脚本前开启 warning 输出。
   - 当前进展：`-E` 已覆盖忽略 `LUA_INIT_5_4` 和 versioned package path/cpath 环境变量。
   - 当前进展：Lua 5.4 兼容构建的 `-i` 交互启动不再额外打印 LuaJIT 的 `JIT:` 状态行，保留默认 LuaJIT 构建的原有交互输出。
-  - 已覆盖：`LUA_INIT_5_4` 覆盖旧 `LUA_INIT`，`LUA_PATH_5_4` / `LUA_CPATH_5_4` 覆盖旧 path/cpath 环境变量，`-E` 忽略环境变量，无脚本 `-e` 的 `arg` 表形态，`-l g=mod`，`-W` 开启 warning，以及 `-i` 不输出额外 `JIT:` 状态行。
-  - 需要补测试：脚本参数 `arg` 表更多组合，`package.path`/`package.cpath` 初始化默认值差异。
+  - 当前进展：脚本文件、`-- script` 和 stdin `-` 的 `arg` 表组合已按官方 Lua 5.4.8 对照进入 smoke。
+  - 已覆盖：`LUA_INIT_5_4` 覆盖旧 `LUA_INIT`，`LUA_PATH_5_4` / `LUA_CPATH_5_4` 覆盖旧 path/cpath 环境变量，`-E` 忽略环境变量，无脚本 `-e`、脚本文件、`-- script` 和 stdin `-` 的 `arg` 表形态，`-l g=mod`，`-W` 开启 warning，以及 `-i` 不输出额外 `JIT:` 状态行。
+  - 需要补测试：`package.path`/`package.cpath` 初始化默认值差异。
   - 实现重点：如果保留 LuaJIT standalone 行为，应在兼容文档中说明 CLI 和官方 Lua 5.4 不完全等价。
 
 - [ ] JIT/trace 对 Lua 5.4 新语义的记录。
