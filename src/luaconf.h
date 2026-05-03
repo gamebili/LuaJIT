@@ -179,6 +179,7 @@
 #endif
 
 #define LUALIB_API	LUA_API
+#define LUAMOD_API	LUALIB_API
 
 /* Compatibility support for assertions. */
 #if defined(LUA_USE_ASSERT) || defined(LUA_USE_APICHECK)

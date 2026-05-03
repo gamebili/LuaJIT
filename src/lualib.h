@@ -8,6 +8,7 @@
 
 #include "lua.h"
 
+#define LUA_GNAME	"_G"
 #define LUA_FILEHANDLE	"FILE*"
 
 #define LUA_COLIBNAME	"coroutine"

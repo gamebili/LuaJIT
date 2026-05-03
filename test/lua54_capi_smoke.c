@@ -45,6 +45,14 @@
 #error "Lua 5.4 compatibility header must expose LUA_EXTRASPACE"
 #endif
 
+#ifndef LUA_GNAME
+#error "Lua 5.4 compatibility header must expose LUA_GNAME"
+#endif
+
+#ifndef LUAMOD_API
+#error "Lua 5.4 compatibility header must expose LUAMOD_API"
+#endif
+
 static int require_open_count = 0;
 static char warning_buf[64];
 static int warning_tocont = -1;
@@ -205,6 +213,7 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, lua_istable(L, -1), "LUA_RIDX_GLOBALS");
   lua_pop(L, 1);
   check(L, LUA_RIDX_LAST == LUA_RIDX_GLOBALS, "LUA_RIDX_LAST");
+  check(L, strcmp(LUA_GNAME, "_G") == 0, "LUA_GNAME");
 
   lua_pushglobaltable(L);
   check(L, lua_istable(L, -1), "lua_pushglobaltable registry path");
