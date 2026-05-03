@@ -18,6 +18,7 @@
 #include "lj_err.h"
 #include "lj_buf.h"
 #include "lj_tab.h"
+#include "lj_meta.h"
 #include "lj_ff.h"
 #include "lj_lib.h"
 
@@ -154,10 +155,32 @@ LJLIB_CF(table_concat)		LJLIB_REC(.)
   GCtab *t = lj_lib_checktab(L, 1);
   GCstr *sep = lj_lib_optstr(L, 2);
   int32_t i = lj_lib_optint(L, 3, 1);
-  int32_t e = (L->base+3 < L->top && !tvisnil(L->base+3)) ?
-	      lj_lib_checkint(L, 4) : (int32_t)lj_tab_len(t);
-  SBuf *sb = lj_buf_tmp_(L);
-  SBuf *sbx = lj_buf_puttab(sb, t, sep, i, e);
+  int32_t e;
+  SBuf *sb, *sbx;
+  if (L->base+3 < L->top && !tvisnil(L->base+3)) {
+    e = lj_lib_checkint(L, 4);
+#if LJ_54
+  } else {
+    cTValue *mo = lj_meta_lookup(L, L->base, MM_len);
+    if (!tvisnil(mo)) {
+      /* Lua 5.4 table.concat obtains the default end via the length
+      ** operation, so a table __len metamethod must affect hole checks.
+      */
+      copyTV(L, L->top++, mo);
+      copyTV(L, L->top++, L->base);
+      lua_call(L, 1, 1);
+      e = (int32_t)luaL_checkinteger(L, -1);
+      L->top--;
+    } else {
+      e = (int32_t)lj_tab_len(t);
+    }
+#else
+  } else {
+    e = (int32_t)lj_tab_len(t);
+#endif
+  }
+  sb = lj_buf_tmp_(L);
+  sbx = lj_buf_puttab(sb, t, sep, i, e);
   if (LJ_UNLIKELY(!sbx)) {  /* Error: bad element type. */
     int32_t idx = (int32_t)(intptr_t)sb->w;
     cTValue *o = lj_tab_getint(t, idx);
@@ -267,6 +290,33 @@ LJLIB_CF(table_sort)
   return 0;
 }
 
+#if LJ_54
+static int lj_cf_table_unpack54(lua_State *L)
+{
+  GCtab *t = lj_lib_checktab(L, 1);
+  int32_t n, i = lj_lib_optint(L, 2, 1);
+  int32_t e = (L->base+2 < L->top && !tvisnil(L->base+2)) ?
+	      lj_lib_checkint(L, 3) : (int32_t)lj_tab_len(t);
+  uint32_t nu;
+  if (i > e) return 0;
+  nu = (uint32_t)e - (uint32_t)i;
+  n = (int32_t)(nu+1);
+  if (nu >= LUAI_MAXCSTACK || !lua_checkstack(L, n))
+    lj_err_caller(L, LJ_ERR_UNPACK);
+  do {
+    cTValue *tv = lj_tab_getint(t, i);
+    if (tv) {
+      copyTV(L, L->top++, tv);
+    } else {
+      setnilV(L->top++);
+    }
+    if (i >= e) break;
+    i++;
+  } while (1);
+  return n;
+}
+#endif
+
 #if LJ_52
 LJLIB_PUSH("n")
 LJLIB_CF(table_pack)
@@ -316,7 +366,16 @@ static int luaopen_table_clear(lua_State *L)
 LUALIB_API int luaopen_table(lua_State *L)
 {
   LJ_LIB_REG(L, LUA_TABLIBNAME, table);
-#if LJ_52
+#if LJ_54
+  /* Hide Lua 5.1-only table helpers in the Lua 5.4 surface. */
+  lua_pushnil(L); lua_setfield(L, -2, "foreach");
+  lua_pushnil(L); lua_setfield(L, -2, "foreachi");
+  lua_pushnil(L); lua_setfield(L, -2, "getn");
+  lua_pushnil(L); lua_setfield(L, -2, "maxn");
+  lua_pushcfunction(L, lj_cf_table_unpack54);
+  lua_setfield(L, -2, "unpack");
+#endif
+#if LJ_52 && !LJ_54
   lua_getglobal(L, "unpack");
   lua_setfield(L, -2, "unpack");
 #endif

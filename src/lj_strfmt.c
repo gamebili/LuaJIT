@@ -8,6 +8,8 @@
 #define lj_strfmt_c
 #define LUA_CORE
 
+#include "lauxlib.h"
+
 #include "lj_obj.h"
 #include "lj_err.h"
 #include "lj_buf.h"
@@ -364,6 +366,18 @@ SBuf *lj_strfmt_putfnum_uint(SBuf *sb, SFormat sf, lua_Number n)
   return lj_strfmt_putfxint(sb, sf, lj_num2u64(n));
 }
 
+#if LJ_54
+static lua_Number strfmt_checkintegernum(lua_State *L, int arg)
+{
+  lua_Number n = lj_lib_checknum(L, arg);
+  int64_t k = lj_num2i64(n);
+  /* Lua 5.4 refuses integer formats for numbers without an integer value. */
+  if ((lua_Number)k != n)
+    luaL_argerror(L, arg, "number has no integer representation");
+  return n;
+}
+#endif
+
 /* Format stack arguments to buffer. */
 int lj_strfmt_putarg(lua_State *L, SBuf *sb, int arg, int retry)
 {
@@ -401,7 +415,11 @@ int lj_strfmt_putarg(lua_State *L, SBuf *sb, int arg, int retry)
 	  }
 	}
 #endif
+#if LJ_54
+	lj_strfmt_putfnum_int(sb, sf, strfmt_checkintegernum(L, arg));
+#else
 	lj_strfmt_putfnum_int(sb, sf, lj_lib_checknum(L, arg));
+#endif
 	break;
       case STRFMT_UINT:
 	if (tvisint(o)) {
@@ -417,7 +435,11 @@ int lj_strfmt_putarg(lua_State *L, SBuf *sb, int arg, int retry)
 	  }
 	}
 #endif
+#if LJ_54
+	lj_strfmt_putfnum_uint(sb, sf, strfmt_checkintegernum(L, arg));
+#else
 	lj_strfmt_putfnum_uint(sb, sf, lj_lib_checknum(L, arg));
+#endif
 	break;
       case STRFMT_NUM:
 	lj_strfmt_putfnum(sb, sf, lj_lib_checknum(L, arg));
@@ -426,6 +448,16 @@ int lj_strfmt_putarg(lua_State *L, SBuf *sb, int arg, int retry)
 	MSize len;
 	const char *s;
 	cTValue *mo;
+#if LJ_54
+	if ((sf & STRFMT_T_QUOTED)) {
+	  /* Lua 5.4 quotes strings, but prints primitive literals directly. */
+	  if (tvisint(o)) { lj_strfmt_putint(sb, intV(o)); break; }
+	  if (tvisnum(o)) { lj_strfmt_putfnum(sb, STRFMT_A, numV(o)); break; }
+	  if (tvisnil(o)) { lj_buf_putmem(sb, "nil", 3); break; }
+	  if (tvisfalse(o)) { lj_buf_putmem(sb, "false", 5); break; }
+	  if (tvistrue(o)) { lj_buf_putmem(sb, "true", 4); break; }
+	}
+#endif
 	if (LJ_UNLIKELY(!tvisstr(o) && !tvisbuf(o)) && retry >= 0 &&
 	    !tvisnil(mo = lj_meta_lookup(L, o, MM_tostring))) {
 	  /* Call __tostring metamethod once. */
@@ -463,9 +495,23 @@ int lj_strfmt_putarg(lua_State *L, SBuf *sb, int arg, int retry)
       case STRFMT_CHAR:
 	lj_strfmt_putfchar(sb, sf, lj_lib_checkint(L, arg));
 	break;
-      case STRFMT_PTR:  /* No formatting. */
+      case STRFMT_PTR: {  /* No formatting. */
+#if LJ_54
+	if (tvisnil(o)) {
+	  lj_buf_putmem(sb, "(null)", 6);
+	} else {
+	  char pbuf[64];
+	  int len = snprintf(pbuf, sizeof(pbuf), "%p", lj_obj_ptr(G(L), o));
+	  if (len < 0 || len >= (int)sizeof(pbuf))
+	    lj_strfmt_putptr(sb, lj_obj_ptr(G(L), o));
+	  else
+	    lj_buf_putmem(sb, pbuf, (MSize)len);
+	}
+#else
 	lj_strfmt_putptr(sb, lj_obj_ptr(G(L), o));
+#endif
 	break;
+	}
       default:
 	lj_assertL(0, "bad string format type");
 	break;
@@ -516,7 +562,9 @@ GCstr * LJ_FASTCALL lj_strfmt_obj(lua_State *L, cTValue *o)
     return lj_str_newlit(L, "true");
   } else {
     char buf[8+2+2+16], *p = buf;
-    p = lj_buf_wmem(p, lj_typename(o), (MSize)strlen(lj_typename(o)));
+    MSize len;
+    const char *name = lj_meta_objtypename(L, o, &len);
+    p = lj_buf_wmem(p, name, len);
     *p++ = ':'; *p++ = ' ';
     if (tvisfunc(o) && isffunc(funcV(o))) {
       p = lj_buf_wmem(p, "builtin#", 8);

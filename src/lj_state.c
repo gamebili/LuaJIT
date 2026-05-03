@@ -191,6 +191,9 @@ static TValue *cpluaopen(lua_State *L, lua_CFunction dummy, void *ud)
   /* NOBARRIER: State initialization, all objects are white. */
   setgcref(L->env, obj2gco(lj_tab_new(L, 0, LJ_MIN_GLOBAL)));
   settabV(L, registry(L), lj_tab_new(L, 0, LJ_MIN_REGISTRY));
+  setthreadV(L, lj_tab_setint(L, tabV(registry(L)), LUA_RIDX_MAINTHREAD), L);
+  settabV(L, lj_tab_setint(L, tabV(registry(L)), LUA_RIDX_GLOBALS),
+	  tabref(L->env));
   lj_str_init(L);
   lj_meta_init(L);
   lj_lex_init(L);
@@ -280,6 +283,7 @@ LUA_API lua_State *lua_newstate(lua_Alloc allocf, void *allocd)
   g->allocf = allocf;
   g->allocd = allocd;
   g->prng = prng;
+  g->gc_mode54 = 1;  /* Lua 5.4 reports generational as the initial mode. */
 #ifndef LUAJIT_USE_SYSMALLOC
   if (allocf == lj_alloc_f) {
     lj_alloc_setprng(allocd, &g->prng);
@@ -360,6 +364,7 @@ lua_State *lj_state_new(lua_State *L)
   L1->gct = ~LJ_TTHREAD;
   L1->dummy_ffid = FF_C;
   L1->status = LUA_OK;
+  L1->exdata = L->exdata;  /* Lua 5.4 copies extraspace to new threads. */
   L1->stacksize = 0;
   setmref(L1->stack, NULL);
   L1->cframe = NULL;

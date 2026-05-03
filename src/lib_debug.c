@@ -148,6 +148,9 @@ LJLIB_CF(debug_getinfo)
       settabss(L, "name", ar.name);
       settabss(L, "namewhat", ar.namewhat);
       break;
+    case 't':
+      settabsb(L, "istailcall", 0);
+      break;
     case 'f': opt_f = 1; break;
     case 'L': opt_L = 1; break;
     default: break;
@@ -260,17 +263,35 @@ LJLIB_CF(debug_upvaluejoin)
 LJLIB_CF(debug_getuservalue)
 {
   TValue *o = L->base;
+#if LJ_54
+  UNUSED(lj_lib_optint(L, 2, 1));
+  /* LuaJIT userdata has an internal environment table, but Lua 5.4 exposes
+  ** only declared uservalues. Built-in userdata here has no declared slots.
+  */
+  setnilV(o);
+  L->top = o+1;
+  return 1;
+#else
   if (o < L->top && tvisudata(o))
     settabV(L, o, tabref(udataV(o)->env));
   else
     setnilV(o);
   L->top = o+1;
   return 1;
+#endif
 }
 
 LJLIB_CF(debug_setuservalue)
 {
   TValue *o = L->base;
+#if LJ_54
+  if (!(o < L->top && tvisudata(o)))
+    lj_err_argt(L, 1, LUA_TUSERDATA);
+  UNUSED(lj_lib_optint(L, 3, 1));
+  setnilV(o);
+  L->top = o+1;
+  return 1;
+#else
   if (!(o < L->top && tvisudata(o)))
     lj_err_argt(L, 1, LUA_TUSERDATA);
   if (!(o+1 < L->top && tvistab(o+1)))
@@ -278,6 +299,7 @@ LJLIB_CF(debug_setuservalue)
   L->top = o+2;
   lua_setfenv(L, 1);
   return 1;
+#endif
 }
 #endif
 
@@ -396,11 +418,33 @@ LJLIB_CF(debug_traceback)
 
 /* ------------------------------------------------------------------------ */
 
+#if LJ_54
+static int lj_cf_debug_setcstacklimit(lua_State *L)
+{
+  int32_t limit = lj_lib_checkint(L, 1);
+  UNUSED(limit);
+  /* LuaJIT has its own C stack checks; this Lua 5.4 entrypoint is a no-op
+  ** compatibility shim and returns the stable effective limit value.
+  */
+  lua_pushinteger(L, 200);
+  return 1;
+}
+#endif
+
+/* ------------------------------------------------------------------------ */
+
 #include "lj_libdef.h"
 
 LUALIB_API int luaopen_debug(lua_State *L)
 {
   LJ_LIB_REG(L, LUA_DBLIBNAME, debug);
+#if LJ_54
+  /* Lua 5.4 removed environment APIs; hide them from the compat surface. */
+  lua_pushnil(L); lua_setfield(L, -2, "getfenv");
+  lua_pushnil(L); lua_setfield(L, -2, "setfenv");
+  lua_pushcfunction(L, lj_cf_debug_setcstacklimit);
+  lua_setfield(L, -2, "setcstacklimit");
+#endif
   return 1;
 }
 

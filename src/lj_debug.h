@@ -20,10 +20,12 @@ typedef struct lj_Debug {
   int linedefined;
   int lastlinedefined;
   char short_src[LUA_IDSIZE];
-  int i_ci;
-  /* Extended fields. Only valid if lj_debug_getinfo() is called with ext = 1.*/
   int nparams;
   int isvararg;
+  int istailcall;
+  unsigned short ftransfer;
+  unsigned short ntransfer;
+  int i_ci;
 } lj_Debug;
 
 LJ_FUNC cTValue *lj_debug_frame(lua_State *L, int level, int *size);

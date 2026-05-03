@@ -24,6 +24,7 @@
 #include "lj_str.h"
 #include "lj_tab.h"
 #include "lj_meta.h"
+#include "lj_func.h"
 #include "lj_state.h"
 #include "lj_frame.h"
 #if LJ_HASFFI
@@ -124,15 +125,37 @@ LJLIB_ASM(ipairs)		LJLIB_REC(xpairs 1)
   return ffh_pairs(L, MM_ipairs);
 }
 
+#if LJ_54
+static int lj_cf_ipairs_aux54(lua_State *L)
+{
+  lua_Integer i = luaL_checkinteger(L, 2) + 1;
+  lua_pushinteger(L, i);
+  lua_pushinteger(L, i);
+  /* Lua 5.4 ipairs uses normal indexed access, so __index can provide values. */
+  lua_gettable(L, 1);
+  if (lua_isnil(L, -1))
+    return 0;
+  return 2;
+}
+
+static int lj_cf_ipairs54(lua_State *L)
+{
+  luaL_checkany(L, 1);
+  lua_pushcfunction(L, lj_cf_ipairs_aux54);
+  lua_pushvalue(L, 1);
+  lua_pushinteger(L, 0);
+  return 3;
+}
+#endif
+
 LJLIB_CF(warn)
 {
   int32_t i, n = (int32_t)(L->top - L->base);
+  if (n == 0)
+    lj_err_argt(L, 1, LUA_TSTRING);
   for (i = 0; i < n; i++) {
-    GCstr *s;
+    GCstr *s = lj_lib_checkstr(L, (int)i+1);
     const char *str;
-    if (!tvisstr(L->base+i))
-      lj_err_argt(L, (int)i+1, LUA_TSTRING);
-    s = strV(L->base+i);
     str = strdata(s);
     if (i == 0 && s->len > 0 && str[0] == '@') {
       if (s->len == 3 && memcmp(str, "@on", 3) == 0)
@@ -330,6 +353,11 @@ LJLIB_ASM(tonumber)		LJLIB_REC(.)
     while (lj_char_isspace((unsigned char)(*p))) p++;
     if (*p == '-') { p++; neg = 1; } else if (*p == '+') { p++; }
     if (lj_char_isalnum((unsigned char)(*p))) {
+      /* C strtoul accepts a 0x prefix for base 16, but Lua 5.4's tonumber
+      ** with an explicit base treats the prefix as ordinary invalid input.
+      */
+      if (LJ_54 && base == 16 && p[0] == '0' && ((p[1] | 0x20) == 'x'))
+	goto badbase;
       ul = strtoul(p, &ep, base);
       if (p != ep) {
 	while (lj_char_isspace((unsigned char)(*ep))) ep++;
@@ -347,6 +375,7 @@ LJLIB_ASM(tonumber)		LJLIB_REC(.)
       }
     }
   }
+badbase:
   setnilV(L->base-1-LJ_FR2);
   return FFH_RES(1);
 }
@@ -496,9 +525,27 @@ LJLIB_CF(gcinfo)
 
 LJLIB_CF(collectgarbage)
 {
-  int opt = lj_lib_checkopt(L, 1, LUA_GCCOLLECT,  /* ORDER LUA_GC* */
+  int opt;
+  int32_t data;
+#if LJ_54
+  if (L->base < L->top && tvisstr(L->base)) {
+    GCstr *s = strV(L->base);
+    const char *optstr = strdata(s);
+    if ((s->len == 12 && memcmp(optstr, "generational", 12) == 0) ||
+	(s->len == 11 && memcmp(optstr, "incremental", 11) == 0)) {
+      const char *old = G(L)->gc_mode54 ? "generational" : "incremental";
+      /* LuaJIT does not implement Lua 5.4's generational collector, but the
+      ** option is accepted so 5.4 code can switch modes without hard failure.
+      */
+      G(L)->gc_mode54 = (uint8_t)(s->len == 12);
+      lua_pushstring(L, old);
+      return 1;
+    }
+  }
+#endif
+  opt = lj_lib_checkopt(L, 1, LUA_GCCOLLECT,  /* ORDER LUA_GC* */
     "\4stop\7restart\7collect\5count\1\377\4step\10setpause\12setstepmul\1\377\11isrunning");
-  int32_t data = lj_lib_optint(L, 2, 0);
+  data = lj_lib_optint(L, 2, 0);
   if (opt == LUA_GCCOUNT) {
     setnumV(L->top, (lua_Number)G(L)->gc.total/1024.0);
   } else {
@@ -636,6 +683,37 @@ LJLIB_CF(coroutine_create)
   return 1;
 }
 
+#if LJ_54
+static int lj_cf_coroutine_close(lua_State *L)
+{
+  lua_State *co;
+  if (!(L->top > L->base && tvisthread(L->base)))
+    lj_err_arg(L, 1, LJ_ERR_NOCORO);
+  co = threadV(L->base);
+  if (co == L || co->cframe != NULL ||
+      (co->status == LUA_OK && co->base > tvref(co->stack)+1+LJ_FR2))
+    lj_err_callermsg(L, "cannot close a running coroutine");
+  if (co->status > LUA_YIELD) {
+    setboolV(L->top++, 0);
+    if (co->top > co->base)
+      copyTV(L, L->top++, co->top-1);
+    else
+      setnilV(L->top++);
+    co->status = LUA_OK;
+    co->top = co->base = tvref(co->stack) + 1 + LJ_FR2;
+    return 2;
+  }
+  /* No <close> variables are supported yet, but close open upvalues and make
+  ** the coroutine dead so Lua 5.4 callers can reliably cancel suspended work.
+  */
+  lj_func_closeuv(co, tvref(co->stack));
+  co->status = LUA_OK;
+  co->top = co->base = tvref(co->stack) + 1 + LJ_FR2;
+  setboolV(L->top++, 1);
+  return 1;
+}
+#endif
+
 LJLIB_ASM(coroutine_yield)
 {
   lj_err_caller(L, LJ_ERR_CYIELD);
@@ -729,9 +807,29 @@ LUALIB_API int luaopen_base(lua_State *L)
   lua_pushliteral(L, LUA_VERSION);  /* top-3. */
   newproxy_weaktable(L);  /* top-2. */
   LJ_LIB_REG(L, "_G", base);
-#if !LJ_54
+#if LJ_54
+  /* Lua 5.4 exposes the current global environment as _ENV. Lexical _ENV
+  ** shadowing is handled by the parser, but the global binding is visible too.
+  */
+  settabV(L, lj_tab_setstr(L, env, lj_str_newlit(L, "_ENV")), env);
+  /* Lua 5.4 compatibility mode should not leak Lua 5.1/LuaJIT legacy globals
+  ** that were registered by the shared base library definition above.
+  */
+  setnilV(lj_tab_setstr(L, env, lj_str_newlit(L, "getfenv")));
+  setnilV(lj_tab_setstr(L, env, lj_str_newlit(L, "setfenv")));
+  setnilV(lj_tab_setstr(L, env, lj_str_newlit(L, "newproxy")));
+  setnilV(lj_tab_setstr(L, env, lj_str_newlit(L, "loadstring")));
+  setnilV(lj_tab_setstr(L, env, lj_str_newlit(L, "unpack")));
+  setnilV(lj_tab_setstr(L, env, lj_str_newlit(L, "gcinfo")));
+  lua_pushcfunction(L, lj_cf_ipairs54);
+  lua_setglobal(L, "ipairs");
+#else
   setnilV(lj_tab_setstr(L, env, lj_str_newlit(L, "warn")));
 #endif
   LJ_LIB_REG(L, LUA_COLIBNAME, coroutine);
+#if LJ_54
+  lua_pushcfunction(L, lj_cf_coroutine_close);
+  lua_setfield(L, -2, "close");
+#endif
   return 2;
 }

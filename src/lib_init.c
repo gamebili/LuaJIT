@@ -24,7 +24,13 @@ static const luaL_Reg lj_lib_load[] = {
   { LUA_STRLIBNAME,	luaopen_string },
   { LUA_MATHLIBNAME,	luaopen_math },
   { LUA_DBLIBNAME,	luaopen_debug },
+#if LJ_54
+  /* utf8 is a Lua 5.4 standard library; keep it out of default LuaJIT mode. */
+  { LUA_UTF8LIBNAME,	luaopen_utf8 },
+#endif
+#if !LJ_54
   { LUA_BITLIBNAME,	luaopen_bit },
+#endif
   { LUA_JITLIBNAME,	luaopen_jit },
   { NULL,		NULL }
 };

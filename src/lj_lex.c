@@ -95,6 +95,7 @@ static void lex_newline(LexState *ls)
 static void lex_number(LexState *ls, TValue *tv)
 {
   StrScanFmt fmt;
+  uint32_t opt;
   LexChar c, xp = 'e';
   lj_assertLS(lj_char_isdigit(ls->c), "bad usage");
   if ((c = ls->c) == '0' && (lex_savenext(ls) | 0x20) == 'x')
@@ -105,9 +106,16 @@ static void lex_number(LexState *ls, TValue *tv)
     lex_savenext(ls);
   }
   lex_save(ls, '\0');
-  fmt = lj_strscan_scan((const uint8_t *)ls->sb.b, sbuflen(&ls->sb)-1, tv,
-	  (LJ_DUALNUM ? STRSCAN_OPT_TOINT : STRSCAN_OPT_TONUM) |
-	  (LJ_HASFFI ? (STRSCAN_OPT_LL|STRSCAN_OPT_IMAG) : 0));
+  if (LJ_54 && sbuflen(&ls->sb) > 2 && ls->sb.b[0] == '0' &&
+      ((ls->sb.b[1] | 0x20) == 'b')) {
+    /* 0b... is a LuaJIT extension, not a Lua 5.4 numeric literal. */
+    lj_lex_error(ls, TK_number, LJ_ERR_XNUMBER);
+  }
+  opt = (LJ_DUALNUM ? STRSCAN_OPT_TOINT : STRSCAN_OPT_TONUM);
+  /* Keep LuaJIT numeric literal suffixes out of the Lua 5.4 syntax surface. */
+  if (LJ_HASFFI && !LJ_54)
+    opt |= (STRSCAN_OPT_LL|STRSCAN_OPT_IMAG);
+  fmt = lj_strscan_scan((const uint8_t *)ls->sb.b, sbuflen(&ls->sb)-1, tv, opt);
   if (LJ_DUALNUM && fmt == STRSCAN_INT) {
     setitype(tv, LJ_TISNUM);
   } else if (fmt == STRSCAN_NUM) {
@@ -353,10 +361,16 @@ static LexToken lex_scan(LexState *ls, TValue *tv)
       if (ls->c != '=') return '='; else { lex_next(ls); return TK_eq; }
     case '<':
       lex_next(ls);
+      if (LJ_54 && ls->c == '<') { lex_next(ls); return TK_shl; }
       if (ls->c != '=') return '<'; else { lex_next(ls); return TK_le; }
     case '>':
       lex_next(ls);
+      if (LJ_54 && ls->c == '>') { lex_next(ls); return TK_shr; }
       if (ls->c != '=') return '>'; else { lex_next(ls); return TK_ge; }
+    case '/':
+      lex_next(ls);
+      if (LJ_54 && ls->c == '/') { lex_next(ls); return TK_idiv; }
+      return '/';
     case '~':
       lex_next(ls);
       if (ls->c != '=') return '~'; else { lex_next(ls); return TK_ne; }

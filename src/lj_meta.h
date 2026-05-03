@@ -12,6 +12,7 @@
 LJ_FUNC void lj_meta_init(lua_State *L);
 LJ_FUNC cTValue *lj_meta_cache(GCtab *mt, MMS mm, GCstr *name);
 LJ_FUNC cTValue *lj_meta_lookup(lua_State *L, cTValue *o, MMS mm);
+LJ_FUNC const char *lj_meta_objtypename(lua_State *L, cTValue *o, MSize *lenp);
 #if LJ_HASFFI
 LJ_FUNC int lj_meta_tailcall(lua_State *L, cTValue *tv);
 #endif

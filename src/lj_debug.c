@@ -437,6 +437,13 @@ int lj_debug_getinfo(lua_State *L, const char *what, lj_Debug *ar, int ext)
   TValue *frame = NULL;
   TValue *nextframe = NULL;
   GCfunc *fn;
+  if (ext) {
+    ar->nparams = 0;
+    ar->isvararg = 0;
+    ar->istailcall = 0;
+    ar->ftransfer = 0;
+    ar->ntransfer = 0;
+  }
   if (*what == '>') {
     TValue *func = L->top - 1;
     if (!tvisfunc(func)) return 0;
@@ -500,6 +507,14 @@ int lj_debug_getinfo(lua_State *L, const char *what, lj_Debug *ar, int ext)
       opt_f = 1;
     } else if (*what == 'L') {
       opt_L = 1;
+    } else if (*what == 't') {
+      /* Lua 5.4 accepts option 't' for tail-call information. LuaJIT does
+      ** not expose exact tail-call state here yet; the debug library reports
+      ** a conservative false value for now.
+      */
+      if (ext)
+	ar->istailcall = 0;
+      continue;
     } else {
       return 0;  /* Bad option. */
     }
@@ -536,7 +551,7 @@ int lj_debug_getinfo(lua_State *L, const char *what, lj_Debug *ar, int ext)
 
 LUA_API int lua_getinfo(lua_State *L, const char *what, lua_Debug *ar)
 {
-  return lj_debug_getinfo(L, what, (lj_Debug *)ar, 0);
+  return lj_debug_getinfo(L, what, (lj_Debug *)ar, 1);
 }
 
 LUA_API int lua_getstack(lua_State *L, int level, lua_Debug *ar)

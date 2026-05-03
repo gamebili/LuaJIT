@@ -6,10 +6,13 @@
 #define lj_err_c
 #define LUA_CORE
 
+#include <string.h>
+
 #include "lj_obj.h"
 #include "lj_err.h"
 #include "lj_debug.h"
 #include "lj_str.h"
+#include "lj_meta.h"
 #include "lj_func.h"
 #include "lj_state.h"
 #include "lj_frame.h"
@@ -967,8 +970,10 @@ LJ_NOINLINE void lj_err_lex(lua_State *L, GCstr *src, const char *tok,
 /* Typecheck error for operands. */
 LJ_NOINLINE void lj_err_optype(lua_State *L, cTValue *o, ErrMsg opm)
 {
-  const char *tname = lj_typename(o);
+  MSize tlen;
+  const char *tname = lj_meta_objtypename(L, o, &tlen);
   const char *opname = err2msg(opm);
+  UNUSED(tlen);
   if (curr_funcisL(L)) {
     GCproto *pt = curr_proto(L);
     const BCIns *pc = cframe_Lpc(L) - 1;
@@ -983,10 +988,11 @@ LJ_NOINLINE void lj_err_optype(lua_State *L, cTValue *o, ErrMsg opm)
 /* Typecheck error for ordered comparisons. */
 LJ_NOINLINE void lj_err_comp(lua_State *L, cTValue *o1, cTValue *o2)
 {
-  const char *t1 = lj_typename(o1);
-  const char *t2 = lj_typename(o2);
-  err_msgv(L, t1 == t2 ? LJ_ERR_BADCMPV : LJ_ERR_BADCMPT, t1, t2);
-  /* This assumes the two "boolean" entries are commoned by the C compiler. */
+  MSize t1len, t2len;
+  const char *t1 = lj_meta_objtypename(L, o1, &t1len);
+  const char *t2 = lj_meta_objtypename(L, o2, &t2len);
+  int same = t1len == t2len && memcmp(t1, t2, t1len) == 0;
+  err_msgv(L, same ? LJ_ERR_BADCMPV : LJ_ERR_BADCMPT, t1, t2);
 }
 
 /* Typecheck error for __call. */
@@ -998,7 +1004,9 @@ LJ_NOINLINE void lj_err_optype_call(lua_State *L, TValue *o)
   */
   const BCIns *pc = cframe_Lpc(L);
   if (((ptrdiff_t)pc & FRAME_TYPE) != FRAME_LUA) {
-    const char *tname = lj_typename(o);
+    MSize tlen;
+    const char *tname = lj_meta_objtypename(L, o, &tlen);
+    UNUSED(tlen);
     setframe_gc(o, obj2gco(L), LJ_TTHREAD);
     if (LJ_FR2) o++;
     setframe_pc(o, pc);
@@ -1104,7 +1112,13 @@ LJ_NOINLINE void lj_err_argtype(lua_State *L, int narg, const char *xname)
     }
   } else {
     TValue *o = narg < 0 ? L->top + narg : L->base + narg-1;
-    tname = o < L->top ? lj_typename(o) : lj_obj_typename[0];
+    if (o < L->top) {
+      MSize tlen;
+      tname = lj_meta_objtypename(L, o, &tlen);
+      UNUSED(tlen);
+    } else {
+      tname = lj_obj_typename[0];
+    }
   }
   msg = lj_strfmt_pushf(L, err2msg(LJ_ERR_BADTYPE), xname, tname);
   err_argmsg(L, narg, msg);

@@ -641,6 +641,9 @@ typedef struct global_State {
   uint8_t dispatchmode;	/* Dispatch mode. */
   uint8_t vmevmask;	/* VM event mask. */
   uint8_t warn_on;	/* Warning state for Lua 5.4 warn(). */
+  uint8_t gc_mode54;	/* Reported GC mode for Lua 5.4 collectgarbage(). */
+  lua_WarnFunction warnf;  /* Optional Lua 5.4 C warning callback. */
+  void *warnud;
   StrInternState str;	/* String interning. */
   volatile int32_t vmstate;  /* VM state or current JIT code trace number. */
   GCRef mainthref;	/* Link to main thread. */
@@ -703,6 +706,7 @@ struct lua_State {
   GCRef env;		/* Thread environment (table of globals). */
   void *cframe;		/* End of C stack frame chain. */
   MSize stacksize;	/* True stack size (incl. LJ_STACK_EXTRA). */
+  void *exdata;		/* Pointer-sized Lua 5.4 extraspace compatibility. */
 };
 
 #define G(L)			(mref(L->glref, global_State))

@@ -181,8 +181,13 @@ smoketest-lua54compat:
 	./src/luajit test/smoke.lua lua54compat
 	out=$$(./src/luajit -e 'warn("@on"); warn("lua54 ", "warning")' 2>&1 >/dev/null) && test "$$out" = "lua54 warning"
 
-test: smoketest smoketest-lua54compat
+smoketest-capi-lua54compat: smoketest-lua54compat
+	gcc -DLUAJIT_ENABLE_LUA54COMPAT -I src -x c test/lua54_capi_smoke.c -x none src/lua51.dll -o src/lua54_capi_smoke.exe
+	./src/lua54_capi_smoke.exe
+	rm -f src/lua54_capi_smoke.exe
 
-.PHONY: all install amalg clean smoketest smoketest-lua54compat test
+test: smoketest smoketest-lua54compat smoketest-capi-lua54compat
+
+.PHONY: all install amalg clean smoketest smoketest-lua54compat smoketest-capi-lua54compat test
 
 ##############################################################################

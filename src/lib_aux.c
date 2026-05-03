@@ -159,6 +159,39 @@ LUALIB_API void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup)
   lua_pop(L, nup);  /* Remove upvalues. */
 }
 
+LUALIB_API int luaL_getsubtable(lua_State *L, int idx, const char *fname)
+{
+  idx = lua_absindex(L, idx);
+  lua_getfield(L, idx, fname);
+  if (lua_istable(L, -1))
+    return 1;
+  lua_pop(L, 1);
+  lua_newtable(L);
+  lua_pushvalue(L, -1);
+  lua_setfield(L, idx, fname);
+  return 0;
+}
+
+LUALIB_API void luaL_requiref(lua_State *L, const char *modname,
+			      lua_CFunction openf, int glb)
+{
+  luaL_getsubtable(L, LUA_REGISTRYINDEX, "_LOADED");
+  lua_getfield(L, -1, modname);
+  if (!lua_toboolean(L, -1)) {
+    lua_pop(L, 1);
+    lua_pushcfunction(L, openf);
+    lua_pushstring(L, modname);
+    lua_call(L, 1, 1);
+    lua_pushvalue(L, -1);
+    lua_setfield(L, -3, modname);
+  }
+  lua_remove(L, -2);
+  if (glb) {
+    lua_pushvalue(L, -1);
+    lua_setglobal(L, modname);
+  }
+}
+
 LUALIB_API const char *luaL_gsub(lua_State *L, const char *s,
 				 const char *p, const char *r)
 {
@@ -264,6 +297,92 @@ LUALIB_API void luaL_buffinit(lua_State *L, luaL_Buffer *B)
   B->L = L;
   B->p = B->buffer;
   B->lvl = 0;
+}
+
+/* -- Lua 5.4 auxiliary compatibility ------------------------------------ */
+
+LUALIB_API void luaL_checkversion_(lua_State *L, lua_Number ver, size_t sz)
+{
+  (void)L;
+  (void)ver;
+  (void)sz;
+}
+
+LUALIB_API void luaL_pushfail(lua_State *L)
+{
+  lua_pushnil(L);
+}
+
+LUALIB_API lua_Integer luaL_len(lua_State *L, int idx)
+{
+  int isnum = 0;
+  lua_Integer len;
+  lua_len(L, idx);
+  len = lua_tointegerx(L, -1, &isnum);
+  if (!isnum)
+    luaL_error(L, "object length is not an integer");
+  lua_pop(L, 1);
+  return len;
+}
+
+LUALIB_API int luaL_typeerror(lua_State *L, int narg, const char *tname)
+{
+  int idx = lua_absindex(L, narg);
+  const char *typearg;
+  if (luaL_getmetafield(L, idx, "__name")) {
+    typearg = lua_tostring(L, -1);
+    if (typearg == NULL) {
+      lua_pop(L, 1);
+      typearg = luaL_typename(L, idx);
+    }
+  } else {
+    typearg = luaL_typename(L, idx);
+  }
+  return luaL_argerror(L, narg,
+		       lua_pushfstring(L, "%s expected, got %s",
+				       tname, typearg));
+}
+
+LUALIB_API void luaL_argexpected(lua_State *L, int cond, int arg,
+				 const char *tname)
+{
+  if (!cond)
+    luaL_typeerror(L, arg, tname);
+}
+
+LUALIB_API const char *luaL_tolstring(lua_State *L, int idx, size_t *len)
+{
+  idx = lua_absindex(L, idx);
+  if (luaL_callmeta(L, idx, "__tostring")) {
+    if (!lua_isstring(L, -1))
+      luaL_error(L, "'__tostring' must return a string");
+  } else {
+    int t = lua_type(L, idx);
+    switch (t) {
+    case LUA_TNUMBER:
+    case LUA_TSTRING:
+      lua_pushvalue(L, idx);
+      break;
+    case LUA_TBOOLEAN:
+      lua_pushstring(L, lua_toboolean(L, idx) ? "true" : "false");
+      break;
+    case LUA_TNIL:
+      lua_pushliteral(L, "nil");
+      break;
+    default: {
+      const char *kind = luaL_typename(L, idx);
+      if (luaL_getmetafield(L, idx, "__name")) {
+	const char *name = lua_tostring(L, -1);
+	if (name)
+	  kind = name;
+	lua_pop(L, 1);
+      }
+      lua_pushfstring(L, "%s: %p", kind, lua_topointer(L, idx));
+      break;
+    }
+    }
+  }
+  return lua_tolstring(L, -1, len);
 }
 
 /* -- Reference management ------------------------------------------------ */

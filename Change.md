@@ -5,6 +5,14 @@
 - 已按要求采用 `Change.md` 记录修改、新功能和进展；仓库中未创建 `Modify.md`。
 - 已完成实验性 Lua 5.4 兼容模式的阶段性实现与测试。
 - 已通过 `make test` 验证默认构建和 Lua 5.4 兼容构建的 smoke 测试。
+- 已继续推进 Lua 5.4 语言层属性语法：`local x <const>` / `local x <close>` 已进入测试覆盖。
+- 已继续推进 Lua 5.4 运算符语法：`//`、`&`、`|`、`~`、`<<`、`>>` 已进入测试覆盖。
+- 已继续补齐 Lua 5.4 基础库细节：`ipairs`、`warn()`、`math.randomseed()` 和 `math.random()` 的行为差异已进入测试覆盖。
+- 已继续补齐 Lua 5.4 `_ENV` 基础语义：全局 `_ENV` 和局部 `_ENV` 名字解析已进入测试覆盖。
+- 已继续补齐 Lua 5.4 `utf8.char()` 扩展编码范围和 `string.pack()` 的 `j` / `T` 格式。
+- 已开始按 `TODO.md` 逐项清理剩余缺口；已完成 `__le`、`string.gmatch(init)`、`warn()` 数字参数、`math.randomseed()` 无参返回、`utf8` lax 模式，以及 `string.pack()` / `string.unpack()` / `string.packsize()` 的 alignment、`X`、`l` / `L` 格式；`//` 已补充字符串数字的算术转换路径；`debug.getinfo(..., "t")` 已支持最小 `istailcall=false` 表面。
+- 已先补 Lua 5.4 C API 烟测 `test/lua54_capi_smoke.c` 和 `make smoketest-capi-lua54compat`，覆盖 `lua_arith`、`lua_compare`、`lua_len`、`lua_rotate`、`lua_stringtonumber`、`lua_numbertointeger` 以及 `luaL_*` 常用兼容入口。
+- C API 烟测继续扩展到 registry 索引、`lua_getextraspace()`、`lua_callk()` / `lua_pcallk()` 宏、warning 回调和 `LUA_GCGEN` / `LUA_GCINC` 模式切换表面。
 
 ## 修改内容
 
@@ -13,9 +21,11 @@
 - Lua 5.4 兼容模式会自动启用现有 Lua 5.2 兼容层作为基础。
 - 默认构建保持 LuaJIT 原有 Lua 5.1 行为不变。
 - 更新文档说明实验性 Lua 5.4 兼容模式、当前范围和限制。
+- 新增 `src/lib_utf8.c`，并仅在 `LJ_54` 模式由 `luaL_openlibs()` 加载 `utf8` 标准库。
 - 新增顶层测试目标：
   - `make smoketest`
   - `make smoketest-lua54compat`
+  - `make smoketest-capi-lua54compat`
   - `make test`
 
 ## 新功能
@@ -29,11 +39,67 @@
   - warning 开关状态保存在 `global_State` 中。
   - 新增 `math.type()`，用于区分 LuaJIT 内部整数和浮点数值。
   - 新增 `math.maxinteger` / `math.mininteger`，当前对应 LuaJIT 内部 32 位整数范围。
+  - 新增 `math.tointeger()`，按当前 32 位内部整数范围做严格整数转换；无法精确表示为整数时返回 `nil`。
+  - 新增 `math.ult()`，按当前 32 位内部整数范围执行无符号小于比较。
+  - 新增 `utf8` 标准库的基础函数：`utf8.char()`、`utf8.codepoint()`、`utf8.codes()`、`utf8.len()`、`utf8.offset()` 和 `utf8.charpattern`。
+  - 新增 `debug.setcstacklimit()` 兼容入口；LuaJIT 使用自身 C 栈保护，因此当前实现为 no-op 并返回稳定有效值。
+  - 新增 `coroutine.close()` 的基础兼容语义，可关闭无 `<close>` 变量的 suspended/dead 协程。
+  - `package` 库在 Lua 5.4 兼容构建中只暴露 `package.searchers`，不再暴露旧别名 `package.loaders`。
+  - `require()` 支持 Lua 5.4 searcher 的 loader data：传给 loader，并在首次加载时作为第二返回值返回。
+  - 新增 `string.pack()`、`string.unpack()`、`string.packsize()` 的基础兼容子集，当前覆盖整数、浮点、固定长度字符串、零结尾字符串、长度前缀字符串、跳过字节和 endian 标记。
+  - 新增局部变量属性语法解析：`local x <const>` 和 `local x <close>`。
+  - `<const>` 局部变量会阻止后续局部赋值和闭包内上值赋值，错误在 chunk 加载/编译阶段抛出。
+  - `<close>` 语法遵循 Lua 5.4 限制：同一条 local 声明中不允许多个 to-be-closed 变量。
+  - `<close>` 当前先完成语法接收和属性记录；`__close` 元方法调度仍需要后续 VM 层实现。
+  - 新增 Lua 5.4 兼容模式下的整除运算符 `//`。
+  - 新增 Lua 5.4 兼容模式下的位运算符：`&`、`|`、二元 `~`、一元 `~`、`<<`、`>>`。
+  - 新运算符当前由解析器降级为 `jit` 表中的内部辅助函数调用，避免修改 LuaJIT 字节码格式和所有 VM 后端；整数范围沿用当前兼容层的 32 位内部整数策略。
+  - `ipairs()` 在 Lua 5.4 兼容模式下使用普通索引访问，支持通过 `__index` 返回迭代值。
+  - `warn()` 空参数调用现在按 Lua 5.4 报错。
+  - `math.randomseed(x, y)` 在 Lua 5.4 兼容模式下接受第二个种子参数并返回实际接受的两个种子值；内部 PRNG 仍沿用 LuaJIT 的单状态实现。
+  - `math.random()` 保持无参数时返回 `[0, 1)` 浮点数；带整数区间参数时改为 Lua 5.4 风格的整数区间语义。
+  - `math.random(0)` 在 Lua 5.4 兼容模式下返回当前 32 位兼容整数范围内的随机整数值；未启用 dual-number 的构建只能以可精确转整数的 number 形式承载该值。
+  - `math.random(n)` / `math.random(m, n)` 会拒绝无整数表示的参数、空区间和超过两个参数的调用。
+  - `math.randomseed()` 无参数调用现在返回从新 PRNG 状态生成的两个非零占位种子，不再返回固定 `0, 0`。
+  - `warn()` 现在按 Lua 5.4 接受 number 参数并转换为字符串；boolean/table 等仍按 `string expected` 报错。
+  - `utf8.len()`、`utf8.codepoint()`、`utf8.codes()` 支持 Lua 5.4 lax 参数，可解析扩展 5/6 字节 UTF-8 和 surrogate 字节序列；默认 strict 模式仍保持有效 Unicode 检查。
+  - `string.gmatch(s, pattern, init)` 支持第三个起始位置参数，包括负数相对位置。
+  - `<=` 在 Lua 5.4 兼容模式下不再使用 `__lt` 模拟 `__le`；缺少 `__le` 会报比较错误。
+  - `//` helper 支持字符串数字的算术转换，例如 `"5" // 2`；位运算 helper 继续拒绝字符串，符合 Lua 5.4 对 bitwise 的限制。
+  - `//`、`&`、`|`、二元 `~`、一元 `~`、`<<`、`>>` 的 helper 在原始数值路径不可用时会查找并调用 Lua 5.4 元方法：`__idiv`、`__band`、`__bor`、`__bxor`、`__bnot`、`__shl`、`__shr`。
+  - `__name` 元字段会影响 `tostring()` 的对象类型名前缀，以及参数类型错误中的实际类型名。
+  - `luaL_newmetatable()` 在 Lua 5.4 兼容模式下会把注册类型名写入 `__name`。
+  - `tonumber(s, 16)` 在 Lua 5.4 兼容模式下不再把 `0x` 前缀当成 explicit-base 16 的合法前缀；`base >= 34` 时 `x` 仍按普通数字字符处理。
+  - `string.format()` 的整数格式现在拒绝没有整数表示的 number/string number；`%q` 对 number 输出 Lua 5.4 风格的可读回数值文本，`%p` 对 `nil` 输出 `(null)`，非 nil 指针使用平台 C `%p` 文本。
+  - `math.type()` 在非 dual-number 构建下会把当前 32 位范围内可精确表示为整数的 number 报告为 `integer`；`math.floor()`、`math.ceil()`、`math.modf()` 的整数结果会尽量返回当前兼容整数表面。
+  - `debug.getuservalue()` / `debug.setuservalue()` 在 Lua 5.4 兼容模式下不再暴露 LuaJIT userdata 内部环境表；内置 userdata 的 indexed uservalue 表面返回 `nil`。
+  - `table.concat()` 未显式传入终点时会尊重 `__len` 长度元方法，再按该终点检查 nil 洞。
+  - Lua 5.4 兼容模式禁用 LuaJIT 的 `0b...` 二进制数字字面量、`LL` 整数后缀和 imaginary `i` 数字字面量扩展。
+  - `lua.h` / C API 新增一批 Lua 5.4 表面：`lua_Unsigned`、`LUA_MAXINTEGER`、`LUA_MININTEGER`、`lua_absindex()`、`lua_isinteger()`、`lua_rawlen()`、`lua_geti()`、`lua_seti()`、`lua_rawgetp()`、`lua_rawsetp()`、`lua_pushglobaltable()`。
+  - `lua.h` / C API 继续新增 Lua 5.4 表面：`lua_arith()`、`lua_compare()`、`lua_len()`、`lua_numbertointeger()`、`lua_rotate()`、`lua_stringtonumber()` 以及 `LUA_OP*` 比较/算术常量。
+  - C API 继续新增 `lua_getextraspace()`、`lua_setwarnf()`、`lua_warning()`，并补 `lua_KContext`、`lua_KFunction`、`lua_WarnFunction`、`LUA_RIDX_MAINTHREAD`、`LUA_RIDX_GLOBALS`、`LUA_LOADED_TABLE`、`LUA_PRELOAD_TABLE`、`LUA_HOOKTAILCALL`、`LUA_GCGEN`、`LUA_GCINC`。
+  - C API 新增 indexed uservalue 表面：`lua_newuserdatauv()`、`lua_getiuservalue()`、`lua_setiuservalue()`；当前用 LuaJIT userdata 环境表保存声明数量和值，超出声明范围按 Lua 5.4 表面返回失败。
+  - registry 初始化会写入 `LUA_RIDX_MAINTHREAD` 和 `LUA_RIDX_GLOBALS`；新线程会复制当前线程的 pointer-sized extraspace。
+  - `lua_callk()`、`lua_pcallk()`、`lua_yieldk()` 目前以宏映射到非 continuation 调用，提供编译兼容；真实 yield continuation 语义仍保留在 `TODO.md`。
+  - `lauxlib.h` / 辅助库新增 Lua 5.4 常用表面：`luaL_pushfail()`、`luaL_len()`、`luaL_getsubtable()`、`luaL_requiref()`、`luaL_tolstring()`、`luaL_typeerror()`、`luaL_argexpected()`、`luaL_checkversion()` 和基础 buffer 宏。
+  - `lua_Debug` 新增 Lua 5.4 字段：`nparams`、`isvararg`、`istailcall`、`ftransfer`、`ntransfer`；C API `lua_getinfo(..., "ut")` 已能读取参数字段，并对尚未精确支持的 tail/transfer 字段返回保守零值。
+  - `debug.getinfo(f, "t")` 不再报 invalid option，并返回 `istailcall=false`；真实 tail-call 识别和 hook transfer 字段仍在 `TODO.md` 保留。
+  - 全局 `_ENV` 在 Lua 5.4 兼容模式下指向 `_G`。
+  - 局部 `_ENV` 在 Lua 5.4 兼容模式下会接管未解析名字的读写，例如 `local _ENV = {x=1}; return x`。
+  - `utf8.char()` 在 Lua 5.4 兼容模式下接受 `0..0x7fffffff`，可生成 5/6 字节扩展形式；`utf8.charpattern` 首字节范围同步扩展到 `\xfd`。
+  - `string.pack()` / `string.unpack()` / `string.packsize()` 新增 `j` 和 `T` 格式，分别按 `lua_Integer` 和 `size_t` 的本机宽度处理。
+  - `string.pack()` / `string.unpack()` / `string.packsize()` 支持 `!n` 对齐控制、`X` 对齐填充，以及 `l` / `L` 本机 long 整数格式；三条路径共享当前位置对齐规则。
 - 默认构建中：
   - `_VERSION` 仍为 `Lua 5.1`。
   - `jit.lua54compat` 为 `false`。
   - 不暴露 `warn()`。
-  - 不暴露 `math.type()`、`math.maxinteger` 或 `math.mininteger`。
+  - 不暴露 `math.type()`、`math.tointeger()`、`math.ult()`、`math.maxinteger` 或 `math.mininteger`。
+  - 不暴露 `utf8` 标准库。
+  - 不暴露 `debug.setcstacklimit()` 或 `coroutine.close()`。
+  - 继续保留 Lua 5.1 风格的 `package.loaders`。
+  - 不暴露 `string.pack()`、`string.unpack()` 或 `string.packsize()`。
+  - 继续拒绝 Lua 5.4 的局部变量属性语法。
+  - 继续拒绝 Lua 5.4 的整除和位运算符语法。
 
 ## 测试进展
 
@@ -46,10 +112,58 @@
 - 覆盖 `warn()` 参数类型检查。
 - 覆盖 `warn()` stderr 输出。
 - 覆盖 `math.type()`、`math.maxinteger` 和 `math.mininteger` 是否按模式暴露及基本行为。
+- 覆盖 `math.tointeger()` 的缺参报错、`nil` 返回、字符串整数、浮点整数、小数和越界值。
+- 覆盖 `math.ult()` 的正数、负数无符号比较和非整数参数报错。
+- 覆盖 `utf8` 标准库的有效 UTF-8 长度、码点提取、字符编码、迭代、偏移定位和非法字节检测。
+- 覆盖 `debug.setcstacklimit()` 的暴露状态、返回值形态和参数类型检查。
+- 覆盖 `coroutine.close()` 的 suspended 协程关闭、dead 协程关闭、关闭后 resume 失败和运行中协程报错。
+- 覆盖 `package.searchers` / `package.loaders` 在默认模式与 Lua 5.4 兼容模式下的差异。
+- 覆盖 `require()` 对 `package.preload` 的 `:preload:` loader data，以及自定义 searcher loader data 的传参和第二返回值。
+- 覆盖 `string.pack()` / `string.unpack()` 的 signed/unsigned 1、2、4 字节整数，小端/大端，`float`/`double`，`cN` 零填充，`z`，`sN`，`x` 和位置返回。
+- 覆盖 `string.packsize()` 的固定长度格式统计，以及 `z` / `sN` 变长格式报错。
+- 覆盖默认构建拒绝 `local x <const>` / `local x <close>`。
+- 覆盖 Lua 5.4 兼容构建接受 `local x <const>` / `local x <close>`。
+- 覆盖 `<const>` 局部变量和被闭包捕获后的上值重赋值都会编译失败。
+- 覆盖未知局部变量属性会编译失败。
+- 覆盖同一条 local 声明中多个 `<close>` 变量会编译失败。
+- 覆盖默认构建拒绝 `//`、`&`、`|`、`~`、`<<`、`>>`。
+- 覆盖 Lua 5.4 兼容构建的 `//`、`&`、`|`、二元 `~`、一元 `~`、`<<`、`>>` 基本语义、负数整除、负位移方向反转、变量参与和嵌套表达式。
+- 覆盖位运算对无整数表示的数值报错。
+- 覆盖 Lua 5.4 兼容构建下 `ipairs()` 通过 `__index` 取得首个值。
+- 覆盖 `math.randomseed(1, 2)` 返回两个种子。
+- 覆盖 `math.random(0)` 的整型范围语义、固定区间、空区间、非整数参数和超过两个参数报错。
+- 覆盖 `math.randomseed()` 无参数返回两个可转整数且不同时为零。
+- 覆盖 `warn(1)` 成功、`warn(true)` 报错。
+- 覆盖 `utf8.len()` / `utf8.codepoint()` / `utf8.codes()` 的 lax 参数。
+- 覆盖 `string.gmatch()` 的正数和负数 `init` 参数。
+- 覆盖 Lua 5.4 下 `<=` 缺少 `__le` 时不会回退 `__lt`。
+- 覆盖 `"5" // 2` 和 `"5.5" // 2` 的字符串数字整除；覆盖 `"3" & 1` 仍报错。
+- 覆盖 `//`、`&`、`|`、二元 `~`、一元 `~`、`<<`、`>>` 的 Lua 5.4 元方法调用和反向查找。
+- 覆盖 `__name` 对 `tostring()` 和参数类型错误的影响。
+- 覆盖 `tonumber("0x10", 16) == nil`、`tonumber("0x10", 34)` 仍按普通数字解析。
+- 覆盖 `string.format("%d", 1.2)` 报错、`%q` number 输出和 `%p` nil 输出。
+- 覆盖 `math.floor()`、`math.ceil()`、`math.modf()` 的 Lua 5.4 整数返回表面。
+- 覆盖内置 userdata 的 indexed `debug.getuservalue` / `debug.setuservalue` 返回 `nil`。
+- 覆盖 `table.concat()` 默认终点尊重 `__len` 元方法并检查 nil 洞。
+- 覆盖 Lua 5.4 兼容模式拒绝 `0b...` 二进制数字字面量、`LL` 整数后缀和 imaginary `i` 数字字面量。
+- 用临时 C 程序编译/链接验证 `lua_absindex`、`lua_isinteger`、`lua_rawlen`、`lua_geti` / `lua_seti`、`lua_rawgetp` / `lua_rawsetp`、`lua_pushglobaltable` 和 `luaL_newmetatable` 写入 `__name`。
+- 覆盖 `debug.getinfo(function() end, "t").istailcall == false`。
+- 覆盖 `warn()` 无参数调用报错。
+- 覆盖默认构建中 `_ENV` 保持 `nil`。
+- 覆盖 Lua 5.4 兼容构建中 `_ENV == _G`。
+- 覆盖局部 `_ENV` 接管未解析名字读取、写入和函数调用。
+- 覆盖 `utf8.char(0x110000)`、`utf8.char(0x200000)`、`utf8.char(0x7fffffff)` 的扩展编码长度，以及 `0x80000000` 越界报错。
+- 覆盖 `utf8.charpattern` 包含 `\xfd`。
+- 覆盖 `string.packsize("jT")` 和 `<jT` 打包/解包。
+- 覆盖 `string.packsize("!8bi8")`、`string.pack("!8bi8", ...)`、`string.unpack("!8bi8", ...)` 的自动对齐。
+- 覆盖 `X` 格式的 padding-only 行为，以及 `l` / `L` 打包解包。
 
 ## 验证结果
 
 - `make test` 已通过。
+- 已用本机 `D:\p4_gl2\pristine\tools\lua\lua5.4.8\lua54.exe` 对比标准库可见 API；当前 Lua 5.4 兼容构建的 `_G` 主要标准库表项与 Lua 5.4.8 一致，额外保留 LuaJIT 自身 `jit` 扩展。
+- 已确认下一批主要未支持语言功能转为 `<close>` 的 `__close` 运行期调度，以及 Lua 5.4 64 位整数完整语义；这些需要 VM/字节码层继续实现。
+- 本机验证时需要先把 `D:\p4_gl2\pristine\ruby\Ruby33-x64\msys64\ucrt64\bin` 前置到 `PATH`，否则顶层 `make` 能启动但 `src/Makefile` 找不到 `gcc`。
 - CodeQL 检查未发现安全告警。
 - 自动代码审查提出的问题已处理：
   - 避免 `warn()` 使用进程级静态开关状态。

@@ -73,6 +73,37 @@ cTValue *lj_meta_lookup(lua_State *L, cTValue *o, MMS mm)
   return niltv(L);
 }
 
+/* Lookup Lua 5.4's optional __name field for user-facing type names. */
+const char *lj_meta_objtypename(lua_State *L, cTValue *o, MSize *lenp)
+{
+#if LJ_54
+  GCtab *mt;
+  if (tvistab(o))
+    mt = tabref(tabV(o)->metatable);
+  else if (tvisudata(o))
+    mt = tabref(udataV(o)->metatable);
+  else
+    mt = tabref(basemt_obj(G(L), o));
+  if (mt) {
+    cTValue *namev = lj_tab_getstr(mt, lj_str_newlit(L, "__name"));
+    if (namev && tvisstr(namev)) {
+      GCstr *name = strV(namev);
+      if (lenp) *lenp = name->len;
+      return strdata(name);
+    }
+  }
+#else
+  UNUSED(L);
+#endif
+  {
+    const char *name = lj_typename(o);
+    MSize len = 0;
+    while (name[len] != '\0') len++;
+    if (lenp) *lenp = len;
+    return name;
+  }
+}
+
 #if LJ_HASFFI
 /* Tailcall from C function. */
 int lj_meta_tailcall(lua_State *L, cTValue *tv)
@@ -407,12 +438,19 @@ TValue *lj_meta_comp(lua_State *L, cTValue *o1, cTValue *o2, int op)
 	if (tvisnil(mo) || !lj_obj_equal(mo, mo2))
 #endif
 	{
+#if LJ_54
+	  /* Lua 5.4 removed the old fallback that emulated __le with __lt.
+	  ** Keep the legacy retry only outside the 5.4 compatibility mode.
+	  */
+	  goto err;
+#else
 	  if (op & 2) {  /* MM_le not found: retry with MM_lt. */
 	    cTValue *ot = o1; o1 = o2; o2 = ot;  /* Swap operands. */
 	    op ^= 3;  /* Use LT and flip condition. */
 	    continue;
 	  }
 	  goto err;
+#endif
 	}
 	return mmcall(L, cont, mo, o1, o2);
       }

@@ -375,7 +375,12 @@ static int lj_cf_package_loader_lua(lua_State *L)
   if (filename == NULL) return 1;  /* library not found in this path */
   if (luaL_loadfile(L, filename) != 0)
     loaderror(L, filename);
+#if LJ_54
+  lua_pushvalue(L, -2);
+  return 2;  /* Lua 5.4 searchers also return loader data. */
+#else
   return 1;  /* library loaded successfully */
+#endif
 }
 
 static int lj_cf_package_loader_c(lua_State *L)
@@ -385,7 +390,12 @@ static int lj_cf_package_loader_c(lua_State *L)
   if (filename == NULL) return 1;  /* library not found in this path */
   if (ll_loadfunc(L, filename, name, 0) != 0)
     loaderror(L, filename);
+#if LJ_54
+  lua_pushvalue(L, -2);
+  return 2;  /* Lua 5.4 searchers also return loader data. */
+#else
   return 1;  /* library loaded successfully */
+#endif
 }
 
 static int lj_cf_package_loader_croot(lua_State *L)
@@ -404,7 +414,12 @@ static int lj_cf_package_loader_croot(lua_State *L)
 		    name, filename);
     return 1;  /* function not found */
   }
+#if LJ_54
+  lua_pushvalue(L, -2);
+  return 2;  /* Lua 5.4 searchers also return loader data. */
+#else
   return 1;
+#endif
 }
 
 static int lj_cf_package_loader_preload(lua_State *L)
@@ -420,6 +435,12 @@ static int lj_cf_package_loader_preload(lua_State *L)
     if (bcdata == NULL || luaL_loadbuffer(L, bcdata, ~(size_t)0, name) != 0)
       lua_pushfstring(L, "\n\tno field package.preload['%s']", name);
   }
+#if LJ_54
+  if (lua_isfunction(L, -1)) {
+    lua_pushliteral(L, ":preload:");
+    return 2;  /* Lua 5.4 passes this marker to preload loaders. */
+  }
+#endif
   return 1;
 }
 
@@ -440,9 +461,15 @@ static int lj_cf_package_require(lua_State *L)
     return 1;  /* package is already loaded */
   }
   /* else must load it; iterate over available loaders */
+#if LJ_54
+  lua_getfield(L, LUA_ENVIRONINDEX, "searchers");
+  if (!lua_istable(L, -1))
+    luaL_error(L, LUA_QL("package.searchers") " must be a table");
+#else
   lua_getfield(L, LUA_ENVIRONINDEX, "loaders");
   if (!lua_istable(L, -1))
     luaL_error(L, LUA_QL("package.loaders") " must be a table");
+#endif
   lua_pushliteral(L, "");  /* error message accumulator */
   for (i = 1; ; i++) {
     lua_rawgeti(L, -2, i);  /* get a loader */
@@ -450,6 +477,17 @@ static int lj_cf_package_require(lua_State *L)
       luaL_error(L, "module " LUA_QS " not found:%s",
 		 name, lua_tostring(L, -2));
     lua_pushstring(L, name);
+#if LJ_54
+    lua_call(L, 1, 2);  /* Lua 5.4 searchers return loader + loader data. */
+    if (lua_isfunction(L, -2))  /* did it find module? */
+      break;  /* module loaded successfully */
+    else if (lua_isstring(L, -2)) {  /* loader returned error message? */
+      lua_pop(L, 1);
+      lua_concat(L, 2);  /* accumulate it */
+    } else {
+      lua_pop(L, 2);
+    }
+#else
     lua_call(L, 1, 1);  /* call it */
     if (lua_isfunction(L, -1))  /* did it find module? */
       break;  /* module loaded successfully */
@@ -457,9 +495,36 @@ static int lj_cf_package_require(lua_State *L)
       lua_concat(L, 2);  /* accumulate it */
     else
       lua_pop(L, 1);
+#endif
   }
   (L->top++)->u64 = KEY_SENTINEL;
   lua_setfield(L, 2, name);  /* _LOADED[name] = sentinel */
+#if LJ_54
+  /* Preserve loader data across the loader call, pass it as the second
+  ** argument, and return it as require()'s second result on first load.
+  */
+  lua_pushvalue(L, -1);
+  lua_insert(L, -3);
+  lua_pushstring(L, name);
+  lua_insert(L, -2);
+  lua_call(L, 2, 1);  /* run loaded module */
+  if (!lua_isnil(L, -1)) {  /* non-nil return? */
+    lua_pushvalue(L, -1);
+    lua_setfield(L, 2, name);  /* _LOADED[name] = returned value */
+  } else {  /* nil return */
+    lua_pop(L, 1);
+    lua_getfield(L, 2, name);  /* did module set _LOADED[name]? */
+    if (lua_isnil(L, -1)) {  /* no? */
+      lua_pop(L, 1);
+      lua_pushboolean(L, 1);
+      lua_pushvalue(L, -1);
+      lua_setfield(L, 2, name);  /* _LOADED[name] = true */
+    }
+  }
+  lua_insert(L, -2);
+  lj_lib_checkfpu(L);
+  return 2;
+#else
   lua_pushstring(L, name);  /* pass name as argument to module */
   lua_call(L, 1, 1);  /* run loaded module */
   if (!lua_isnil(L, -1))  /* non-nil return? */
@@ -472,10 +537,12 @@ static int lj_cf_package_require(lua_State *L)
   }
   lj_lib_checkfpu(L);
   return 1;
+#endif
 }
 
 /* ------------------------------------------------------------------------ */
 
+#if !LJ_54
 static void setfenv(lua_State *L)
 {
   lua_Debug ar;
@@ -542,6 +609,7 @@ static int lj_cf_package_seeall(lua_State *L)
   lua_setfield(L, -2, "__index");  /* mt.__index = _G */
   return 0;
 }
+#endif
 
 /* ------------------------------------------------------------------------ */
 
@@ -571,12 +639,16 @@ static void setpath(lua_State *L, const char *fieldname, const char *envname,
 static const luaL_Reg package_lib[] = {
   { "loadlib",	lj_cf_package_loadlib },
   { "searchpath",  lj_cf_package_searchpath },
+#if !LJ_54
   { "seeall",	lj_cf_package_seeall },
+#endif
   { NULL, NULL }
 };
 
 static const luaL_Reg package_global[] = {
+#if !LJ_54
   { "module",	lj_cf_package_module },
+#endif
   { "require",	lj_cf_package_require },
   { NULL, NULL }
 };
@@ -604,11 +676,16 @@ LUALIB_API int luaopen_package(lua_State *L)
     lj_lib_pushcf(L, package_loaders[i], 1);
     lua_rawseti(L, -2, i+1);
   }
+#if LJ_54
+  /* Lua 5.4 renamed loaders to searchers and no longer exposes the old alias. */
+  lua_setfield(L, -2, "searchers");
+#else
 #if LJ_52
   lua_pushvalue(L, -1);
   lua_setfield(L, -3, "searchers");
 #endif
   lua_setfield(L, -2, "loaders");
+#endif
   lua_getfield(L, LUA_REGISTRYINDEX, "LUA_NOENV");
   noenv = lua_toboolean(L, -1);
   lua_pop(L, 1);

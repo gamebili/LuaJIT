@@ -118,6 +118,9 @@ typedef uint16_t VarIndex;
 #define VSTACK_VAR_RW		0x01	/* R/W variable. */
 #define VSTACK_GOTO		0x02	/* Pending goto. */
 #define VSTACK_LABEL		0x04	/* Label. */
+#define VSTACK_VAR_CONST	0x08	/* Lua 5.4 const local. */
+#define VSTACK_VAR_CLOSE	0x10	/* Lua 5.4 to-be-closed local. */
+#define VSTACK_VAR_ATTRMASK	(VSTACK_VAR_CONST|VSTACK_VAR_CLOSE)
 
 /* Per-function state. */
 typedef struct FuncState {
@@ -148,6 +151,8 @@ typedef struct FuncState {
 /* Binary and unary operators. ORDER OPR */
 typedef enum BinOpr {
   OPR_ADD, OPR_SUB, OPR_MUL, OPR_DIV, OPR_MOD, OPR_POW,  /* ORDER ARITH */
+  OPR_IDIV,
+  OPR_BAND, OPR_BOR, OPR_BXOR, OPR_SHL, OPR_SHR,
   OPR_CONCAT,
   OPR_NE, OPR_EQ,
   OPR_LT, OPR_GE, OPR_LE, OPR_GT,
@@ -234,6 +239,16 @@ static BCReg const_str(FuncState *fs, ExpDesc *e)
   lj_assertFS(expr_isstrk(e) || e->k == VGLOBAL, "bad usage");
   return const_gc(fs, obj2gco(e->u.sval), LJ_TSTR);
 }
+
+#if LJ_54
+static BCReg const_lit(FuncState *fs, const char *str, size_t len)
+{
+  ExpDesc e;
+  expr_init(&e, VKSTR, 0);
+  e.u.sval = lj_parse_keepstr(fs->ls, str, len);
+  return const_str(fs, &e);
+}
+#endif
 
 /* Anchor string constant to avoid GC. */
 GCstr *lj_parse_keepstr(LexState *ls, const char *str, size_t len)
@@ -609,6 +624,32 @@ static BCReg expr_toanyreg(FuncState *fs, ExpDesc *e)
   return e->u.s.info;
 }
 
+#if LJ_54
+static void bcemit_lua54_helper(FuncState *fs, const char *field, size_t len,
+				ExpDesc *e1, ExpDesc *e2, BCReg nargs)
+{
+  LexState *ls = fs->ls;
+  BCReg base = fs->freereg;
+  BCReg argbase;
+  /* Keep new Lua 5.4 operators out of the VM bytecode format for now: lower
+  ** them to private jit helpers so default LuaJIT bytecode remains unchanged.
+  */
+  bcemit_AD(fs, BC_GGET, base, const_lit(fs, "jit", 3));
+  bcreg_reserve(fs, 1);
+  if (ls->fr2) bcreg_reserve(fs, 1);
+  bcreg_reserve(fs, nargs);
+  bcemit_ABC(fs, BC_TGETS, base, base, const_lit(fs, field, len));
+  argbase = (BCReg)(base + 1 + ls->fr2);
+  expr_toreg(fs, e1, argbase);
+  if (nargs == 2)
+    expr_toreg(fs, e2, (BCReg)(argbase + 1));
+  expr_init(e1, VCALL,
+	    bcemit_ABC(fs, BC_CALL, base, 2, fs->freereg - base - ls->fr2));
+  e1->u.s.aux = base;
+  fs->freereg = base+1;  /* Leave one result by default, like parse_args(). */
+}
+#endif
+
 /* Partially discharge expression to a value. */
 static void expr_toval(FuncState *fs, ExpDesc *e)
 {
@@ -623,12 +664,18 @@ static void bcemit_store(FuncState *fs, ExpDesc *var, ExpDesc *e)
 {
   BCIns ins;
   if (var->k == VLOCAL) {
-    fs->ls->vstack[var->u.s.aux].info |= VSTACK_VAR_RW;
+    VarInfo *vi = &fs->ls->vstack[var->u.s.aux];
+    if (vi->info & VSTACK_VAR_CONST)
+      lj_lex_error(fs->ls, 0, LJ_ERR_XCONST, strdata(strref(vi->name)));
+    vi->info |= VSTACK_VAR_RW;
     expr_free(fs, e);
     expr_toreg(fs, e, var->u.s.info);
     return;
   } else if (var->k == VUPVAL) {
-    fs->ls->vstack[var->u.s.aux].info |= VSTACK_VAR_RW;
+    VarInfo *vi = &fs->ls->vstack[var->u.s.aux];
+    if (vi->info & VSTACK_VAR_CONST)
+      lj_lex_error(fs->ls, 0, LJ_ERR_XCONST, strdata(strref(vi->name)));
+    vi->info |= VSTACK_VAR_RW;
     expr_toval(fs, e);
     if (e->k <= VKTRUE)
       ins = BCINS_AD(BC_USETP, var->u.s.info, const_pri(e));
@@ -901,6 +948,20 @@ static void bcemit_binop(FuncState *fs, BinOpr op, ExpDesc *e1, ExpDesc *e2)
 {
   if (op <= OPR_POW) {
     bcemit_arith(fs, op, e1, e2);
+#if LJ_54
+  } else if (op == OPR_IDIV) {
+    bcemit_lua54_helper(fs, "_lua54_idiv", 11, e1, e2, 2);
+  } else if (op == OPR_BAND) {
+    bcemit_lua54_helper(fs, "_lua54_band", 11, e1, e2, 2);
+  } else if (op == OPR_BOR) {
+    bcemit_lua54_helper(fs, "_lua54_bor", 10, e1, e2, 2);
+  } else if (op == OPR_BXOR) {
+    bcemit_lua54_helper(fs, "_lua54_bxor", 11, e1, e2, 2);
+  } else if (op == OPR_SHL) {
+    bcemit_lua54_helper(fs, "_lua54_shl", 10, e1, e2, 2);
+  } else if (op == OPR_SHR) {
+    bcemit_lua54_helper(fs, "_lua54_shr", 10, e1, e2, 2);
+#endif
   } else if (op == OPR_AND) {
     lj_assertFS(e1->t == NO_JMP, "jump list not closed");
     expr_discharge(fs, e2);
@@ -1061,6 +1122,7 @@ static void var_new(LexState *ls, BCReg n, GCstr *name)
 	      "unanchored variable name");
   /* NOBARRIER: name is anchored in fs->kt and ls->vstack is not a GCobj. */
   setgcref(ls->vstack[vtop].name, obj2gco(name));
+  ls->vstack[vtop].info = 0;
   fs->varmap[fs->nactvar+n] = (uint16_t)vtop;
   ls->vtop = vtop+1;
 }
@@ -1080,10 +1142,35 @@ static void var_add(LexState *ls, BCReg nvars)
     VarInfo *v = &var_get(ls, fs, nactvar);
     v->startpc = fs->pc;
     v->slot = nactvar++;
-    v->info = 0;
+    v->info &= VSTACK_VAR_ATTRMASK;
   }
   fs->nactvar = nactvar;
 }
+
+#if LJ_54
+static int var_attr_islit(GCstr *s, const char *lit, MSize len)
+{
+  return s->len == len && memcmp(strdata(s), lit, len) == 0;
+}
+
+static int var_attr_parse(LexState *ls, VarIndex vidx)
+{
+  if (lex_opt(ls, '<')) {
+    GCstr *attr = lex_str(ls);
+    if (var_attr_islit(attr, "const", 5)) {
+      ls->vstack[vidx].info |= VSTACK_VAR_CONST;
+    } else if (var_attr_islit(attr, "close", 5)) {
+      /* Lua 5.4 syntax is accepted here; __close dispatch is a VM task. */
+      ls->vstack[vidx].info |= VSTACK_VAR_CLOSE;
+    } else {
+      lj_lex_error(ls, 0, LJ_ERR_XATTRIB, strdata(attr));
+    }
+    lex_check(ls, '>');
+    return (ls->vstack[vidx].info & VSTACK_VAR_CLOSE) != 0;
+  }
+  return 0;
+}
+#endif
 
 /* Remove local variables. */
 static void var_remove(LexState *ls, BCReg tolevel)
@@ -1149,8 +1236,38 @@ static MSize var_lookup_(FuncState *fs, GCstr *name, ExpDesc *e, int first)
 }
 
 /* Lookup variable name. */
-#define var_lookup(ls, e) \
-  var_lookup_((ls)->fs, lex_str(ls), (e), 1)
+static void var_lookup(LexState *ls, ExpDesc *e)
+{
+  GCstr *name = lex_str(ls);
+  var_lookup_(ls->fs, name, e, 1);
+#if LJ_54
+  if (e->k == VGLOBAL && !var_attr_islit(name, "_ENV", 4)) {
+    FuncState *fs = ls->fs;
+    ExpDesc env, key;
+    GCstr *envname = lj_parse_keepstr(ls, "_ENV", 4);
+    if ((int32_t)var_lookup_(fs, envname, &env, 1) >= 0) {
+      /* Lua 5.4 resolves free names through a lexical _ENV when one exists.
+      ** The default LuaJIT VGLOBAL path remains used when no local/upvalue
+      ** _ENV is in scope, preserving the existing function environment model.
+      */
+      expr_toanyreg(fs, &env);
+      *e = env;
+      expr_init(&key, VKSTR, 0);
+      key.u.sval = name;
+      e->k = VINDEXED;
+      {
+	BCReg idx = const_str(fs, &key);
+	if (idx <= BCMAX_C) {
+	  e->u.s.aux = ~idx;
+	} else {
+	  expr_tonextreg(fs, &key);
+	  e->u.s.aux = key.u.s.info;
+	}
+      }
+    }
+  }
+#endif
+}
 
 /* -- Goto an label handling ---------------------------------------------- */
 
@@ -2035,6 +2152,14 @@ static BinOpr token2binop(LexToken tok)
   case '/':	return OPR_DIV;
   case '%':	return OPR_MOD;
   case '^':	return OPR_POW;
+#if LJ_54
+  case TK_idiv:	return OPR_IDIV;
+  case '&':	return OPR_BAND;
+  case '|':	return OPR_BOR;
+  case '~':	return OPR_BXOR;
+  case TK_shl:	return OPR_SHL;
+  case TK_shr:	return OPR_SHR;
+#endif
   case TK_concat: return OPR_CONCAT;
   case TK_ne:	return OPR_NE;
   case TK_eq:	return OPR_EQ;
@@ -2053,14 +2178,16 @@ static const struct {
   uint8_t left;		/* Left priority. */
   uint8_t right;	/* Right priority. */
 } priority[] = {
-  {6,6}, {6,6}, {7,7}, {7,7}, {7,7},	/* ADD SUB MUL DIV MOD */
-  {10,9}, {5,4},			/* POW CONCAT (right associative) */
+  {9,9}, {9,9}, {10,10}, {10,10}, {10,10},	/* ADD SUB MUL DIV MOD */
+  {13,12},					/* POW (right associative) */
+  {10,10}, {6,6}, {4,4}, {5,5}, {7,7}, {7,7},	/* IDIV BAND BOR BXOR SHL SHR */
+  {8,7},					/* CONCAT (right associative) */
   {3,3}, {3,3},				/* EQ NE */
   {3,3}, {3,3}, {3,3}, {3,3},		/* LT GE GT LE */
   {2,2}, {1,1}				/* AND OR */
 };
 
-#define UNARY_PRIORITY		8  /* Priority for unary operators. */
+#define UNARY_PRIORITY		11  /* Priority for unary operators. */
 
 /* Forward declaration. */
 static BinOpr expr_binop(LexState *ls, ExpDesc *v, uint32_t limit);
@@ -2069,18 +2196,32 @@ static BinOpr expr_binop(LexState *ls, ExpDesc *v, uint32_t limit);
 static void expr_unop(LexState *ls, ExpDesc *v)
 {
   BCOp op;
+#if LJ_54
+  int bitnot = 0;
+#endif
   if (ls->tok == TK_not) {
     op = BC_NOT;
   } else if (ls->tok == '-') {
     op = BC_UNM;
   } else if (ls->tok == '#') {
     op = BC_LEN;
+#if LJ_54
+  } else if (ls->tok == '~') {
+    op = BC_NOT;  /* Placeholder; bitnot path returns before bcemit_unop(). */
+    bitnot = 1;
+#endif
   } else {
     expr_simple(ls, v);
     return;
   }
   lj_lex_next(ls);
   expr_binop(ls, v, UNARY_PRIORITY);
+#if LJ_54
+  if (bitnot) {
+    bcemit_lua54_helper(ls->fs, "_lua54_bnot", 11, v, NULL, 1);
+    return;
+  }
+#endif
   bcemit_unop(ls->fs, op, v);
 }
 
@@ -2256,8 +2397,16 @@ static void parse_local(LexState *ls)
   } else {  /* Local variable declaration. */
     ExpDesc e;
     BCReg nexps, nvars = 0;
+#if LJ_54
+    int nclose = 0;
+#endif
     do {  /* Collect LHS. */
       var_new(ls, nvars++, lex_str(ls));
+#if LJ_54
+      nclose += var_attr_parse(ls, (VarIndex)(ls->vtop - 1));
+      if (nclose > 1)
+	err_syntax(ls, LJ_ERR_XCLOSE);
+#endif
     } while (lex_opt(ls, ','));
     if (lex_opt(ls, '=')) {  /* Optional RHS. */
       nexps = expr_list(ls, &e);

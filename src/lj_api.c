@@ -9,6 +9,8 @@
 #define lj_api_c
 #define LUA_CORE
 
+#include <stdio.h>
+
 #include "lj_obj.h"
 #include "lj_gc.h"
 #include "lj_err.h"
@@ -140,11 +142,23 @@ LUA_API const lua_Number *lua_version(lua_State *L)
   return &version;
 }
 
+LUA_API void *lua_getextraspace(lua_State *L)
+{
+  return &L->exdata;
+}
+
 /* -- Stack manipulation -------------------------------------------------- */
 
 LUA_API int lua_gettop(lua_State *L)
 {
   return (int)(L->top - L->base);
+}
+
+LUA_API int lua_absindex(lua_State *L, int idx)
+{
+  if (idx > 0 || idx <= LUA_REGISTRYINDEX)
+    return idx;
+  return (int)(L->top - L->base) + idx + 1;
 }
 
 LUA_API void lua_settop(lua_State *L, int idx)
@@ -176,6 +190,36 @@ LUA_API void lua_insert(lua_State *L, int idx)
   TValue *q, *p = index2adr_stack(L, idx);
   for (q = L->top; q > p; q--) copyTV(L, q, q-1);
   copyTV(L, p, L->top);
+}
+
+static void api_stack_reverse(lua_State *L, TValue *from, TValue *to)
+{
+  while (from < to) {
+    TValue tmp;
+    copyTV(L, &tmp, from);
+    copyTV(L, from, to);
+    copyTV(L, to, &tmp);
+    from++;
+    to--;
+  }
+}
+
+LUA_API void lua_rotate(lua_State *L, int idx, int n)
+{
+  TValue *p = index2adr_stack(L, idx);
+  int nslots = (int)(L->top - p);
+  lj_checkapi(nslots >= 0, "invalid stack slot %d", idx);
+  if (nslots <= 1)
+    return;
+  n %= nslots;
+  if (n < 0)
+    n += nslots;
+  if (n) {
+    TValue *m = L->top - n;
+    api_stack_reverse(L, p, m-1);
+    api_stack_reverse(L, m, L->top-1);
+    api_stack_reverse(L, p, L->top-1);
+  }
 }
 
 static void copy_slot(lua_State *L, TValue *f, int idx)
@@ -273,6 +317,20 @@ LUA_API int lua_isnumber(lua_State *L, int idx)
   return (tvisnumber(o) || (tvisstr(o) && lj_strscan_number(strV(o), &tmp)));
 }
 
+LUA_API int lua_isinteger(lua_State *L, int idx)
+{
+  cTValue *o = index2adr(L, idx);
+  if (tvisint(o))
+    return 1;
+  if (tvisnum(o)) {
+    lua_Number n = numV(o);
+    lua_Number ni = lj_vm_floor(n);
+    return n == ni && n >= (lua_Number)LUA_MININTEGER &&
+	   n <= (lua_Number)LUA_MAXINTEGER;
+  }
+  return 0;
+}
+
 LUA_API int lua_isstring(lua_State *L, int idx)
 {
   cTValue *o = index2adr(L, idx);
@@ -345,6 +403,44 @@ LUA_API int lua_lessthan(lua_State *L, int idx1, int idx2)
       L->top -= 2+LJ_FR2;
       return tvistruecond(L->top+1+LJ_FR2);
     }
+  }
+}
+
+static int api_lessequal(lua_State *L, int idx1, int idx2)
+{
+  cTValue *o1 = index2adr(L, idx1);
+  cTValue *o2 = index2adr(L, idx2);
+  if (o1 == niltv(L) || o2 == niltv(L)) {
+    return 0;
+  } else if (tvisint(o1) && tvisint(o2)) {
+    return intV(o1) <= intV(o2);
+  } else if (tvisnumber(o1) && tvisnumber(o2)) {
+    return numberVnum(o1) <= numberVnum(o2);
+  } else {
+    TValue *base = lj_meta_comp(L, o1, o2, 2);
+    if ((uintptr_t)base <= 1) {
+      return (int)(uintptr_t)base;
+    } else {
+      L->top = base+2;
+      lj_vm_call(L, base, 1+1);
+      L->top -= 2+LJ_FR2;
+      return tvistruecond(L->top+1+LJ_FR2);
+    }
+  }
+}
+
+LUA_API int lua_compare(lua_State *L, int idx1, int idx2, int op)
+{
+  switch (op) {
+  case LUA_OPEQ:
+    return lua_equal(L, idx1, idx2);
+  case LUA_OPLT:
+    return lua_lessthan(L, idx1, idx2);
+  case LUA_OPLE:
+    return api_lessequal(L, idx1, idx2);
+  default:
+    lj_checkapi(0, "invalid comparison op %d", op);
+    return 0;
   }
 }
 
@@ -562,6 +658,22 @@ LUALIB_API int luaL_checkoption(lua_State *L, int idx, const char *def,
   lj_err_argv(L, idx, LJ_ERR_INVOPTM, s);
 }
 
+LUA_API size_t lua_stringtonumber(lua_State *L, const char *s)
+{
+  TValue tv;
+  size_t len = strlen(s);
+  StrScanFmt fmt = lj_strscan_scan((const uint8_t *)s, (MSize)len, &tv,
+				   LJ_DUALNUM ? STRSCAN_OPT_TOINT :
+						STRSCAN_OPT_TONUM);
+  if (fmt == STRSCAN_ERROR)
+    return 0;
+  if (LJ_DUALNUM && fmt == STRSCAN_INT)
+    setitype(&tv, LJ_TISNUM);
+  copyTV(L, L->top, &tv);
+  incr_top(L);
+  return len + 1;
+}
+
 LUA_API size_t lua_objlen(lua_State *L, int idx)
 {
   TValue *o = index2adr(L, idx);
@@ -577,6 +689,58 @@ LUA_API size_t lua_objlen(lua_State *L, int idx)
     return s->len;
   } else {
     return 0;
+  }
+}
+
+LUA_API size_t lua_rawlen(lua_State *L, int idx)
+{
+  cTValue *o = index2adr(L, idx);
+  if (tvisstr(o))
+    return strV(o)->len;
+  else if (tvistab(o))
+    return (size_t)lj_tab_len(tabV(o));
+  else if (tvisudata(o))
+    return udataV(o)->len;
+  else
+    return 0;
+}
+
+static void api_call_len_meta(lua_State *L, cTValue *o, cTValue *mo)
+{
+  TValue *top;
+  lj_state_checkstack(L, 3);
+  top = L->top;
+  copyTV(L, top, mo);
+  copyTV(L, top+1, o);
+  copyTV(L, top+2, o);
+  L->top = top+3;
+  lua_call(L, 2, 1);
+}
+
+LUA_API void lua_len(lua_State *L, int idx)
+{
+  cTValue *o;
+  cTValue *mo;
+  idx = lua_absindex(L, idx);
+  lj_state_checkstack(L, 3);
+  o = index2adr_check(L, idx);
+  if (tvisstr(o)) {
+    setintptrV(L->top, strV(o)->len);
+    incr_top(L);
+    return;
+  }
+  mo = lj_meta_lookup(L, o, MM_len);
+  if (!tvisnil(mo)) {
+    /* Lua 5.4 calls unary metamethods with a duplicated operand. */
+    api_call_len_meta(L, o, mo);
+  } else if (tvistab(o)) {
+    setintptrV(L->top, lj_tab_len(tabV(o)));
+    incr_top(L);
+  } else if (tvisudata(o)) {
+    setintptrV(L->top, udataV(o)->len);
+    incr_top(L);
+  } else {
+    lj_err_optype(L, o, LJ_ERR_OPLEN);
   }
 }
 
@@ -720,6 +884,11 @@ LUALIB_API int luaL_newmetatable(lua_State *L, const char *tname)
     GCtab *mt = lj_tab_new(L, 0, 1);
     settabV(L, tv, mt);
     settabV(L, L->top++, mt);
+#if LJ_54
+    /* Lua 5.4 records the registered metatable name for tostring/errors. */
+    setstrV(L, lj_tab_setstr(L, mt, lj_str_newlit(L, "__name")),
+	    lj_str_newz(L, tname));
+#endif
     lj_gc_anybarriert(L, regt);
     return 1;
   } else {
@@ -757,6 +926,25 @@ LUA_API void *lua_newuserdata(lua_State *L, size_t size)
   return uddata(ud);
 }
 
+LUA_API void *lua_newuserdatauv(lua_State *L, size_t size, int nuvalue)
+{
+  GCtab *uv;
+  GCudata *ud;
+  lj_checkapi(nuvalue >= 0, "negative number of user values");
+  lj_gc_check(L);
+  if (size > LJ_MAX_UDATA)
+    lj_err_msg(L, LJ_ERR_UDATAOV);
+  uv = lj_tab_new(L, 0, (MSize)nuvalue + 1);
+  /* LuaJIT userdata has one environment reference. In Lua 5.4 mode we use
+  ** that table to store declared indexed user values and their declared count.
+  */
+  setintV(lj_tab_setstr(L, uv, lj_str_newlit(L, "__nuv")), nuvalue);
+  ud = lj_udata_new(L, (MSize)size, uv);
+  setudataV(L, L->top, ud);
+  incr_top(L);
+  return uddata(ud);
+}
+
 LUA_API void lua_concat(lua_State *L, int n)
 {
   lj_checkapi_slot(n);
@@ -779,6 +967,205 @@ LUA_API void lua_concat(lua_State *L, int n)
     incr_top(L);
   }
   /* else n == 1: nothing to do. */
+}
+
+static cTValue *api_getmetafield(lua_State *L, cTValue *o, const char *mmname)
+{
+  GCtab *mt;
+  if (tvistab(o))
+    mt = tabref(tabV(o)->metatable);
+  else if (tvisudata(o))
+    mt = tabref(udataV(o)->metatable);
+  else
+    mt = tabref(basemt_obj(G(L), o));
+  if (mt) {
+    cTValue *mo = lj_tab_getstr(mt, lj_str_newz(L, mmname));
+    if (mo && !tvisnil(mo))
+      return mo;
+  }
+  return NULL;
+}
+
+static int api_toint32(cTValue *o, int32_t *ip)
+{
+  lua_Number n, ni;
+  if (tvisint(o)) {
+    *ip = intV(o);
+    return 1;
+  } else if (!tvisnum(o)) {
+    return 0;
+  }
+  n = numV(o);
+  if (!(n >= (lua_Number)LUA_MININTEGER && n <= (lua_Number)LUA_MAXINTEGER))
+    return 0;
+  ni = lj_vm_floor(n);
+  if (n != ni)
+    return 0;
+  *ip = (int32_t)n;
+  return 1;
+}
+
+static int32_t api_shift32(int32_t a, int32_t sh, int left)
+{
+  int64_t s = sh;
+  if (s < 0) {
+    s = -s;
+    left = !left;
+  }
+  if (s >= 32)
+    return 0;
+  return left ? (int32_t)((uint32_t)a << s) :
+		(int32_t)((uint32_t)a >> s);
+}
+
+static int api_rawarith(lua_State *L, TValue *res, cTValue *a, cTValue *b,
+			int op)
+{
+  TValue ta, tb;
+  int32_t ia, ib;
+  lua_Number na, nb, nr;
+  copyTV(L, &ta, a);
+  copyTV(L, &tb, b);
+  switch (op) {
+  case LUA_OPBNOT:
+    if (!api_toint32(a, &ia))
+      return 0;
+    setintV(res, (int32_t)~(uint32_t)ia);
+    return 1;
+  case LUA_OPBAND: case LUA_OPBOR: case LUA_OPBXOR:
+  case LUA_OPSHL: case LUA_OPSHR:
+    if (!api_toint32(a, &ia) || !api_toint32(b, &ib))
+      return 0;
+    if (op == LUA_OPBAND)
+      setintV(res, (int32_t)((uint32_t)ia & (uint32_t)ib));
+    else if (op == LUA_OPBOR)
+      setintV(res, (int32_t)((uint32_t)ia | (uint32_t)ib));
+    else if (op == LUA_OPBXOR)
+      setintV(res, (int32_t)((uint32_t)ia ^ (uint32_t)ib));
+    else
+      setintV(res, api_shift32(ia, ib, op == LUA_OPSHL));
+    return 1;
+  default:
+    break;
+  }
+  if (!lj_strscan_numberobj(&ta))
+    return 0;
+  if (op != LUA_OPUNM && !lj_strscan_numberobj(&tb))
+    return 0;
+  na = numberVnum(&ta);
+  nb = numberVnum(&tb);
+  switch (op) {
+  case LUA_OPADD: nr = lj_vm_foldarith(na, nb, MM_add-MM_add); break;
+  case LUA_OPSUB: nr = lj_vm_foldarith(na, nb, MM_sub-MM_add); break;
+  case LUA_OPMUL: nr = lj_vm_foldarith(na, nb, MM_mul-MM_add); break;
+  case LUA_OPDIV: nr = lj_vm_foldarith(na, nb, MM_div-MM_add); break;
+  case LUA_OPMOD: nr = lj_vm_foldarith(na, nb, MM_mod-MM_add); break;
+  case LUA_OPPOW: nr = lj_vm_foldarith(na, nb, MM_pow-MM_add); break;
+  case LUA_OPUNM: nr = lj_vm_foldarith(na, na, MM_unm-MM_add); break;
+  case LUA_OPIDIV:
+    if (nb == 0)
+      lj_err_callermsg(L, "attempt to divide by zero");
+    nr = lj_vm_floor(na / nb);
+    break;
+  default:
+    return 0;
+  }
+  if ((op == LUA_OPIDIV || op == LUA_OPUNM) &&
+      nr >= (lua_Number)LUA_MININTEGER && nr <= (lua_Number)LUA_MAXINTEGER &&
+      nr == lj_vm_floor(nr)) {
+    setintptrV(res, (lua_Integer)nr);
+  } else {
+    setnumV(res, nr);
+  }
+  return 1;
+}
+
+static cTValue *api_arith_meta(lua_State *L, cTValue *a, cTValue *b,
+			       int op, int unary)
+{
+  cTValue *mo = NULL;
+  switch (op) {
+  case LUA_OPADD: mo = lj_meta_lookup(L, a, MM_add); break;
+  case LUA_OPSUB: mo = lj_meta_lookup(L, a, MM_sub); break;
+  case LUA_OPMUL: mo = lj_meta_lookup(L, a, MM_mul); break;
+  case LUA_OPDIV: mo = lj_meta_lookup(L, a, MM_div); break;
+  case LUA_OPMOD: mo = lj_meta_lookup(L, a, MM_mod); break;
+  case LUA_OPPOW: mo = lj_meta_lookup(L, a, MM_pow); break;
+  case LUA_OPUNM: mo = lj_meta_lookup(L, a, MM_unm); break;
+  case LUA_OPIDIV: mo = api_getmetafield(L, a, "__idiv"); break;
+  case LUA_OPBAND: mo = api_getmetafield(L, a, "__band"); break;
+  case LUA_OPBOR: mo = api_getmetafield(L, a, "__bor"); break;
+  case LUA_OPBXOR: mo = api_getmetafield(L, a, "__bxor"); break;
+  case LUA_OPSHL: mo = api_getmetafield(L, a, "__shl"); break;
+  case LUA_OPSHR: mo = api_getmetafield(L, a, "__shr"); break;
+  case LUA_OPBNOT: mo = api_getmetafield(L, a, "__bnot"); break;
+  default: break;
+  }
+  if (mo && !tvisnil(mo))
+    return mo;
+  if (unary)
+    return NULL;
+  switch (op) {
+  case LUA_OPADD: mo = lj_meta_lookup(L, b, MM_add); break;
+  case LUA_OPSUB: mo = lj_meta_lookup(L, b, MM_sub); break;
+  case LUA_OPMUL: mo = lj_meta_lookup(L, b, MM_mul); break;
+  case LUA_OPDIV: mo = lj_meta_lookup(L, b, MM_div); break;
+  case LUA_OPMOD: mo = lj_meta_lookup(L, b, MM_mod); break;
+  case LUA_OPPOW: mo = lj_meta_lookup(L, b, MM_pow); break;
+  case LUA_OPIDIV: mo = api_getmetafield(L, b, "__idiv"); break;
+  case LUA_OPBAND: mo = api_getmetafield(L, b, "__band"); break;
+  case LUA_OPBOR: mo = api_getmetafield(L, b, "__bor"); break;
+  case LUA_OPBXOR: mo = api_getmetafield(L, b, "__bxor"); break;
+  case LUA_OPSHL: mo = api_getmetafield(L, b, "__shl"); break;
+  case LUA_OPSHR: mo = api_getmetafield(L, b, "__shr"); break;
+  default: break;
+  }
+  return mo && !tvisnil(mo) ? mo : NULL;
+}
+
+static void api_call_arith_meta(lua_State *L, TValue *res, cTValue *a,
+				cTValue *b, cTValue *mo)
+{
+  ptrdiff_t resofs = savestack(L, res);
+  ptrdiff_t aofs = savestack(L, a);
+  ptrdiff_t bofs = savestack(L, b);
+  TValue *top;
+  lj_state_checkstack(L, 3);
+  res = restorestack(L, resofs);
+  a = restorestack(L, aofs);
+  b = restorestack(L, bofs);
+  top = L->top;
+  copyTV(L, top, mo);
+  copyTV(L, top+1, a);
+  copyTV(L, top+2, b);
+  L->top = top+3;
+  lua_call(L, 2, 1);
+  res = restorestack(L, resofs);
+  copyTV(L, res, L->top-1);
+  L->top = res+1;
+}
+
+LUA_API void lua_arith(lua_State *L, int op)
+{
+  int unary = (op == LUA_OPUNM || op == LUA_OPBNOT);
+  TValue *res, *a, *b;
+  cTValue *mo;
+  lj_checkapi_slot(unary ? 1 : 2);
+  res = L->top - (unary ? 1 : 2);
+  a = res;
+  b = unary ? res : res+1;
+  if (api_rawarith(L, res, a, b, op)) {
+    if (!unary)
+      L->top--;
+    return;
+  }
+  mo = api_arith_meta(L, a, b, op, unary);
+  if (mo) {
+    /* Lua 5.4 unary arithmetic metamethods receive the operand twice. */
+    api_call_arith_meta(L, res, a, b, mo);
+    return;
+  }
+  lj_err_optype(L, a, LJ_ERR_OPARITH);
 }
 
 /* -- Object getters ------------------------------------------------------ */
@@ -812,6 +1199,13 @@ LUA_API void lua_getfield(lua_State *L, int idx, const char *k)
   incr_top(L);
 }
 
+LUA_API void lua_geti(lua_State *L, int idx, lua_Integer n)
+{
+  idx = lua_absindex(L, idx);
+  lua_pushinteger(L, n);
+  lua_gettable(L, idx);
+}
+
 LUA_API void lua_rawget(lua_State *L, int idx)
 {
   cTValue *t = index2adr(L, idx);
@@ -830,6 +1224,13 @@ LUA_API void lua_rawgeti(lua_State *L, int idx, int n)
     setnilV(L->top);
   }
   incr_top(L);
+}
+
+LUA_API void lua_rawgetp(lua_State *L, int idx, const void *p)
+{
+  idx = lua_absindex(L, idx);
+  lua_pushlightuserdata(L, (void *)p);
+  lua_rawget(L, idx);
 }
 
 LUA_API int lua_getmetatable(lua_State *L, int idx)
@@ -875,6 +1276,32 @@ LUA_API void lua_getfenv(lua_State *L, int idx)
     setnilV(L->top);
   }
   incr_top(L);
+}
+
+static int api_udata_uvcount(lua_State *L, GCudata *ud)
+{
+  GCtab *env = tabref(ud->env);
+  cTValue *tv = lj_tab_getstr(env, lj_str_newlit(L, "__nuv"));
+  return tv && tvisnumber(tv) ? numberVint(tv) : 0;
+}
+
+LUA_API int lua_getiuservalue(lua_State *L, int idx, int n)
+{
+  cTValue *o = index2adr_check(L, idx);
+  GCudata *ud;
+  cTValue *tv;
+  if (!tvisudata(o))
+    return LUA_TNONE;
+  ud = udataV(o);
+  if (n < 1 || n > api_udata_uvcount(L, ud))
+    return LUA_TNONE;
+  tv = lj_tab_getint(tabref(ud->env), n);
+  if (tv)
+    copyTV(L, L->top, tv);
+  else
+    setnilV(L->top);
+  incr_top(L);
+  return lua_type(L, -1);
 }
 
 LUA_API int lua_next(lua_State *L, int idx)
@@ -987,6 +1414,14 @@ LUA_API void lua_setfield(lua_State *L, int idx, const char *k)
   }
 }
 
+LUA_API void lua_seti(lua_State *L, int idx, lua_Integer n)
+{
+  idx = lua_absindex(L, idx);
+  lua_pushinteger(L, n);
+  lua_insert(L, -2);
+  lua_settable(L, idx);
+}
+
 LUA_API void lua_rawset(lua_State *L, int idx)
 {
   GCtab *t = tabV(index2adr(L, idx));
@@ -1009,6 +1444,14 @@ LUA_API void lua_rawseti(lua_State *L, int idx, int n)
   copyTV(L, dst, src);
   lj_gc_barriert(L, t, dst);
   L->top = src;
+}
+
+LUA_API void lua_rawsetp(lua_State *L, int idx, const void *p)
+{
+  idx = lua_absindex(L, idx);
+  lua_pushlightuserdata(L, (void *)p);
+  lua_insert(L, -2);
+  lua_rawset(L, idx);
 }
 
 LUA_API int lua_setmetatable(lua_State *L, int idx)
@@ -1054,6 +1497,32 @@ LUALIB_API void luaL_setmetatable(lua_State *L, const char *tname)
 {
   lua_getfield(L, LUA_REGISTRYINDEX, tname);
   lua_setmetatable(L, -2);
+}
+
+LUA_API int lua_setiuservalue(lua_State *L, int idx, int n)
+{
+  cTValue *o;
+  GCudata *ud;
+  GCtab *env;
+  TValue *tv;
+  idx = lua_absindex(L, idx);
+  lj_checkapi_slot(1);
+  o = index2adr_check(L, idx);
+  if (!tvisudata(o)) {
+    L->top--;
+    return 0;
+  }
+  ud = udataV(o);
+  if (n < 1 || n > api_udata_uvcount(L, ud)) {
+    L->top--;
+    return 0;
+  }
+  env = tabref(ud->env);
+  tv = lj_tab_setint(L, env, n);
+  copyTV(L, tv, L->top-1);
+  lj_gc_barriert(L, env, tv);
+  L->top--;
+  return 1;
 }
 
 LUA_API int lua_setfenv(lua_State *L, int idx)
@@ -1281,10 +1750,42 @@ LUA_API int lua_gc(lua_State *L, int what, int data)
   case LUA_GCISRUNNING:
     res = (g->gc.threshold != LJ_MAX_MEM);
     break;
+  case LUA_GCGEN:
+    /* This reports the Lua 5.4 mode surface; LuaJIT's collector is unchanged. */
+    res = g->gc_mode54 ? LUA_GCGEN : LUA_GCINC;
+    g->gc_mode54 = 1;
+    break;
+  case LUA_GCINC:
+    res = g->gc_mode54 ? LUA_GCGEN : LUA_GCINC;
+    g->gc_mode54 = 0;
+    break;
   default:
     res = -1;  /* Invalid option. */
   }
   return res;
+}
+
+LUA_API void lua_setwarnf(lua_State *L, lua_WarnFunction f, void *ud)
+{
+  G(L)->warnf = f;
+  G(L)->warnud = ud;
+}
+
+LUA_API void lua_warning(lua_State *L, const char *msg, int tocont)
+{
+  global_State *g = G(L);
+  if (g->warnf) {
+    g->warnf(g->warnud, msg, tocont);
+  } else if (msg && msg[0] == '@') {
+    if (strcmp(msg, "@on") == 0)
+      g->warn_on = 1;
+    else if (strcmp(msg, "@off") == 0)
+      g->warn_on = 0;
+  } else if (g->warn_on && msg) {
+    fputs(msg, stderr);
+    if (!tocont)
+      fputc('\n', stderr);
+  }
 }
 
 LUA_API lua_Alloc lua_getallocf(lua_State *L, void **ud)
