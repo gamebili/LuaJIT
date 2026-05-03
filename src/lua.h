@@ -68,8 +68,10 @@
 #define LUA_RIDX_MAINTHREAD	1
 #define LUA_RIDX_GLOBALS	2
 #define LUA_RIDX_LAST		LUA_RIDX_GLOBALS
+#if !LUAJIT_EXTERNAL_LUA54
 #define LUA_LOADED_TABLE	"_LOADED"
 #define LUA_PRELOAD_TABLE	"_PRELOAD"
+#endif
 
 
 /* thread status */
@@ -118,6 +120,9 @@ typedef void * (*lua_Alloc) (void *ud, void *ptr, size_t osize, size_t nsize);
 #define LUA_TUSERDATA		7
 #define LUA_TTHREAD		8
 #define LUA_NUMTYPES		9
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+#define LUA_NUMTAGS		LUA_NUMTYPES
+#endif
 
 
 
@@ -328,6 +333,9 @@ LUA_API int  (lua_resume54) (lua_State *L, lua_State *from, int nargs,
 LUA_API int  (lua_resume) (lua_State *L, int narg);
 #endif
 LUA_API int  (lua_resetthread) (lua_State *L);
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+LUA_API int  (lua_closethread) (lua_State *L, lua_State *from);
+#endif
 LUA_API int  (lua_status) (lua_State *L);
 
 /*
@@ -416,6 +424,12 @@ LUA_API void lua_setglobal54 (lua_State *L, const char *name);
 #endif
 
 #define lua_tostring(L,i)	lua_tolstring(L, (i), NULL)
+
+#if defined(LUAJIT_ENABLE_LUA54COMPAT) && defined(LUA_COMPAT_APIINTCASTS)
+#define lua_pushunsigned(L,n)	lua_pushinteger(L, (lua_Integer)(n))
+#define lua_tounsignedx(L,i,is)	((lua_Unsigned)lua_tointegerx(L, (i), (is)))
+#define lua_tounsigned(L,i)	lua_tounsignedx(L, (i), NULL)
+#endif
 
 #define lua_callk(L,n,r,ctx,k) \
   ((void)(ctx), (void)(k), lua_call((L), (n), (r)))

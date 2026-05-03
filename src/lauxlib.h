@@ -23,6 +23,28 @@
 */
 #define LUA_GNAME       "_G"
 #define LUA_FILEHANDLE  "FILE*"
+#ifndef LUA_LOADED_TABLE
+#define LUA_LOADED_TABLE        "_LOADED"
+#endif
+#ifndef LUA_PRELOAD_TABLE
+#define LUA_PRELOAD_TABLE       "_PRELOAD"
+#endif
+
+/* Lua 5.4 exposes these output hooks from lauxlib.h and lets embedders
+** override them before including the header.
+*/
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+#if !defined(lua_writestring)
+#define lua_writestring(s,l)    fwrite((s), sizeof(char), (l), stdout)
+#endif
+#if !defined(lua_writeline)
+#define lua_writeline()         (lua_writestring("\n", 1), fflush(stdout))
+#endif
+#if !defined(lua_writestringerror)
+#define lua_writestringerror(s,p) \
+  (fprintf(stderr, (s), (p)), fflush(stderr))
+#endif
+#endif
 
 typedef struct luaL_Reg {
   const char *name;
@@ -131,6 +153,11 @@ LUALIB_API void (luaL_setmetatable) (lua_State *L, const char *tname);
 #define luaL_optint(L,n,d)	((int)luaL_optinteger(L, (n), (d)))
 #define luaL_checklong(L,n)	((long)luaL_checkinteger(L, (n)))
 #define luaL_optlong(L,n,d)	((long)luaL_optinteger(L, (n), (d)))
+#if defined(LUAJIT_ENABLE_LUA54COMPAT) && defined(LUA_COMPAT_APIINTCASTS)
+#define luaL_checkunsigned(L,a)	((lua_Unsigned)luaL_checkinteger(L, (a)))
+#define luaL_optunsigned(L,a,d) \
+  ((lua_Unsigned)luaL_optinteger(L, (a), (lua_Integer)(d)))
+#endif
 
 #define luaL_typename(L,i)	lua_typename(L, lua_type(L,(i)))
 

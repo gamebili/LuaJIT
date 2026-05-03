@@ -194,9 +194,14 @@ smoketest-lua54compat:
 	out=$$(printf 'os.exit()\n' | ./src/luajit -i 2>&1) && case "$$out" in *"JIT:"*) exit 1;; esac
 
 smoketest-capi-lua54compat: smoketest-lua54compat
+	gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -I src -c test/lua54_lua_header_smoke.c -o src/lua54_lua_header_smoke.o
+	rm -f src/lua54_lua_header_smoke.o
 	gcc -DLUAJIT_ENABLE_LUA54COMPAT -I src -x c test/lua54_capi_smoke.c -x none src/lua51.dll -o src/lua54_capi_smoke.exe
 	./src/lua54_capi_smoke.exe
 	rm -f src/lua54_capi_smoke.exe
+	gcc -DLUAJIT_ENABLE_LUA54COMPAT -DLUA_COMPAT_APIINTCASTS -I src -x c test/lua54_capi_intcasts_smoke.c -x none src/lua51.dll -o src/lua54_capi_intcasts_smoke.exe
+	./src/lua54_capi_intcasts_smoke.exe
+	rm -f src/lua54_capi_intcasts_smoke.exe
 	@if gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -Werror=implicit-function-declaration -I src -c test/lua54_capi_legacy_reject.c -o src/lua54_capi_legacy_reject.o 2>src/lua54_capi_legacy_reject.err; then echo "legacy lauxlib API unexpectedly visible in Lua 5.4 headers"; rm -f src/lua54_capi_legacy_reject.o src/lua54_capi_legacy_reject.err; exit 1; else grep -E "luaL_(openlib|register|pushmodule)" src/lua54_capi_legacy_reject.err >/dev/null; rm -f src/lua54_capi_legacy_reject.o src/lua54_capi_legacy_reject.err; fi
 
 smoketest-capi-default: smoketest

@@ -41,6 +41,10 @@
 #error "Lua 5.4 compatibility header must expose LUA_NUMTYPES"
 #endif
 
+#ifndef LUA_NUMTAGS
+#error "Lua 5.4 compatibility header must expose LUA_NUMTAGS"
+#endif
+
 #ifndef LUA_RIDX_LAST
 #error "Lua 5.4 compatibility header must expose LUA_RIDX_LAST"
 #endif
@@ -57,7 +61,31 @@
 #error "Lua 5.4 lauxlib header must expose LUA_FILEHANDLE"
 #endif
 
+#ifndef LUA_LOADED_TABLE
+#error "Lua 5.4 lauxlib header must expose LUA_LOADED_TABLE"
+#endif
+
+#ifndef LUA_PRELOAD_TABLE
+#error "Lua 5.4 lauxlib header must expose LUA_PRELOAD_TABLE"
+#endif
+
+#ifndef lua_writestring
+#error "Lua 5.4 lauxlib header must expose lua_writestring"
+#endif
+
+#ifndef lua_writeline
+#error "Lua 5.4 lauxlib header must expose lua_writeline"
+#endif
+
+#ifndef lua_writestringerror
+#error "Lua 5.4 lauxlib header must expose lua_writestringerror"
+#endif
+
 #include "lualib.h"
+
+#ifndef LUA_VERSUFFIX
+#error "Lua 5.4 lualib header must expose LUA_VERSUFFIX"
+#endif
 
 #ifndef LUAMOD_API
 #error "Lua 5.4 compatibility header must expose LUAMOD_API"
@@ -66,6 +94,13 @@
 static int require_open_count = 0;
 static char warning_buf[64];
 static int warning_tocont = -1;
+
+static void header_output_macros_compile_only(void)
+{
+  lua_writestring("", 0);
+  lua_writeline();
+  lua_writestringerror("%s", "");
+}
 
 typedef struct CApiReaderCtx {
   const char *src;
@@ -240,6 +275,7 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, lua_tothread(L, -1) == L, "LUA_RIDX_MAINTHREAD");
   lua_pop(L, 1);
 
+  check(L, LUA_NUMTAGS == LUA_NUMTYPES, "LUA_NUMTAGS");
   check(L, LUA_VERSION_RELEASE_NUM == 50400, "LUA_VERSION_RELEASE_NUM");
   lua_rawgeti(L, LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
   check(L, lua_istable(L, -1), "LUA_RIDX_GLOBALS");
@@ -247,6 +283,9 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, LUA_RIDX_LAST == LUA_RIDX_GLOBALS, "LUA_RIDX_LAST");
   check(L, strcmp(LUA_GNAME, "_G") == 0, "LUA_GNAME");
   check(L, strcmp(LUA_FILEHANDLE, "FILE*") == 0, "LUA_FILEHANDLE");
+  check(L, strcmp(LUA_LOADED_TABLE, "_LOADED") == 0, "LUA_LOADED_TABLE");
+  check(L, strcmp(LUA_PRELOAD_TABLE, "_PRELOAD") == 0, "LUA_PRELOAD_TABLE");
+  check(L, strcmp(LUA_VERSUFFIX, "_5_4") == 0, "LUA_VERSUFFIX");
 
   check(L, luaopen_base_sig(L) == 1, "luaopen_base return");
   check(L, lua_istable(L, -1), "luaopen_base table");
@@ -348,6 +387,24 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, lua_resetthread(co) == LUA_OK, "lua_resetthread return");
   check(L, lua_status(co) == LUA_OK, "lua_resetthread status");
   check(L, lua_gettop(co) == 0, "lua_resetthread clears stack");
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  lua_pushcfunction(L, yield_once);
+  lua_xmove(L, co, 1);
+  check(L, lua_resume(co, L, 0, NULL) == LUA_YIELD,
+	"lua_closethread setup yield");
+  check(L, lua_closethread(co, L) == LUA_OK,
+	"lua_closethread yielded return");
+  check(L, lua_status(co) == LUA_OK, "lua_closethread yielded status");
+  check(L, lua_gettop(co) == 0, "lua_closethread yielded clears stack");
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  check(L, lua_closethread(co, L) == LUA_OK,
+	"lua_closethread fresh return");
+  check(L, lua_status(co) == LUA_OK, "lua_closethread fresh status");
+  check(L, lua_gettop(co) == 0, "lua_closethread fresh stack");
   lua_pop(L, 1);
 
   co = lua_newthread(L);

@@ -24,6 +24,12 @@
 - 已继续补 lauxlib C API smoke：覆盖 `luaL_fileresult()`、`luaL_execresult()`、`luaL_newlib()`、`luaL_setfuncs()`、registered metatable/userdata helper、`luaL_traceback()` 和 `luaL_dostring()`。
 - 已继续补 Lua 5.4 lauxlib 头文件宏：新增 `luaL_intop()`，按当前兼容层公开的 32 位整数范围做 unsigned wraparound，并进入 C API smoke。
 - 已继续补 Lua 5.4 lauxlib 头文件宏：`LUA_GNAME` / `LUA_FILEHANDLE` 现在可由 `lauxlib.h` 单独暴露，`lualib.h` 保留保护式定义兼容旧包含顺序。
+- 已继续对齐 Lua 5.4 头文件归属：`LUA_LOADED_TABLE` / `LUA_PRELOAD_TABLE` 现在由 `lauxlib.h` 暴露；新增 `lua.h` 单独包含 smoke，防止外部 Lua 5.4 `lua.h` 泄露 lauxlib-only 宏。
+- 已继续补 Lua 5.4 `lualib.h` 头文件宏：新增 `LUA_VERSUFFIX`，并在 C API smoke 中确认值为 `"_5_4"`。
+- 已继续补 Lua 5.4 `lauxlib.h` 输出宏：新增可覆写的 `lua_writestring` / `lua_writeline` / `lua_writestringerror`，并用 compile-only smoke 覆盖宏展开。
+- 已继续补 Lua 5.4 `lua.h` 兼容宏：新增 `LUA_NUMTAGS` 作为 `LUA_NUMTYPES` 别名，并进入 C API smoke。
+- 已继续补 Lua 5.4 C API 表面：新增 `lua_closethread()` no-`<close>` 基础实现，覆盖 yielded/fresh coroutine 关闭后返回 `LUA_OK`、清空栈并恢复 OK 状态。
+- 已继续补 Lua 5.4 deprecated intcast 兼容宏：在 `LUA_COMPAT_APIINTCASTS` 下暴露 `lua_pushunsigned` / `lua_tounsignedx` / `lua_tounsigned` / `luaL_checkunsigned` / `luaL_optunsigned`，并新增单独 C smoke。
 - 已继续清理 Lua 5.4 外部兼容头：旧 `LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` 伪索引和一批 Lua 5.1 API 声明已从外部 5.4 表面隐藏，`lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 改走 registry globals 包装路径。
 - 已继续清理 Lua 5.4 外部 lauxlib 头：`luaL_openlib` / `luaL_register` / `luaL_pushmodule` 不再对外声明，并新增负向编译 gate；默认构建 C smoke 覆盖这些旧 API 仍可用。
 - 已继续补 C API GC 常量覆盖：`LUA_GCCOUNTB` 已进入 smoke，验证 byte remainder 在 `0..1023` 范围内。
@@ -177,11 +183,11 @@
   - Lua 5.4 兼容模式禁用 LuaJIT 的 `0b...` 二进制数字字面量、`L` / `LL` / `UL` / `ULL` / `uLL` FFI 整数后缀和 imaginary `i` 数字字面量扩展。
   - `lua.h` / C API 新增一批 Lua 5.4 表面：`lua_Unsigned`、`LUA_MAXINTEGER`、`LUA_MININTEGER`、`lua_absindex()`、`lua_isinteger()`、`lua_rawlen()`、`lua_geti()`、`lua_seti()`、`lua_rawgetp()`、`lua_rawsetp()`、`lua_pushglobaltable()`。
   - `lua.h` / C API 继续新增 Lua 5.4 表面：`lua_arith()`、`lua_compare()`、`lua_len()`、`lua_numbertointeger()`、`lua_rotate()`、`lua_stringtonumber()` 以及 `LUA_OP*` 比较/算术常量。
-  - C API 继续新增 `lua_getextraspace()`、`lua_setwarnf()`、`lua_warning()`，并补 `lua_KContext`、`lua_KFunction`、`lua_WarnFunction`、`LUA_RIDX_MAINTHREAD`、`LUA_RIDX_GLOBALS`、`LUA_RIDX_LAST`、`LUA_EXTRASPACE`、`LUA_GNAME`、`LUA_FILEHANDLE`、`LUAMOD_API`、`LUA_LOADED_TABLE`、`LUA_PRELOAD_TABLE`、`LUA_HOOKTAILCALL`、`LUA_GCGEN`、`LUA_GCINC`。
+  - C API 继续新增 `lua_getextraspace()`、`lua_setwarnf()`、`lua_warning()`，并补 `lua_KContext`、`lua_KFunction`、`lua_WarnFunction`、`LUA_RIDX_MAINTHREAD`、`LUA_RIDX_GLOBALS`、`LUA_RIDX_LAST`、`LUA_EXTRASPACE`、`LUA_NUMTAGS`、`LUA_GNAME`、`LUA_FILEHANDLE`、`LUA_VERSUFFIX`、`LUAMOD_API`、`LUA_LOADED_TABLE`、`LUA_PRELOAD_TABLE`、`LUA_HOOKTAILCALL`、`LUA_GCGEN`、`LUA_GCINC`。
   - C API 新增独立 `luaopen_coroutine()` 入口；`luaL_openlibs()` 仍通过同一路径注册 coroutine 库，Lua 5.4 兼容模式下会一并安装 `coroutine.close()`。
   - Lua 5.4 外部兼容头下的 `luaopen_base()` 已映射到单返回值包装；LuaJIT 内部和默认构建仍保留 base+coroutine 的旧返回约定。
   - C API 新增 indexed uservalue 表面：`lua_newuserdatauv()`、`lua_getiuservalue()`、`lua_setiuservalue()`；当前用 LuaJIT userdata 环境表保存声明数量和值，超出声明范围按 Lua 5.4 表面返回失败。
-  - C API 新增 `lua_resetthread()` 基础兼容入口；当前覆盖无 to-be-closed 变量的 coroutine reset，完整 `<close>` 关闭语义仍保留在 TODO。
+  - C API 新增 `lua_resetthread()` / `lua_closethread()` 基础兼容入口；当前覆盖无 to-be-closed 变量的 coroutine reset/close，完整 `<close>` 关闭语义仍保留在 TODO。
   - C API 新增 Lua 5.4 形态的 `lua_resume(L, from, nargs, nresults)` 外部宏和 `lua_resume54()` 包装入口；当前复用 LuaJIT 内部 2 参数 resume ABI，并把 yield/return 后的栈顶结果数写回 `nresults`。
   - Lua 5.4 外部兼容头不再暴露 `LUA_GLOBALSINDEX`、`LUA_ENVIRONINDEX`、`lua_strlen` 以及旧 `lua_equal`、`lua_lessthan`、`lua_objlen`、`lua_cpcall`、`lua_getfenv`、`lua_setfenv` 声明；LuaJIT 内部和命令行 frontend 仍通过内部标记使用旧 ABI。
   - Lua 5.4 外部兼容头不再暴露旧 lauxlib 注册入口 `luaL_openlib` / `luaL_register` / `luaL_pushmodule`；默认构建和内部库代码继续保留旧入口。
@@ -200,10 +206,11 @@
   - JIT 开启时，Lua 5.4 兼容模式下的 `tonumber()` 扫描器扩展数字拒绝路径已进入 smoke 回归，并在当前平台确认能产生 trace。
   - registry 初始化会写入 `LUA_RIDX_MAINTHREAD` 和 `LUA_RIDX_GLOBALS`；新线程会复制当前线程的 pointer-sized extraspace。
   - `lua_callk()`、`lua_pcallk()`、`lua_yieldk()` 目前以宏映射到非 continuation 调用，提供编译兼容；真实 yield continuation 语义仍保留在 `TODO.md`。
-  - `lauxlib.h` / 辅助库新增 Lua 5.4 常用表面：`luaL_pushfail()`、`luaL_len()`、`luaL_getsubtable()`、`luaL_requiref()`、`luaL_tolstring()`、`luaL_typeerror()`、`luaL_argexpected()`、`luaL_checkversion()`、`luaL_addgsub()`、`luaL_intop()` 和 buffer API。
+  - `lauxlib.h` / 辅助库新增 Lua 5.4 常用表面：`LUA_GNAME`、`LUA_FILEHANDLE`、`LUA_LOADED_TABLE`、`LUA_PRELOAD_TABLE`、`lua_writestring`、`lua_writeline`、`lua_writestringerror`、`luaL_pushfail()`、`luaL_len()`、`luaL_getsubtable()`、`luaL_requiref()`、`luaL_tolstring()`、`luaL_typeerror()`、`luaL_argexpected()`、`luaL_checkversion()`、`luaL_addgsub()`、`luaL_intop()` 和 buffer API。
   - Lua 5.4 兼容模式下 `luaL_prepbuffsize()` / `luaL_buffinitsize()` 会按请求尺寸增长 buffer，不再被旧 LuaJIT 固定 `LUAL_BUFFERSIZE` 缓冲区限制；默认构建仍保留旧 LuaJIT buffer 结构。
   - `luaL_loadbufferx()` / `luaL_loadfilex()` 的 `mode` 参数路径已通过 C API smoke 覆盖；text 模式可加载源码，binary-only 模式会拒绝 text chunk。
   - `luaL_fileresult()`、`luaL_execresult()`、`luaL_newlib()`、`luaL_setfuncs()`、`luaL_newmetatable()` / `luaL_getmetatable()`、`luaL_setmetatable()`、`luaL_testudata()`、`luaL_checkudata()`、`luaL_traceback()` 和 `luaL_dostring()` 已进入 Lua 5.4 C API smoke。
+  - `LUA_COMPAT_APIINTCASTS` 下的 deprecated unsigned/int/long cast 宏已进入单独 C smoke，覆盖编译可见性和基础 push/check/opt 转换。
   - `lua_Debug` 新增 Lua 5.4 字段：`nparams`、`isvararg`、`istailcall`、`ftransfer`、`ntransfer`；C API `lua_getinfo(..., "ut")` 已能读取参数字段，并对尚未精确支持的 tail/transfer 字段返回保守零值。
   - `debug.getinfo(f, "t")` 不再报 invalid option，并返回 `istailcall=false`；真实 tail-call 识别和 hook transfer 字段仍在 `TODO.md` 保留。
   - 全局 `_ENV` 在 Lua 5.4 兼容模式下指向 `_G`。
@@ -292,10 +299,15 @@
 - 覆盖当前 JIT 可用平台下，Lua 5.4 兼容热循环中的 `math.random(1, 4)` 可以返回整数区间值并产生 trace。
 - 覆盖当前 JIT 可用平台下，Lua 5.4 兼容热循环中的 `tonumber()` 会拒绝 LuaJIT 扫描器扩展数字字符串并产生 trace。
 - 覆盖 Lua 5.4 C API 形态的 `lua_resume(L, from, nargs, nresults)`：yield 两个值和 return 两个值时都会填入正确结果数量。
+- 覆盖 Lua 5.4 C API `lua_closethread()` 在无 `<close>` 状态下关闭 yielded/fresh coroutine：返回 `LUA_OK`、状态恢复 OK 且栈被清空。
 - 覆盖 Lua 5.4 外部兼容头不会暴露 `LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` / `lua_strlen`，并覆盖 `lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 的 registry globals 路径。
 - 覆盖 Lua 5.4 外部兼容头暴露 `LUA_RIDX_LAST`，并确认其值等于 `LUA_RIDX_GLOBALS`。
 - 覆盖 Lua 5.4 外部兼容头暴露 `LUA_EXTRASPACE`，并确认其大小与当前 pointer-sized extraspace 实现一致。
-- 覆盖 Lua 5.4 外部兼容头通过 `lauxlib.h` 暴露 `LUA_GNAME` / `LUA_FILEHANDLE`，并确认其值分别为 `"_G"` / `"FILE*"`。
+- 覆盖 Lua 5.4 外部兼容头通过 `lauxlib.h` 暴露 `LUA_GNAME` / `LUA_FILEHANDLE` / `LUA_LOADED_TABLE` / `LUA_PRELOAD_TABLE`，并确认其值分别为 `"_G"` / `"FILE*"` / `"_LOADED"` / `"_PRELOAD"`。
+- 覆盖 Lua 5.4 外部兼容头单独包含 `lua.h` 时不暴露 lauxlib-only 的 `LUA_LOADED_TABLE` / `LUA_PRELOAD_TABLE`。
+- 覆盖 Lua 5.4 `lualib.h` 暴露 `LUA_VERSUFFIX`，并确认其值为 `"_5_4"`。
+- 覆盖 Lua 5.4 `lauxlib.h` 输出宏 `lua_writestring` / `lua_writeline` / `lua_writestringerror` 的可见性和可编译展开。
+- 覆盖 `LUA_COMPAT_APIINTCASTS` 下 `lua_pushunsigned` / `lua_tounsignedx` / `lua_tounsigned` / `luaL_checkunsigned` / `luaL_optunsigned` 以及既有 int/long cast 宏。
 - 覆盖 Lua 5.4 外部兼容头声明 `luaopen_coroutine()`，并确认独立打开 coroutine 库会返回包含 `create` 的库表。
 - 覆盖 Lua 5.4 外部兼容头中的 `luaopen_base()` 返回 1 个 base 库表，并确认返回表包含 `assert`。
 - 覆盖 `lua_stringtonumber()`、`lua_isnumber()`、`lua_tonumberx()`、`lua_tointegerx()` 和 `luaL_checknumber()` 拒绝 `inf` / `nan` / `0b` 扫描器扩展字符串。
@@ -308,7 +320,7 @@
 - 覆盖 `luaL_loadbufferx()` / `luaL_loadfilex()` 的 `mode="t"` 和 `mode="b"` 路径。
 - 覆盖 Lua 5.4 外部兼容头中 `lua_load(..., mode)` 的 `mode="t"` 和 `mode="b"` 路径。
 - 覆盖 Lua 5.4 外部兼容头中 `lua_dump(..., strip)` 的 full/stripped 写出，以及 stripped LuaJIT bytecode 用 `mode="b"` 回读执行。
-- 覆盖 Lua 5.4 头文件中 `LUA_VERSION_MAJOR` / `LUA_VERSION_MINOR` / `LUA_VERSION_RELEASE` / `LUA_VERSION_RELEASE_NUM` / `LUA_NUMTYPES` 的可见性，以及 `luaL_addgsub()` 的 buffer 替换结果。
+- 覆盖 Lua 5.4 头文件中 `LUA_VERSION_MAJOR` / `LUA_VERSION_MINOR` / `LUA_VERSION_RELEASE` / `LUA_VERSION_RELEASE_NUM` / `LUA_NUMTYPES` / `LUA_NUMTAGS` 的可见性，以及 `luaL_addgsub()` 的 buffer 替换结果。
 - 覆盖 Lua 5.4 兼容模式下 `luaL_prepbuffsize()` / `luaL_buffinitsize()` 请求大于 `LUAL_BUFFERSIZE` 时的 buffer 写入和最终字符串长度。
 - 覆盖 `luaL_fileresult()` 成功/失败返回形态、`luaL_execresult()` exit 返回形态、`luaL_newlib()` / `luaL_setfuncs()` 注册函数、registered metatable/userdata helper、`luaL_traceback()` 文本和 `luaL_dostring()` 结果。
 - 覆盖 `luaL_intop()` 的加法、减法和 bit-and 结果，其中加减法验证当前 32 位兼容整数范围的 wraparound。

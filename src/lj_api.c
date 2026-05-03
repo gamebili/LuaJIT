@@ -1971,6 +1971,17 @@ LUA_API int lua_resetthread(lua_State *L)
   return LUA_OK;
 }
 
+#if LJ_54
+LUA_API int lua_closethread(lua_State *L, lua_State *from)
+{
+  (void)from;
+  /* Full lua_closethread() must close pending <close> slots. Until the VM has
+  ** that state, the no-<close> path is equivalent to lua_resetthread().
+  */
+  return lua_resetthread(L);
+}
+#endif
+
 /* -- GC and memory management -------------------------------------------- */
 
 #if LJ_54

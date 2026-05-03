@@ -130,11 +130,12 @@
 
 - [ ] Lua 5.4 C API / 头文件兼容。
   - 当前状态：`lua.h` 会在兼容模式报告 `LUA_VERSION_NUM 504`，但大量 Lua 5.4 C API 仍缺失、保持旧签名，或仍暴露 Lua 5.1 宏/索引，例如 `LUA_GLOBALSINDEX`、`lua_objlen`、`lua_getfenv`、`lua_setfenv`。
-  - 当前进展：已补 `lua_Unsigned`、`LUA_MAXINTEGER`、`LUA_MININTEGER`、`LUA_RIDX_LAST`、`LUA_EXTRASPACE`、`LUA_GNAME`、`LUA_FILEHANDLE`、`LUAMOD_API`、`luaopen_coroutine`、Lua 5.4 外部 `luaopen_base()` 单返回值包装、`lua_absindex`、`lua_isinteger`、`lua_rawlen`、`lua_geti`、`lua_seti`、`lua_rawgetp`、`lua_rawsetp`、`lua_pushglobaltable`、`lua_arith`、`lua_compare`、`lua_len`、`lua_numbertointeger`、`lua_rotate`、`lua_stringtonumber`、`lua_getextraspace`、`lua_newuserdatauv`、`lua_getiuservalue`、`lua_setiuservalue`、`lua_setwarnf`、`lua_warning`、`lua_resetthread`。
+  - 当前进展：已补 `lua_Unsigned`、`LUA_MAXINTEGER`、`LUA_MININTEGER`、`LUA_NUMTAGS`、`LUA_RIDX_LAST`、`LUA_EXTRASPACE`、`LUA_GNAME`、`LUA_FILEHANDLE`、`LUA_VERSUFFIX`、`LUAMOD_API`、`luaopen_coroutine`、Lua 5.4 外部 `luaopen_base()` 单返回值包装、`lua_absindex`、`lua_isinteger`、`lua_rawlen`、`lua_geti`、`lua_seti`、`lua_rawgetp`、`lua_rawsetp`、`lua_pushglobaltable`、`lua_arith`、`lua_compare`、`lua_len`、`lua_numbertointeger`、`lua_rotate`、`lua_stringtonumber`、`lua_getextraspace`、`lua_newuserdatauv`、`lua_getiuservalue`、`lua_setiuservalue`、`lua_setwarnf`、`lua_warning`、`lua_resetthread`、`lua_closethread`。
   - 当前进展：`lua_stringtonumber()`、`lua_isnumber()`、`lua_tonumberx()`、`lua_tointegerx()` 和 `luaL_checknumber()` 已和 Lua 5.4 `tonumber()` 对齐，拒绝 `inf` / `nan` / `0b` 等 LuaJIT 扩展数字字符串。
   - 当前进展：Lua 5.4 兼容模式下 `lua_tointegerx()` 已对无整数表示的 number 返回失败状态，和 `lua_numbertointeger()` 的精确整数语义保持一致。
-  - 当前进展：已补 `LUA_VERSION_MAJOR`、`LUA_VERSION_MINOR`、`LUA_VERSION_RELEASE`、`LUA_VERSION_RELEASE_NUM`、`LUA_NUMTYPES` 头文件宏；兼容构建当前与既有 `LUA_RELEASE "Lua 5.4.0"` 保持一致。
+  - 当前进展：已补 `LUA_VERSION_MAJOR`、`LUA_VERSION_MINOR`、`LUA_VERSION_RELEASE`、`LUA_VERSION_RELEASE_NUM`、`LUA_NUMTYPES`、`LUA_NUMTAGS` 头文件宏；兼容构建当前与既有 `LUA_RELEASE "Lua 5.4.0"` 保持一致。
   - 当前进展：已补 `lua_KContext`、`lua_KFunction`、`lua_WarnFunction`、`LUA_RIDX_MAINTHREAD`、`LUA_RIDX_GLOBALS`、`LUA_LOADED_TABLE`、`LUA_PRELOAD_TABLE`、`LUA_HOOKTAILCALL`、`LUA_GCGEN`、`LUA_GCINC`；registry 中会写入主线程和全局表；`lua_callk` / `lua_pcallk` / `lua_yieldk` 以不支持 continuation 的宏兼容旧调用形态。
+  - 当前进展：已补 `LUA_COMPAT_APIINTCASTS` 下的 `lua_pushunsigned` / `lua_tounsignedx` / `lua_tounsigned` / `luaL_checkunsigned` / `luaL_optunsigned` 兼容宏，并用单独 C smoke 覆盖编译和基础运行。
   - 当前进展：Lua 5.4 兼容头已把外部 `lua_resume(L, from, nargs, nresults)` 映射到 `lua_resume54()` 包装入口，内部仍保留 LuaJIT 旧 2 参数 ABI；包装入口会填写 yield/return 的结果数量。
   - 当前进展：Lua 5.4 外部兼容头已隐藏 `LUA_ENVIRONINDEX`、`LUA_GLOBALSINDEX`、`lua_strlen` 以及旧 `lua_equal`、`lua_lessthan`、`lua_objlen`、`lua_cpcall`、`lua_getfenv`、`lua_setfenv` 声明；LuaJIT 内部和命令行 frontend 通过内部标记继续使用旧 ABI。
   - 当前进展：Lua 5.4 外部兼容头已隐藏旧 lauxlib 注册入口 `luaL_openlib` / `luaL_register` / `luaL_pushmodule`；默认构建仍通过 C API smoke 覆盖这些 LuaJIT/Lua 5.1 API。
@@ -149,7 +150,8 @@
   - 当前进展：`LUA_GCCOUNTB` 已进入 C API smoke，覆盖返回 0..1023 byte remainder 的基础契约。
   - 当前进展：已补 lauxlib 常用 Lua 5.4 表面：`luaL_pushfail`、`luaL_len`、`luaL_getsubtable`、`luaL_requiref`、`luaL_tolstring`、`luaL_typeerror`、`luaL_argexpected`、`luaL_checkversion` 以及 buffer API；`luaL_checkversion_()` 现在会实际校验版本号和 numeric ABI 尺寸。
   - 已覆盖：新增 `test/lua54_capi_smoke.c` 和 `make smoketest-capi-lua54compat`。
-  - 需要补 API：`lua_toclose`、真实 continuation 版 `lua_yieldk` / `lua_callk` / `lua_pcallk`；`lua_resetthread` 的 `<close>` 关闭语义仍归入 `<close>` 运行期调度大项。
+  - 当前进展：已补 `lua_closethread()` no-`<close>` 基础表面，当前等价于 `lua_resetthread()`，覆盖 yielded/fresh coroutine 返回 `LUA_OK`、清空栈并恢复 OK 状态。
+  - 需要补 API：`lua_toclose`、真实 continuation 版 `lua_yieldk` / `lua_callk` / `lua_pcallk`；`lua_resetthread` / `lua_closethread` 的 `<close>` 关闭语义仍归入 `<close>` 运行期调度大项。
   - 需要补常量/类型/宏：继续核对完整 ABI 细节。
   - 需要清理/兼容旧 API：默认构建保留 LuaJIT/Lua 5.1 API；Lua 5.4 外部兼容头已隐藏一批旧 5.1 表面、旧 lauxlib 注册入口，并补了常见 getter 返回值签名，但仍需继续核对更多旧兼容宏和完整 ABI 细节。
   - 需要补内存分配语义：Lua 5.4 允许 allocator 在缩小内存块时失败；当前仍需核对 LuaJIT 分配器契约和错误处理。
@@ -160,13 +162,13 @@
   - 当前状态：`lauxlib.h` 仍以 Lua 5.1/LuaJIT 接口为主，只补了部分 5.2+ 辅助函数。
   - 当前进展：`luaL_addgsub`、`luaL_argexpected`、`luaL_buffaddr`、`luaL_bufflen`、`luaL_buffsub`、`luaL_checkversion`、`luaL_getsubtable`、`luaL_intop`、`luaL_len`、`luaL_newmetatable` 设置 `__name`、`luaL_pushfail`、`luaL_pushresultsize`、`luaL_requiref`、`luaL_tolstring`、`luaL_typeerror` 已补。
   - 当前进展：Lua 5.4 兼容模式下 `luaL_prepbuffsize()` / `luaL_buffinitsize()` 会按请求尺寸增长 buffer，不再被旧 LuaJIT 固定 `LUAL_BUFFERSIZE` 缓冲区截断；默认构建仍保留旧 LuaJIT buffer 结构。
-  - 当前进展：`lauxlib.h` 已补 Lua 5.4 的 `luaL_Stream` 类型定义，以及官方放在 lauxlib 的 `LUA_GNAME` / `LUA_FILEHANDLE` 宏，并进入 C API smoke 编译覆盖。
+  - 当前进展：`lauxlib.h` 已补 Lua 5.4 的 `luaL_Stream` 类型定义，以及官方放在 lauxlib 的 `LUA_GNAME` / `LUA_FILEHANDLE` / `LUA_LOADED_TABLE` / `LUA_PRELOAD_TABLE` / `lua_writestring` / `lua_writeline` / `lua_writestringerror` 宏，并进入 C API smoke 编译覆盖；`lualib.h` 已补 `LUA_VERSUFFIX`；外部 Lua 5.4 `lua.h` 单独包含时不会暴露 lauxlib-only 的 loaded/preload 宏。
   - 当前进展：`luaL_loadfilex` / `luaL_loadbufferx` 的 `mode` 参数已进入 C API smoke，覆盖 text 模式加载以及 binary-only 模式拒绝 text chunk。
   - 当前进展：`luaL_loadfilex` / `luaL_loadbufferx` 的 mode 不匹配错误文本已按 Lua 5.4 收紧，C API smoke 覆盖 `attempt to load a text chunk (mode is 'b')`。
   - 当前进展：Lua 5.4 兼容模式下 `luaL_checkinteger()` / `luaL_optinteger()` 已拒绝无整数表示的 number，并进入 C API smoke。
   - 当前进展：C API smoke 已补充 `luaL_fileresult()`、`luaL_execresult()`、`luaL_newlib()`、`luaL_setfuncs()`、`luaL_newmetatable()` / `luaL_getmetatable()`、`luaL_setmetatable()`、`luaL_testudata()`、`luaL_checkudata()`、`luaL_traceback()` 和 `luaL_dostring()` 覆盖。
   - 已覆盖：最小 C 程序覆盖 buffer API、`luaL_prepbuffsize()` / `luaL_buffinitsize()` 大于 `LUAL_BUFFERSIZE` 的写入、`luaL_addgsub`、`luaL_tolstring`、`luaL_pushfail`、`luaL_getsubtable`、`luaL_requiref`、`luaL_loadbufferx`、`luaL_loadfilex`。
-  - 已覆盖：`luaL_checkinteger()` / `luaL_optinteger()` 的 fraction number 错误，`lua_tointegerx()` 的 fraction status，`luaL_intop()` 的 32 位公开整数范围 wraparound，`lauxlib.h` 单独暴露 `LUA_GNAME` / `LUA_FILEHANDLE`，以及上述常用 lauxlib 5.4 辅助入口的编译/链接/运行表面。
+  - 已覆盖：`luaL_checkinteger()` / `luaL_optinteger()` 的 fraction number 错误，`lua_tointegerx()` 的 fraction status，`luaL_intop()` 的 32 位公开整数范围 wraparound，`lauxlib.h` 单独暴露 `LUA_GNAME` / `LUA_FILEHANDLE` / `LUA_LOADED_TABLE` / `LUA_PRELOAD_TABLE` 以及输出宏，`lua.h` 单独包含时隐藏 loaded/preload 宏，以及上述常用 lauxlib 5.4 辅助入口的编译/链接/运行表面。
   - 剩余：更冷门的 lauxlib 宏组合和错误文本仍可继续核对。
 
 - [ ] Lua 5.4 binary chunk / `string.dump` 兼容性。

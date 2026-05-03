@@ -8,6 +8,10 @@
 
 #include "lua.h"
 
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+#define LUA_VERSUFFIX	"_" LUA_VERSION_MAJOR "_" LUA_VERSION_MINOR
+#endif
+
 #ifndef LUA_GNAME
 #define LUA_GNAME	"_G"
 #endif
