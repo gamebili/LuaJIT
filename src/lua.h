@@ -23,6 +23,7 @@
 #define LUA_VERSION	"Lua 5.4"
 #define LUA_RELEASE	"Lua 5.4.0"
 #define LUA_VERSION_NUM	504
+#define LUA_VERSION_RELEASE_NUM	(LUA_VERSION_NUM * 100 + 0)
 #else
 #define LUA_VERSION_MAJOR	"5"
 #define LUA_VERSION_MINOR	"1"

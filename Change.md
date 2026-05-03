@@ -35,7 +35,7 @@
 - 已继续补 Lua 层 binary chunk smoke：`string.dump(f, strip)` 已覆盖 full/stripped 写出、`mode="b"` 回读执行，以及 binary chunk 被 text-only mode 拒绝。
 - 已继续收紧 Lua 5.4 GC 公开表面：兼容构建中 `collectgarbage("setstepmul", n)` 的初始旧值现在对齐 Lua 5.4 的 `100`。
 - 已继续收紧严格 Lua 5.4 语法表面：`L` / `LL` / `UL` / `ULL` / `uLL`、`0b...` 和 imaginary `i` 数字字面量扩展都已进入拒绝用例。
-- 已继续补 Lua 5.4 头文件/辅助库表面：新增 `LUA_VERSION_MAJOR` / `LUA_VERSION_MINOR` / `LUA_VERSION_RELEASE` / `LUA_NUMTYPES` 宏，以及 `luaL_addgsub()`。
+- 已继续补 Lua 5.4 头文件/辅助库表面：新增 `LUA_VERSION_MAJOR` / `LUA_VERSION_MINOR` / `LUA_VERSION_RELEASE` / `LUA_VERSION_RELEASE_NUM` / `LUA_NUMTYPES` 宏，以及 `luaL_addgsub()`。
 - 已继续收紧 `__name` 错误文本覆盖：Lua 5.4 兼容模式下 `coroutine.resume()` / `coroutine.close()` 的非线程参数会报 `thread expected, got <__name>`。
 - 已继续补齐 coroutine 库 Lua 5.4 表面：`coroutine.isyieldable([co])` 支持可选 thread 参数，挂起/死亡的非主 coroutine 返回 true，非 thread 参数走 Lua 5.4 风格错误文本。
 - 已完成 `__name` 元字段当前兼容闭环：覆盖 `tostring()` 前缀、参数类型错误、`type()` 不受影响、非字符串 `__name` 忽略、`luaL_newmetatable()` 和 `luaL_tolstring()` 路径。
@@ -188,7 +188,7 @@
   - Lua 5.4 外部兼容头下的 `lua_gettable()`、`lua_getfield()`、`lua_geti()`、`lua_rawget()`、`lua_rawgeti()`、`lua_rawgetp()` 已使用 `*54` 包装入口返回取到值的 Lua 类型；LuaJIT 内部继续使用旧 `void` ABI。
   - Lua 5.4 外部兼容头下的 `lua_load()` 已使用 5 参数宏映射到 `lua_loadx()`，支持传入 `mode`。
   - Lua 5.4 外部兼容头下的 `lua_dump()` 已使用 4 参数宏映射到 `lua_dump54()`，支持把 `strip` 参数转发为 LuaJIT bytecode writer 的 strip 标志；内部旧 3 参数 ABI 不变。
-  - `lua.h` 新增 `LUA_VERSION_MAJOR` / `LUA_VERSION_MINOR` / `LUA_VERSION_RELEASE` / `LUA_NUMTYPES` 宏。
+  - `lua.h` 新增 `LUA_VERSION_MAJOR` / `LUA_VERSION_MINOR` / `LUA_VERSION_RELEASE` / `LUA_VERSION_RELEASE_NUM` / `LUA_NUMTYPES` 宏。
   - `LUA_GCCOUNTB` 的 C API 表面已进入 smoke，当前覆盖 LuaJIT GC 总量低 10 bit 的 byte remainder 返回范围。
   - `debug.getuservalue()` / `debug.setuservalue()` 会访问 declared indexed uservalue；内置或未声明 uservalue 的 userdata 仍不暴露 LuaJIT 内部环境表。
   - `table.concat()` 对新建 list table 中间有 nil、后续仍有数组项的情况，会在 Lua 5.4 兼容模式下继续检查后续数组项对应的默认终点，和官方 Lua 5.4 对 `{1,nil,3}` 的报错行为对齐。
@@ -307,7 +307,7 @@
 - 覆盖 `luaL_loadbufferx()` / `luaL_loadfilex()` 的 `mode="t"` 和 `mode="b"` 路径。
 - 覆盖 Lua 5.4 外部兼容头中 `lua_load(..., mode)` 的 `mode="t"` 和 `mode="b"` 路径。
 - 覆盖 Lua 5.4 外部兼容头中 `lua_dump(..., strip)` 的 full/stripped 写出，以及 stripped LuaJIT bytecode 用 `mode="b"` 回读执行。
-- 覆盖 Lua 5.4 头文件中 `LUA_VERSION_MAJOR` / `LUA_VERSION_MINOR` / `LUA_VERSION_RELEASE` / `LUA_NUMTYPES` 的可见性，以及 `luaL_addgsub()` 的 buffer 替换结果。
+- 覆盖 Lua 5.4 头文件中 `LUA_VERSION_MAJOR` / `LUA_VERSION_MINOR` / `LUA_VERSION_RELEASE` / `LUA_VERSION_RELEASE_NUM` / `LUA_NUMTYPES` 的可见性，以及 `luaL_addgsub()` 的 buffer 替换结果。
 - 覆盖 Lua 5.4 兼容模式下 `luaL_prepbuffsize()` / `luaL_buffinitsize()` 请求大于 `LUAL_BUFFERSIZE` 时的 buffer 写入和最终字符串长度。
 - 覆盖 `luaL_fileresult()` 成功/失败返回形态、`luaL_execresult()` exit 返回形态、`luaL_newlib()` / `luaL_setfuncs()` 注册函数、registered metatable/userdata helper、`luaL_traceback()` 文本和 `luaL_dostring()` 结果。
 - 覆盖 `luaL_intop()` 的加法、减法和 bit-and 结果，其中加减法验证当前 32 位兼容整数范围的 wraparound。

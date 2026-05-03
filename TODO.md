@@ -133,7 +133,7 @@
   - 当前进展：已补 `lua_Unsigned`、`LUA_MAXINTEGER`、`LUA_MININTEGER`、`LUA_RIDX_LAST`、`LUA_EXTRASPACE`、`LUA_GNAME`、`LUAMOD_API`、`luaopen_coroutine`、Lua 5.4 外部 `luaopen_base()` 单返回值包装、`lua_absindex`、`lua_isinteger`、`lua_rawlen`、`lua_geti`、`lua_seti`、`lua_rawgetp`、`lua_rawsetp`、`lua_pushglobaltable`、`lua_arith`、`lua_compare`、`lua_len`、`lua_numbertointeger`、`lua_rotate`、`lua_stringtonumber`、`lua_getextraspace`、`lua_newuserdatauv`、`lua_getiuservalue`、`lua_setiuservalue`、`lua_setwarnf`、`lua_warning`、`lua_resetthread`。
   - 当前进展：`lua_stringtonumber()`、`lua_isnumber()`、`lua_tonumberx()`、`lua_tointegerx()` 和 `luaL_checknumber()` 已和 Lua 5.4 `tonumber()` 对齐，拒绝 `inf` / `nan` / `0b` 等 LuaJIT 扩展数字字符串。
   - 当前进展：Lua 5.4 兼容模式下 `lua_tointegerx()` 已对无整数表示的 number 返回失败状态，和 `lua_numbertointeger()` 的精确整数语义保持一致。
-  - 当前进展：已补 `LUA_VERSION_MAJOR`、`LUA_VERSION_MINOR`、`LUA_VERSION_RELEASE`、`LUA_NUMTYPES` 头文件宏；兼容构建当前与既有 `LUA_RELEASE "Lua 5.4.0"` 保持一致。
+  - 当前进展：已补 `LUA_VERSION_MAJOR`、`LUA_VERSION_MINOR`、`LUA_VERSION_RELEASE`、`LUA_VERSION_RELEASE_NUM`、`LUA_NUMTYPES` 头文件宏；兼容构建当前与既有 `LUA_RELEASE "Lua 5.4.0"` 保持一致。
   - 当前进展：已补 `lua_KContext`、`lua_KFunction`、`lua_WarnFunction`、`LUA_RIDX_MAINTHREAD`、`LUA_RIDX_GLOBALS`、`LUA_LOADED_TABLE`、`LUA_PRELOAD_TABLE`、`LUA_HOOKTAILCALL`、`LUA_GCGEN`、`LUA_GCINC`；registry 中会写入主线程和全局表；`lua_callk` / `lua_pcallk` / `lua_yieldk` 以不支持 continuation 的宏兼容旧调用形态。
   - 当前进展：Lua 5.4 兼容头已把外部 `lua_resume(L, from, nargs, nresults)` 映射到 `lua_resume54()` 包装入口，内部仍保留 LuaJIT 旧 2 参数 ABI；包装入口会填写 yield/return 的结果数量。
   - 当前进展：Lua 5.4 外部兼容头已隐藏 `LUA_ENVIRONINDEX`、`LUA_GLOBALSINDEX`、`lua_strlen` 以及旧 `lua_equal`、`lua_lessthan`、`lua_objlen`、`lua_cpcall`、`lua_getfenv`、`lua_setfenv` 声明；LuaJIT 内部和命令行 frontend 通过内部标记继续使用旧 ABI。

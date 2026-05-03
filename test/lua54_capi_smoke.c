@@ -34,6 +34,10 @@
 #error "Lua 5.4 compatibility header must expose LUA_VERSION_RELEASE"
 #endif
 
+#ifndef LUA_VERSION_RELEASE_NUM
+#error "Lua 5.4 compatibility header must expose LUA_VERSION_RELEASE_NUM"
+#endif
+
 #ifndef LUA_NUMTYPES
 #error "Lua 5.4 compatibility header must expose LUA_NUMTYPES"
 #endif
@@ -231,6 +235,7 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, lua_tothread(L, -1) == L, "LUA_RIDX_MAINTHREAD");
   lua_pop(L, 1);
 
+  check(L, LUA_VERSION_RELEASE_NUM == 50400, "LUA_VERSION_RELEASE_NUM");
   lua_rawgeti(L, LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
   check(L, lua_istable(L, -1), "LUA_RIDX_GLOBALS");
   lua_pop(L, 1);
