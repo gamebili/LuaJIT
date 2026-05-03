@@ -132,6 +132,7 @@
 #define LUAI_GCPAUSE	200	/* Pause GC until memory is at 200%. */
 #define LUAI_GCMUL	200	/* Run GC at 200% of allocation speed. */
 #define LUA_MAXCAPTURES	32	/* Max. pattern captures. */
+#define LUA_EXTRASPACE	(sizeof(void *))
 
 /* Configuration for the frontend (the luajit executable). */
 #if defined(luajit_c)

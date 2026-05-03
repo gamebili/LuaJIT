@@ -171,7 +171,7 @@
   - Lua 5.4 兼容模式禁用 LuaJIT 的 `0b...` 二进制数字字面量、`L` / `LL` / `UL` / `ULL` / `uLL` FFI 整数后缀和 imaginary `i` 数字字面量扩展。
   - `lua.h` / C API 新增一批 Lua 5.4 表面：`lua_Unsigned`、`LUA_MAXINTEGER`、`LUA_MININTEGER`、`lua_absindex()`、`lua_isinteger()`、`lua_rawlen()`、`lua_geti()`、`lua_seti()`、`lua_rawgetp()`、`lua_rawsetp()`、`lua_pushglobaltable()`。
   - `lua.h` / C API 继续新增 Lua 5.4 表面：`lua_arith()`、`lua_compare()`、`lua_len()`、`lua_numbertointeger()`、`lua_rotate()`、`lua_stringtonumber()` 以及 `LUA_OP*` 比较/算术常量。
-  - C API 继续新增 `lua_getextraspace()`、`lua_setwarnf()`、`lua_warning()`，并补 `lua_KContext`、`lua_KFunction`、`lua_WarnFunction`、`LUA_RIDX_MAINTHREAD`、`LUA_RIDX_GLOBALS`、`LUA_LOADED_TABLE`、`LUA_PRELOAD_TABLE`、`LUA_HOOKTAILCALL`、`LUA_GCGEN`、`LUA_GCINC`。
+  - C API 继续新增 `lua_getextraspace()`、`lua_setwarnf()`、`lua_warning()`，并补 `lua_KContext`、`lua_KFunction`、`lua_WarnFunction`、`LUA_RIDX_MAINTHREAD`、`LUA_RIDX_GLOBALS`、`LUA_RIDX_LAST`、`LUA_EXTRASPACE`、`LUA_LOADED_TABLE`、`LUA_PRELOAD_TABLE`、`LUA_HOOKTAILCALL`、`LUA_GCGEN`、`LUA_GCINC`。
   - C API 新增 indexed uservalue 表面：`lua_newuserdatauv()`、`lua_getiuservalue()`、`lua_setiuservalue()`；当前用 LuaJIT userdata 环境表保存声明数量和值，超出声明范围按 Lua 5.4 表面返回失败。
   - C API 新增 `lua_resetthread()` 基础兼容入口；当前覆盖无 to-be-closed 变量的 coroutine reset，完整 `<close>` 关闭语义仍保留在 TODO。
   - C API 新增 Lua 5.4 形态的 `lua_resume(L, from, nargs, nresults)` 外部宏和 `lua_resume54()` 包装入口；当前复用 LuaJIT 内部 2 参数 resume ABI，并把 yield/return 后的栈顶结果数写回 `nresults`。
@@ -282,6 +282,8 @@
 - 覆盖当前 JIT 可用平台下，Lua 5.4 兼容热循环中的 `tonumber()` 会拒绝 LuaJIT 扫描器扩展数字字符串并产生 trace。
 - 覆盖 Lua 5.4 C API 形态的 `lua_resume(L, from, nargs, nresults)`：yield 两个值和 return 两个值时都会填入正确结果数量。
 - 覆盖 Lua 5.4 外部兼容头不会暴露 `LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` / `lua_strlen`，并覆盖 `lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 的 registry globals 路径。
+- 覆盖 Lua 5.4 外部兼容头暴露 `LUA_RIDX_LAST`，并确认其值等于 `LUA_RIDX_GLOBALS`。
+- 覆盖 Lua 5.4 外部兼容头暴露 `LUA_EXTRASPACE`，并确认其大小与当前 pointer-sized extraspace 实现一致。
 - 覆盖 `lua_stringtonumber()`、`lua_isnumber()`、`lua_tonumberx()`、`lua_tointegerx()` 和 `luaL_checknumber()` 拒绝 `inf` / `nan` / `0b` 扫描器扩展字符串。
 - 覆盖默认构建 C API smoke：`LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` / `lua_strlen` 仍可见，`lua_objlen()` / `lua_getfenv()` 仍可编译、链接、运行。
 - 覆盖 Lua 5.4 外部兼容头中 `lua_gettable()`、`lua_getfield()`、`lua_geti()`、`lua_rawget()`、`lua_rawgeti()`、`lua_rawgetp()` 的返回类型签名和运行时返回值。

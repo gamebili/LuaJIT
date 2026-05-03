@@ -37,6 +37,14 @@
 #error "Lua 5.4 compatibility header must expose LUA_NUMTYPES"
 #endif
 
+#ifndef LUA_RIDX_LAST
+#error "Lua 5.4 compatibility header must expose LUA_RIDX_LAST"
+#endif
+
+#ifndef LUA_EXTRASPACE
+#error "Lua 5.4 compatibility header must expose LUA_EXTRASPACE"
+#endif
+
 static int require_open_count = 0;
 static char warning_buf[64];
 static int warning_tocont = -1;
@@ -196,6 +204,7 @@ static void test_stack_and_number_api(lua_State *L)
   lua_rawgeti(L, LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
   check(L, lua_istable(L, -1), "LUA_RIDX_GLOBALS");
   lua_pop(L, 1);
+  check(L, LUA_RIDX_LAST == LUA_RIDX_GLOBALS, "LUA_RIDX_LAST");
 
   lua_pushglobaltable(L);
   check(L, lua_istable(L, -1), "lua_pushglobaltable registry path");
@@ -208,6 +217,7 @@ static void test_stack_and_number_api(lua_State *L)
   lua_setglobal(L, "__capi_global");
   lua_pop(L, 1);
 
+  check(L, LUA_EXTRASPACE == sizeof(void *), "LUA_EXTRASPACE");
   extra = (void **)lua_getextraspace(L);
   *extra = L;
   co = lua_newthread(L);
