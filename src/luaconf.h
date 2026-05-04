@@ -150,7 +150,15 @@
 ** unreasonable amounts of stack space, but still retain ABI compatibility.
 ** Blame Lua for depending on BUFSIZ in the ABI, blame **** for wrecking it.
 */
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+/* Lua 5.4 fixes the public lauxlib buffer size formula. Keep the old BUFSIZ
+** based value for default LuaJIT builds, but expose the official value in the
+** compatibility ABI so luaL_Buffer layout matches 5.4 headers.
+*/
+#define LUAL_BUFFERSIZE	((int)(16 * sizeof(void *) * sizeof(lua_Number)))
+#else
 #define LUAL_BUFFERSIZE	(BUFSIZ > 16384 ? 8192 : BUFSIZ)
+#endif
 
 /* The following defines are here only for compatibility with luaconf.h
 ** from the standard Lua distribution. They must not be changed for LuaJIT.

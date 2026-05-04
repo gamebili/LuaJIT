@@ -213,7 +213,7 @@
   - 当前状态：`lauxlib.h` 仍以 Lua 5.1/LuaJIT 接口为主，只补了部分 5.2+ 辅助函数。
   - 当前进展：`luaL_addgsub`、`luaL_argexpected`、`luaL_buffaddr`、`luaL_bufflen`、`luaL_buffsub`、`luaL_checkversion`、`luaL_getsubtable`、`luaL_intop`、`luaL_len`、`luaL_newmetatable` 设置 `__name`、`luaL_pushfail`、`luaL_pushresultsize`、`luaL_requiref`、`luaL_tolstring`、`luaL_typeerror` 已补；外部兼容头中的 `luaL_argexpected` / `luaL_pushfail` 已按官方 Lua 5.4 暴露为宏。
   - 当前进展：Lua 5.4 兼容模式下 `luaL_prepbuffer()` / `luaL_prepbuffsize()` / `luaL_buffinitsize()` 会按请求尺寸增长 buffer；外部兼容头中的 `luaL_prepbuffer` 已按官方 Lua 5.4 暴露为宏，默认构建仍保留旧 LuaJIT buffer 结构。
-  - 当前进展：`lauxlib.h` 已补 Lua 5.4 的 `luaL_Stream` 类型定义，以及官方放在 lauxlib 的 `LUA_GNAME` / `LUA_FILEHANDLE` / `LUA_LOADED_TABLE` / `LUA_PRELOAD_TABLE` / `lua_writestring` / `lua_writeline` / `lua_writestringerror` 宏，并进入 C API smoke 编译覆盖；`lualib.h` 已补 `LUA_VERSUFFIX`；外部 Lua 5.4 `lua.h` 单独包含时不会暴露 lauxlib-only 的 loaded/preload 宏。
+  - 当前进展：`lauxlib.h` 已补 Lua 5.4 的 `luaL_Stream` 类型定义，以及官方放在 lauxlib 的 `LUA_GNAME` / `LUA_FILEHANDLE` / `LUA_LOADED_TABLE` / `LUA_PRELOAD_TABLE` / `lua_writestring` / `lua_writeline` / `lua_writestringerror` 宏，并进入 C API smoke 编译覆盖；Lua 5.4 兼容构建的 `LUAL_BUFFERSIZE` 已按官方 `16 * sizeof(void*) * sizeof(lua_Number)` 公式暴露，默认构建继续保留 LuaJIT/BUFSIZ 旧 ABI；`lualib.h` 已补 `LUA_VERSUFFIX`；外部 Lua 5.4 `lua.h` 单独包含时不会暴露 lauxlib-only 的 loaded/preload 宏。
   - 当前进展：`luaL_loadfilex` / `luaL_loadbufferx` 的 `mode` 参数已进入 C API smoke，覆盖 text 模式加载以及 binary-only 模式拒绝 text chunk。
   - 当前进展：`luaL_loadfilex` / `luaL_loadbufferx` 的 mode 不匹配错误文本已按 Lua 5.4 收紧，C API smoke 覆盖 `attempt to load a text chunk (mode is 'b')`。
   - 当前进展：外部兼容头中的 `luaL_loadfile()` / `luaL_loadbuffer()` 已按官方 Lua 5.4 暴露为映射到 `luaL_loadfilex(..., NULL)` / `luaL_loadbufferx(..., NULL)` 的宏。
@@ -222,7 +222,7 @@
   - 当前进展：Lua 5.4 兼容模式下 `luaL_checkinteger()` / `luaL_optinteger()` 已拒绝无整数表示的 number，并进入 C API smoke。
   - 当前进展：`luaL_pushresultsize()` / `luaL_buffinitsize()` 已按官方 Lua 5.4 暴露为可取函数指针的真实 lauxlib 函数；默认构建仍保留 LuaJIT 旧宏表面。
   - 当前进展：C API smoke 已补充 `luaL_fileresult()`、`luaL_execresult()`、`luaL_newlib()`、`luaL_setfuncs()`、`luaL_newmetatable()` / `luaL_getmetatable()`、`luaL_setmetatable()`、`luaL_testudata()`、`luaL_checkudata()`、`luaL_traceback()` 和 `luaL_dostring()` 覆盖。
-  - 已覆盖：最小 C 程序覆盖 buffer API、`luaL_prepbuffer` / `luaL_argexpected` / `luaL_pushfail` / `luaL_loadfile` / `luaL_loadbuffer` 宏可见性、`luaL_newlib` 版本检查宏形态、`luaL_prepbuffsize()` / `luaL_buffinitsize()` 大于 `LUAL_BUFFERSIZE` 的写入、`luaL_addgsub`、`luaL_tolstring`、`luaL_pushfail`、`luaL_getsubtable`、`luaL_requiref`、`luaL_loadbufferx`、`luaL_loadfilex`。
+  - 已覆盖：最小 C 程序覆盖 buffer API、`LUAL_BUFFERSIZE` 官方公式、`luaL_prepbuffer` / `luaL_argexpected` / `luaL_pushfail` / `luaL_loadfile` / `luaL_loadbuffer` 宏可见性、`luaL_newlib` 版本检查宏形态、`luaL_prepbuffsize()` / `luaL_buffinitsize()` 大于 `LUAL_BUFFERSIZE` 的写入、`luaL_addgsub`、`luaL_tolstring`、`luaL_pushfail`、`luaL_getsubtable`、`luaL_requiref`、`luaL_loadbufferx`、`luaL_loadfilex`。
   - 已覆盖：`luaL_checkinteger()` / `luaL_optinteger()` 的 fraction number 错误，`lua_tointegerx()` 的 fraction status，`luaL_intop()` 的 32 位公开整数范围 wraparound，`luaL_checkoption()`、`luaL_gsub()`、`luaL_ref()` / `luaL_unref()`、`luaL_getmetafield()`、`luaL_callmeta()`、`luaL_where()`、`luaL_error()`、`luaL_typename()`，`lauxlib.h` 单独暴露 `LUA_GNAME` / `LUA_FILEHANDLE` / `LUA_LOADED_TABLE` / `LUA_PRELOAD_TABLE` 以及输出宏，`lua.h` 单独包含时隐藏 loaded/preload 宏，外部 5.4 头隐藏旧 `luaL_typerror` / `luaL_findtable`，以及上述常用 lauxlib 5.4 辅助入口的编译/链接/运行表面。
   - 剩余：更冷门的 lauxlib 宏组合和错误文本仍可继续核对。
 

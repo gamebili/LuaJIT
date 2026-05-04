@@ -723,6 +723,8 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, LUA_RIDX_LAST == LUA_RIDX_GLOBALS, "LUA_RIDX_LAST");
   check(L, strcmp(LUA_GNAME, "_G") == 0, "LUA_GNAME");
   check(L, strcmp(LUA_FILEHANDLE, "FILE*") == 0, "LUA_FILEHANDLE");
+  check(L, LUAL_BUFFERSIZE == (int)(16 * sizeof(void *) * sizeof(lua_Number)),
+	"LUAL_BUFFERSIZE Lua 5.4 formula");
   check(L, strcmp(LUA_LOADED_TABLE, "_LOADED") == 0, "LUA_LOADED_TABLE");
   check(L, strcmp(LUA_PRELOAD_TABLE, "_PRELOAD") == 0, "LUA_PRELOAD_TABLE");
   check(L, strcmp(LUA_VERSUFFIX, "_5_4") == 0, "LUA_VERSUFFIX");

@@ -18,6 +18,7 @@
 - 已按官方 Lua 5.4.8 `lua.h` 对齐 debug hook 事件宏：外部兼容头只暴露 `LUA_HOOKTAILCALL`，不再暴露旧 LuaJIT/Lua 5.1 `LUA_HOOKTAILRET`。
 - 已按官方 Lua 5.4.8 `lua.h` 对齐 `lua_callk` / `lua_pcallk` / `lua_yieldk` 的外部 ABI：兼容构建现在暴露真实导出函数，外部 C 模块可以按官方签名取函数指针；当前 wrapper 覆盖 NULL-continuation 路径，真正 continuation 恢复语义仍留在 VM unwind 批次。
 - 已继续按官方 Lua 5.4.8 `lua.h` 对齐外部函数指针表面：`lua_rawlen`、`lua_pushlstring`、`lua_pushstring`、`lua_gettable`、`lua_getfield`、`lua_geti`、`lua_rawget`、`lua_rawgeti`、`lua_rawgetp`、`lua_rawseti`、`lua_getglobal`、`lua_setglobal`、`lua_load`、`lua_dump` 和 `lua_resume` 现在都可按官方函数名取指针，同时仍转发到内部 `*54` / `lua_loadx` 兼容入口以保留 LuaJIT 内部旧 ABI。
+- 已按官方 Lua 5.4.8 `luaconf.h` 对齐 Lua 5.4 兼容构建的 `LUAL_BUFFERSIZE`：从 LuaJIT/stdio `BUFSIZ` 表面切到官方 `16 * sizeof(void*) * sizeof(lua_Number)` 公式，默认构建继续保留旧 ABI。
 - 已继续按官方 Lua 5.4.8 `lua.h` 清理外部兼容头：`lua_open`、`lua_getregistry`、`lua_getgccount`、`lua_Chunkreader`、`lua_Chunkwriter` 和 `lua_setlevel` 不再对外暴露；默认构建 C smoke 覆盖旧兼容宏仍可用。
 - 已按官方 `testes/bwcoercion.lua` 修正 Lua 5.4 lowered operator helper 的 metamethod 返回栈：`__band` / `__idiv` 等路径只返回 metamethod 第一个结果，不再把原操作数漏成额外返回值。
 - 已按官方 `testes/locals.lua` 的 to-be-closed coroutine 用例推进 `<close>` yield 边界：普通块退出和 close-active `return` 路径不再在 C helper 内部调用 `__close`，而是由 parser 生成普通 Lua 调用，因此 `__close` 内 `coroutine.yield()` 后可恢复，并保留返回值数量与 `nil` 洞；error unwind / C return 等路径仍记录在 `TODO.md` 继续由 VM unwind continuation 接管。
