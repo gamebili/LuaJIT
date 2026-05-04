@@ -669,7 +669,11 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, LUA_NUMTAGS == LUA_NUMTYPES, "LUA_NUMTAGS");
   check(L, strcmp(LUA_VERSION_RELEASE, "8") == 0, "LUA_VERSION_RELEASE");
   check(L, strcmp(LUA_RELEASE, "Lua 5.4.8") == 0, "LUA_RELEASE");
+  check(L, strstr(LUA_COPYRIGHT, "Lua 5.4.8") != NULL, "LUA_COPYRIGHT release");
+  check(L, strchr(LUA_AUTHORS, '&') == NULL, "LUA_AUTHORS separator");
   check(L, LUA_VERSION_RELEASE_NUM == 50408, "LUA_VERSION_RELEASE_NUM");
+  check(L, strstr(lua_ident, "LuaVersion: Lua 5.4.8") != NULL, "lua_ident version");
+  check(L, strstr(lua_ident, "LuaAuthors:") != NULL, "lua_ident authors");
   lua_rawgeti(L, LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
   check(L, lua_istable(L, -1), "LUA_RIDX_GLOBALS");
   lua_pop(L, 1);

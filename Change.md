@@ -12,7 +12,7 @@
 - 已补 Lua 5.4 C API `lua_toclose` 弹栈和错误展开路径：`lua_settop` / `lua_pop` 弹出 marked slot 会先调用 `__close(value, nil)`；C 函数抛错展开时会把 body error 传给 `__close(value, err)`。
 - 已补 Lua 5.4 C API `lua_toclose` 正常 C 返回路径：x64/arm64 VM `returnc` 在 return hook 和搬移返回值前关闭 C frame 内 marked slot；`__close(value, nil)` 错误会替换为 C 返回错误，且 close slot 本身作为返回值时保留原值。
 - 已按 Lua 5.4.8 `lapi.c` 对齐 `lua_toclose` / `lua_closeslot` 的栈顺序约束：`lua_toclose()` 只能标记高于当前 active close slot 的槽位，`lua_closeslot()` 只能关闭最后一个仍 active 的 marked slot；false/nil 被忽略后也不能绕过顺序检查。
-- 已按官方 Lua 5.4.8 头文件对齐版本常量：兼容构建现在暴露 `LUA_VERSION_RELEASE "8"`、`LUA_RELEASE "Lua 5.4.8"` 和 `LUA_VERSION_RELEASE_NUM 50408`。
+- 已按官方 Lua 5.4.8 `lua.h` / `lapi.c` 对齐头文件和外部识别符：兼容构建现在暴露 `LUA_VERSION_RELEASE "8"`、`LUA_RELEASE "Lua 5.4.8"`、`LUA_VERSION_RELEASE_NUM 50408`、5.4.8 版权/作者文本以及 `lua_ident` 符号。
 - 已修复 Lua 5.4 compat 的 amalgamation 构建遗漏：`ljamalg.c` 现在包含 `lib_utf8.c`，避免 `luaopen_utf8` 在合并编译链接时缺失。
 - 已完成实验性 Lua 5.4 兼容模式的阶段性实现与测试。
 - 已通过 `make test` 验证默认构建和 Lua 5.4 兼容构建的 smoke 测试。
@@ -387,7 +387,7 @@
 - 覆盖 Lua 5.4 C API `lua_toclose` 的弹栈/错误路径：`lua_settop` / `lua_pop` 自动关闭 marked slot，C 函数错误展开时 `__close` 收到 body error。
 - 覆盖 Lua 5.4 C API `lua_toclose` 的正常 C 返回路径：C 函数 `return 0` 自动关闭 marked slot，close 错误会让 `lua_pcall` 返回错误，被关闭槽位作为返回值时仍返回原 table。
 - 覆盖 Lua 5.4 C API `lua_toclose` / `lua_closeslot` 的 LIFO 顺序约束：重复标记同一槽、标记低于 active slot、nil 低于 active slot 都会报 `below or equal`，`lua_closeslot` 关闭非最后 marked slot 会报 `no variable to close`，按 LIFO 显式关闭两个槽位成功。
-- 覆盖 Lua 5.4.8 版本头文件常量：`LUA_VERSION_RELEASE`、`LUA_RELEASE` 和 `LUA_VERSION_RELEASE_NUM` 均按官方 5.4.8 暴露。
+- 覆盖 Lua 5.4.8 版本头文件常量和识别符：`LUA_VERSION_RELEASE`、`LUA_RELEASE`、`LUA_VERSION_RELEASE_NUM`、`LUA_COPYRIGHT`、`LUA_AUTHORS` 和 `lua_ident` 均按官方 5.4.8 暴露。
 - 覆盖 Lua 5.4 外部兼容头不会暴露 `LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` / `lua_strlen`，并覆盖 `lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 的 registry globals 路径。
 - 覆盖 Lua 5.4 外部兼容头暴露 `LUA_RIDX_LAST`，并确认其值等于 `LUA_RIDX_GLOBALS`。
 - 覆盖 Lua 5.4 外部兼容头暴露 `LUA_EXTRASPACE`，并确认其大小与当前 pointer-sized extraspace 实现一致。

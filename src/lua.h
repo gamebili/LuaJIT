@@ -24,6 +24,8 @@
 #define LUA_RELEASE	"Lua 5.4.8"
 #define LUA_VERSION_NUM	504
 #define LUA_VERSION_RELEASE_NUM	(LUA_VERSION_NUM * 100 + 8)
+#define LUA_COPYRIGHT	LUA_RELEASE "  Copyright (C) 1994-2025 Lua.org, PUC-Rio"
+#define LUA_AUTHORS	"R. Ierusalimschy, L. H. de Figueiredo, W. Celes"
 #else
 #define LUA_VERSION_MAJOR	"5"
 #define LUA_VERSION_MINOR	"1"
@@ -31,9 +33,9 @@
 #define LUA_VERSION	"Lua 5.1"
 #define LUA_RELEASE	"Lua 5.1.4"
 #define LUA_VERSION_NUM	501
-#endif
 #define LUA_COPYRIGHT	"Copyright (C) 1994-2008 Lua.org, PUC-Rio"
 #define LUA_AUTHORS	"R. Ierusalimschy, L. H. de Figueiredo & W. Celes"
+#endif
 
 #if defined(LUAJIT_ENABLE_LUA54COMPAT) && !defined(LUA_CORE) && \
     !defined(LUA_LIB) && !defined(LUAJIT_INTERNAL_USE)
@@ -135,6 +137,10 @@ typedef void * (*lua_Alloc) (void *ud, void *ptr, size_t osize, size_t nsize);
 */
 #if defined(LUA_USER_H)
 #include LUA_USER_H
+#endif
+
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+extern const char lua_ident[];
 #endif
 
 

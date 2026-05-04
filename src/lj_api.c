@@ -31,6 +31,12 @@
 #include "lj_strscan.h"
 #include "lj_strfmt.h"
 
+#if LJ_54
+LUA_API const char lua_ident[] =
+  "$LuaVersion: " LUA_COPYRIGHT " $"
+  "$LuaAuthors: " LUA_AUTHORS " $";
+#endif
+
 /* -- Common helper functions --------------------------------------------- */
 
 #define lj_checkapi_slot(idx) \
