@@ -734,9 +734,17 @@ static void bcemit_lua54_closevalue(FuncState *fs, BCReg slot)
   bcemit_AD(fs, BC_MOV, argbase, slot);
   bcemit_AD(fs, BC_KSHORT, (BCReg)(argbase + 1),
 	    (BCReg)(uint16_t)((int32_t)slot - (int32_t)argbase));
-  bcemit_ABC(fs, BC_CALL, base, (BCReg)(4 + ls->fr2),
+  bcemit_ABC(fs, BC_CALL, base, 4,
 	     fs->freereg - base - ls->fr2);
-  fs->freereg = (BCReg)(base + 3 + ls->fr2);
+  fs->freereg = (BCReg)(base + 3);
+  if (ls->fr2) {
+    /* C returns compact results. Move them into the same callee/gap/arg layout
+    ** that a normal Lua call expression would use on FR2 targets.
+    */
+    bcemit_AD(fs, BC_MOV, (BCReg)(base + 3), (BCReg)(base + 2));
+    bcemit_AD(fs, BC_MOV, (BCReg)(base + 2), (BCReg)(base + 1));
+    fs->freereg = (BCReg)(base + 4);
+  }
   bcemit_ABC(fs, BC_CALL, base, 1, fs->freereg - base - ls->fr2);
   fs->freereg = base;
 }
@@ -1638,7 +1646,8 @@ static void fscope_end(FuncState *fs)
   fs->bl = bl->prev;
 #if LJ_54
   fs->freereg = fs->nactvar;
-  fscope_closeactive(fs, bl->nactvar);
+  if (!(bl->flags & FSCOPE_NOCLOSE))
+    fscope_closeactive(fs, bl->nactvar);
   gola_closependinggotos(ls, bl);
 #endif
   var_remove(ls, bl->nactvar);
@@ -1873,6 +1882,13 @@ static void fs_fixup_ret(FuncState *fs)
 {
   BCPos lastpc = fs->pc;
   if (lastpc <= fs->lasttarget || !bc_isret_or_tail(bc_op(fs->bcbase[lastpc-1].ins))) {
+#if LJ_54
+    /* The synthetic fall-through return is still inside the function body.
+    ** Close root-scope <close> variables before RET0 so pcall/xpcall protect
+    ** errors from __close exactly like an explicit Lua 5.4 return.
+    */
+    fscope_closeactive(fs, 0);
+#endif
     if ((fs->bl->flags & FSCOPE_UPVAL))
       bcemit_AJ(fs, BC_UCLO, 0, 0);
     bcemit_AD(fs, BC_RET0, 0, 1);  /* Need final return. */

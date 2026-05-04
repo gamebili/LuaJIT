@@ -465,33 +465,41 @@ static int lj_cf_jit__lua54_nopclose(lua_State *L)
   return 0;
 }
 
+static int lj_cf_jit__lua54_closeerror(lua_State *L)
+{
+  return luaL_error(L, "%s", luaL_checkstring(L, 1));
+}
+
 static int lua54_pushclosecall(lua_State *L, cTValue *fn, cTValue *self)
 {
   TValue *top = L->top;
   copyTV(L, top++, fn);
-#if LJ_FR2
-  /* A Lua call frame needs the FR2 gap between callee and arguments. The
-  ** helper returns that padding explicitly so the parser can invoke __close as
-  ** a normal Lua call, which is yieldable like Lua 5.4's luaD_call path.
-  */
-  setnilV(top++);
-#endif
   copyTV(L, top++, self);
   setnilV(top++);
   L->top = top;
-  return 3 + LJ_FR2;
+  return 3;
 }
 
 static int lua54_pushnopclose(lua_State *L)
 {
-  lj_state_checkstack(L, 3 + LJ_FR2);
+  lj_state_checkstack(L, 3);
   lua_pushcfunction(L, lj_cf_jit__lua54_nopclose);
-#if LJ_FR2
-  setnilV(L->top++);
-#endif
   setnilV(L->top++);
   setnilV(L->top++);
-  return 3 + LJ_FR2;
+  return 3;
+}
+
+static int lua54_pushcloseerror(lua_State *L)
+{
+  TValue *top;
+  lj_state_checkstack(L, 3);
+  lua_pushcfunction(L, lj_cf_jit__lua54_closeerror);
+  top = L->top;
+  setstrV(L, top++, lj_str_newlit(L,
+    "attempt to call a nil value (metamethod 'close')"));
+  setnilV(top++);
+  L->top = top;
+  return 3;
 }
 
 static int lj_cf_jit__lua54_closevalue(lua_State *L)
@@ -506,13 +514,13 @@ static int lj_cf_jit__lua54_closevalue(lua_State *L)
     return lua54_pushnopclose(L);
   lj_close_unmark(L, o);
   if (!lj_close_getmethod(L, o))
-    return luaL_error(L, "attempt to close non-closable value");
+    return lua54_pushcloseerror(L);
   slotofs = savestack(L, o);
-  lj_state_checkstack(L, 3 + LJ_FR2);
+  lj_state_checkstack(L, 3);
   o = restorestack(L, slotofs);
   mo = lj_close_getmethod(L, o);
   if (!mo)
-    return luaL_error(L, "attempt to close non-closable value");
+    return lua54_pushcloseerror(L);
   return lua54_pushclosecall(L, mo, o);
 }
 

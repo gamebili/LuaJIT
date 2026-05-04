@@ -445,6 +445,25 @@ do
   end
   do
     assert(assert(load([[
+      local ok, err = pcall(function()
+        local x <close> = setmetatable({}, {
+          __close = function()
+            error("close boom", 0)
+          end,
+        })
+      end)
+      assert(ok == false and err == "close boom")
+
+      ok, err = pcall(function()
+        local y <close> = setmetatable({}, { __close = function() end })
+        getmetatable(y).__close = nil
+      end)
+      assert(ok == false and err:match("metamethod 'close'") ~= nil)
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
       local log = {}
       local mt = {
         __close = function(self, err)
