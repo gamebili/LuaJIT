@@ -138,6 +138,10 @@ do
   local marker = { tag = "lua54-error-object" }
   ok, err = pcall(function() error(marker) end)
   assert(ok == false and err == marker)
+  ok, err = pcall(assert, false, 123)
+  assert(ok == false and err == 123)
+  ok, err = pcall(assert, false, marker)
+  assert(ok == false and err == marker)
 end
 assert(select(1, pcall(getmetatable)) == false)
 assert(select(1, pcall(select, 1.2, "a", "b")) == false)

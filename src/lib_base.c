@@ -177,8 +177,13 @@ LJLIB_ASM(assert)		LJLIB_REC(.)
 #endif
   if (L->top == L->base+1)
     lj_err_caller(L, LJ_ERR_ASSERT);
+#if LJ_54
+  else if (tvisstr(L->base+1))
+    lj_err_callermsg(L, strdata(strV(L->base+1)));
+#else
   else if (tvisstr(L->base+1) || tvisnumber(L->base+1))
     lj_err_callermsg(L, strdata(lj_lib_checkstr(L, 2)));
+#endif
   else
     lj_err_run(L);
   return FFH_UNREACHABLE;
