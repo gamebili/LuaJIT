@@ -715,20 +715,35 @@ LJLIB_ASM_(xpcall)		LJLIB_REC(.)
 
 /* -- Base library: load Lua code ----------------------------------------- */
 
-static int load_aux(lua_State *L, int status, int envarg)
+static int load_aux(lua_State *L, int status, int envarg, int hasenv)
 {
   if (status == LUA_OK) {
     /*
     ** Set environment table for top-level function.
     ** Don't do this for non-native bytecode, which returns a prototype.
     */
-    if (tvistab(L->base+envarg-1) && tvisfunc(L->top-1)) {
+    if (tvisfunc(L->top-1)) {
       GCfunc *fn = funcV(L->top-1);
-      GCtab *t = tabV(L->base+envarg-1);
-      setgcref(fn->c.env, obj2gco(t));
-      lj_gc_objbarrier(L, fn, t);
+      TValue *env = L->base + envarg - 1;
 #if LJ_54
-      lj_func_inituv_env(L, fn, t);
+      if (hasenv) {
+	if (tvistab(env)) {
+	  GCtab *t = tabV(env);
+	  setgcref(fn->c.env, obj2gco(t));
+	  lj_gc_objbarrier(L, fn, t);
+	}
+	/* Lua 5.4's load env argument initializes the first real upvalue to
+	** the exact argument value. Keep fn->c.env table-only for legacy
+	** VGLOBAL bytecode, but do not discard non-table upvalue envs.
+	*/
+	lj_func_inituv_env(L, fn, env);
+      }
+#else
+      if (tvistab(env)) {
+	GCtab *t = tabV(env);
+	setgcref(fn->c.env, obj2gco(t));
+	lj_gc_objbarrier(L, fn, t);
+      }
 #endif
     }
     return 1;
@@ -740,6 +755,7 @@ static int load_aux(lua_State *L, int status, int envarg)
 
 LJLIB_CF(loadfile)
 {
+  int hasenv = (int)(L->top - L->base) >= 3;
 #if LJ_54
   GCstr *fname = base_optstr_named54(L, 1, "loadfile");
   GCstr *mode = base_optstr_named54(L, 2, "loadfile");
@@ -751,7 +767,7 @@ LJLIB_CF(loadfile)
   lua_settop(L, 3);  /* Ensure env arg exists. */
   status = luaL_loadfilex(L, fname ? strdata(fname) : NULL,
 			  mode ? strdata(mode) : NULL);
-  return load_aux(L, status, 3);
+  return load_aux(L, status, 3, hasenv);
 }
 
 static const char *reader_func(lua_State *L, void *ud, size_t *size)
@@ -775,6 +791,7 @@ static const char *reader_func(lua_State *L, void *ud, size_t *size)
 
 LJLIB_CF(load)
 {
+  int hasenv = (int)(L->top - L->base) >= 4;
 #if LJ_54
   GCstr *name = base_optstr_named54(L, 2, "load");
   GCstr *mode = base_optstr_named54(L, 3, "load");
@@ -810,7 +827,7 @@ LJLIB_CF(load)
     status = lua_loadx(L, reader_func, NULL, name ? strdata(name) : "=(load)",
 		       mode ? strdata(mode) : NULL);
   }
-  return load_aux(L, status, 4);
+  return load_aux(L, status, 4, hasenv);
 }
 
 LJLIB_CF(loadstring)

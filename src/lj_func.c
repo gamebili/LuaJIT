@@ -137,7 +137,7 @@ static GCfunc *func_newL(lua_State *L, GCproto *pt, GCtab *env)
 }
 
 #if LJ_54
-void lj_func_inituv_env(lua_State *L, GCfunc *fn, GCtab *env)
+void lj_func_inituv_tabenv(lua_State *L, GCfunc *fn, GCtab *env)
 {
   if (isluafunc(fn) && fn->l.nupvalues > 0) {
     GCupval *uv = &gcref(fn->l.uvptr[0])->uv;
@@ -147,6 +147,21 @@ void lj_func_inituv_env(lua_State *L, GCfunc *fn, GCtab *env)
     ** for bytecode that actually reads upvalue slot 0.
     */
     settabV(L, tv, env);
+    lj_gc_barrier(L, obj2gco(uv), tv);
+  }
+}
+
+void lj_func_inituv_env(lua_State *L, GCfunc *fn, const TValue *env)
+{
+  if (tvistab(env)) {
+    lj_func_inituv_tabenv(L, fn, tabV(env));
+  } else if (isluafunc(fn) && fn->l.nupvalues > 0) {
+    GCupval *uv = &gcref(fn->l.uvptr[0])->uv;
+    TValue *tv = uvval(uv);
+    /* Real Lua 5.4 upvalue slots can hold any env value supplied to load().
+    ** Keep this separate from the table-only function env pointer.
+    */
+    copyTV(L, tv, env);
     lj_gc_barrier(L, obj2gco(uv), tv);
   }
 }

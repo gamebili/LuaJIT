@@ -59,7 +59,7 @@ static TValue *cpparser(lua_State *L, lua_CFunction dummy, void *ud)
   if (ls->fr2 == LJ_FR2) {
     fn = lj_func_newL_empty(L, pt, tabref(L->env));
 #if LJ_54
-    lj_func_inituv_env(L, fn, tabref(L->env));
+    lj_func_inituv_tabenv(L, fn, tabref(L->env));
 #endif
     /* Don't combine above/below into one statement. */
     setfuncV(L, L->top++, fn);

@@ -17,7 +17,7 @@
   - 当前进展：Lua 5.4 兼容模式下，main chunk 以及仍使用 LuaJIT 函数环境访问全局名的 Lua 函数，会通过 debug API 暴露一个伪 `_ENV` upvalue；`debug.getupvalue` / `debug.getinfo(..., "u")` / `debug.setupvalue` 已覆盖基础路径。
   - 已知差异：伪 `_ENV` 仍依赖 LuaJIT 函数环境，`debug.setupvalue(load("return x"), 1, 5)` 这类把伪 `_ENV` 替换为非 table 的路径仍不能完整表达；伪 `_ENV` 的 identity 仍是兼容映射，不是 VM 里的真实 upvalue 槽。
   - 当前进展：Lua 5.4 兼容模式下 `rawget(_G, "_ENV")` 已对齐官方返回 `nil`，`next(_G)` / `pairs(_G)` 也会跳过内部兼容 `_ENV` 键，同时保留裸 `_ENV == _G` 的当前兼容表面。
-  - 已覆盖：chunk 的 `_ENV` upvalue 名称/位置、`debug.setupvalue` 用 table 替换环境、带真实上值且访问全局的闭包会把 `_ENV` 排在第一个 debug upvalue、闭包继承局部 `_ENV`、真实 lexical `_ENV` 的 `debug.upvalueid` / `debug.upvaluejoin`、非 table lexical `_ENV` 的 debug 枚举和运行期索引错误、`rawget(_G, "_ENV") == nil`、`next(_G)` / `pairs(_G)` 不枚举 `_ENV`。
+  - 已覆盖：chunk 的 `_ENV` upvalue 名称/位置、`debug.setupvalue` 用 table 替换环境、带真实上值且访问全局的闭包会把 `_ENV` 排在第一个 debug upvalue、闭包继承局部 `_ENV`、真实 lexical `_ENV` 的 `debug.upvalueid` / `debug.upvaluejoin`、非 table lexical `_ENV` 的 debug 枚举和运行期索引错误、dumped chunk 的真实首个 upvalue 可由 `load(..., env)` 初始化为 table / number / false / nil、`rawget(_G, "_ENV") == nil`、`next(_G)` / `pairs(_G)` 不枚举 `_ENV`。
   - 仍需补测试/实现：伪 `_ENV` 被 `debug.setupvalue` / `debug.upvaluejoin` 替换为非 table 时的完整 Lua 5.4 upvalue 语义，以及伪 `_ENV` 的真实 upvalue identity。
 
 - [x] `<const>` 的 debug API 行为核对。
@@ -189,7 +189,7 @@
   - 当前进展：C API `lua_dump(..., strip)` 已支持 Lua 5.4 外部调用表面，并可写出带 strip 标志的 LuaJIT bytecode；这不是官方 Lua 5.4 binary chunk 格式兼容。
   - 当前进展：Lua 层 `string.dump(f, strip)` 已进入 smoke，覆盖 full/stripped LuaJIT bytecode 写出、`mode="b"` 回读执行，以及 binary chunk 被 `mode="t"` 拒绝。
   - 当前进展：已将官方 Lua 5.4.8 dump 的加载失败固化为 smoke；兼容构建会明确拒绝官方 Lua 5.4 binary chunk，并保留 `mode="t"` 的 binary chunk 拒绝错误。
-  - 当前进展：LuaJIT dump 回读时，带真实 upvalue 的函数会按 Lua 5.4 `load` 规则把第一个 upvalue 初始化为当前全局环境；带第 4 个 env 参数时会初始化为指定 env。
+  - 当前进展：LuaJIT dump 回读时，带真实 upvalue 的函数会按 Lua 5.4 `load` 规则把第一个 upvalue 初始化为当前全局环境；带第 4 个 env 参数时会初始化为指定 env，且真实 upvalue 槽支持 table / number / false / nil 这类非 table 值。
   - 当前进展：LuaJIT stripped dump 回读后的 debug upvalue 枚举已避免把无真实 upvalue 的 plain dump 误暴露为伪 `_ENV`，带真实 upvalue 的 stripped dump 也不再额外插入伪 `_ENV`。
   - 已知差异：LuaJIT stripped dump 中使用全局名的函数仍通过兼容层伪 `_ENV` 表达环境，名称显示为 `_ENV`，而官方 Lua 5.4 stripped dump 的 upvalue 名称为 `(no name)`。
   - 需要补测试：mode=`"b"`/`"t"` 的更多错误消息差异，以及更复杂嵌套 dump 的 `_ENV`/upvalue 表现。

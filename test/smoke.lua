@@ -1427,6 +1427,16 @@ do
   local n, v = debug.getupvalue(loaded, 1)
   assert(n == "" and v == dump_env)
   assert(debug.getupvalue(loaded, 2) == nil)
+  loaded = assert(load(with_upvalue, "=dumped-upvalue-number", "b", 5))
+  -- Lua 5.4 initializes the first real upvalue to the exact env argument;
+  -- unlike function environments, that slot is allowed to hold non-tables.
+  assert(loaded() == 5)
+  n, v = debug.getupvalue(loaded, 1)
+  assert(n == "" and v == 5)
+  loaded = assert(load(with_upvalue, "=dumped-upvalue-false", "b", false))
+  assert(loaded() == false)
+  loaded = assert(load(with_upvalue, "=dumped-upvalue-nil", "b", nil))
+  assert(loaded() == nil)
   loaded = assert(load(string.dump(function() return 54 end, true), "=dumped-plain", "b"))
   assert(debug.getupvalue(loaded, 1) == nil)
   loaded = assert(load(string.dump(function() return math.type(1) end, true), "=dumped-global", "b"))

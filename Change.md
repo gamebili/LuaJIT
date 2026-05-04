@@ -76,6 +76,7 @@
 - 已修正 Windows 主机交叉构建后的清理边界：`src/Makefile clean` 现在会删除无扩展名的 `luajit`，避免 Android/Linux artifact 残留导致后续本机 smoke 误执行错误架构二进制。
 - 已继续补 Lua 5.4 standalone 环境变量优先级：兼容构建会优先读取 `LUA_INIT_5_4`、`LUA_PATH_5_4`、`LUA_CPATH_5_4`，再回退旧变量名。
 - 已继续补 Lua 层 binary chunk smoke：`string.dump(f, strip)` 已覆盖 full/stripped 写出、`mode="b"` 回读执行，以及 binary chunk 被 text-only mode 拒绝。
+- 已继续补 Lua 5.4 `load(..., env)` 的真实 upvalue 初始化语义：LuaJIT dumped chunk 回读时，带真实首个 upvalue 的函数现在会保留第 4 个 env 参数的原始值，覆盖 table / number / false / nil；未传 env 时仍默认初始化为当前全局环境。
 - 已继续收紧 Lua 5.4 GC 公开表面：兼容构建中 `collectgarbage("setstepmul", n)` 的初始旧值现在对齐 Lua 5.4 的 `100`。
 - 已继续收紧严格 Lua 5.4 语法表面：`L` / `LL` / `UL` / `ULL` / `uLL`、`0b...` 和 imaginary `i` 数字字面量扩展都已进入拒绝用例。
 - 已继续补 Lua 5.4 头文件/辅助库表面：新增 `LUA_VERSION_MAJOR` / `LUA_VERSION_MINOR` / `LUA_VERSION_RELEASE` / `LUA_VERSION_RELEASE_NUM` / `LUA_NUMTYPES` 宏，以及 `luaL_addgsub()`。
