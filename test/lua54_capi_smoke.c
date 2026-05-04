@@ -217,6 +217,18 @@ static void check_integer(lua_State *L, int idx, lua_Integer want,
   check(L, ok && got == want, msg);
 }
 
+static int panic_a(lua_State *L)
+{
+  (void)L;
+  return 0;
+}
+
+static int panic_b(lua_State *L)
+{
+  (void)L;
+  return 0;
+}
+
 static void *counting_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
 {
   AllocCtx *ctx = (AllocCtx *)ud;
@@ -237,6 +249,8 @@ static void test_state_allocator_api(lua_State *L)
   lua_Alloc allocf;
   lua_State *T = lua_newstate(counting_alloc, &ctx);
   check(L, T != NULL, "lua_newstate custom allocator");
+  check(L, lua_atpanic(T, panic_a) == NULL, "lua_atpanic initial handler");
+  check(L, lua_atpanic(T, panic_b) == panic_a, "lua_atpanic old handler");
   allocf = lua_getallocf(T, &ud);
   check(L, allocf == counting_alloc && ud == &ctx,
 	"lua_getallocf custom allocator");
@@ -259,6 +273,12 @@ static int checknumber_arg(lua_State *L)
 {
   luaL_checknumber(L, 1);
   return 0;
+}
+
+static int raise_lua_error(lua_State *L)
+{
+  lua_pushliteral(L, "capi raised error");
+  return lua_error(L);
 }
 
 static int optinteger_fraction(lua_State *L)
@@ -430,6 +450,10 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, strcmp(LUA_PRELOAD_TABLE, "_PRELOAD") == 0, "LUA_PRELOAD_TABLE");
   check(L, strcmp(LUA_VERSUFFIX, "_5_4") == 0, "LUA_VERSUFFIX");
 
+  check(L, lua_pushthread(L) == 1, "lua_pushthread main return");
+  check(L, lua_tothread(L, -1) == L, "lua_pushthread main value");
+  lua_pop(L, 1);
+
   check(L, luaopen_base_sig(L) == 1, "luaopen_base return");
   check(L, lua_istable(L, -1), "luaopen_base table");
   lua_getfield(L, -1, "assert");
@@ -587,6 +611,17 @@ static void test_stack_and_number_api(lua_State *L)
   lua_pushcfunction(L, push_answer);
   check(L, lua_pcallk(L, 0, 1, 0, 0, NULL) == LUA_OK, "lua_pcallk macro");
   check_integer(L, -1, 42, "lua_pcallk result");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, raise_lua_error);
+  check(L, lua_pcall(L, 0, 0, 0) == LUA_ERRRUN, "lua_error status");
+  check_string(L, -1, "capi raised error", "lua_error message");
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  check(L, lua_pushthread(co) == 0, "lua_pushthread coroutine return");
+  check(L, lua_tothread(co, -1) == co, "lua_pushthread coroutine value");
+  lua_pop(co, 1);
   lua_pop(L, 1);
 
   co = lua_newthread(L);
