@@ -3,6 +3,11 @@
 ## 当前进展
 
 - 已按要求采用 `Change.md` 记录修改、新功能和进展；仓库中未创建 `Modify.md`。
+- 已用用户指定的 `https://github.com/lua/lua/archive/refs/tags/v5.4.8.zip` 重新下载官方源码并和本地 `D:\p4_gl2\pristine\tools\lua\v5.4.8.zip` 核对 SHA256，确认当前对照源码一致。
+- 已按官方 Lua 5.4.8 `lutf8lib.c` / `testes/utf8.lua` 成批对齐 UTF-8 边界：源码 `\u{...}` 字面量接受 `0..0x7fffffff` 和 surrogate 字节序列，`utf8.codes` 迭代器按官方处理越界控制变量和 continuation byte，`utf8.codepoint` / `len` / `offset` 错误文本与边界归属收紧，`utf8.offset` 不再用 strict decode 阻断 lax 5/6 字节序列。
+- 已按官方 Lua 5.4.8 `lstrlib.c` 修正 string pattern 对内嵌 NUL 的处理：`MatchState` 现在保存 pattern end 指针，`find` / `match` / `gmatch` / `gsub` 会按长度解析模式串，因此 `utf8.charpattern` 可保持官方内嵌 NUL 常量而不是改写成替代表达式。
+- 已先把 Lua 5.4 lowered 位运算 helper 的原始数值路径提升到 64 位内部计算：`1 << 31`、`(1 << 31) - 1`、`1 << 40`、跨 32 位的 `&` / `|` / `~` / shift 和 `>=64` 位移已进入 smoke；超出当前 32 位 TValue integer 表面的结果暂以精确 double 桥接，完整 64 位 integer/TValue 仍保留在 `TODO.md`。
+- 已确认官方 Lua 5.4.8 `testes/utf8.lua` 在当前 LuaJIT 兼容构建下通过。
 - 已调整后续实现策略：`TODO.md` 新增按底层依赖分批推进的实施规划，后续优先按 VM unwind/`<close>`、真实 `_ENV`、64 位整数/数值表示、debug frame metadata、平台/JIT、C API/标准库收尾这些批次推进，不再逐条零散清 TODO。
 - 已启动 VM unwind/`<close>` 批次的接口化实现：新增 `src/lj_close.c` / `src/lj_close.h`，统一 `__close` 查找、closable 校验和 `__close(value, err)` 调用入口，并让 `jit._lua54_checkclose`、`jit._lua54_closevalue`、`lua_toclose()`、`lua_closeslot()` 复用同一层。
 - 已补 close-active 动态返回路径：`return f()` 和 `return fixed, ...` 会先保存动态返回值数量与 nil 洞，再按 LIFO 执行 `__close(value, nil)`，最后恢复原返回值；当前通过私有 pack/close/unpack 桥接实现，后续 VM unwind 接管时应替换该桥接。

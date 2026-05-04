@@ -327,6 +327,7 @@ LJLIB_CF(string_dump)
 typedef struct MatchState {
   const char *src_init;  /* init of source string */
   const char *src_end;  /* end (`\0') of source string */
+  const char *p_end;  /* Lua 5.4 patterns may contain embedded NUL bytes. */
   lua_State *L;
   int level;  /* total number of captures (finished or unfinished) */
   int depth;
@@ -359,17 +360,17 @@ static const char *classend(MatchState *ms, const char *p)
 {
   switch (*p++) {
   case L_ESC:
-    if (*p == '\0')
+    if (p == ms->p_end)
       lj_err_caller(ms->L, LJ_ERR_STRPATE);
     return p+1;
   case '[':
     if (*p == '^') p++;
     do {  /* look for a `]' */
-      if (*p == '\0')
+      if (p == ms->p_end)
 	lj_err_caller(ms->L, LJ_ERR_STRPATM);
-      if (*(p++) == L_ESC && *p != '\0')
+      if (*(p++) == L_ESC && p < ms->p_end)
 	p++;  /* skip escapes (e.g. `%]') */
-    } while (*p != ']');
+    } while (p == ms->p_end || *p != ']');
     return p+1;
   default:
     return p;
@@ -433,7 +434,7 @@ static const char *match(MatchState *ms, const char *s, const char *p);
 
 static const char *matchbalance(MatchState *ms, const char *s, const char *p)
 {
-  if (*p == 0 || *(p+1) == 0)
+  if (p+1 >= ms->p_end)
     lj_err_caller(ms->L, LJ_ERR_STRPATU);
   if (*s != *p) {
     return NULL;
@@ -523,9 +524,11 @@ static const char *match(MatchState *ms, const char *s, const char *p)
   if (++ms->depth > LJ_MAX_XLEVEL)
     lj_err_caller(ms->L, LJ_ERR_STRPATX);
   init: /* using goto's to optimize tail recursion */
+  if (p == ms->p_end)
+    goto done;  /* end of pattern; embedded '\0' is just another byte. */
   switch (*p) {
   case '(':  /* start capture */
-    if (*(p+1) == ')')  /* position capture? */
+    if (p+1 < ms->p_end && *(p+1) == ')')  /* position capture? */
       s = start_capture(ms, s, p+2, CAP_POSITION);
     else
       s = start_capture(ms, s, p+1, CAP_UNFINISHED);
@@ -543,7 +546,7 @@ static const char *match(MatchState *ms, const char *s, const char *p)
     case 'f': {  /* frontier? */
       const char *ep; char previous;
       p += 2;
-      if (*p != '[')
+      if (p == ms->p_end || *p != '[')
 	lj_err_caller(ms->L, LJ_ERR_STRPATB);
       ep = classend(ms, p);  /* points to what is next */
       previous = (s == ms->src_init) ? '\0' : *(s-1);
@@ -562,17 +565,15 @@ static const char *match(MatchState *ms, const char *s, const char *p)
       goto dflt;  /* case default */
     }
     break;
-  case '\0':  /* end of pattern */
-    break;  /* match succeeded */
   case '$':
     /* is the `$' the last char in pattern? */
-    if (*(p+1) != '\0') goto dflt;
+    if (p+1 != ms->p_end) goto dflt;
     if (s != ms->src_end) s = NULL;  /* check end of string */
     break;
   default: dflt: {  /* it is a pattern item */
     const char *ep = classend(ms, p);  /* points to what is next */
     int m = s<ms->src_end && singlematch(uchar(*s), p, ep);
-    switch (*ep) {
+    switch (ep < ms->p_end ? *ep : '\0') {
     case '?': {  /* optional */
       const char *res;
       if (m && ((res=match(ms, s+1, ep+1)) != NULL)) {
@@ -599,6 +600,7 @@ static const char *match(MatchState *ms, const char *s, const char *p)
     break;
     }
   }
+done:
   ms->depth--;
   return s;
 }
@@ -667,12 +669,14 @@ static int str_find_aux(lua_State *L, int find, const char *fname)
   } else {  /* Search for pattern. */
     MatchState ms;
     const char *pstr = strdata(p);
+    const char *pend = pstr + p->len;
     const char *sstr = strdata(s) + st;
     int anchor = 0;
-    if (*pstr == '^') { pstr++; anchor = 1; }
+    if (pstr < pend && *pstr == '^') { pstr++; anchor = 1; }
     ms.L = L;
     ms.src_init = strdata(s);
     ms.src_end = strdata(s) + s->len;
+    ms.p_end = pend;
     do {  /* Loop through string and try to match the pattern. */
       const char *q;
       ms.level = ms.depth = 0;
@@ -704,7 +708,8 @@ LJLIB_CF(string_match)
 
 LJLIB_NOREG LJLIB_CF(string_gmatch_aux)
 {
-  const char *p = strVdata(lj_lib_upvalue(L, 2));
+  GCstr *pat = strV(lj_lib_upvalue(L, 2));
+  const char *p = strdata(pat);
   GCstr *str = strV(lj_lib_upvalue(L, 1));
   const char *s = strdata(str);
   TValue *tvpos = lj_lib_upvalue(L, 3);
@@ -713,6 +718,7 @@ LJLIB_NOREG LJLIB_CF(string_gmatch_aux)
   ms.L = L;
   ms.src_init = s;
   ms.src_end = s + str->len;
+  ms.p_end = p + pat->len;
   for (; src <= ms.src_end; src++) {
     const char *e;
     ms.level = ms.depth = 0;
@@ -810,10 +816,14 @@ LJLIB_CF(string_gsub)
   size_t srcl;
 #if LJ_54
   const char *src = string_checklstring_named54(L, 1, &srcl, "string.gsub");
-  const char *p = strdata(string_checkstr_named54(L, 2, "string.gsub"));
+  GCstr *pat = string_checkstr_named54(L, 2, "string.gsub");
+  const char *p = strdata(pat);
+  const char *pend = p + pat->len;
 #else
+  size_t plen;
   const char *src = luaL_checklstring(L, 1, &srcl);
-  const char *p = luaL_checkstring(L, 2);
+  const char *p = luaL_checklstring(L, 2, &plen);
+  const char *pend = p + plen;
 #endif
   int  tr = lua_type(L, 3);
 #if LJ_54
@@ -821,7 +831,7 @@ LJLIB_CF(string_gsub)
 #else
   int max_s = luaL_optint(L, 4, (int)(srcl+1));
 #endif
-  int anchor = (*p == '^') ? (p++, 1) : 0;
+  int anchor = (p < pend && *p == '^') ? (p++, 1) : 0;
   int n = 0;
   MatchState ms;
   luaL_Buffer b;
@@ -837,6 +847,7 @@ LJLIB_CF(string_gsub)
   ms.L = L;
   ms.src_init = src;
   ms.src_end = src+srcl;
+  ms.p_end = pend;
   while (n < max_s) {
     const char *e;
     ms.level = ms.depth = 0;

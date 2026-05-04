@@ -66,7 +66,8 @@
 - [ ] 完整 Lua 5.4 64 位整数语义。
   - 当前状态：兼容层仍沿用 LuaJIT 当前 32 位内部整数策略，`math.mininteger`/`math.maxinteger` 是 `-2147483648..2147483647`。
   - 当前进展：`math.type()` 在非 dual-number 构建下会把当前 32 位范围内可精确表示为整数的 number 报告为 `integer`；`math.floor`、`math.ceil`、`math.modf` 的整数部分会尽量返回当前兼容整数表面。
-  - 已知差异：`1 << 40` 当前得到 `0`，Lua 5.4 应保留 64 位位移结果；整数/浮点子类型仍不能像官方 Lua 5.4 一样完整区分所有字面量和运行期结果。
+  - 当前进展：lowered 位运算 helper 已先用 64 位内部计算打通 `1 << 31`、`(1 << 31) - 1`、`1 << 40`、跨 32 位 `&` / `|` / `~` / shift 和 `>=64` 位移；超出当前 32 位 TValue integer 表面的结果暂以精确 double 桥接。
+  - 已知差异：TValue integer 子类型、`lua_Integer` / `lua_Unsigned` 头文件 ABI、`math.mininteger` / `math.maxinteger`、整数字面量扫描、numeric for、`math.tointeger` / `math.ult`、`string.pack("j/i8/I8")` 和 C API 边界仍没有完整 Lua 5.4 64 位整数语义；整数/浮点子类型也仍不能像官方 Lua 5.4 一样完整区分所有字面量和运行期结果。
   - 需要补测试：64 位整数字面量边界、`math.tointeger`、`math.ult`、`math.random(0)` 全范围、位运算、整除、比较、`string.pack` 的 `j`/`I8`/`i8`、C API `lua_Integer` 边界。
   - 实现重点：需要统一 TValue 表示、数值转换、字符串扫描、格式化、运算符和库函数的整数路径。
 
@@ -83,7 +84,7 @@
   - 当前进展：官方 `testes/bwcoercion.lua` 通过 string metatable 覆盖 bitwise/idiv 字符串边界；当前 lowered helper 已规整 metamethod 返回栈，只返回 metamethod 第一个结果，不再把原操作数漏成额外返回值。
   - 当前进展：lowered helper 的原始数值结果路径也已规整返回槽；`local a, b = "1.0" // "2"` 不再把左操作数字符串漏到 `a`，只返回单个 Lua 5.4 结果。
   - 已覆盖：左右操作数元方法、反向查找、无元方法时报错、元方法返回值透传；一元 `~` 按 Lua 5.4 传入两份同一操作数。
-  - 剩余边界：整数范围仍受当前 32 位兼容层限制，完整 64 位位运算归入“完整 Lua 5.4 64 位整数语义”继续处理。
+  - 剩余边界：原始位运算数值路径已先支持 64 位内部计算，但结果超过 32 位 integer 表面时仍用 double 桥接；完整 64 位整数/TValue/JIT 语义归入“完整 Lua 5.4 64 位整数语义”继续处理。
 
 - [x] `__le` 元方法不应再由 `__lt` 模拟。
   - 当前状态：只定义 `__lt` 的 table 做 `a <= b` 时不再走旧 Lua 5.1 风格的 `not (b < a)` 模拟路径，缺少 `__le` 会直接报错。
@@ -144,8 +145,10 @@
   - 剩余边界：完整随机算法、64 位全范围和统计均匀性仍受当前 32 位整数兼容层限制。
 
 - [x] `utf8` lax 模式。
-  - 当前状态：基础 `utf8` 函数可用，`utf8.char()` 支持扩展码点范围，`utf8.codes(s, true)` / `utf8.len(s, i, j, true)` 的宽松解码也已接受扩展码点和 surrogate 字节序列。
-  - 已覆盖：超过 `0x10ffff` 的扩展码点、surrogate 字节序列、严格模式报错、lax 模式成功返回码点；本机 Lua 5.4.8 对照探针已确认一致。
+  - 当前状态：基础 `utf8` 函数可用，`utf8.char()` 和源码 `\u{...}` 字面量都支持 Lua 5.4 的 `0..0x7fffffff` 扩展码点范围；`utf8.codes(s, true)` / `utf8.len(s, i, j, true)` 的宽松解码也已接受扩展码点和 surrogate 字节序列。
+  - 当前进展：`utf8.codes` 迭代器、`utf8.codepoint` / `utf8.len` / `utf8.offset` 的边界错误文本和越界归属已按官方 `lutf8lib.c` 收紧；`utf8.offset` 按官方只扫描 continuation byte，不用 strict decode 阻断 lax 5/6 字节序列。
+  - 当前进展：`utf8.charpattern` 保持官方内嵌 NUL 常量；string pattern 引擎已改为按 pattern end 指针解析，`find` / `match` / `gmatch` / `gsub` 可处理模式串中间的 `\0`。
+  - 已覆盖：超过 `0x10ffff` 的扩展码点、surrogate 字节序列、严格模式报错、lax 模式成功返回码点、内嵌 NUL `charpattern`、官方 Lua 5.4.8 `testes/utf8.lua`；本机 Lua 5.4.8 对照探针已确认一致。
 
 - [x] `debug.getuservalue` / `debug.setuservalue` 的 indexed uservalue 语义。
   - 当前状态：Lua 5.4 兼容模式不再暴露 LuaJIT userdata 内部环境表；`debug.getuservalue(io.stdout, 1)` 返回 `nil`，`debug.setuservalue(io.stdout, {}, 1)` 返回 `nil`。

@@ -275,10 +275,10 @@ static int utf8_codepoint(lua_State *L)
   int strict = !lua_toboolean(L, 4);
   int n = 0;
   uint32_t cp;
-  if (i < 1 || j < 0 || i > (lua_Integer)len + 1)
-    utf8_argerror_named(L, 2, "utf8.codepoint", "position out of range");
+  if (i < 1)
+    utf8_argerror_named(L, 2, "utf8.codepoint", "out of bounds");
   if (j > (lua_Integer)len)
-    utf8_argerror_named(L, 3, "utf8.codepoint", "position out of range");
+    utf8_argerror_named(L, 3, "utf8.codepoint", "out of bounds");
   if (j < i)
     return 0;
   pos = (size_t)i - 1;
@@ -306,9 +306,9 @@ static int utf8_len(lua_State *L)
   int strict = !lua_toboolean(L, 4);
   uint32_t cp;
   if (i < 1 || i > (lua_Integer)len + 1)
-    utf8_argerror_named(L, 2, "utf8.len", "position out of range");
+    utf8_argerror_named(L, 2, "utf8.len", "initial position out of bounds");
   if (j < 0 || j > (lua_Integer)len)
-    utf8_argerror_named(L, 3, "utf8.len", "position out of range");
+    utf8_argerror_named(L, 3, "utf8.len", "final position out of bounds");
   if (j < i) {
     lua_pushinteger(L, 0);
     return 1;
@@ -339,16 +339,15 @@ static size_t utf8_charstart(const unsigned char *s, size_t len, size_t pos)
 
 static int utf8_offset(lua_State *L)
 {
-  size_t len, pos, next;
+  size_t len, pos;
   const unsigned char *s = (const unsigned char *)
     utf8_checklstring_named(L, 1, &len, "utf8.offset");
   lua_Integer n = utf8_checkinteger_named(L, 2, "utf8.offset");
   lua_Integer ipos = lua_isnoneornil(L, 3) ?
     (n >= 0 ? 1 : (lua_Integer)len + 1) :
     utf8_posrelat(utf8_checkinteger_named(L, 3, "utf8.offset"), len);
-  uint32_t cp;
   if (ipos < 1 || ipos > (lua_Integer)len + 1)
-    utf8_argerror_named(L, 3, "utf8.offset", "position out of range");
+    utf8_argerror_named(L, 3, "utf8.offset", "position out of bounds");
   pos = (size_t)ipos - 1;
   if (n == 0) {
     pos = utf8_charstart(s, len, pos);
@@ -359,17 +358,16 @@ static int utf8_offset(lua_State *L)
     return luaL_error(L, "initial position is a continuation byte");
   if (n > 0) {
     n--;
-    while (n > 0) {
-      if (pos >= len) {
-	lua_pushnil(L);
-	return 1;
-      }
-      if (!utf8_decode(s, len, pos, &cp, &next, 1))
-	return luaL_error(L, "invalid UTF-8 code");
-      pos = next;
+    /* Lua 5.4 offset() locates byte starts without validating code points;
+    ** lax 5/6-byte sequences and surrogates must remain navigable.
+    */
+    while (n > 0 && pos < len) {
+      do {
+	pos++;
+      } while (pos < len && utf8_iscont(s[pos]));
       n--;
     }
-    if (pos <= len)
+    if (n == 0)
       lua_pushinteger(L, (lua_Integer)pos + 1);
     else
       lua_pushnil(L);
@@ -393,20 +391,22 @@ static int utf8_codes_iter(lua_State *L)
   size_t len, pos, next;
   const unsigned char *s = (const unsigned char *)
     utf8_checklstring_named(L, 1, &len, "utf8.codes");
-  lua_Integer last = utf8_checkinteger_named(L, 2, "utf8.codes");
+  lua_Integer last = lua_tointeger(L, 2);
   uint32_t cp;
-  if (last < 0 || last > (lua_Integer)len)
-    return luaL_error(L, "invalid UTF-8 position");
+  /* Lua 5.4's iterator is intentionally tolerant of an out-of-range control
+  ** variable supplied by external callers: it just terminates iteration.
+  */
+  if (last < 0 || last >= (lua_Integer)len)
+    return 0;
   pos = (size_t)last;
-  if (last > 0) {
-    if (!utf8_decode(s, len, (size_t)last - 1, &cp, &pos,
-		     !lua_toboolean(L, lua_upvalueindex(1))))
-      return luaL_error(L, "invalid UTF-8 code");
-  }
+  while (pos < len && utf8_iscont(s[pos]))
+    pos++;
   if (pos >= len)
     return 0;
   if (!utf8_decode(s, len, pos, &cp, &next,
 		   !lua_toboolean(L, lua_upvalueindex(1))))
+    return luaL_error(L, "invalid UTF-8 code");
+  if (next < len && utf8_iscont(s[next]))
     return luaL_error(L, "invalid UTF-8 code");
   lua_pushinteger(L, (lua_Integer)pos + 1);
   lua_pushinteger(L, (lua_Integer)cp);
@@ -415,7 +415,11 @@ static int utf8_codes_iter(lua_State *L)
 
 static int utf8_codes(lua_State *L)
 {
-  utf8_checklstring_named(L, 1, NULL, "utf8.codes");
+  size_t len;
+  const unsigned char *s = (const unsigned char *)
+    utf8_checklstring_named(L, 1, &len, "utf8.codes");
+  if (len > 0 && utf8_iscont(s[0]))
+    return luaL_error(L, "invalid UTF-8 code");
   lua_pushboolean(L, lua_toboolean(L, 2));
   lua_pushcclosure(L, utf8_codes_iter, 1);
   lua_pushvalue(L, 1);

@@ -226,33 +226,60 @@ static void lex_string(LexState *ls, TValue *tv)
 	  c += 9;
 	}
 	break;
-      case 'u':  /* Unicode escape '\u{XX...}'. */
+      case 'u': {  /* Unicode escape '\u{XX...}'. */
+	uint32_t cp = 0;
 	if (lex_next(ls) != '{') goto err_xesc;
 	lex_next(ls);
-	c = 0;
 	do {
-	  c = (c << 4) | (ls->c & 15u);
+	  uint32_t digit;
 	  if (!lj_char_isdigit(ls->c)) {
 	    if (!lj_char_isxdigit(ls->c)) goto err_xesc;
-	    c += 9;
-	  }
-	  if (c >= 0x110000) goto err_xesc;  /* Out of Unicode range. */
-	} while (lex_next(ls) != '}');
-	if (c < 0x800) {
-	  if (c < 0x80) break;
-	  lex_save(ls, 0xc0 | (c >> 6));
-	} else {
-	  if (c >= 0x10000) {
-	    lex_save(ls, 0xf0 | (c >> 18));
-	    lex_save(ls, 0x80 | ((c >> 12) & 0x3f));
+	    digit = (ls->c & 15u) + 9u;
 	  } else {
-	    if (c >= 0xd800 && c < 0xe000) goto err_xesc;  /* No surrogates. */
-	    lex_save(ls, 0xe0 | (c >> 12));
+	    digit = ls->c & 15u;
 	  }
-	  lex_save(ls, 0x80 | ((c >> 6) & 0x3f));
+	  if (LJ_54) {
+	    if (cp > (0x7fffffffu >> 4)) goto err_xesc;
+	  } else if (cp > (0x10ffffu >> 4)) {
+	    goto err_xesc;
+	  }
+	  cp = (cp << 4) | digit;
+	  if (LJ_54) {
+	    if (cp > 0x7fffffffu) goto err_xesc;  /* Lua 5.4 max. */
+	  } else if (cp >= 0x110000) {
+	    goto err_xesc;  /* Out of Unicode range. */
+	  }
+	} while (lex_next(ls) != '}');
+	if (LJ_54 && cp >= 0x200000) {
+	  /* Lua 5.4 accepts extended UTF-8 escapes up to 0x7fffffff; mirror
+	  ** utf8.char() so source literals and runtime construction agree.
+	  */
+	  if (cp < 0x4000000) {
+	    lex_save(ls, 0xf8 | (cp >> 24));
+	  } else {
+	    lex_save(ls, 0xfc | (cp >> 30));
+	    lex_save(ls, 0x80 | ((cp >> 24) & 0x3f));
+	  }
+	  lex_save(ls, 0x80 | ((cp >> 18) & 0x3f));
+	  lex_save(ls, 0x80 | ((cp >> 12) & 0x3f));
+	  lex_save(ls, 0x80 | ((cp >> 6) & 0x3f));
+	} else if (cp < 0x800) {
+	  if (cp < 0x80) { c = (LexChar)cp; break; }
+	  lex_save(ls, 0xc0 | (cp >> 6));
+	} else {
+	  if (cp >= 0x10000) {
+	    lex_save(ls, 0xf0 | (cp >> 18));
+	    lex_save(ls, 0x80 | ((cp >> 12) & 0x3f));
+	  } else {
+	    if (!LJ_54 && cp >= 0xd800 && cp < 0xe000)
+	      goto err_xesc;  /* No surrogates outside 5.4 compat. */
+	    lex_save(ls, 0xe0 | (cp >> 12));
+	  }
+	  lex_save(ls, 0x80 | ((cp >> 6) & 0x3f));
 	}
-	c = 0x80 | (c & 0x3f);
+	c = 0x80 | (cp & 0x3f);
 	break;
+	}
       case 'z':  /* Skip whitespace. */
 	lex_next(ls);
 	while (lj_char_isspace(ls->c))

@@ -807,6 +807,15 @@ do
   assert(eval("~7") == -8)
   assert(eval("1 << 3") == 8)
   assert(eval("8 >> 1") == 4)
+  assert(eval("1 << 31") == 2147483648)
+  assert(eval("(1 << 31) - 1") == 2147483647)
+  assert(eval("1 << 40") == 1099511627776)
+  assert(eval("(1 << 40) >> 8") == 4294967296)
+  assert(eval("(1 << 40) | 255") == 1099511628031)
+  assert(eval("((1 << 40) | 255) & 511") == 255)
+  assert(eval("(1 << 40) ~ (1 << 33)") == 1108101562368)
+  assert(eval("1 << 64") == 0)
+  assert(eval("1 >> 64") == 0)
   assert(assert(load("local a, b = 6, 3; return (a + 1) & (b + 1)"))() == 4)
   assert(eval("((1 << 4) | 3) ~ 5") == 22)
   assert(eval("8 >> -1") == 16)
@@ -1281,6 +1290,25 @@ do
   local lax_seen = {}
   assert(type(utf8) == "table")
   assert(type(utf8.charpattern) == "string")
+  assert(utf8.charpattern:byte(2) == 0)
+  do
+    local found = {}
+    assert(("a"):match("^"..utf8.charpattern.."$") == "a")
+    assert(("\0"):match("^"..utf8.charpattern.."$") == "\0")
+    assert(extended:match("^"..utf8.charpattern.."$") == extended)
+    for ch in ("a\0"..extended):gmatch(utf8.charpattern) do
+      found[#found+1] = ch
+    end
+    assert(#found == 3 and found[1] == "a" and found[2] == "\0" and found[3] == extended)
+  end
+  do
+    local subject = "xa\0bcy"
+    local i, j = subject:find("a\0.c")
+    assert(i == 2 and j == 5)
+    assert(("a\0bc"):match("^a\0.c$") == "a\0bc")
+    local replaced, n = ("a\0bc"):gsub("a\0.", "X")
+    assert(replaced == "Xc" and n == 1)
+  end
   for _, item in ipairs({
     { "utf8.char", function() return pcall(utf8.char, nil) end },
     { "utf8.codes", function() return pcall(utf8.codes, nil) end },
@@ -1298,14 +1326,44 @@ do
   assert(#utf8.char(0x110000) == 4)
   assert(#utf8.char(0x200000) == 5)
   assert(#utf8.char(0x7fffffff) == 6)
+  do
+    local f = assert(load("return '\\u{110000}', '\\u{200000}', '\\u{7fffffff}', '\\u{d800}'"))
+    local u4, u5, u6, surrogate_literal = f()
+    assert(u4 == utf8.char(0x110000))
+    assert(u5 == utf8.char(0x200000))
+    assert(u6 == utf8.char(0x7fffffff))
+    assert(surrogate_literal == surrogate)
+    assert(load("return '\\u{80000000}'") == nil)
+  end
   local ok, err = pcall(utf8.char, 0x80000000)
   assert(ok == false and err:match("value out of range") ~= nil)
   assert(select(1, pcall(utf8.char, 97.2)) == false)
   assert(select(1, pcall(utf8.codepoint, s, 1.2)) == false)
+  do
+    local ok_i, err_i = pcall(utf8.codepoint, "abc", 0, 1)
+    local ok_j, err_j = pcall(utf8.codepoint, "abc", 4)
+    assert(ok_i == false and err_i:match("out of bounds"))
+    assert(ok_j == false and err_j:match("out of bounds"))
+    assert(select("#", utf8.codepoint("abc", 5, 3)) == 0)
+  end
   assert(select(1, pcall(utf8.len, s, 1.2)) == false)
   assert(select(1, pcall(utf8.offset, s, 1.2)) == false)
   assert(select(1, pcall(utf8.offset, s, 1, 1.2)) == false)
+  do
+    local ok_len_i, err_len_i = pcall(utf8.len, "abc", 0, 2)
+    local ok_len_j, err_len_j = pcall(utf8.len, "abc", 1, 4)
+    local ok_off, err_off = pcall(utf8.offset, "abc", 1, 5)
+    assert(ok_len_i == false and err_len_i:match("initial position out of bounds"))
+    assert(ok_len_j == false and err_len_j:match("final position out of bounds"))
+    assert(ok_off == false and err_off:match("position out of bounds"))
+  end
   assert(utf8.charpattern:find("\253", 1, true) ~= nil)
+  do
+    local f = utf8.codes("")
+    assert(f("", 2) == nil)
+    assert(f("", -1) == nil)
+    assert(f("", math.mininteger) == nil)
+  end
   for p, c in utf8.codes(s) do
     seen[#seen+1] = p..":"..c
   end
@@ -1327,6 +1385,11 @@ do
     assert(n == nil and badpos == 1)
     assert(utf8.len(extended, 1, -1, true) == 1)
     assert(utf8.codepoint(extended, 1, 1, true) == 0x200000)
+    do
+      local extended_pair = extended..utf8.char(0x3ffffff)
+      assert(utf8.offset(extended_pair, 2) == #extended + 1)
+      assert(utf8.offset(extended_pair, -1, #extended_pair + 1) == #extended + 1)
+    end
     assert(utf8.len(surrogate, 1, -1, true) == 1)
     for p, c in utf8.codes(extended, true) do
       lax_seen[#lax_seen+1] = p..":"..c
