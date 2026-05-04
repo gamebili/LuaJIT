@@ -667,7 +667,9 @@ static void test_stack_and_number_api(lua_State *L)
   lua_pop(L, 1);
 
   check(L, LUA_NUMTAGS == LUA_NUMTYPES, "LUA_NUMTAGS");
-  check(L, LUA_VERSION_RELEASE_NUM == 50400, "LUA_VERSION_RELEASE_NUM");
+  check(L, strcmp(LUA_VERSION_RELEASE, "8") == 0, "LUA_VERSION_RELEASE");
+  check(L, strcmp(LUA_RELEASE, "Lua 5.4.8") == 0, "LUA_RELEASE");
+  check(L, LUA_VERSION_RELEASE_NUM == 50408, "LUA_VERSION_RELEASE_NUM");
   lua_rawgeti(L, LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
   check(L, lua_istable(L, -1), "LUA_RIDX_GLOBALS");
   lua_pop(L, 1);
