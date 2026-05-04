@@ -454,6 +454,17 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, lua_tothread(L, -1) == L, "lua_pushthread main value");
   lua_pop(L, 1);
 
+  check(L, lua_checkstack(L, 8), "lua_checkstack grows stack");
+  {
+    int top = lua_gettop(L);
+    lua_pushinteger(L, 77);
+    lua_pushvalue(L, -1);
+    check_integer(L, -2, 77, "lua_pushvalue source");
+    check_integer(L, -1, 77, "lua_pushvalue copy");
+    lua_settop(L, top);
+    check(L, lua_gettop(L) == top, "lua_settop restore");
+  }
+
   check(L, luaopen_base_sig(L) == 1, "luaopen_base return");
   check(L, lua_istable(L, -1), "luaopen_base table");
   lua_getfield(L, -1, "assert");
@@ -544,6 +555,17 @@ static void test_stack_and_number_api(lua_State *L)
 	"lua_pushliteral return value");
   lua_pop(L, 1);
 
+  lua_pushliteral(L, "Lua");
+  lua_pushliteral(L, "5");
+  lua_pushliteral(L, ".");
+  lua_pushliteral(L, "4");
+  lua_concat(L, 4);
+  check_string(L, -1, "Lua5.4", "lua_concat strings");
+  lua_pop(L, 1);
+  lua_concat(L, 0);
+  check_string(L, -1, "", "lua_concat zero values");
+  lua_pop(L, 1);
+
   check(L, lua_numbertointeger((lua_Number)42, &iv) && iv == 42,
 	"lua_numbertointeger integer");
   check(L, !lua_numbertointeger((lua_Number)1.5, &iv),
@@ -555,6 +577,26 @@ static void test_stack_and_number_api(lua_State *L)
     int ok = 1;
     lua_tointegerx(L, -1, &ok);
     check(L, !ok, "lua_tointegerx fraction status");
+  }
+  lua_pop(L, 1);
+
+  lua_newtable(L);
+  lua_pushinteger(L, 11);
+  lua_setfield(L, -2, "a");
+  lua_pushinteger(L, 22);
+  lua_setfield(L, -2, "b");
+  {
+    lua_Integer sum = 0;
+    int count = 0;
+    lua_pushnil(L);
+    while (lua_next(L, -2) != 0) {
+      int ok = 0;
+      sum += lua_tointegerx(L, -1, &ok);
+      check(L, ok, "lua_next value integer");
+      count++;
+      lua_pop(L, 1);
+    }
+    check(L, count == 2 && sum == 33, "lua_next table traversal");
   }
   lua_pop(L, 1);
 

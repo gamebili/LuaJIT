@@ -152,7 +152,7 @@
   - 当前进展：Lua 5.4 外部兼容头已把 `lua_insert()` / `lua_remove()` / `lua_replace()` 暴露为官方宏，映射到 `lua_rotate()` / `lua_copy()`，默认构建仍保留 LuaJIT 旧函数 ABI。
   - 当前进展：Lua 5.4 外部兼容头已通过 `lua_pushlstring54()` / `lua_pushstring54()` wrapper 暴露 `lua_pushlstring()` / `lua_pushstring()` 的官方返回值表面；默认构建仍保留 LuaJIT 5.1 的 `void` 头文件 ABI。
   - 当前进展：Lua 5.4 外部兼容头已把 `lua_tonumber()` / `lua_tointeger()` 暴露为官方宏，映射到 `lua_tonumberx(..., NULL)` / `lua_tointegerx(..., NULL)`；默认构建仍保留 LuaJIT 旧函数 ABI。
-  - 当前进展：Lua 5.4 外部兼容头已把 `lua_getextraspace()` 暴露为宏，并映射到当前 pointer-sized `L->exdata` 兼容存储；`lua_newstate()` / `lua_getallocf()` / `lua_setallocf()` 自定义 allocator、`lua_atpanic()`、`lua_pushthread()` 和 `lua_error()` 表面已进入 C API smoke；默认构建仍保留 LuaJIT 旧函数 ABI。
+  - 当前进展：Lua 5.4 外部兼容头已把 `lua_getextraspace()` 暴露为宏，并映射到当前 pointer-sized `L->exdata` 兼容存储；`lua_newstate()` / `lua_getallocf()` / `lua_setallocf()` 自定义 allocator、`lua_atpanic()`、`lua_pushthread()`、`lua_checkstack()`、`lua_settop()`、`lua_pushvalue()`、`lua_concat()`、`lua_next()` 和 `lua_error()` 表面已进入 C API smoke；默认构建仍保留 LuaJIT 旧函数 ABI。
   - 当前进展：Lua 5.4 外部兼容头已把 `lua_rawlen()` 暴露为 `lua_Unsigned` 返回值表面，内部和默认构建继续保留 LuaJIT 旧 `size_t` ABI；当前仍受兼容层 32 位 `lua_Unsigned` 限制，完整 64 位整数 ABI 归入整数语义大项。
   - 当前进展：Lua 5.4 外部兼容头已把 `lua_version(L)` 暴露为数值返回表面，内部仍保留 LuaJIT 旧指针 ABI。
   - 当前进展：Lua 5.4 兼容头已声明现有 `lua_copy()`，C API smoke 覆盖把一个栈槽复制到另一个栈槽。

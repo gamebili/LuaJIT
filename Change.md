@@ -15,6 +15,7 @@
 - C API 烟测继续扩展到 registry 索引、`lua_getextraspace()`、`lua_callk()` / `lua_pcallk()` 宏、warning 回调和 `LUA_GCGEN` / `LUA_GCINC` 模式切换表面。
 - C API 烟测继续扩展到状态 allocator 表面：`lua_newstate()` 可使用自定义 allocator，`lua_getallocf()` / `lua_setallocf()` 可读写 allocator 与 userdata。
 - C API 烟测继续扩展到状态/错误入口：`lua_atpanic()` 返回旧 panic handler，`lua_pushthread()` 区分主线程和 coroutine，`lua_error()` 可通过 `lua_pcall()` 捕获错误对象。
+- C API 烟测继续扩展到栈/表基础入口：`lua_checkstack()`、`lua_settop()`、`lua_pushvalue()`、`lua_concat()` 和 `lua_next()`。
 - 已继续打通 Lua debug 库和 C API indexed uservalue：C 创建带 declared uservalue 的 userdata 后，`debug.getuservalue()` / `debug.setuservalue()` 已能按 Lua 5.4 表面读写声明槽位。
 - 已继续补 `table.concat({1,nil,3}, ",")` 的 Lua 5.4 边界：默认终点会覆盖 LuaJIT 旧长度搜索提前停在 1 的情况，从而检查到 index 2 的 nil 并报错。
 - 已继续补 `lua_resetthread()` 基础 C API：可把无 `<close>` 状态的 yielded coroutine 重置回 `LUA_OK` 并清空栈。
@@ -355,6 +356,7 @@
 - 覆盖 Lua 5.4 外部兼容头中 `lua_getextraspace()` 的宏可见性，并继续覆盖主线程 extraspace 写入会复制到新线程。
 - 覆盖 Lua 5.4 C API 状态 allocator 表面：`lua_newstate()` 自定义 allocator、`lua_getallocf()` 取回 allocator/userdata、`lua_setallocf()` 重新设置 allocator。
 - 覆盖 Lua 5.4 C API 状态/错误表面：`lua_atpanic()` old handler、`lua_pushthread()` 主线程/协程返回值、`lua_error()` 错误传播。
+- 覆盖 Lua 5.4 C API 栈/表表面：`lua_checkstack()`、`lua_settop()`、`lua_pushvalue()`、`lua_concat()` 和 `lua_next()`。
 - 覆盖 Lua 5.4 C API `lua_gc()` 的变参调用形态：无额外参数的 collect/count/countb，以及带官方参数列表的 `LUA_GCGEN` / `LUA_GCINC`。
 - 覆盖 Lua 5.4 外部兼容头中 `lua_call()` / `lua_pcall()` / `lua_yield()` 的宏可见性，以及 `lua_call()` / `lua_pcall()` 基础运行路径。
 - 覆盖 Lua 5.4 C API `lua_isyieldable()`：主 C frame 不可 yield，`lua_resume()` 进入的 coroutine C frame 可 yield。
