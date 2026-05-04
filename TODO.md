@@ -134,7 +134,7 @@
 
 - [ ] Lua 5.4 C API / 头文件兼容。
   - 当前状态：`lua.h` 会在兼容模式报告 `LUA_VERSION_NUM 504`，但大量 Lua 5.4 C API 仍缺失、保持旧签名，或仍暴露 Lua 5.1 宏/索引，例如 `LUA_GLOBALSINDEX`、`lua_objlen`、`lua_getfenv`、`lua_setfenv`。
-  - 当前进展：已补 `lua_Unsigned`、`LUA_MAXINTEGER`、`LUA_MININTEGER`、`LUA_NUMTAGS`、`LUA_RIDX_LAST`、`LUA_EXTRASPACE`、`LUA_GNAME`、`LUA_FILEHANDLE`、`LUA_VERSUFFIX`、`LUAMOD_API`、`luaopen_coroutine`、Lua 5.4 外部 `luaopen_base()` 单返回值包装、`lua_absindex`、`lua_isinteger`、`lua_isyieldable`、`lua_rawlen`、`lua_geti`、`lua_seti`、`lua_rawgetp`、`lua_rawsetp`、`lua_pushglobaltable`、`lua_arith`、`lua_compare`、`lua_len`、`lua_numbertointeger`、`lua_rotate`、`lua_stringtonumber`、`lua_getextraspace`、`lua_getallocf`、`lua_setallocf`、`lua_newuserdatauv`、`lua_newuserdata`、`lua_getiuservalue`、`lua_setiuservalue`、`lua_getuservalue`、`lua_setuservalue`、`lua_setwarnf`、`lua_warning`、`lua_toclose`、`lua_closeslot`、`lua_resetthread`、`lua_closethread`。
+  - 当前进展：已补 `lua_Unsigned`、`LUA_MAXINTEGER`、`LUA_MININTEGER`、`LUA_NUMTAGS`、`LUA_RIDX_LAST`、`LUA_EXTRASPACE`、`LUA_GNAME`、`LUA_FILEHANDLE`、`LUA_VERSUFFIX`、`LUAMOD_API`、`luaopen_coroutine`、Lua 5.4 外部 `luaopen_base()` 单返回值包装、`lua_absindex`、`lua_isinteger`、`lua_isyieldable`、`lua_rawlen`、`lua_geti`、`lua_seti`、`lua_rawgetp`、`lua_rawsetp`、`lua_pushglobaltable`、`lua_arith`、`lua_compare`、`lua_len`、`lua_numbertointeger`、`lua_rotate`、`lua_stringtonumber`、`lua_getextraspace`、`lua_getallocf`、`lua_setallocf`、`lua_newuserdatauv`、`lua_newuserdata`、`lua_getiuservalue`、`lua_setiuservalue`、`lua_getuservalue`、`lua_setuservalue`、`lua_setwarnf`、`lua_warning`、`lua_version` Lua 5.4 value-returning wrapper、`lua_toclose`、`lua_closeslot`、`lua_resetthread`、`lua_closethread`。
   - 当前进展：`lua_stringtonumber()`、`lua_isnumber()`、`lua_tonumberx()`、`lua_tointegerx()` 和 `luaL_checknumber()` 已和 Lua 5.4 `tonumber()` 对齐，拒绝 `inf` / `nan` / `0b` 等 LuaJIT 扩展数字字符串。
   - 当前进展：Lua 5.4 兼容模式下 `lua_tointegerx()` 已对无整数表示的 number 返回失败状态，和 `lua_numbertointeger()` 的精确整数语义保持一致。
   - 当前进展：已补 `LUA_VERSION_MAJOR`、`LUA_VERSION_MINOR`、`LUA_VERSION_RELEASE`、`LUA_VERSION_RELEASE_NUM`、`LUA_NUMTYPES`、`LUA_NUMTAGS` 头文件宏；兼容构建当前与既有 `LUA_RELEASE "Lua 5.4.0"` 保持一致。
@@ -154,7 +154,7 @@
   - 当前进展：Lua 5.4 外部兼容头已把 `lua_tonumber()` / `lua_tointeger()` 暴露为官方宏，映射到 `lua_tonumberx(..., NULL)` / `lua_tointegerx(..., NULL)`；默认构建仍保留 LuaJIT 旧函数 ABI。
   - 当前进展：Lua 5.4 外部兼容头已把 `lua_getextraspace()` 暴露为宏，并映射到当前 pointer-sized `L->exdata` 兼容存储；`lua_newstate()` / `lua_getallocf()` / `lua_setallocf()` 自定义 allocator、`lua_atpanic()`、`lua_pushthread()`、`lua_checkstack()`、`lua_settop()`、`lua_pushvalue()`、`lua_concat()`、`lua_next()`、`lua_error()`、`lua_type()`、`lua_typename()`、`lua_rawequal()`、`lua_iscfunction()`、`lua_tocfunction()`、`lua_touserdata()`、`lua_topointer()`、`lua_toboolean()` 和 light/full userdata 判定表面已进入 C API smoke；默认构建仍保留 LuaJIT 旧函数 ABI。
   - 当前进展：Lua 5.4 外部兼容头已把 `lua_rawlen()` 暴露为 `lua_Unsigned` 返回值表面，内部和默认构建继续保留 LuaJIT 旧 `size_t` ABI；当前仍受兼容层 32 位 `lua_Unsigned` 限制，完整 64 位整数 ABI 归入整数语义大项。
-  - 当前进展：Lua 5.4 外部兼容头已把 `lua_version(L)` 暴露为数值返回表面，内部仍保留 LuaJIT 旧指针 ABI。
+  - 当前进展：Lua 5.4 外部兼容头已把 `lua_version` 暴露为官方 value-returning 函数 wrapper，支持按 `lua_Number (*)(lua_State *)` 取函数指针；内部和默认构建仍保留 LuaJIT 旧指针 ABI。
   - 当前进展：Lua 5.4 兼容头已声明现有 `lua_copy()`，C API smoke 覆盖把一个栈槽复制到另一个栈槽。
   - 当前进展：已补 `lua_setcstacklimit()` C API shim，和 Lua 层 `debug.setcstacklimit()` 一样返回稳定兼容上限。
   - 当前进展：`LUA_GCCOUNTB` 已进入 C API smoke，覆盖返回 0..1023 byte remainder 的基础契约；兼容构建下 `lua_gc(L, what, ...)` 可用官方变参调用形态。

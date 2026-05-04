@@ -156,6 +156,16 @@ LUA_API const lua_Number *lua_version(lua_State *L)
   return &version;
 }
 
+#if LJ_54
+LUA_API lua_Number lua_version54(lua_State *L)
+{
+  /* Keep LuaJIT's pointer-returning lua_version() ABI for internal/default
+  ** callers, while external Lua 5.4 headers expose the official value return.
+  */
+  return *lua_version(L);
+}
+#endif
+
 LUA_API void *lua_getextraspace(lua_State *L)
 {
   return &L->exdata;

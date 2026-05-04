@@ -192,9 +192,11 @@ typedef int (*RawGetI54Sig)(lua_State *L, int idx, lua_Integer n);
 typedef void (*RawSetI54Sig)(lua_State *L, int idx, lua_Integer n);
 typedef int (*LuaOpenBaseSig)(lua_State *L);
 typedef int (*LuaOpenCoroutineSig)(lua_State *L);
+typedef lua_Number (*LuaVersionValueSig)(lua_State *L);
 
 static LuaOpenBaseSig luaopen_base_sig = luaopen_base;
 static LuaOpenCoroutineSig luaopen_coroutine_sig = luaopen_coroutine;
+static LuaVersionValueSig lua_version_value_sig = lua_version;
 
 static void check(lua_State *L, int cond, const char *msg)
 {
@@ -1418,6 +1420,9 @@ static void test_warning_and_gc_api(lua_State *L)
   version = lua_version(L);
   check(L, version == (lua_Number)LUA_VERSION_NUM,
 	"lua_version returns numeric Lua 5.4 version");
+  version = lua_version_value_sig(L);
+  check(L, version == (lua_Number)LUA_VERSION_NUM,
+	"lua_version function pointer returns Lua 5.4 version");
   check(L, lua_setcstacklimit(L, 0) == 200,
 	"lua_setcstacklimit query shim");
   check(L, lua_setcstacklimit(L, 200) == 200,

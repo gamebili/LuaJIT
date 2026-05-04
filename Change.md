@@ -19,6 +19,7 @@
 - C API 烟测继续扩展到类型/取值基础入口：`lua_type()`、`lua_typename()`、`lua_rawequal()`、`lua_iscfunction()`、`lua_tocfunction()`、`lua_touserdata()`、`lua_topointer()`、`lua_toboolean()` 以及 light/full userdata 判定。
 - 已继续补 Lua 5.4 `<close>` 声明点语义：`local x <close>` 现在会在运行期校验非 `nil`/`false` 值必须有 `__close`，非 closable 值按官方报 `variable 'x' got a non-closable value`；完整作用域退出调度仍保留在 `TODO.md`。
 - 已继续补 Lua 5.4 C API `<close>` 显式关闭表面：新增 `lua_toclose()` closable 校验和 `lua_closeslot()` 显式 `__close(value, nil)` 调用，关闭后会把槽位置为 `nil`；自动随作用域退出关闭仍保留在 `TODO.md`。
+- 已继续补 Lua 5.4 C API `lua_version` 头文件表面：兼容构建的外部头现在暴露 value-returning wrapper，可按官方 `lua_Number (*)(lua_State *)` 签名取函数指针；默认构建和内部 ABI 仍保留 LuaJIT 旧指针返回入口。
 - 已继续打通 Lua debug 库和 C API indexed uservalue：C 创建带 declared uservalue 的 userdata 后，`debug.getuservalue()` / `debug.setuservalue()` 已能按 Lua 5.4 表面读写声明槽位。
 - 已继续补 `table.concat({1,nil,3}, ",")` 的 Lua 5.4 边界：默认终点会覆盖 LuaJIT 旧长度搜索提前停在 1 的情况，从而检查到 index 2 的 nil 并报错。
 - 已继续补 `lua_resetthread()` 基础 C API：可把无 `<close>` 状态的 yielded coroutine 重置回 `LUA_OK` 并清空栈。
@@ -42,6 +43,7 @@
 - 已继续补 Lua 5.4 `lua.h` 兼容宏：新增 `LUA_NUMTAGS` 作为 `LUA_NUMTYPES` 别名，并进入 C API smoke。
 - 已继续补 Lua 5.4 C API 表面：新增 `lua_closethread()` no-`<close>` 基础实现，覆盖 yielded/fresh coroutine 关闭后返回 `LUA_OK`、清空栈并恢复 OK 状态。
 - 已继续扩展 Lua 5.4 C API smoke：覆盖 `lua_toclose()` 拒绝 non-closable 值、`lua_closeslot()` 关闭带 `__close` 的 table、false close value 跳过关闭且槽位被置为 `nil`。
+- 已继续扩展 Lua 5.4 C API smoke：覆盖 `lua_version` 作为官方 value-returning 函数指针调用并返回 `LUA_VERSION_NUM`。
 - 已继续补 Lua 5.4 deprecated intcast 兼容宏：在 `LUA_COMPAT_APIINTCASTS` 下暴露 `lua_pushunsigned` / `lua_tounsignedx` / `lua_tounsigned` / `luaL_checkunsigned` / `luaL_optunsigned`，并新增单独 C smoke。
 - 已继续补 Lua 5.4 外部兼容头别名：`lua_newuserdata()`、`lua_getuservalue()`、`lua_setuservalue()` 现在作为官方 slot 1 alias 宏暴露，默认 LuaJIT 5.1 ABI 不变。
 - 已继续清理 Lua 5.4 外部兼容头：旧 `LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` 伪索引和一批 Lua 5.1 API 声明已从外部 5.4 表面隐藏，`lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 改走 registry globals 包装路径。
@@ -339,6 +341,7 @@
 - 覆盖 Lua 5.4 C API 形态的 `lua_resume(L, from, nargs, nresults)`：yield 两个值和 return 两个值时都会填入正确结果数量。
 - 覆盖 Lua 5.4 C API `lua_closethread()` 在无 `<close>` 状态下关闭 yielded/fresh coroutine：返回 `LUA_OK`、状态恢复 OK 且栈被清空。
 - 覆盖 Lua 5.4 C API `lua_toclose()` / `lua_closeslot()` 的显式关闭表面：non-closable 校验、`__close(value, nil)` 调用、关闭后槽位为 `nil`，以及 false close value 跳过 `__close`。
+- 覆盖 Lua 5.4 C API `lua_version` 的 value-returning 函数指针签名，确认外部兼容头不再只依赖函数式宏解引用旧指针 ABI。
 - 覆盖 Lua 5.4 外部兼容头不会暴露 `LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` / `lua_strlen`，并覆盖 `lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 的 registry globals 路径。
 - 覆盖 Lua 5.4 外部兼容头暴露 `LUA_RIDX_LAST`，并确认其值等于 `LUA_RIDX_GLOBALS`。
 - 覆盖 Lua 5.4 外部兼容头暴露 `LUA_EXTRASPACE`，并确认其大小与当前 pointer-sized extraspace 实现一致。
