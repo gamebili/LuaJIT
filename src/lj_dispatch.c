@@ -355,7 +355,8 @@ LUA_API int lua_gethookcount(lua_State *L)
 }
 
 /* Call a hook. */
-static void callhook(lua_State *L, int event, BCLine line)
+static void callhook(lua_State *L, int event, BCLine line,
+		     uint16_t ftransfer, uint16_t ntransfer)
 {
   global_State *g = G(L);
   lua_Hook hookf = g->hookf;
@@ -366,6 +367,12 @@ static void callhook(lua_State *L, int event, BCLine line)
     ar.currentline = line;
     /* Top frame, nextframe = NULL. */
     ar.i_ci = (int)((L->base-1) - tvref(L->stack));
+    ar.ftransfer = ftransfer;
+    ar.ntransfer = ntransfer;
+    g->hook_L = L;
+    g->hook_ci = ar.i_ci;
+    g->hook_ftransfer = ftransfer;
+    g->hook_ntransfer = ntransfer;
     lj_state_checkstack(L, 1+LUA_MINSTACK);
 #if LJ_HASPROFILE && !LJ_PROFILE_SIGPROF
     lj_profile_hook_enter(g);
@@ -428,7 +435,7 @@ void LJ_FASTCALL lj_dispatch_ins(lua_State *L, const BCIns *pc)
 #endif
   if ((g->hookmask & LUA_MASKCOUNT) && g->hookcount == 0) {
     g->hookcount = g->hookcstart;
-    callhook(L, LUA_HOOKCOUNT, -1);
+    callhook(L, LUA_HOOKCOUNT, -1, 0, 0);
     L->top = L->base + slots;  /* Fix top again. */
   }
   if ((g->hookmask & LUA_MASKLINE)) {
@@ -436,12 +443,30 @@ void LJ_FASTCALL lj_dispatch_ins(lua_State *L, const BCIns *pc)
     BCPos opc = proto_bcpos(pt, oldpc) - 1;
     BCLine line = lj_debug_line(pt, npc);
     if (pc <= oldpc || opc >= pt->sizebc || line != lj_debug_line(pt, opc)) {
-      callhook(L, LUA_HOOKLINE, line);
+      callhook(L, LUA_HOOKLINE, line, 0, 0);
       L->top = L->base + slots;  /* Fix top again. */
     }
   }
-  if ((g->hookmask & LUA_MASKRET) && bc_isret(bc_op(pc[-1])))
-    callhook(L, LUA_HOOKRET, -1);
+  if ((g->hookmask & LUA_MASKRET) && bc_isret(bc_op(pc[-1]))) {
+    BCIns ins = pc[-1];
+    BCReg first = bc_a(ins);
+    uint32_t nres = 0;
+    switch (bc_op(ins)) {
+    case BC_RET1:
+      nres = 1;
+      break;
+    case BC_RET:
+      nres = bc_d(ins) - 1;
+      break;
+    case BC_RETM:
+      nres = bc_d(ins) + cframe_multres_n(cf) - 1;
+      break;
+    default:
+      break;
+    }
+    callhook(L, LUA_HOOKRET, -1, nres ? (uint16_t)(first + 1) : 0,
+	     (uint16_t)nres);
+  }
   ERRNO_RESTORE
 }
 
@@ -498,9 +523,12 @@ ASMFunction LJ_FASTCALL lj_dispatch_call(lua_State *L, const BCIns *pc)
 #endif
   if ((g->hookmask & LUA_MASKCALL)) {
     int i;
+    uint16_t nparams = 0;
+    if (isluafunc(fn))
+      nparams = funcproto(fn)->numparams;
     for (i = 0; i < missing; i++)  /* Add missing parameters. */
       setnilV(L->top++);
-    callhook(L, LUA_HOOKCALL, -1);
+    callhook(L, LUA_HOOKCALL, -1, nparams ? 1 : 0, nparams);
     /* Preserve modifications of missing parameters by lua_setlocal(). */
     while (missing-- > 0 && tvisnil(L->top - 1))
       L->top--;

@@ -126,11 +126,11 @@
 - [ ] `debug.getinfo` 的 Lua 5.4 选项和 hook 字段。
   - 当前状态：`debug.getinfo(f, "u")` 已有 `nparams`/`isvararg`；`"t"` 选项已接受并返回保守的 `istailcall=false`。
   - 当前进展：`lua_Debug` 已补 Lua 5.4 的 `nparams`、`isvararg`、`istailcall`、`ftransfer`、`ntransfer` 字段；`lua_getinfo(..., "ut")` 会填入 `nparams/isvararg`，并对尚未精确支持的 tail/transfer 字段返回保守 `0/false`。
-  - 当前进展：`debug.getinfo(..., "r")` 和 C API `lua_getinfo(..., "r")` 已接受 Lua 5.4 transfer-info 选项，并在非 hook 场景返回保守的 `ftransfer=0` / `ntransfer=0`。
+  - 当前进展：`debug.getinfo(..., "r")` 和 C API `lua_getinfo(..., "r")` 已接受 Lua 5.4 transfer-info 选项；非 hook 场景返回保守的 `ftransfer=0` / `ntransfer=0`，普通 Lua 函数 call/return hook 已能报告参数和返回值 transfer 范围。
   - 当前定位：普通 Lua tail call 会复用调用者栈帧，当前 debug C 层只能看到复用后的调用点，无法可靠还原被消除 caller 的 `CALLT`；真实 `istailcall=true` 需要 VM/各架构 frame 写入时保留 tail-call 标记。
   - 当前进展：Lua 5.4 兼容模式下，debug 库的 level/index/count 参数已改用严格整数检查；`debug.getinfo`、`getlocal`、`setlocal`、`getupvalue`、`setupvalue`、`upvalueid`、`upvaluejoin`、`sethook`、`traceback`、`getuservalue`、`setuservalue` 和 `setcstacklimit` 都会拒绝无整数表示的 number，同时保留字符串数字转换。
-  - 已覆盖：C API smoke 读取新增 `lua_Debug` 字段；Lua smoke 覆盖 `debug.getinfo(function() end, "r")`。
-  - 需要补测试：真实 tail call 场景的 `istailcall`、hook 里的 call/return transfer 字段。
+  - 已覆盖：C API smoke 读取新增 `lua_Debug` 字段，并通过 `lua_sethook` / `lua_getinfo(..., "r")` 覆盖普通 Lua 函数 hook transfer；Lua smoke 覆盖非 hook 场景和 `debug.getinfo(2, "r")` 的 call/return hook transfer。
+  - 需要补测试：真实 tail call 场景的 `istailcall`，以及 vararg / C 函数 / tail call 等更多 hook transfer 字段边界。
 
 - [ ] Lua 5.4 C API / 头文件兼容。
   - 当前状态：`lua.h` 会在兼容模式报告 `LUA_VERSION_NUM 504`，但大量 Lua 5.4 C API 仍缺失、保持旧签名，或仍暴露 Lua 5.1 宏/索引，例如 `LUA_GLOBALSINDEX`、`lua_objlen`、`lua_getfenv`、`lua_setfenv`。
@@ -201,7 +201,7 @@
   - 当前状态：当前环境已反复覆盖 Windows PC 64 位默认构建和 `LUAJIT_ENABLE_LUA54COMPAT` 构建，并通过 `make test`。
   - 当前进展：已新增 `tools/lua54_platform_matrix.ps1`，可一键在当前 Windows/MSYS2 环境构建并运行 PC x64 default 与 Lua 5.4 compat smoke；检测到 Android NDK 时会实际构建 Android ARM64 Lua 5.4 compat 静态 artifact，并用 `llvm-readelf` 确认 AArch64；检测到在线 Android 设备时会自动 push `luajit` 和 `test/smoke.lua` 到 `/data/local/tmp` 并运行 Lua 5.4 smoke；当前已在 Android 设备 `R5CN30J05BT` 取得 `test/smoke.lua lua54compat` PASS；iOS/Emscripten 目标先做工具链探测并输出明确 `SKIP` 原因。
   - 当前进展：Android ARM64 交叉编译暴露的 `floor` 隐式声明警告已通过补 `<math.h>` 清理。
-  - 已知缺口：Android ARM64 artifact 构建和在线设备 smoke 已取得 PASS；iOS ARM64、Emscripten wasm/wasm64 仍未完成实际跨平台编译命令、artifact 检查和目标运行 smoke；Emscripten 还缺 interpreter/wasm 可行路径。
+  - 已知缺口：Android ARM64 artifact 构建和在线设备 smoke 已取得 PASS；iOS ARM64、Emscripten wasm/wasm64 仍未完成实际跨平台编译命令、artifact 检查和目标运行 smoke；当前用 `emcc 5.0.6` 直接走 Makefile 会在 `lj_arch.h` 报 wasm 架构不受支持，Emscripten 还缺 interpreter/wasm VM 后端可行路径。
   - 需要补测试/脚本：继续按实际工具链补 iOS SDK ARM64、Emscripten 的构建入口；Android 继续补设备/模拟器 smoke；每个目标至少验证编译完成、`LUAJIT_ENABLE_LUA54COMPAT` 可打开、目标可运行时执行 smoke，不可直接运行时产出可检查 artifact。
   - 实现重点：Emscripten 通常不能使用传统本机 JIT，需要明确解释器/wasm 可行路径；Android/iOS 需要分别确认 JIT 权限、mcode 分配和平台 ABI。
 

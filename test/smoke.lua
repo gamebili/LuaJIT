@@ -1088,6 +1088,24 @@ do
     local info = debug.getinfo(function() end, "r")
     assert(info.ftransfer == 0 and info.ntransfer == 0)
   end
+  do
+    local seen = {}
+    local function hook(ev)
+      local info = debug.getinfo(2, "nr")
+      if info.name == "lua54_transfer_probe" then
+        seen[#seen+1] = ev..":"..info.ftransfer..":"..info.ntransfer
+      end
+    end
+    local function lua54_transfer_probe(a, b)
+      return a + b, a - b
+    end
+    debug.sethook(hook, "cr")
+    local x, y = lua54_transfer_probe(3, 1)
+    debug.sethook()
+    assert(x == 4 and y == 2)
+    assert(seen[1] == "call:1:2")
+    assert(seen[2] == "return:3:2")
+  end
 end
 
 do

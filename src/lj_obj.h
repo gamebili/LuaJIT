@@ -663,6 +663,10 @@ typedef struct global_State {
   GCupval uvhead;	/* Head of double-linked list of all open upvalues. */
   int32_t hookcount;	/* Instruction hook countdown. */
   int32_t hookcstart;	/* Start count for instruction hook counter. */
+  lua_State *hook_L;	/* Thread currently running a debug hook. */
+  int32_t hook_ci;	/* Frame offset for Lua 5.4 hook transfer info. */
+  uint16_t hook_ftransfer;  /* First transferred slot for active hook. */
+  uint16_t hook_ntransfer;  /* Number of transferred slots for active hook. */
   lua_Hook hookf;	/* Hook function. */
   lua_CFunction wrapf;	/* Wrapper for C function calls. */
   lua_CFunction panic;	/* Called as a last resort for errors. */

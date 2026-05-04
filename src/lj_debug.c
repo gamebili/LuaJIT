@@ -548,12 +548,20 @@ int lj_debug_getinfo(lua_State *L, const char *what, lj_Debug *ar, int ext)
 	ar->istailcall = 0;
       continue;
     } else if (*what == 'r') {
-      /* Accept Lua 5.4 transfer-info queries. Non-hook queries have no
-      ** transferred value range; hook-time precision is tracked in TODO.md.
+      /* Lua 5.4 exposes transferred argument/result ranges while a hook is
+      ** running. Outside that exact hooked frame, the conservative answer is
+      ** still an empty range.
       */
       if (ext) {
-	ar->ftransfer = 0;
-	ar->ntransfer = 0;
+	global_State *g = G(L);
+	if (frame && hook_active(g) && g->hook_L == L &&
+	    ((int)(frame - tvref(L->stack)) == g->hook_ci)) {
+	  ar->ftransfer = g->hook_ftransfer;
+	  ar->ntransfer = g->hook_ntransfer;
+	} else {
+	  ar->ftransfer = 0;
+	  ar->ntransfer = 0;
+	}
       }
       continue;
     } else {

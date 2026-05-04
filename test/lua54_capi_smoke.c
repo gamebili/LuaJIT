@@ -165,6 +165,10 @@ static char warning_buf[64];
 static int warning_tocont = -1;
 static int close_call_count = 0;
 static int close_nil_error_count = 0;
+static int hook_call_ftransfer = -1;
+static int hook_call_ntransfer = -1;
+static int hook_ret_ftransfer = -1;
+static int hook_ret_ntransfer = -1;
 
 static void header_output_macros_compile_only(void)
 {
@@ -231,6 +235,19 @@ static int panic_b(lua_State *L)
 {
   (void)L;
   return 0;
+}
+
+static void capi_transfer_hook(lua_State *L, lua_Debug *ar)
+{
+  if (lua_getinfo(L, "ur", ar) && ar->nparams == 2 && !ar->isvararg) {
+    if (ar->event == LUA_HOOKCALL) {
+      hook_call_ftransfer = ar->ftransfer;
+      hook_call_ntransfer = ar->ntransfer;
+    } else if (ar->event == LUA_HOOKRET) {
+      hook_ret_ftransfer = ar->ftransfer;
+      hook_ret_ntransfer = ar->ntransfer;
+    }
+  }
 }
 
 static void *counting_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
@@ -1414,6 +1431,7 @@ static void test_warning_and_gc_api(lua_State *L)
 {
   int oldmode;
   int countb;
+  int status;
   lua_Number version;
   lua_Debug ar;
 
@@ -1451,6 +1469,22 @@ static void test_warning_and_gc_api(lua_State *L)
   check(L, ar.nparams == 0 && ar.isvararg == 1, "lua_Debug u fields");
   check(L, ar.istailcall == 0 && ar.ftransfer == 0 && ar.ntransfer == 0,
 	"lua_Debug t/transfer fields");
+
+  hook_call_ftransfer = hook_call_ntransfer = -1;
+  hook_ret_ftransfer = hook_ret_ntransfer = -1;
+  lua_sethook(L, capi_transfer_hook, LUA_MASKCALL | LUA_MASKRET, 0);
+  status = luaL_dostring(L,
+    "local function capi_transfer_probe(a, b) return a + b, a - b end\n"
+    "return capi_transfer_probe(3, 1)");
+  lua_sethook(L, NULL, 0, 0);
+  check(L, status == LUA_OK, "lua_getinfo hook transfer setup");
+  check_integer(L, -2, 4, "lua_getinfo hook transfer result 1");
+  check_integer(L, -1, 2, "lua_getinfo hook transfer result 2");
+  lua_pop(L, 2);
+  check(L, hook_call_ftransfer == 1 && hook_call_ntransfer == 2,
+	"lua_getinfo call hook transfer fields");
+  check(L, hook_ret_ftransfer == 3 && hook_ret_ntransfer == 2,
+	"lua_getinfo return hook transfer fields");
 }
 
 int main(void)
