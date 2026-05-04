@@ -1471,6 +1471,21 @@ static VarInfo *gola_findlabel(LexState *ls, GCstr *name)
   return NULL;
 }
 
+#if LJ_54
+/* Find an already-seen label that is visible from nested blocks. */
+static VarInfo *gola_findactivelabel(LexState *ls, GCstr *name)
+{
+  VarInfo *v = ls->vstack + ls->vtop;
+  VarInfo *vb = ls->vstack;
+  while (v > vb) {
+    GCstr *vname = strref((--v)->name);
+    if (vname == name && gola_islabel(v))
+      return v;
+  }
+  return NULL;
+}
+#endif
+
 /* -- Scope handling ------------------------------------------------------ */
 
 /* Begin a scope. */
@@ -2665,9 +2680,22 @@ static void parse_goto(LexState *ls)
 {
   FuncState *fs = ls->fs;
   GCstr *name = lex_str(ls);
-  VarInfo *vl = gola_findlabel(ls, name);
-  if (vl)  /* Treat backwards goto within same scope like a loop. */
+  VarInfo *vl;
+#if LJ_54
+  vl = gola_findactivelabel(ls, name);
+#else
+  vl = gola_findlabel(ls, name);
+#endif
+  if (vl) {  /* Treat backwards goto to a visible label like a loop. */
+#if LJ_54
+    /* The target level is known for an already-seen label. Close only locals
+    ** that are alive above that label before the backward jump.
+    */
+    if (fscope_hascloseactive(fs, vl->slot))
+      fscope_closeactive(fs, vl->slot);
+#endif
     bcemit_AJ(fs, BC_LOOP, vl->slot, -1);  /* No BC range check. */
+  }
   fs->bl->flags |= FSCOPE_GOLA;
   gola_new(ls, name, VSTACK_GOTO, bcemit_jmp(fs));
 }

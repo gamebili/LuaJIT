@@ -390,6 +390,26 @@ do
     ]]))())
   end
   do
+    assert(assert(load([[
+      local log = {}
+      local mt = {
+        __close = function(self, err)
+          assert(err == nil)
+          log[#log + 1] = self.name
+        end,
+      }
+      local trips = 0
+      ::again::
+      do
+        local a <close> = setmetatable({ name = "a" }, mt)
+        trips = trips + 1
+        if trips == 1 then goto again end
+      end
+      assert(table.concat(log, ",") == "a,a")
+      return true
+    ]]))())
+  end
+  do
     local setlocal_const = assert(load([[
     return function()
       local x <const> = {}
