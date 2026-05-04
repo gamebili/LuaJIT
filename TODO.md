@@ -199,8 +199,10 @@
 
 - [ ] Android / iOS / PC / Emscripten 64 位构建矩阵。
   - 当前状态：当前环境已反复覆盖 Windows PC 64 位默认构建和 `LUAJIT_ENABLE_LUA54COMPAT` 构建，并通过 `make test`。
-  - 已知缺口：尚未在当前仓库内形成 Android ARM64、iOS ARM64、Emscripten wasm/wasm64 或相关 64 位目标的一键构建验证脚本；也未验证这些目标下 Lua 5.4 兼容 smoke 和 JIT/解释器降级边界。
-  - 需要补测试/脚本：按实际工具链补 Android NDK ARM64、iOS SDK ARM64、PC x64、Emscripten 的构建入口；每个目标至少验证编译完成、`LUAJIT_ENABLE_LUA54COMPAT` 可打开、目标可运行时执行 smoke，不可直接运行时产出可检查 artifact。
+  - 当前进展：已新增 `tools/lua54_platform_matrix.ps1`，可一键在当前 Windows/MSYS2 环境构建并运行 PC x64 default 与 Lua 5.4 compat smoke；检测到 Android NDK 时会实际构建 Android ARM64 Lua 5.4 compat 静态 artifact，并用 `llvm-readelf` 确认 AArch64；iOS/Emscripten 目标先做工具链探测并输出明确 `SKIP` 原因。
+  - 当前进展：Android ARM64 交叉编译暴露的 `floor` 隐式声明警告已通过补 `<math.h>` 清理。
+  - 已知缺口：Android ARM64 目前只完成编译和 artifact 架构检查，尚未在 Android 设备/模拟器上运行 smoke；iOS ARM64、Emscripten wasm/wasm64 仍未完成实际跨平台编译命令、artifact 检查和目标运行 smoke；Emscripten 还缺 interpreter/wasm 可行路径。
+  - 需要补测试/脚本：继续按实际工具链补 iOS SDK ARM64、Emscripten 的构建入口；Android 继续补设备/模拟器 smoke；每个目标至少验证编译完成、`LUAJIT_ENABLE_LUA54COMPAT` 可打开、目标可运行时执行 smoke，不可直接运行时产出可检查 artifact。
   - 实现重点：Emscripten 通常不能使用传统本机 JIT，需要明确解释器/wasm 可行路径；Android/iOS 需要分别确认 JIT 权限、mcode 分配和平台 ABI。
 
 - [ ] 标准库错误消息与边界参数完全对齐。

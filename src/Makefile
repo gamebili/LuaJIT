@@ -550,7 +550,10 @@ ALL_T= $(LUAJIT_T) $(LUAJIT_A) $(LUAJIT_SO) $(HOST_T)
 ALL_HDRGEN= lj_bcdef.h lj_ffdef.h lj_libdef.h lj_recdef.h lj_folddef.h \
 	    host/buildvm_arch.h luajit.h
 ALL_GEN= $(LJVM_S) $(ALL_HDRGEN) luajit_relver.txt $(LIB_VMDEFP)
-WIN_RM= *.obj *.lib *.exp *.dll *.exe *.manifest *.pdb *.ilk
+# Windows hosts can cross-build POSIX/Android targets named "luajit" without
+# an .exe suffix. Remove that stale artifact or native smoke tests may execute
+# the wrong binary through ./src/luajit.
+WIN_RM= luajit *.obj *.lib *.exp *.dll *.exe *.manifest *.pdb *.ilk
 ALL_RM= $(ALL_T) $(ALL_GEN) *.o host/*.o $(WIN_RM)
 
 ##############################################################################

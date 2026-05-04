@@ -9,6 +9,7 @@
 #define lj_api_c
 #define LUA_CORE
 
+#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 

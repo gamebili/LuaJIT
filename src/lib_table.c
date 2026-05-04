@@ -9,6 +9,8 @@
 #define lib_table_c
 #define LUA_LIB
 
+#include <math.h>
+
 #include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
