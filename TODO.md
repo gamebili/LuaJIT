@@ -169,8 +169,8 @@
   - 当前进展：C return hook 已新增统一 dispatch 入口并在 x64 / ARM64 VM 返回路径接入；fast C 函数入口会保留原始参数 transfer 起点，避免返回路径覆盖结果数量后丢失 Lua 5.4 debug 元数据。
   - 当前进展：普通 Lua `BC_CALLT` 路径已在 x64 / ARM64 VM 中保存 side marker，`debug.getinfo(..., "t")`、Lua hook 和 C API hook 都能识别 `tail call` / `LUA_HOOKTAILCALL`，并在该 frame 返回时清理 marker，避免后续普通调用误判；vararg pseudo-frame 已会回溯到真实 Lua frame 判断 `istailcall`，因此 vararg tailcall return hook 也能报告 `istailcall=true`。
   - 当前进展：Lua 5.4 兼容模式下，debug 库的 level/index/count 参数已改用严格整数检查；`debug.getinfo`、`getlocal`、`setlocal`、`getupvalue`、`setupvalue`、`upvalueid`、`upvaluejoin`、`sethook`、`traceback`、`getuservalue`、`setuservalue` 和 `setcstacklimit` 都会拒绝无整数表示的 number，同时保留字符串数字转换。
-  - 已覆盖：C API smoke 读取新增 `lua_Debug` 字段，并通过 `lua_sethook` / `lua_getinfo(..., "r")` 覆盖普通 Lua 函数固定参数和 vararg 的 hook transfer、Lua tail call hook transfer / `istailcall`、vararg tailcall return hook 的 `istailcall`，以及普通 C 函数 call/return hook transfer；Lua smoke 覆盖非 hook 场景和 `debug.getinfo(2, "r")` 的固定参数 / vararg call-return hook transfer、C 函数 call hook transfer、fast C 函数 return hook transfer、Lua tail call hook/return transfer、vararg tailcall return transfer 和直接调用清 marker。
-  - 需要补测试：tail call 错误展开清理、tail-position C return 和更多 hook transfer 字段边界。
+  - 已覆盖：C API smoke 读取新增 `lua_Debug` 字段，并通过 `lua_sethook` / `lua_getinfo(..., "r")` 覆盖普通 Lua 函数固定参数和 vararg 的 hook transfer、Lua tail call hook transfer / `istailcall`、vararg tailcall return hook 的 `istailcall`、tail-position C return 不误报 Lua tail hook，以及普通 C 函数 call/return hook transfer；Lua smoke 覆盖非 hook 场景和 `debug.getinfo(2, "r")` 的固定参数 / vararg call-return hook transfer、C 函数 call hook transfer、fast C 函数 return hook transfer、Lua tail call hook/return transfer、vararg tailcall return transfer、tail-position C return transfer 和直接调用清 marker。
+  - 需要补测试：tail call 错误展开清理和更多 hook transfer 字段边界。
 
 - [ ] Lua 5.4 C API / 头文件兼容。
   - 当前状态：`lua.h` 会在兼容模式报告 `LUA_VERSION_NUM 504`，但大量 Lua 5.4 C API 仍缺失、保持旧签名，或仍暴露 Lua 5.1 宏/索引，例如 `LUA_GLOBALSINDEX`、`lua_objlen`、`lua_getfenv`、`lua_setfenv`。

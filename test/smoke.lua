@@ -1156,7 +1156,7 @@ do
   do
     local seen = {}
     local function hook(ev)
-      local info = debug.getinfo(2, "rS")
+      local info = debug.getinfo(2, "rtS")
       if info.what == "C" then
         seen[#seen+1] = ev..":"..info.ftransfer..":"..info.ntransfer
       end
@@ -1231,6 +1231,26 @@ do
     assert(a == 1 and b == 2 and c == 3)
     assert(seen[1] == "tail call:true:0:0")
     assert(seen[2] == "return:true:1:3")
+  end
+  do
+    local seen = {}
+    local function hook(ev)
+      local info = debug.getinfo(2, "rtS")
+      if ev == "tail call" or info.what == "C" then
+        seen[#seen+1] = ev..":"..tostring(info.istailcall)..":"..
+          info.ftransfer..":"..info.ntransfer
+      end
+    end
+    local function tail_c_position(a, b, c)
+      return math.max(a, b, c)
+    end
+    debug.sethook(hook, "cr")
+    local v = tail_c_position(1, 2, 3)
+    debug.sethook()
+    assert(v == 3)
+    assert(seen[1] == "return:false:0:0")
+    assert(seen[2] == "call:false:1:3")
+    assert(seen[3] == "return:false:4:1")
   end
 end
 

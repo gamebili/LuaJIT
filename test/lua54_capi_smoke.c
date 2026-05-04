@@ -1615,6 +1615,25 @@ static void test_warning_and_gc_api(lua_State *L)
 	"lua_getinfo C call hook transfer fields");
   check(L, hook_c_ret_ftransfer == 4 && hook_c_ret_ntransfer == 1,
 	"lua_getinfo C return hook transfer fields");
+
+  hook_c_call_ftransfer = hook_c_call_ntransfer = -1;
+  hook_c_ret_ftransfer = hook_c_ret_ntransfer = -1;
+  hook_tail_istailcall = -1;
+  lua_sethook(L, capi_transfer_hook, LUA_MASKCALL | LUA_MASKRET, 0);
+  status = luaL_dostring(L,
+    "local function capi_tail_c_position(a, b, c) "
+      "return capi_transfer_cfunc(a, b, c) end\n"
+    "local x = capi_tail_c_position(1, 2, 3); return x");
+  lua_sethook(L, NULL, 0, 0);
+  check(L, status == LUA_OK, "lua_getinfo tail-position C hook setup");
+  check_integer(L, -1, 6, "lua_getinfo tail-position C result");
+  lua_pop(L, 1);
+  check(L, hook_tail_istailcall < 0,
+	"lua_getinfo tail-position C must not report Lua tail hook");
+  check(L, hook_c_call_ftransfer == 1 && hook_c_call_ntransfer == 3,
+	"lua_getinfo tail-position C call transfer fields");
+  check(L, hook_c_ret_ftransfer == 4 && hook_c_ret_ntransfer == 1,
+	"lua_getinfo tail-position C return transfer fields");
 }
 
 int main(void)
