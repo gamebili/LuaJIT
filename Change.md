@@ -20,6 +20,7 @@
 - 已继续补 Lua 5.4 `<close>` 声明点语义：`local x <close>` 现在会在运行期校验非 `nil`/`false` 值必须有 `__close`，非 closable 值按官方报 `variable 'x' got a non-closable value`；完整作用域退出调度仍保留在 `TODO.md`。
 - 已继续补 Lua 5.4 C API `<close>` 显式关闭表面：新增 `lua_toclose()` closable 校验和 `lua_closeslot()` 显式 `__close(value, nil)` 调用，关闭后会把槽位置为 `nil`；自动随作用域退出关闭仍保留在 `TODO.md`。
 - 已继续补 Lua 5.4 `<close>` 普通块退出调度：自然执行到 `end` 时会按 LIFO 调用待关闭局部变量的 `__close(value, nil)`；`return` / `break` / `goto` / error unwinding 仍记录在 `TODO.md`。
+- 已继续补 Lua 5.4 `<close>` 固定返回值路径：`return "x", n` 这类已知返回个数会先求值返回表达式，再按 LIFO 调用 `__close(value, nil)`，最后返回已求值结果；动态多返回 `return f()` 仍记录在 `TODO.md`。
 - 已继续补 Lua 5.4 C API `lua_version` 头文件表面：兼容构建的外部头现在暴露 value-returning wrapper，可按官方 `lua_Number (*)(lua_State *)` 签名取函数指针；默认构建和内部 ABI 仍保留 LuaJIT 旧指针返回入口。
 - 已继续打通 Lua debug 库和 C API indexed uservalue：C 创建带 declared uservalue 的 userdata 后，`debug.getuservalue()` / `debug.setuservalue()` 已能按 Lua 5.4 表面读写声明槽位。
 - 已继续补 `table.concat({1,nil,3}, ",")` 的 Lua 5.4 边界：默认终点会覆盖 LuaJIT 旧长度搜索提前停在 1 的情况，从而检查到 index 2 的 nil 并报错。
@@ -344,6 +345,7 @@
 - 覆盖 Lua 5.4 C API `lua_toclose()` / `lua_closeslot()` 的显式关闭表面：non-closable 校验、`__close(value, nil)` 调用、关闭后槽位为 `nil`，以及 false close value 跳过 `__close`。
 - 覆盖 Lua 5.4 C API `lua_version` 的 value-returning 函数指针签名，确认外部兼容头不再只依赖函数式宏解引用旧指针 ABI。
 - 覆盖 Lua 5.4 `<close>` 普通块自然退出：多个待关闭局部变量按 LIFO 调用 `__close(value, nil)`，false/nil close value 不触发 `__close`。
+- 覆盖 Lua 5.4 `<close>` 固定返回值退出：返回表达式先求值，随后按 LIFO 关闭 close locals，再返回原结果。
 - 覆盖 Lua 5.4 外部兼容头不会暴露 `LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` / `lua_strlen`，并覆盖 `lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 的 registry globals 路径。
 - 覆盖 Lua 5.4 外部兼容头暴露 `LUA_RIDX_LAST`，并确认其值等于 `LUA_RIDX_GLOBALS`。
 - 覆盖 Lua 5.4 外部兼容头暴露 `LUA_EXTRASPACE`，并确认其大小与当前 pointer-sized extraspace 实现一致。

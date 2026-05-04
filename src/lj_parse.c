@@ -1485,21 +1485,41 @@ static void fscope_begin(FuncState *fs, FuncScope *bl, int flags)
 }
 
 /* End a scope. */
-static void fscope_end(FuncState *fs)
+#if LJ_54
+static int fscope_hascloseactive(FuncState *fs, BCReg tolevel)
 {
-  FuncScope *bl = fs->bl;
   LexState *ls = fs->ls;
-#if LJ_54
   BCReg closevar;
-#endif
-  fs->bl = bl->prev;
-#if LJ_54
-  fs->freereg = fs->nactvar;
-  for (closevar = fs->nactvar; closevar > bl->nactvar; ) {
+  for (closevar = fs->nactvar; closevar > tolevel; ) {
+    VarInfo *v = &var_get(ls, fs, --closevar);
+    if (v->info & VSTACK_VAR_CLOSE)
+      return 1;
+  }
+  return 0;
+}
+
+static void fscope_closeactive(FuncState *fs, BCReg tolevel)
+{
+  LexState *ls = fs->ls;
+  BCReg closevar;
+  if (fs->freereg < fs->nactvar)
+    fs->freereg = fs->nactvar;
+  for (closevar = fs->nactvar; closevar > tolevel; ) {
     VarInfo *v = &var_get(ls, fs, --closevar);
     if (v->info & VSTACK_VAR_CLOSE)
       bcemit_lua54_closevalue(fs, closevar);
   }
+}
+#endif
+
+static void fscope_end(FuncState *fs)
+{
+  FuncScope *bl = fs->bl;
+  LexState *ls = fs->ls;
+  fs->bl = bl->prev;
+#if LJ_54
+  fs->freereg = fs->nactvar;
+  fscope_closeactive(fs, bl->nactvar);
 #endif
   var_remove(ls, bl->nactvar);
   fs->freereg = fs->nactvar;
@@ -2564,6 +2584,9 @@ static void parse_return(LexState *ls)
 {
   BCIns ins;
   FuncState *fs = ls->fs;
+#if LJ_54
+  int closefixed = 1;
+#endif
   lj_lex_next(ls);  /* Skip 'return'. */
   fs->flags |= PROTO_HAS_RETURN;
   if (parse_isend(ls->tok) || ls->tok == ';') {  /* Bare return. */
@@ -2579,8 +2602,15 @@ static void parse_return(LexState *ls)
 	BCIns *ip = bcptr(fs, &e);
 	/* It doesn't pay off to add BC_VARGT just for 'return ...'. */
 	if (bc_op(*ip) == BC_VARG) goto notailcall;
+#if LJ_54
+	if (fscope_hascloseactive(fs, 0))
+	  goto notailcall;
+#endif
 	fs->pc--;
 	ins = BCINS_AD(bc_op(*ip)-BC_CALL+BC_CALLT, bc_a(*ip), bc_c(*ip));
+#if LJ_54
+	closefixed = 0;
+#endif
 #endif
       } else {  /* Can return the result from any register. */
 	ins = BCINS_AD(BC_RET1, expr_toanyreg(fs, &e), 2);
@@ -2590,12 +2620,19 @@ static void parse_return(LexState *ls)
       notailcall:
 	setbc_b(bcptr(fs, &e), 0);
 	ins = BCINS_AD(BC_RETM, fs->nactvar, e.u.s.aux - fs->nactvar);
+#if LJ_54
+	closefixed = 0;
+#endif
       } else {
 	expr_tonextreg(fs, &e);  /* Force contiguous registers. */
 	ins = BCINS_AD(BC_RET, fs->nactvar, nret+1);
       }
     }
   }
+#if LJ_54
+  if (closefixed)
+    fscope_closeactive(fs, 0);
+#endif
   if (fs->flags & PROTO_CHILD)
     bcemit_AJ(fs, BC_UCLO, 0, 0);  /* May need to close upvalues first. */
   bcemit_INS(fs, ins);
