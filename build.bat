@@ -28,7 +28,15 @@ if "%~1"=="" (
   set "MAKE_ARGS=%*"
 )
 
-if /I "%MAKE_ARGS%"=="test" (
+if /I "%~1"=="test" if "%~2"=="" (
+  echo [build.bat] "%MSYS_BIN%\make.exe" %MAKE_JOBS% smoketest-capi-default
+  "%MSYS_BIN%\make.exe" %MAKE_JOBS% smoketest-capi-default
+  if errorlevel 1 exit /b !ERRORLEVEL!
+  echo [build.bat] "%MSYS_BIN%\make.exe" %MAKE_JOBS% smoketest-capi-lua54compat
+  "%MSYS_BIN%\make.exe" %MAKE_JOBS% smoketest-capi-lua54compat
+  exit /b !ERRORLEVEL!
+)
+if "%~1"=="" (
   echo [build.bat] "%MSYS_BIN%\make.exe" %MAKE_JOBS% smoketest-capi-default
   "%MSYS_BIN%\make.exe" %MAKE_JOBS% smoketest-capi-default
   if errorlevel 1 exit /b !ERRORLEVEL!

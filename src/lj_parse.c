@@ -28,6 +28,10 @@
 #include "lj_vm.h"
 #include "lj_vmevent.h"
 
+#if LJ_54
+#define LUA54_KNUM_BOX	0x80
+#endif
+
 /* -- Parser structures and definitions ----------------------------------- */
 
 /* Expression kinds. */
@@ -217,7 +221,32 @@ static BCReg const_num(FuncState *fs, ExpDesc *e)
   lua_State *L = fs->L;
   TValue *o;
   lj_assertFS(expr_isnumk(e), "bad usage");
+#if LJ_54 && LJ_DUALNUM
+  if (tvisnum(&e->u.nval)) {
+    int64_t i64;
+    int32_t k;
+    UNUSED(k);
+    if (tvismzero(&e->u.nval) ||
+	lj_num2int_check(numV(&e->u.nval), i64, k)) {
+      GCtab *box = lj_tab_new(L, 1, 0);
+      box->flags54 |= LUA54_KNUM_BOX;
+      copyTV(L, arrayslot(box, 0), &e->u.nval);
+      /* Lua tables intentionally unify 1 and 1.0 as keys. The parser
+      ** constant cache must not, otherwise Lua 5.4 float literals lose their
+      ** TValue subtype before bytecode is emitted.
+      */
+      settabV(L, L->top, box);
+      incr_top(L);
+      o = lj_tab_set(L, fs->kt, L->top-1);
+      L->top--;
+      goto gotnum;
+    }
+  }
+#endif
   o = lj_tab_set(L, fs->kt, &e->u.nval);
+#if LJ_54 && LJ_DUALNUM
+gotnum:
+#endif
   if (tvhaskslot(o))
     return tvkslot(o);
   o->u64 = fs->nkn;
@@ -1007,11 +1036,18 @@ static int foldarith(BinOpr opr, ExpDesc *e1, ExpDesc *e2)
   setnumV(&o, n);
   if (tvisnan(&o) || tvismzero(&o)) return 0;  /* Avoid NaN and -0 as consts. */
   if (LJ_DUALNUM) {
+#if LJ_54
+    if (opr != OPR_DIV && opr != OPR_POW &&
+	tvisint(expr_numtv(e1)) && tvisint(expr_numtv(e2))) {
+#else
+    {
+#endif
     int64_t i64;
     int32_t k;
     if (lj_num2int_check(n, i64, k)) {
       setintV(&e1->u.nval, k);
       return 1;
+    }
     }
   }
   setnumV(&e1->u.nval, n);
@@ -1817,6 +1853,15 @@ static void fs_fixup_k(FuncState *fs, GCproto *pt, void *kptr)
     if (tvhaskslot(&n->val)) {
       ptrdiff_t kidx = (ptrdiff_t)tvkslot(&n->val);
       lj_assertFS(!tvisint(&n->key), "unexpected integer key");
+#if LJ_54 && LJ_DUALNUM
+      if (tvistab(&n->key) && (tabV(&n->key)->flags54 & LUA54_KNUM_BOX)) {
+	GCtab *box = tabV(&n->key);
+	TValue *tv = &((TValue *)kptr)[kidx];
+	lj_assertFS(box->asize > 0 && tvisnumber(arrayslot(box, 0)),
+		    "bad Lua 5.4 boxed number constant");
+	copyTV(fs->L, tv, arrayslot(box, 0));
+      } else
+#endif
       if (tvisnum(&n->key)) {
 	TValue *tv = &((TValue *)kptr)[kidx];
 	if (LJ_DUALNUM) {
@@ -3317,4 +3362,3 @@ GCproto *lj_parse(LexState *ls)
 #endif
   return pt;
 }
-

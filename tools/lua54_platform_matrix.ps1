@@ -77,9 +77,9 @@ function Invoke-PcX64 {
 
   try {
     Invoke-Checked $Make @("clean")
-    Invoke-Checked $Make @("XCFLAGS=-DLUAJIT_ENABLE_LUA54COMPAT")
+    Invoke-Checked $Make @("XCFLAGS=-DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2")
     Invoke-Checked (Join-Path $RepoRoot "src\luajit.exe") @("test/smoke.lua", "lua54compat")
-    Add-Result "pc-x64-lua54compat" "PASS" "Built with LUAJIT_ENABLE_LUA54COMPAT and ran Lua 5.4 smoke."
+    Add-Result "pc-x64-lua54compat" "PASS" "Built with LUAJIT_ENABLE_LUA54COMPAT dual-number mode and ran Lua 5.4 smoke."
   } catch {
     Add-Result "pc-x64-lua54compat" "FAIL" $_.Exception.Message
   }
@@ -201,7 +201,7 @@ function Invoke-AndroidArm64 {
       "TARGET_AR=$ar rcus",
       "TARGET_STRIP=$strip",
       "BUILDMODE=static",
-      "XCFLAGS=-DLUAJIT_ENABLE_LUA54COMPAT"
+      "XCFLAGS=-DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2"
     )
     $exe = Join-Path $RepoRoot "src\luajit"
     $lib = Join-Path $RepoRoot "src\libluajit.a"

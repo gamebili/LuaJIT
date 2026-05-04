@@ -13,9 +13,11 @@
 - 已用官方 `testes/pm.lua` 做源码级对照：除已记录到 `TODO.md` 的长字符串非内化导致同内容长字符串 `%p` 身份相同外，临时跳过该大改项后当前 pattern 测试可跑到 `OK`。
 - 已按官方 Lua 5.4.8 `lvm.c` / `testes/events.lua` 修正 `__eq` 查找规则：table/userdata 不同对象比较时先用左操作数 `__eq`，左侧没有再用右操作数 `__eq`，不再沿用 LuaJIT 旧的“两侧必须同一个 `__eq`”限制。
 - 已扩展 Lua 5.4 compat smoke 与 JIT smoke 覆盖 `__eq` 单侧元方法、左右不同 `__eq` 的左侧优先，以及 `==` / `~=` 在热循环中的 recorder 路径；官方 `testes/events.lua` 当前可跑到 `OK`，未启用的 `testC` userdata 块按官方测试提示跳过。
-- 已新增根目录 `build.bat`，默认使用 `D:\p4_gl2\pristine\ruby\Ruby33-x64\msys64\usr\bin\make.exe` 并按 `%NUMBER_OF_PROCESSORS%` 传入 `-j` 并行编译；无参数默认跑 `test`，也可直接透传 `smoketest-lua54compat` 等 make target。
+- 已新增根目录 `build.bat`，默认使用 `D:\p4_gl2\pristine\ruby\Ruby33-x64\msys64\usr\bin\make.exe` 并按 `%NUMBER_OF_PROCESSORS%` 传入 `-j` 并行编译；无参数默认跑 `test`，也可直接透传 `smoketest-lua54compat`、带空格的 `XCFLAGS="..."` 等 make 参数。
 - 已继续按官方 `testes/nextvar.lua` 对照收紧基础边界：常量 `for` step 为 `0` / `0.0` 时不再编译期拒绝，而是在执行时统一报 `'for' step is zero`；`ipairs()` 复用稳定辅助函数并支持当前 `math.maxinteger` 到 `math.mininteger` 的迭代器回绕；`table.remove({[0]=...})` 在长度为 0 时会读取并清除 key `0`。
-- 已继续用官方 `testes/nextvar.lua` 定位下一批数值缺口：当前文件已推进到 numeric for 浮点控制变量子类型检查，剩余失败归入已记录的非 dual-number/TValue 数值表示批次。
+- 已继续推进 Lua 5.4 数值表示批次：PC x64 兼容 smoke 改为 `LUAJIT_NUMMODE=2` dual-number 构建，lexer 会按字面量拼写保留 `1.0` / `1e0` / `0x1p0` 的 float 子类型，parser 常量缓存用内部 boxed key 避免把 `1` 和 `1.0` 合并丢失 TValue 子类型。
+- 已按官方 `testes/nextvar.lua` 修正 numeric for 子类型与边界：init/step 为 float 时循环变量保持 float，init/step 为 integer 且 limit 为 float 时按步长方向取整或裁剪到当前 `math.mininteger` / `math.maxinteger`；JIT recorder 对可能溢出的 integer 边界循环不再错误改录为 float trace。
+- 官方 `testes/nextvar.lua` 当前已越过 numeric for 块，下一断点推进到 generic for closing value 在 coroutine 中 yield 的 VM unwind continuation 缺口。
 - 已按官方 Lua 5.4.8 `lutf8lib.c` / `testes/utf8.lua` 成批对齐 UTF-8 边界：源码 `\u{...}` 字面量接受 `0..0x7fffffff` 和 surrogate 字节序列，`utf8.codes` 迭代器按官方处理越界控制变量和 continuation byte，`utf8.codepoint` / `len` / `offset` 错误文本与边界归属收紧，`utf8.offset` 不再用 strict decode 阻断 lax 5/6 字节序列。
 - 已按官方 Lua 5.4.8 `lstrlib.c` 修正 string pattern 对内嵌 NUL 的处理：`MatchState` 现在保存 pattern end 指针，`find` / `match` / `gmatch` / `gsub` 会按长度解析模式串，因此 `utf8.charpattern` 可保持官方内嵌 NUL 常量而不是改写成替代表达式。
 - 已先把 Lua 5.4 lowered 位运算 helper 的原始数值路径提升到 64 位内部计算：`1 << 31`、`(1 << 31) - 1`、`1 << 40`、跨 32 位的 `&` / `|` / `~` / shift 和 `>=64` 位移已进入 smoke；超出当前 32 位 TValue integer 表面的结果暂以精确 double 桥接，完整 64 位 integer/TValue 仍保留在 `TODO.md`。

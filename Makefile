@@ -177,7 +177,7 @@ smoketest:
 
 smoketest-lua54compat:
 	$(MAKE) clean
-	$(MAKE) XCFLAGS='-DLUAJIT_ENABLE_LUA54COMPAT'
+	$(MAKE) XCFLAGS='-DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2'
 	./src/luajit test/smoke.lua lua54compat
 	out=$$(./src/luajit -e 'warn("@on"); warn("lua54 ", "warning")' 2>&1 >/dev/null) && test "$$out" = "Lua warning: lua54 warning"
 	out=$$(./src/luajit -W -e 'warn("lua54 -W warning")' 2>&1 >/dev/null) && test "$$out" = "Lua warning: lua54 -W warning"

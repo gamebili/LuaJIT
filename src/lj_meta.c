@@ -540,6 +540,36 @@ void LJ_FASTCALL lj_meta_for(lua_State *L, TValue *o)
   if (!lj_strscan_numberobj(o+1)) lj_err_msg(L, LJ_ERR_FORLIM);
   if (!lj_strscan_numberobj(o+2)) lj_err_msg(L, LJ_ERR_FORSTEP);
   if (LJ_DUALNUM) {
+#if LJ_54
+    /* Lua 5.4 uses the integer FORL path only when the initial value and step
+    ** are tagged integers. A float limit is rounded toward the loop direction,
+    ** but a float init/step must keep the loop variable floating.
+    */
+    if (tvisint(o) && tvisint(o+2)) {
+      if (!tvisint(o+1)) {
+	lua_Number n = numV(o+1);
+	lua_Number ni = intV(o+2) < 0 ? -lj_vm_floor(-n) : lj_vm_floor(n);
+	if (ni >= -2147483648.0 && ni <= 2147483647.0)
+	  setintV(o+1, (int32_t)ni);
+	else if (n > 0 && intV(o+2) > 0)
+	  setintV(o+1, 2147483647);
+	else if (n < 0 && intV(o+2) < 0)
+	  setintV(o+1, (int32_t)0x80000000u);
+	else {
+	  /* Out-of-range float limits on the opposite side must make the loop
+	  ** skip. Widening lets the existing float FORI comparison decide that
+	  ** without inventing a sentinel integer outside the current TValue range.
+	  */
+	  setnumV(o, (lua_Number)intV(o));
+	  setnumV(o+2, (lua_Number)intV(o+2));
+	}
+      }
+    } else {
+      if (tvisint(o)) setnumV(o, (lua_Number)intV(o));
+      if (tvisint(o+1)) setnumV(o+1, (lua_Number)intV(o+1));
+      if (tvisint(o+2)) setnumV(o+2, (lua_Number)intV(o+2));
+    }
+#else
     /* Ensure all slots are integers or all slots are numbers. */
     int32_t k[3];
     int nint = 0;
@@ -561,6 +591,6 @@ void LJ_FASTCALL lj_meta_for(lua_State *L, TValue *o)
       if (tvisint(o+1)) setnumV(o+1, (lua_Number)intV(o+1));
       if (tvisint(o+2)) setnumV(o+2, (lua_Number)intV(o+2));
     }
+#endif
   }
 }
-

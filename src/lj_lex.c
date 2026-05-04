@@ -112,6 +112,22 @@ static void lex_number(LexState *ls, TValue *tv)
     lj_lex_error(ls, TK_number, LJ_ERR_XNUMBER);
   }
   opt = (LJ_DUALNUM ? STRSCAN_OPT_TOINT : STRSCAN_OPT_TONUM);
+#if LJ_54 && LJ_DUALNUM
+  {
+    const char *s = (const char *)ls->sb.b;
+    MSize len = sbuflen(&ls->sb)-1;
+    int hex = len > 2 && s[0] == '0' && ((s[1] | 0x20) == 'x');
+    MSize i;
+    for (i = 0; i < len; i++) {
+      int c = s[i] | 0x20;
+      if (s[i] == '.' || c == (hex ? 'p' : 'e')) {
+	/* Lua 5.4 chooses integer vs. float from the literal spelling. */
+	opt = STRSCAN_OPT_TONUM;
+	break;
+      }
+    }
+  }
+#endif
   /* Keep LuaJIT numeric literal suffixes out of the Lua 5.4 syntax surface. */
   if (LJ_HASFFI && !LJ_54)
     opt |= (STRSCAN_OPT_LL|STRSCAN_OPT_IMAG);

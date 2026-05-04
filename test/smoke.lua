@@ -802,6 +802,30 @@ do
   assert(ok == false and err:match("'for' step is zero") ~= nil)
   ok, err = pcall(assert(load([[for i = 1, 3, "0" do end]])))
   assert(ok == false and err:match("'for' step is zero") ~= nil)
+  local c = 0
+  for i = 1.0, 10 do
+    assert(math.type(i) == "float")
+    c = c + 1
+  end
+  assert(c == 10)
+  c = 0
+  for i = -1, -10, -1.0 do
+    assert(math.type(i) == "float")
+    c = c + 1
+  end
+  assert(c == 10)
+  c = 0
+  for i = 1, 10.9 do
+    assert(math.type(i) == "integer")
+    c = c + 1
+  end
+  assert(c == 10)
+  c = 0
+  for i = 10, 0.001, -1 do
+    assert(math.type(i) == "integer")
+    c = c + 1
+  end
+  assert(c == 10)
 end
 do
   local function eval(src)
@@ -990,7 +1014,18 @@ end
 assert(math.type(nil) == nil)
 assert(math.type("1") == nil)
 assert(math.type(1.5) == "float")
-assert(math.type(1) == "integer" or math.type(1) == "float")
+assert(math.type(1) == "integer")
+assert(math.type(1.0) == "float")
+assert(math.type(1e0) == "float")
+assert(math.type(0x1) == "integer")
+assert(math.type(0x1p0) == "float")
+assert(math.type(1.0 + 2) == "float")
+assert(math.type(1 + 2.0) == "float")
+assert(math.type(1 + 2) == "integer")
+assert(math.type(4 / 2) == "float")
+assert(math.type(2 ^ 3) == "float")
+assert(math.type(tonumber("1")) == "integer")
+assert(math.type(tonumber("1.0")) == "float")
 assert(math.maxinteger == 2147483647)
 assert(math.mininteger == -2147483648)
 assert(math.maxinteger > 0 and math.mininteger < 0)
@@ -2259,6 +2294,17 @@ do
       end
       return c
     end
+    local function int_for_boundary_loop()
+      local c = 0
+      -- Near integer limits, Lua 5.4 must not record a trace that changes the
+      -- control variable to float just to avoid possible int32 overflow.
+      for i = -1, -math.huge, -1 do
+        if i < -10 then break end
+        assert(math.type(i) == "integer")
+        c = c + 1
+      end
+      return c
+    end
     jit.flush()
     jit.on()
     jitopt.start("hotloop=1")
@@ -2301,6 +2347,9 @@ do
     assert(eq_meta_loop(80) == 80)
     assert(eq_meta_loop(80) == 80)
     assert(trace_highwater() > before)
+    jit.flush()
+    assert(int_for_boundary_loop() == 10)
+    assert(int_for_boundary_loop() == 10)
     jit.flush()
     jitopt.start("hotloop=56")
   end

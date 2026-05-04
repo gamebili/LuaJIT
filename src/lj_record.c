@@ -410,6 +410,14 @@ static TRef fori_arg(jit_State *J, const BCIns *fori, BCReg slot,
   return tr;
 }
 
+#if LJ_54 && LJ_DUALNUM
+static int rec_for_allint(cTValue *tv)
+{
+  return tvisint(&tv[FORL_IDX]) && tvisint(&tv[FORL_STOP]) &&
+	 tvisint(&tv[FORL_STEP]);
+}
+#endif
+
 /* Return the direction of the FOR loop iterator.
 ** It's important to exactly reproduce the semantics of the interpreter.
 */
@@ -484,6 +492,10 @@ static void rec_for_loop(jit_State *J, const BCIns *fori, ScEvEntry *scev,
   TRef idx = J->base[ra+FORL_IDX];
   IRType t = idx ? tref_type(idx) :
 	     (init || LJ_DUALNUM) ? lj_opt_narrow_forl(J, tv) : IRT_NUM;
+#if LJ_54 && LJ_DUALNUM
+  if (t != IRT_INT && rec_for_allint(tv))
+    lj_trace_err(J, LJ_TRERR_GFAIL);  /* Keep boundary int loops correct. */
+#endif
   int mode = IRSLOAD_INHERIT +
     ((!LJ_DUALNUM || tvisint(tv) == (t == IRT_INT)) ? IRSLOAD_READONLY : 0);
   TRef stop = fori_arg(J, fori, ra+FORL_STOP, t, mode);
@@ -550,6 +562,10 @@ static LoopEvent rec_for(jit_State *J, const BCIns *fori, int isforl)
     lj_meta_for(J->L, tv);
     t = (LJ_DUALNUM || tref_isint(tr[FORL_IDX])) ? lj_opt_narrow_forl(J, tv) :
 						   IRT_NUM;
+#if LJ_54 && LJ_DUALNUM
+    if (t != IRT_INT && rec_for_allint(tv))
+      lj_trace_err(J, LJ_TRERR_GFAIL);
+#endif
     for (i = FORL_IDX; i <= FORL_STEP; i++) {
       if (!tr[i]) sload(J, ra+i);
       lj_assertJ(tref_isnumber_str(tr[i]), "bad FORI argument type");

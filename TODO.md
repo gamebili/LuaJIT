@@ -27,6 +27,7 @@
    - 目标：统一 `lua_Integer`、TValue 数字子类型、字符串扫描、格式化、算术、bitwise、numeric for 和 JIT recorder 的整数路径。
    - 覆盖：`1 << 40`、`math.mininteger/maxinteger`、`math.type(1.0)`、`"1.0"+2`、`math.tointeger`、`math.ult`、`string.pack("j/i8/I8")`、C API integer 边界。
    - 接口要求：先决定 dual-number / 64-bit integer 表示与 JIT IR 扩展策略，再批量改库函数；不要在单个库函数里继续做 32 位补丁。
+   - 当前进展：PC x64 Lua 5.4 compat 构建已切到 `LUAJIT_NUMMODE=2` dual-number；float 字面量、常量折叠、字符串数字转换和 numeric for 已开始按 TValue 子类型保留 integer/float 区分，但完整 64 位 `lua_Integer` / IR / ABI 仍未完成。
 
 4. **debug frame metadata 批次**
    - 目标：在 VM frame 层保留 Lua 5.4 hook/tailcall 所需元信息。
@@ -66,8 +67,9 @@
 - [ ] 完整 Lua 5.4 64 位整数语义。
   - 当前状态：兼容层仍沿用 LuaJIT 当前 32 位内部整数策略，`math.mininteger`/`math.maxinteger` 是 `-2147483648..2147483647`。
   - 当前进展：`math.type()` 在非 dual-number 构建下会把当前 32 位范围内可精确表示为整数的 number 报告为 `integer`；`math.floor`、`math.ceil`、`math.modf` 的整数部分会尽量返回当前兼容整数表面。
+  - 当前进展：PC x64 Lua 5.4 compat smoke 已启用 dual-number 构建；`1.0`、`1e0`、`0x1p0` 这类按拼写应为 float 的常量不会再因常量表把 `1` / `1.0` 统一为同一个 key 而丢失子类型，`1.0 + 2` / `4 / 2` / `2 ^ 3` 等常量折叠也会保留官方 integer/float 结果形态。
   - 当前进展：lowered 位运算 helper 已先用 64 位内部计算打通 `1 << 31`、`(1 << 31) - 1`、`1 << 40`、跨 32 位 `&` / `|` / `~` / shift 和 `>=64` 位移；超出当前 32 位 TValue integer 表面的结果暂以精确 double 桥接。
-  - 已知差异：TValue integer 子类型、`lua_Integer` / `lua_Unsigned` 头文件 ABI、`math.mininteger` / `math.maxinteger`、整数字面量扫描、numeric for、`math.tointeger` / `math.ult`、`string.pack("j/i8/I8")`、`string.format` 的 `maxinteger`/`mininteger` 边界和 C API 边界仍没有完整 Lua 5.4 64 位整数语义；整数/浮点子类型也仍不能像官方 Lua 5.4 一样完整区分所有字面量和运行期结果。
+  - 已知差异：`lua_Integer` / `lua_Unsigned` 头文件 ABI、`math.mininteger` / `math.maxinteger`、64 位整数字面量扫描、`math.tointeger` / `math.ult`、`string.pack("j/i8/I8")`、`string.format` 的 `maxinteger`/`mininteger` 边界和 C API 边界仍没有完整 Lua 5.4 64 位整数语义。
   - 对照结论：官方 `testes/bitwise.lua` 的 `0xF0F0F0F0F0F0F0F0`、`testes/strings.lua` 的 `0x7fffffffffffffff` / `-0x8000000000000000` 格式化块都会卡在真实 64 位 integer/TValue 缺失上，不能继续用单个库函数补丁硬凑。
   - 需要补测试：64 位整数字面量边界、`math.tointeger`、`math.ult`、`math.random(0)` 全范围、位运算、整除、比较、`string.pack` 的 `j`/`I8`/`i8`、C API `lua_Integer` 边界。
   - 实现重点：需要统一 TValue 表示、数值转换、字符串扫描、格式化、运算符和库函数的整数路径。
@@ -75,7 +77,9 @@
 - [ ] 数值 `for` 的 Lua 5.4 整数循环语义。
   - 当前状态：仍主要沿用 LuaJIT 旧数值 for 行为。
   - 当前进展：Lua 5.4 兼容模式已把常量 `0` / `0.0` step 从编译期错误改为运行期 `FORI` 前 helper 错误，和动态变量 `0`、字符串 `"0"` 一样在执行时统一报 `'for' step is zero`，可被官方 `checkerror(function() for ... do end end)` 捕获。
-  - 已知差异：跨 32 位边界和接近 `math.maxinteger` 的整数循环仍没有 Lua 5.4 的“不回绕”语义；当前 Windows x64 compat 构建仍是非 dual-number 表示，`math.type(1.0)` / `for i = 1.0, 10 do math.type(i) end` 这类浮点控制变量子类型无法按官方 Lua 5.4 保留，官方 `testes/nextvar.lua` 当前会继续卡在该数值/TValue 表示缺口。
+  - 当前进展：init/step 为 float 的循环会保持 float 控制变量；init/step 为 integer 且 limit 为 float 时会按步长方向取整，超出当前 32 位 integer 表面时裁剪或切回 float 比较以保持跳过语义；官方 `testes/nextvar.lua` 已越过 numeric for 块。
+  - 当前进展：JIT recorder 对接近当前 32 位 integer 边界、可能溢出的 integer numeric for 不再改录为 float trace，避免 `math.type(i)` 在热循环后从 `integer` 变成 `float`。
+  - 已知差异：完整 64 位 `math.maxinteger` / `math.mininteger` 循环、不回绕边界和跨 32 位以上整数循环仍归入 64 位 integer/TValue 批次。
   - 需要补测试：正/负步长边界、`math.maxinteger` / `math.mininteger` 附近、整数和浮点控制变量的类型、循环变量不回绕、循环变量在 debug API 下的行为。
 
 - [x] Lua 5.4 运算符元方法。
@@ -346,6 +350,7 @@
   - 当前进展：已补 JIT smoke，覆盖字符串 metatable 的 `__add` 优先于字符串数字转换，并在热循环中产生 trace。
   - 当前进展：已补 JIT smoke，覆盖 Lua 5.4 generic for 第 4 个 closing value 采用 `false` 时，`next` 热循环仍可产生 trace。
   - 当前进展：已补 JIT smoke，覆盖真实 `_ENV` upvalue 经 `debug.setupvalue` 替换为自定义 table 后，隐式全局访问仍可在热循环中执行并产生 trace。
+  - 当前进展：已补 JIT smoke，覆盖 Lua 5.4 integer numeric for 在接近当前 32 位边界时不能被错误记录成 float 控制变量；这类可能溢出的边界循环会回退解释器以保持语义。
   - 当前进展：`jit._lua54_*` helper 字段访问已处理大 chunk 常量表超过 255 时的 `TGETS` 索引截断问题，超出 8 位范围时改用 `KSTR + TGETV`。
   - 当前进展：Lua 5.4 兼容模式仍隐藏启动全局 `bit`，但已把 `bit` 作为显式 preload 模块保留，避免 `jit.dump` / `-jdump` 因内部 `require("bit")` 失败。
   - 需要补测试：继续扩展到更多 Lua 5.4 helper 路径，并在 unsupported trace 路径上补退出或 recorder。
