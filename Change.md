@@ -30,6 +30,8 @@
 - 已继续补 Lua 5.4 `lauxlib.h` buffer 宏：外部兼容头中的 `luaL_prepbuffer` 现在按官方映射到 `luaL_prepbuffsize(B, LUAL_BUFFERSIZE)`，内部和默认构建保留旧函数 ABI。
 - 已继续补 Lua 5.4 `lauxlib.h` 辅助宏：外部兼容头中的 `luaL_argexpected` / `luaL_pushfail` 现在按官方作为宏暴露，内部和默认构建保留旧函数 ABI。
 - 已继续补 Lua 5.4 `lauxlib.h` load 宏：外部兼容头中的 `luaL_loadfile` / `luaL_loadbuffer` 现在按官方映射到 `luaL_loadfilex(..., NULL)` / `luaL_loadbufferx(..., NULL)`。
+- 已继续补 Lua 5.4 `lauxlib.h` newlib 宏：外部兼容头中的 `luaL_newlib` 现在按官方先执行 `luaL_checkversion()`，默认 LuaJIT 5.1 宏保持不变。
+- 已继续补 Lua 5.4 C API smoke：`lua_isyieldable()` 已覆盖主 C frame 返回 false、通过 `lua_resume()` 进入 coroutine C frame 返回 true。
 - 已继续补 Lua 5.4 `lua.h` 兼容宏：新增 `LUA_NUMTAGS` 作为 `LUA_NUMTYPES` 别名，并进入 C API smoke。
 - 已继续补 Lua 5.4 C API 表面：新增 `lua_closethread()` no-`<close>` 基础实现，覆盖 yielded/fresh coroutine 关闭后返回 `LUA_OK`、清空栈并恢复 OK 状态。
 - 已继续补 Lua 5.4 deprecated intcast 兼容宏：在 `LUA_COMPAT_APIINTCASTS` 下暴露 `lua_pushunsigned` / `lua_tounsignedx` / `lua_tounsigned` / `luaL_checkunsigned` / `luaL_optunsigned`，并新增单独 C smoke。
@@ -123,10 +125,15 @@
 - 已继续补 Lua 5.4 lauxlib 头文件表面：新增 `luaL_Stream` 类型定义，并在 C API smoke 中编译覆盖字段访问。
 - 已继续补 Lua 5.4 `io.lines(filename)` 返回形态：现在会返回第 4 个 closing value，并在迭代到 EOF 后关闭文件。
 - 已继续收紧 `string.format("%c", value)` 的 Lua 5.4 数值边界：fraction number 现在报“没有整数表示”，字符串数字仍可转换。
+- 已继续收紧 Lua 5.4 `//` 错误文本：无元方法且无法做数值整除时会报 `attempt to idiv a '<lhs>' with a '<rhs>'`，不再泄露 `_lua54_idiv` helper，并保留 `__name` 类型名。
+- 已继续收紧 Lua 5.4 位运算错误文本：`&` / `|` / `~` / `<<` / `>>` 降级 helper 遇到无整数表示的 number 会报 `number has no integer representation`，遇到 string/boolean/table 会报 bitwise operator 错误并保留 `__name` 类型名。
 - 已继续补齐 table 库代理表读取语义：`table.concat` / `table.unpack` 在 Lua 5.4 兼容模式下会通过 `__index` 读取元素。
 - 已继续收紧 `os.rename()` 的 Lua 5.4 错误文本边界：失败时返回原始系统错误字符串，不再拼入源文件名。
 - 已继续补齐 table 库代理表读写语义：`table.insert` / `table.remove` 在 Lua 5.4 兼容模式下会通过 `__index` 移动源元素、通过 `__newindex` 写回目标槽位。
 - 已继续收紧 `string.format("%q", value)` 的 Lua 5.4 字面量规则：table 等没有字面量形式的值即使带 `__tostring` 也会报错。
+- 已继续收紧普通算术的字符串失败路径：Lua 5.4 兼容模式下 `"x" + 1`、`1 + "x"`、`"x" * true` 和 `-"x"` 会报具体操作名和左右操作数类型，不再只报 LuaJIT 泛化的 `perform arithmetic on string value`。
+- 已继续补齐字符串算术元方法优先级：Lua 5.4 兼容模式下字符串 metatable 显式提供 `__add` / `__mul` / `__unm` 时，会优先于 `"1"` 这类字符串数字转换执行。
+- 已继续扩展 JIT smoke：开启 JIT 后的字符串 `__add` 元方法优先级会在热循环中验证结果并确认产生 trace。
 
 ## 修改内容
 
@@ -294,6 +301,11 @@
 - 覆盖 `tonumber("0x10", 16) == nil`、`tonumber("0x10", 34)` 仍按普通数字解析，并覆盖 `inf` / `infinity` / `nan` 与 `0b` / `0B` 字符串在 Lua 5.4 兼容模式下返回 `nil`。
 - 覆盖 `string.format("%d", 1.2)` 报错、`%q` number 输出和 `%p` nil 输出。
 - 覆盖 `string.format("%d", "1.2")` 的 Lua 5.4 整数转换错误函数名。
+- 覆盖 Lua 5.4 `//` 失败路径：string 在左右两侧和带 `__name` 的 table 都报 idiv operator 错误。
+- 覆盖 Lua 5.4 位运算失败路径：fraction number 报“没有整数表示”，string/boolean/带 `__name` 的 table 报 bitwise operator 错误。
+- 覆盖普通算术字符串转换边界：`"1" + "2"` 可转换，不可转换字符串参与 `+` / `*` / 一元 `-` 时按 Lua 5.4 报具体操作名和左右类型。
+- 覆盖字符串算术元方法优先级：字符串 metatable 的 `__add` / `__mul` / `__unm` 会拦截 `"1" + 2`、`2 + "1"`、`"1" * 2` 和 `-"1"`。
+- 覆盖当前 JIT 可用平台下，字符串 metatable 的 `__add` 优先级可以在热循环中执行并产生 trace。
 - 覆盖 `string.char(256)` 的 Lua 5.4 越界错误文本。
 - 覆盖 `utf8.char(0x80000000)` 的 Lua 5.4 越界错误文本。
 - 覆盖 `math.floor()`、`math.ceil()`、`math.modf()` 的 Lua 5.4 整数返回表面。
@@ -320,6 +332,7 @@
 - 覆盖 Lua 5.4 `lauxlib.h` 中 `luaL_prepbuffer` 的宏可见性，以及该宏返回 buffer 后配合 `luaL_addsize()` / `luaL_pushresult()` 的基础写入结果。
 - 覆盖 Lua 5.4 `lauxlib.h` 中 `luaL_argexpected` / `luaL_pushfail` 的宏可见性，并继续覆盖 `luaL_pushfail()` 的 nil 返回表面。
 - 覆盖 Lua 5.4 `lauxlib.h` 中 `luaL_loadfile` / `luaL_loadbuffer` 的宏可见性和基础加载执行结果。
+- 覆盖 Lua 5.4 `lauxlib.h` 中 `luaL_newlib` 会先调用 `luaL_checkversion()` 的宏形态。
 - 覆盖 Lua 5.4 外部兼容头中 `lua_newuserdata()` / `lua_getuservalue()` / `lua_setuservalue()` 作为 slot 1 alias 宏的可见性和基础运行行为。
 - 覆盖 `LUA_COMPAT_APIINTCASTS` 下 `lua_pushunsigned` / `lua_tounsignedx` / `lua_tounsigned` / `luaL_checkunsigned` / `luaL_optunsigned` 以及既有 int/long cast 宏。
 - 覆盖 Lua 5.4 外部兼容头声明 `luaopen_coroutine()`，并确认独立打开 coroutine 库会返回包含 `create` 的库表。
@@ -334,6 +347,7 @@
 - 覆盖 Lua 5.4 外部兼容头中 `lua_tonumber()` / `lua_tointeger()` 的宏可见性和基础转换结果。
 - 覆盖 Lua 5.4 外部兼容头中 `lua_getextraspace()` 的宏可见性，并继续覆盖主线程 extraspace 写入会复制到新线程。
 - 覆盖 Lua 5.4 外部兼容头中 `lua_call()` / `lua_pcall()` / `lua_yield()` 的宏可见性，以及 `lua_call()` / `lua_pcall()` 基础运行路径。
+- 覆盖 Lua 5.4 C API `lua_isyieldable()`：主 C frame 不可 yield，`lua_resume()` 进入的 coroutine C frame 可 yield。
 - 覆盖 Lua 5.4 兼容模式拒绝 `0b...` 二进制数字字面量、`L` / `LL` / `UL` / `ULL` / `uLL` 整数后缀和 imaginary `i` 数字字面量。
 - 用临时 C 程序编译/链接验证 `lua_absindex`、`lua_isinteger`、`lua_rawlen`、`lua_geti` / `lua_seti`、`lua_rawgetp` / `lua_rawsetp`、`lua_pushglobaltable` 和 `luaL_newmetatable` 写入 `__name`。
 - 覆盖 `luaL_loadbufferx()` / `luaL_loadfilex()` 的 `mode="t"` 和 `mode="b"` 路径。

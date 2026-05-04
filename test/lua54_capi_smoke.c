@@ -275,6 +275,32 @@ static const luaL_Reg capi_newlib[] = {
   { NULL, NULL }
 };
 
+static int capi_newlib_checkversion_count;
+
+static void capi_note_checkversion(lua_State *L)
+{
+  (void)L;
+  capi_newlib_checkversion_count++;
+}
+
+/* The Lua 5.4 luaL_newlib macro is required to call luaL_checkversion().
+** Redefine that macro only for this helper so the smoke can prove the macro
+** shape without perturbing the real luaL_checkversion() runtime tests below.
+*/
+#undef luaL_checkversion
+#define luaL_checkversion(L) capi_note_checkversion((L))
+static void test_newlib_macro_checkversion(lua_State *L)
+{
+  capi_newlib_checkversion_count = 0;
+  luaL_newlib(L, capi_newlib);
+  check(L, capi_newlib_checkversion_count == 1,
+	"luaL_newlib calls luaL_checkversion");
+  lua_pop(L, 1);
+}
+#undef luaL_checkversion
+#define luaL_checkversion(L) \
+  luaL_checkversion_(L, LUA_VERSION_NUM, LUAL_NUMSIZES)
+
 static const luaL_Reg capi_setfuncs[] = {
   { "upvalue", push_upvalue },
   { NULL, NULL }
@@ -290,6 +316,15 @@ static int yield_two(lua_State *L)
   lua_pushliteral(L, "y1");
   lua_pushliteral(L, "y2");
   return lua_yield(L, 2);
+}
+
+static int push_isyieldable(lua_State *L)
+{
+  /* lua_isyieldable() depends on the currently running C frame, so check it
+  ** inside a coroutine resumed through the Lua 5.4 lua_resume() surface.
+  */
+  lua_pushboolean(L, lua_isyieldable(L));
+  return 1;
 }
 
 static int return_two(lua_State *L)
@@ -494,6 +529,8 @@ static void test_stack_and_number_api(lua_State *L)
   check_string(L, -1, "copy-source", "lua_copy destination");
   lua_pop(L, 2);
 
+  check(L, lua_isyieldable(L) == 0, "lua_isyieldable main C frame");
+
   lua_pushcfunction(L, push_answer);
   lua_call(L, 0, 1);
   check_integer(L, -1, 42, "lua_call macro");
@@ -541,6 +578,20 @@ static void test_stack_and_number_api(lua_State *L)
 	"lua_closethread fresh return");
   check(L, lua_status(co) == LUA_OK, "lua_closethread fresh status");
   check(L, lua_gettop(co) == 0, "lua_closethread fresh stack");
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  lua_pushcfunction(L, push_isyieldable);
+  lua_xmove(L, co, 1);
+  {
+    int nres = -1;
+    check(L, lua_resume(co, L, 0, &nres) == LUA_OK,
+	  "lua_isyieldable coroutine resume status");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_isyieldable coroutine result count");
+    check(L, lua_toboolean(co, 1) == 1,
+	  "lua_isyieldable resumed C frame");
+  }
   lua_pop(L, 1);
 
   co = lua_newthread(L);
@@ -851,6 +902,7 @@ static void test_lauxlib_api(lua_State *L)
   lua_call(L, 0, 1);
   check_integer(L, -1, 42, "luaL_newlib function");
   lua_pop(L, 2);
+  test_newlib_macro_checkversion(L);
 
   lua_newtable(L);
   lua_pushliteral(L, "captured-upvalue");

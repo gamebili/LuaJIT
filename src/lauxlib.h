@@ -198,7 +198,15 @@ LUALIB_API void (luaL_setmetatable) (lua_State *L, const char *tname);
 /* From Lua 5.2. */
 #define luaL_newlibtable(L, l) \
 	lua_createtable(L, 0, sizeof(l)/sizeof((l)[0]) - 1)
+#if LUAJIT_EXTERNAL_LUA54
+/* Lua 5.4's luaL_newlib macro performs the version/numeric ABI guard before
+** registering functions; default LuaJIT builds keep the historical macro.
+*/
+#define luaL_newlib(L, l) \
+	(luaL_checkversion((L)), luaL_newlibtable((L), (l)), luaL_setfuncs((L), (l), 0))
+#else
 #define luaL_newlib(L, l)	(luaL_newlibtable(L, l), luaL_setfuncs(L, l, 0))
+#endif
 
 /*
 ** {======================================================

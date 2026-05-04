@@ -371,8 +371,63 @@ do
   assert(eval("((1 << 4) | 3) ~ 5") == 22)
   assert(eval("8 >> -1") == 16)
   assert(eval("8 << -1") == 4)
-  assert(select(1, pcall(assert(load("return 3.5 & 1")))) == false)
-  assert(select(1, pcall(assert(load([[return "3" & 1]])))) == false)
+  do
+    assert(assert(load([[return "1" + "2"]]))() == 3)
+    local string_mt = debug.getmetatable("")
+    debug.setmetatable("", {
+      __add = function(a, b) return "add:"..tostring(a)..":"..tostring(b) end,
+      __mul = function(a, b) return "mul:"..tostring(a)..":"..tostring(b) end,
+      __unm = function(a, b) return "unm:"..tostring(a)..":"..tostring(b) end,
+    })
+    assert(assert(load([[return "1" + 2]]))() == "add:1:2")
+    assert(assert(load([[return 2 + "1"]]))() == "add:2:1")
+    assert(assert(load([[return "1" * 2]]))() == "mul:1:2")
+    assert(assert(load([[return -"1"]]))() == "unm:1:1")
+    debug.setmetatable("", string_mt)
+    local ok, err = pcall(assert(load([[return "x" + 1]])))
+    assert(ok == false and err:match("attempt to add") ~= nil and
+           err:match("'string'") ~= nil and err:match("'number'") ~= nil)
+    ok, err = pcall(assert(load([[return 1 + "x"]])))
+    assert(ok == false and err:match("attempt to add") ~= nil and
+           err:match("'number'") ~= nil and err:match("'string'") ~= nil)
+    ok, err = pcall(assert(load([[return "x" * true]])))
+    assert(ok == false and err:match("attempt to mul") ~= nil and
+           err:match("'string'") ~= nil and err:match("'boolean'") ~= nil)
+    ok, err = pcall(assert(load([[return true * "x"]])))
+    assert(ok == false and err:match("attempt to mul") ~= nil and
+           err:match("'boolean'") ~= nil and err:match("'string'") ~= nil)
+    ok, err = pcall(assert(load([[return -"x"]])))
+    assert(ok == false and err:match("attempt to unm") ~= nil and
+           err:match("'string'") ~= nil)
+  end
+  do
+    local ok, err = pcall(assert(load("return 3.5 & 1")))
+    assert(ok == false and err:match("integer representation") ~= nil)
+    ok, err = pcall(assert(load([[return "3" & 1]])))
+    assert(ok == false and err:match("bitwise operation") ~= nil and
+           err:match("string value") ~= nil)
+    ok, err = pcall(assert(load("return true & 1")))
+    assert(ok == false and err:match("bitwise operation") ~= nil and
+           err:match("boolean value") ~= nil)
+    _G.__lua54_named_bitwise = setmetatable({}, { __name = "Lua54Bitwise" })
+    ok, err = pcall(assert(load("return __lua54_named_bitwise & 1")))
+    assert(ok == false and err:match("bitwise operation") ~= nil and
+           err:match("Lua54Bitwise value") ~= nil)
+    _G.__lua54_named_bitwise = nil
+  end
+  do
+    local ok, err = pcall(assert(load([[return "x" // 1]])))
+    assert(ok == false and err:match("idiv") ~= nil and
+           err:match("'string'") ~= nil and err:match("'number'") ~= nil)
+    ok, err = pcall(assert(load([[return 1 // "x"]])))
+    assert(ok == false and err:match("idiv") ~= nil and
+           err:match("'number'") ~= nil and err:match("'string'") ~= nil)
+    _G.__lua54_named_idiv = setmetatable({}, { __name = "Lua54Idiv" })
+    ok, err = pcall(assert(load("return __lua54_named_idiv // 1")))
+    assert(ok == false and err:match("idiv") ~= nil and
+           err:match("'Lua54Idiv'") ~= nil)
+    _G.__lua54_named_idiv = nil
+  end
   do
     local only_lt = setmetatable({}, { __lt = function() return true end })
     local with_le = setmetatable({}, { __le = function() return true end })
@@ -1234,6 +1289,13 @@ do
       end
       return c
     end
+    local function string_meta_arith_loop(n)
+      local sum = 0
+      for i = 1, n do
+        sum = sum + ("1" + i)
+      end
+      return sum
+    end
     jit.flush()
     jit.on()
     jitopt.start("hotloop=1")
@@ -1251,6 +1313,16 @@ do
     assert(reject_number_string_loop(80) == 80)
     assert(reject_number_string_loop(80) == 80)
     assert(trace_highwater() > before)
+    jit.flush()
+    local string_mt = debug.getmetatable("")
+    debug.setmetatable("", {
+      __add = function(a, b) return tonumber(a) + b + 100 end,
+    })
+    before = trace_highwater()
+    assert(string_meta_arith_loop(80) == 11320)
+    assert(string_meta_arith_loop(80) == 11320)
+    assert(trace_highwater() > before)
+    debug.setmetatable("", string_mt)
     jit.flush()
     jitopt.start("hotloop=56")
   end

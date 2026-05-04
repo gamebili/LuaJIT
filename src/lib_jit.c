@@ -14,7 +14,9 @@
 #include "lj_gc.h"
 #include "lj_err.h"
 #include "lj_debug.h"
+#include "lj_meta.h"
 #include "lj_str.h"
+#include "lj_strfmt.h"
 #include "lj_strscan.h"
 #include "lj_tab.h"
 #include "lj_state.h"
@@ -184,32 +186,39 @@ static int32_t lua54_checkintop(lua_State *L, int narg)
   int isnum;
   if (!lua54_toint32(L, narg, &i, &isnum)) {
     if (isnum)
-      luaL_argerror(L, narg, "number has no integer representation");
-    lj_err_argt(L, narg, LUA_TNUMBER);
+      lj_err_caller(L, LJ_ERR_NUMINT);
+    else {
+      cTValue *o = L->base + narg-1;
+      MSize tlen;
+      const char *tname;
+      if (o >= L->top)
+	lj_err_argt(L, narg, LUA_TNUMBER);
+      tname = lj_meta_objtypename(L, o, &tlen);
+      UNUSED(tlen);
+      /* These helpers are lowered operator bodies, not public C functions.
+      ** Report failures as Lua 5.4 bitwise operator errors instead of
+      ** leaking the private helper name as a bad argument to '?'.
+      */
+      lj_err_callermsg(L, lj_strfmt_pushf(L,
+	"attempt to perform bitwise operation on a %s value", tname));
+    }
   }
   return i;
 }
 
-static double lua54_checknumop(lua_State *L, int narg, int *isint, int32_t *ip)
+static void lua54_binop_error(lua_State *L, const char *opname)
 {
-  TValue tmp;
-  cTValue *o = L->base + narg-1;
-  if (o >= L->top)
-    lj_err_argt(L, narg, LUA_TNUMBER);
-  if (tvisstr(o)) {
-    if (!lj_strscan_number(strV(o), &tmp))
-      lj_err_argt(L, narg, LUA_TNUMBER);
-    o = &tmp;
-  } else if (!tvisnumber(o)) {
-    lj_err_argt(L, narg, LUA_TNUMBER);
-  }
-  if (tvisint(o)) {
-    *isint = 1;
-    *ip = intV(o);
-    return (double)*ip;
-  }
-  *isint = 0;
-  return numV(o);
+  cTValue *a = L->base < L->top ? L->base : niltv(L);
+  cTValue *b = L->base+1 < L->top ? L->base+1 : niltv(L);
+  MSize alen, blen;
+  const char *at = lj_meta_objtypename(L, a, &alen);
+  const char *bt = lj_meta_objtypename(L, b, &blen);
+  UNUSED(alen); UNUSED(blen);
+  /* Lua 5.4 reports lowered operator helpers as source-level arithmetic
+  ** failures, keeping both operand types and __name-derived type names.
+  */
+  lj_err_callermsg(L, lj_strfmt_pushf(L,
+    "attempt to %s a '%s' with a '%s'", opname, at, bt));
 }
 
 static int lua54_tonumop(lua_State *L, int narg, int *isint, int32_t *ip,
@@ -287,8 +296,7 @@ static int lj_cf_jit__lua54_idiv(lua_State *L)
       !lua54_tonumop(L, 2, &ib, &b, &nb)) {
     if (lua54_callbinmeta(L, "__idiv", 0))
       return 1;
-    na = lua54_checknumop(L, 1, &ia, &a);
-    nb = lua54_checknumop(L, 2, &ib, &b);
+    lua54_binop_error(L, "idiv");
   }
   if (ia && ib) {
     int64_t ai = a, bi = b, q, r;

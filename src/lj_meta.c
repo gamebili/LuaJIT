@@ -240,6 +240,27 @@ static cTValue *str2num(cTValue *o, TValue *n)
     return NULL;
 }
 
+#if LJ_54
+static void lua54_strarith_error(lua_State *L, cTValue *rb, cTValue *rc,
+				 MMS mm)
+{
+  static const char *const opnames[] = {
+    "add", "sub", "mul", "div", "mod", "pow", "unm"
+  };
+  MSize blen, clen;
+  const char *bt = lj_meta_objtypename(L, rb, &blen);
+  const char *ct = lj_meta_objtypename(L, rc, &clen);
+  UNUSED(blen); UNUSED(clen);
+  /* Lua 5.4 routes string arithmetic through string-library metamethods.
+  ** When conversion still fails, report the source operator and both operand
+  ** types instead of LuaJIT's generic "arithmetic on string value" error.
+  */
+  lj_err_callermsg(L, lj_strfmt_pushf(L,
+    "attempt to %s a '%s' with a '%s'",
+    opnames[(int)mm - (int)MM_add], bt, ct));
+}
+#endif
+
 /* Helper for arithmetic instructions. Coercion, metamethod. */
 TValue *lj_meta_arith(lua_State *L, TValue *ra, cTValue *rb, cTValue *rc,
 		      BCReg op)
@@ -247,6 +268,20 @@ TValue *lj_meta_arith(lua_State *L, TValue *ra, cTValue *rb, cTValue *rc,
   MMS mm = bcmode_mm(op);
   TValue tempb, tempc;
   cTValue *b, *c;
+#if LJ_54
+  if (tvisstr(rb) || tvisstr(rc)) {
+    cTValue *mo = lj_meta_lookup(L, rb, mm);
+    if (tvisnil(mo))
+      mo = lj_meta_lookup(L, rc, mm);
+    if (!tvisnil(mo)) {
+      /* Lua 5.4 implements string arithmetic conversion via string
+      ** metamethods, so an explicit string metatable method must override
+      ** the fallback string-to-number conversion.
+      */
+      return mmcall(L, lj_cont_ra, mo, rb, rc);
+    }
+  }
+#endif
   if ((b = str2num(rb, &tempb)) != NULL &&
       (c = str2num(rc, &tempc)) != NULL) {  /* Try coercion first. */
     setnumV(ra, lj_vm_foldarith(numV(b), numV(c), (int)mm-MM_add));
@@ -256,6 +291,10 @@ TValue *lj_meta_arith(lua_State *L, TValue *ra, cTValue *rb, cTValue *rc,
     if (tvisnil(mo)) {
       mo = lj_meta_lookup(L, rc, mm);
       if (tvisnil(mo)) {
+#if LJ_54
+	if (tvisstr(rb) || tvisstr(rc))
+	  lua54_strarith_error(L, rb, rc, mm);
+#endif
 	if (str2num(rb, &tempb) == NULL) rc = rb;
 	lj_err_optype(L, rc, LJ_ERR_OPARITH);
 	return NULL;  /* unreachable */
