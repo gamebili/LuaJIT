@@ -126,11 +126,11 @@
 - [ ] `debug.getinfo` 的 Lua 5.4 选项和 hook 字段。
   - 当前状态：`debug.getinfo(f, "u")` 已有 `nparams`/`isvararg`；`"t"` 选项已接受并返回保守的 `istailcall=false`。
   - 当前进展：`lua_Debug` 已补 Lua 5.4 的 `nparams`、`isvararg`、`istailcall`、`ftransfer`、`ntransfer` 字段；`lua_getinfo(..., "ut")` 会填入 `nparams/isvararg`，并对尚未精确支持的 tail/transfer 字段返回保守 `0/false`。
-  - 当前进展：`debug.getinfo(..., "r")` 和 C API `lua_getinfo(..., "r")` 已接受 Lua 5.4 transfer-info 选项；非 hook 场景返回保守的 `ftransfer=0` / `ntransfer=0`，普通 Lua 函数 call/return hook 已能报告参数和返回值 transfer 范围。
+  - 当前进展：`debug.getinfo(..., "r")` 和 C API `lua_getinfo(..., "r")` 已接受 Lua 5.4 transfer-info 选项；非 hook 场景返回保守的 `ftransfer=0` / `ntransfer=0`，普通 Lua 函数（含 vararg）call/return hook 已能报告参数和返回值 transfer 范围。
   - 当前定位：普通 Lua tail call 会复用调用者栈帧，当前 debug C 层只能看到复用后的调用点，无法可靠还原被消除 caller 的 `CALLT`；真实 `istailcall=true` 需要 VM/各架构 frame 写入时保留 tail-call 标记。
   - 当前进展：Lua 5.4 兼容模式下，debug 库的 level/index/count 参数已改用严格整数检查；`debug.getinfo`、`getlocal`、`setlocal`、`getupvalue`、`setupvalue`、`upvalueid`、`upvaluejoin`、`sethook`、`traceback`、`getuservalue`、`setuservalue` 和 `setcstacklimit` 都会拒绝无整数表示的 number，同时保留字符串数字转换。
-  - 已覆盖：C API smoke 读取新增 `lua_Debug` 字段，并通过 `lua_sethook` / `lua_getinfo(..., "r")` 覆盖普通 Lua 函数 hook transfer；Lua smoke 覆盖非 hook 场景和 `debug.getinfo(2, "r")` 的 call/return hook transfer。
-  - 需要补测试：真实 tail call 场景的 `istailcall`，以及 vararg / C 函数 / tail call 等更多 hook transfer 字段边界。
+  - 已覆盖：C API smoke 读取新增 `lua_Debug` 字段，并通过 `lua_sethook` / `lua_getinfo(..., "r")` 覆盖普通 Lua 函数固定参数和 vararg 的 hook transfer；Lua smoke 覆盖非 hook 场景和 `debug.getinfo(2, "r")` 的固定参数 / vararg call-return hook transfer。
+  - 需要补测试：真实 tail call 场景的 `istailcall`，以及 C 函数 / tail call 等更多 hook transfer 字段边界。
 
 - [ ] Lua 5.4 C API / 头文件兼容。
   - 当前状态：`lua.h` 会在兼容模式报告 `LUA_VERSION_NUM 504`，但大量 Lua 5.4 C API 仍缺失、保持旧签名，或仍暴露 Lua 5.1 宏/索引，例如 `LUA_GLOBALSINDEX`、`lua_objlen`、`lua_getfenv`、`lua_setfenv`。

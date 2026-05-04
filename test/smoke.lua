@@ -1106,6 +1106,24 @@ do
     assert(seen[1] == "call:1:2")
     assert(seen[2] == "return:3:2")
   end
+  do
+    local seen = {}
+    local function hook(ev)
+      local info = debug.getinfo(2, "nr")
+      if info.name == "lua54_transfer_vararg" then
+        seen[#seen+1] = ev..":"..info.ftransfer..":"..info.ntransfer
+      end
+    end
+    local function lua54_transfer_vararg(a, ...)
+      return a, ...
+    end
+    debug.sethook(hook, "cr")
+    local a, b, c = lua54_transfer_vararg(1, 2, 3)
+    debug.sethook()
+    assert(a == 1 and b == 2 and c == 3)
+    assert(seen[1] == "call:1:1")
+    assert(seen[2] == "return:2:3")
+  end
 end
 
 do

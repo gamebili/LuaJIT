@@ -80,6 +80,7 @@
 - 已继续收紧 Lua 5.4 `string.format()` 错误表面：整数格式遇到非 number 类型、以及 `%q` 遇到 table / 带 `__tostring` 的 table 时，错误函数名现在保持为 `string.format`，不再从内部格式化 helper 泄露为 `?`。
 - 已修正 Lua 5.4 `string.pack("lL")` smoke 的跨平台 ABI 假设：native `long` 在 Windows x64 为 4 字节、Android ARM64 为 8 字节，测试现在按目标 ABI 校验；Android ARM64 设备 `R5CN30J05BT` 已通过 `test/smoke.lua lua54compat`。
 - 已继续补 Lua 5.4 debug hook transfer 字段：普通 Lua 函数 call hook 会报告参数 transfer 范围，return hook 会报告返回值 transfer 范围；非 hook 场景仍返回 `0, 0`。
+- 已继续补 Lua 5.4 debug hook transfer 的 vararg 边界覆盖：Lua smoke 和 C API smoke 均校验 vararg 函数 call hook 只报告固定参数 transfer，return hook 报告完整返回值 transfer。
 - 已用本机 `emcc 5.0.6` 试跑 Emscripten 构建入口，当前 Makefile 在 `lj_arch.h` 阶段明确失败为 wasm 架构不受支持；该平台仍需要单独 wasm/interpreter VM 后端方案。
 - 已继续收紧 Lua 5.4 GC 公开表面：兼容构建中 `collectgarbage("setstepmul", n)` 的初始旧值现在对齐 Lua 5.4 的 `100`。
 - 已继续收紧严格 Lua 5.4 语法表面：`L` / `LL` / `UL` / `ULL` / `uLL`、`0b...` 和 imaginary `i` 数字字面量扩展都已进入拒绝用例。

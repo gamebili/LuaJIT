@@ -169,6 +169,10 @@ static int hook_call_ftransfer = -1;
 static int hook_call_ntransfer = -1;
 static int hook_ret_ftransfer = -1;
 static int hook_ret_ntransfer = -1;
+static int hook_vararg_call_ftransfer = -1;
+static int hook_vararg_call_ntransfer = -1;
+static int hook_vararg_ret_ftransfer = -1;
+static int hook_vararg_ret_ntransfer = -1;
 
 static void header_output_macros_compile_only(void)
 {
@@ -239,13 +243,24 @@ static int panic_b(lua_State *L)
 
 static void capi_transfer_hook(lua_State *L, lua_Debug *ar)
 {
-  if (lua_getinfo(L, "ur", ar) && ar->nparams == 2 && !ar->isvararg) {
+  if (!lua_getinfo(L, "ur", ar))
+    return;
+  if (ar->nparams == 2 && !ar->isvararg) {
     if (ar->event == LUA_HOOKCALL) {
       hook_call_ftransfer = ar->ftransfer;
       hook_call_ntransfer = ar->ntransfer;
     } else if (ar->event == LUA_HOOKRET) {
       hook_ret_ftransfer = ar->ftransfer;
       hook_ret_ntransfer = ar->ntransfer;
+    }
+  } else if (ar->nparams == 1 && ar->isvararg) {
+    /* Lua 5.4 reports only the fixed parameter as call input for varargs. */
+    if (ar->event == LUA_HOOKCALL) {
+      hook_vararg_call_ftransfer = ar->ftransfer;
+      hook_vararg_call_ntransfer = ar->ntransfer;
+    } else if (ar->event == LUA_HOOKRET) {
+      hook_vararg_ret_ftransfer = ar->ftransfer;
+      hook_vararg_ret_ntransfer = ar->ntransfer;
     }
   }
 }
@@ -1485,6 +1500,25 @@ static void test_warning_and_gc_api(lua_State *L)
 	"lua_getinfo call hook transfer fields");
   check(L, hook_ret_ftransfer == 3 && hook_ret_ntransfer == 2,
 	"lua_getinfo return hook transfer fields");
+
+  hook_vararg_call_ftransfer = hook_vararg_call_ntransfer = -1;
+  hook_vararg_ret_ftransfer = hook_vararg_ret_ntransfer = -1;
+  lua_sethook(L, capi_transfer_hook, LUA_MASKCALL | LUA_MASKRET, 0);
+  status = luaL_dostring(L,
+    "local function capi_transfer_vararg(a, ...) return a, ... end\n"
+    "return capi_transfer_vararg(1, 2, 3)");
+  lua_sethook(L, NULL, 0, 0);
+  check(L, status == LUA_OK, "lua_getinfo vararg hook transfer setup");
+  check_integer(L, -3, 1, "lua_getinfo vararg transfer result 1");
+  check_integer(L, -2, 2, "lua_getinfo vararg transfer result 2");
+  check_integer(L, -1, 3, "lua_getinfo vararg transfer result 3");
+  lua_pop(L, 3);
+  check(L, hook_vararg_call_ftransfer == 1 &&
+	hook_vararg_call_ntransfer == 1,
+	"lua_getinfo vararg call hook transfer fields");
+  check(L, hook_vararg_ret_ftransfer == 2 &&
+	hook_vararg_ret_ntransfer == 3,
+	"lua_getinfo vararg return hook transfer fields");
 }
 
 int main(void)
