@@ -1510,6 +1510,15 @@ static void fscope_closeactive(FuncState *fs, BCReg tolevel)
       bcemit_lua54_closevalue(fs, closevar);
   }
 }
+
+static BCReg fscope_breaklevel(FuncState *fs)
+{
+  FuncScope *bl;
+  for (bl = fs->bl; bl; bl = bl->prev)
+    if (bl->flags & FSCOPE_LOOP)
+      return bl->nactvar;
+  return 0;
+}
 #endif
 
 static void fscope_end(FuncState *fs)
@@ -2642,6 +2651,12 @@ static void parse_return(LexState *ls)
 static void parse_break(LexState *ls)
 {
   ls->fs->bl->flags |= FSCOPE_BREAK;
+#if LJ_54
+  /* A break leaves the innermost loop immediately; close locals that belong
+  ** to the loop body or nested blocks before the jump is emitted.
+  */
+  fscope_closeactive(ls->fs, fscope_breaklevel(ls->fs));
+#endif
   gola_new(ls, NAME_BREAK, VSTACK_GOTO, bcemit_jmp(ls->fs));
 }
 
