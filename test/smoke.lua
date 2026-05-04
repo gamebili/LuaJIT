@@ -461,6 +461,33 @@ do
     ]]))())
   end
   do
+    assert(assert(load([[
+      local log = {}
+      local mt = {
+        __close = function(self, err)
+          assert(err == nil)
+          log[#log + 1] = self.name
+        end,
+      }
+      local function iter(_, i)
+        if i < 2 then return i + 1 end
+      end
+      for _ in iter, nil, 0, setmetatable({ name = "natural" }, mt) do
+      end
+      assert(table.concat(log, ",") == "natural")
+
+      log = {}
+      for _ in iter, nil, 0, setmetatable({ name = "break" }, mt) do
+        break
+      end
+      assert(table.concat(log, ",") == "break")
+
+      local ok, err = pcall(assert(load("for _ in function() end, nil, nil, 1 do end")))
+      assert(ok == false and err:match("variable '%(for state%)' got a non%-closable value"))
+      return true
+    ]]))())
+  end
+  do
     local setlocal_const = assert(load([[
     return function()
       local x <const> = {}

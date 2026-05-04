@@ -24,6 +24,7 @@
 - 已继续补 Lua 5.4 `<close>` `break` 路径：退出最近循环前会关闭循环体和嵌套块中仍处于活动状态的 close locals，按 LIFO 调用 `__close(value, nil)`。
 - 已继续补 Lua 5.4 `<close>` 已知向后 `goto` 路径：跳回当前或外层已出现的可见标签前，会按目标标签活动局部变量层级关闭被跳出的 close locals；前向/未解析 `goto` 仍记录在 `TODO.md`。
 - 已继续补 Lua 5.4 `<close>` 前向 `goto` 路径：当 pending goto 在作用域结束时确认要跳出该作用域，会生成 goto 专用 close 跳板，只关闭 goto 发生时已经活跃的 close locals；同一作用域内的前向标签不会提前关闭。
+- 已继续补 Lua 5.4 generic for 第 4 个 closing value：表达式第 4 个结果会进入隐藏 close slot，进入循环前校验 `__close`，自然结束和 `break` 退出时会关闭；错误展开仍记录在 `TODO.md`。
 - 已继续补 Lua 5.4 C API `lua_version` 头文件表面：兼容构建的外部头现在暴露 value-returning wrapper，可按官方 `lua_Number (*)(lua_State *)` 签名取函数指针；默认构建和内部 ABI 仍保留 LuaJIT 旧指针返回入口。
 - 已继续打通 Lua debug 库和 C API indexed uservalue：C 创建带 declared uservalue 的 userdata 后，`debug.getuservalue()` / `debug.setuservalue()` 已能按 Lua 5.4 表面读写声明槽位。
 - 已继续补 `table.concat({1,nil,3}, ",")` 的 Lua 5.4 边界：默认终点会覆盖 LuaJIT 旧长度搜索提前停在 1 的情况，从而检查到 index 2 的 nil 并报错。
@@ -352,6 +353,7 @@
 - 覆盖 Lua 5.4 `<close>` `break` 退出：嵌套块和循环体中的待关闭局部变量按 LIFO 调用 `__close(value, nil)`。
 - 覆盖 Lua 5.4 `<close>` 已知向后 `goto`：从内层块跳回外层已出现标签前关闭被跳出的 close local，随后正常再次进入并在块自然结束时关闭第二个 close local。
 - 覆盖 Lua 5.4 `<close>` 前向 `goto`：跳出包含 close local 的块时关闭该变量；goto 后才声明的 close local 不会被错误关闭；跳到同一作用域内标签不会提前关闭。
+- 覆盖 Lua 5.4 generic for 第 4 个 closing value：循环自然结束和 `break` 都会调用 `__close(value, nil)`；第 4 个值为非 closable 时会按 `(for state)` 报错。
 - 覆盖 Lua 5.4 外部兼容头不会暴露 `LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` / `lua_strlen`，并覆盖 `lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 的 registry globals 路径。
 - 覆盖 Lua 5.4 外部兼容头暴露 `LUA_RIDX_LAST`，并确认其值等于 `LUA_RIDX_GLOBALS`。
 - 覆盖 Lua 5.4 外部兼容头暴露 `LUA_EXTRASPACE`，并确认其大小与当前 pointer-sized extraspace 实现一致。

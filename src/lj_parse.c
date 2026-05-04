@@ -2926,12 +2926,21 @@ static void parse_for_iter(LexState *ls, GCstr *indexname)
   FuncState *fs = ls->fs;
   ExpDesc e;
   BCReg nvars = 0;
+#if LJ_54
+  BCReg nctrl = 4;
+#else
+  BCReg nctrl = 3;
+#endif
   BCLine line;
-  BCReg base = fs->freereg + 3;
+  BCReg base = fs->freereg + nctrl;
   BCPos loop, loopend, exprpc = fs->pc;
   FuncScope bl;
   int isnext;
   /* Hidden control variables. */
+#if LJ_54
+  var_new_fixed(ls, nvars++, VARNAME_FOR_STATE);
+  ls->vstack[ls->vtop-1].info |= VSTACK_VAR_CLOSE;
+#endif
   var_new_fixed(ls, nvars++, VARNAME_FOR_GEN);
   var_new_fixed(ls, nvars++, VARNAME_FOR_STATE);
   var_new_fixed(ls, nvars++, VARNAME_FOR_CTL);
@@ -2941,21 +2950,43 @@ static void parse_for_iter(LexState *ls, GCstr *indexname)
     var_new(ls, nvars++, lex_str(ls));
   lex_check(ls, TK_in);
   line = ls->linenumber;
-  assign_adjust(ls, 3, expr_list(ls, &e), &e);
+  assign_adjust(ls, nctrl, expr_list(ls, &e), &e);
+#if LJ_54
+  {
+    BCReg ctrlbase = (BCReg)(fs->freereg - nctrl);
+    BCReg tmp = fs->freereg;
+    /* Lua 5.4 stores the 4th generic-for expression as a closing value, but
+    ** LuaJIT bytecode still expects generator/state/control right before the
+    ** visible loop variables. Rotate: gen,state,ctl,close -> close,gen,state,ctl.
+    */
+    bcreg_reserve(fs, 1);
+    bcemit_AD(fs, BC_MOV, tmp, (BCReg)(ctrlbase + 3));
+    bcemit_AD(fs, BC_MOV, (BCReg)(ctrlbase + 3), (BCReg)(ctrlbase + 2));
+    bcemit_AD(fs, BC_MOV, (BCReg)(ctrlbase + 2), (BCReg)(ctrlbase + 1));
+    bcemit_AD(fs, BC_MOV, (BCReg)(ctrlbase + 1), ctrlbase);
+    bcemit_AD(fs, BC_MOV, ctrlbase, tmp);
+    fs->freereg = (BCReg)(ctrlbase + nctrl);
+  }
+#endif
   /* The iterator needs another 3 [4] slots (func [pc] | state ctl). */
   bcreg_bump(fs, 3+ls->fr2);
-  isnext = (nvars <= 5 && fs->pc > exprpc && predict_next(ls, fs, exprpc));
-  var_add(ls, 3);  /* Hidden control variables. */
+  isnext = (nvars <= nctrl + 2 && fs->pc > exprpc &&
+	    predict_next(ls, fs, exprpc));
+  var_add(ls, nctrl);  /* Hidden control variables. */
+#if LJ_54
+  bcemit_lua54_checkclose(fs, (BCReg)(fs->nactvar - nctrl),
+			  lj_parse_keepstr(ls, "(for state)", 11));
+#endif
   lex_check(ls, TK_do);
   loop = bcemit_AJ(fs, isnext ? BC_ISNEXT : BC_JMP, base, NO_JMP);
   fscope_begin(fs, &bl, 0);  /* Scope for visible variables. */
-  var_add(ls, nvars-3);
-  bcreg_reserve(fs, nvars-3);
+  var_add(ls, nvars-nctrl);
+  bcreg_reserve(fs, nvars-nctrl);
   parse_block(ls);
   fscope_end(fs);
   /* Perform loop inversion. Loop control instructions are at the end. */
   jmp_patchins(fs, loop, fs->pc);
-  bcemit_ABC(fs, isnext ? BC_ITERN : BC_ITERC, base, nvars-3+1, 2+1);
+  bcemit_ABC(fs, isnext ? BC_ITERN : BC_ITERC, base, nvars-nctrl+1, 2+1);
   loopend = bcemit_AJ(fs, BC_ITERL, base, NO_JMP);
   fs->bcbase[loopend-1].line = line;  /* Fix line for control ins. */
   fs->bcbase[loopend].line = line;
