@@ -309,7 +309,11 @@ LJLIB_ASM(ipairs)		LJLIB_REC(xpairs 1)
 #if LJ_54
 static int lj_cf_ipairs_aux54(lua_State *L)
 {
-  lua_Integer i = luaL_checkinteger(L, 2) + 1;
+  lua_Integer i = luaL_checkinteger(L, 2);
+  /* Official ipairs uses luaL_intop(+, i, 1), so advancing maxinteger wraps
+  ** to mininteger. Avoid C signed overflow while preserving that surface.
+  */
+  i = (i == LUA_MAXINTEGER) ? LUA_MININTEGER : i + 1;
   lua_pushinteger(L, i);
   lua_pushinteger(L, i);
   /* Lua 5.4 ipairs uses normal indexed access, so __index can provide values. */
@@ -322,7 +326,10 @@ static int lj_cf_ipairs_aux54(lua_State *L)
 static int lj_cf_ipairs54(lua_State *L)
 {
   base_checkany_named54(L, 1, "ipairs");
-  lua_pushcfunction(L, lj_cf_ipairs_aux54);
+  /* Lua 5.4 exposes one stable ipairs auxiliary function; keep it as an
+  ** upvalue so repeated ipairs{} calls compare equal like the official VM.
+  */
+  lua_pushvalue(L, lua_upvalueindex(1));
   lua_pushvalue(L, 1);
   lua_pushinteger(L, 0);
   return 3;
@@ -1258,7 +1265,8 @@ LUALIB_API int luaopen_base(lua_State *L)
   lua_setglobal(L, "next");
   lua_pushcfunction(L, lj_cf_rawget54);
   lua_setglobal(L, "rawget");
-  lua_pushcfunction(L, lj_cf_ipairs54);
+  lua_pushcfunction(L, lj_cf_ipairs_aux54);
+  lua_pushcclosure(L, lj_cf_ipairs54, 1);
   lua_setglobal(L, "ipairs");
   lua_getglobal(L, "next");
   lua_pushcclosure(L, lj_cf_pairs54, 1);

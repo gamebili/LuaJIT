@@ -3018,10 +3018,6 @@ static void parse_for_num(LexState *ls, GCstr *varname, BCLine line)
   if (lex_opt(ls, ',')) {
     ExpDesc step;
     expr(ls, &step);
-#if LJ_54
-    if (expr_isnumk_nojump(&step) && expr_numiszero(&step))
-      lj_lex_error(ls, 0, LJ_ERR_FORSTEP0);
-#endif
     expr_tonextreg(fs, &step);
   } else {
     bcemit_AD(fs, BC_KSHORT, fs->freereg, 1);  /* Default step is 1. */

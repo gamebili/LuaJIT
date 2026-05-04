@@ -552,9 +552,16 @@ StrScanFmt lj_strscan_scan(const uint8_t *p, MSize len, TValue *o,
 
     /* Try to convert number to integer, if requested. */
     if (fmt == STRSCAN_NUM && (opt & STRSCAN_OPT_TOINT)) {
+#if LJ_54
+      /* Lua 5.4 keeps decimal/exponent/hex-float forms as floats even when
+      ** their value has an integer representation, e.g. 1.0 or 0x1p0.
+      */
+      return fmt;
+#else
       int64_t tmp;
       if (lj_num2int_check(o->n, tmp, o->i) && !tvismzero(o))
 	return STRSCAN_INT;
+#endif
     }
     return fmt;
   }

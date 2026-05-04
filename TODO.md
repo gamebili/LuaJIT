@@ -74,8 +74,8 @@
 
 - [ ] 数值 `for` 的 Lua 5.4 整数循环语义。
   - 当前状态：仍主要沿用 LuaJIT 旧数值 for 行为。
-  - 当前进展：Lua 5.4 兼容模式会拒绝常量 `0` / `0.0` step，并在运行期通过跨平台 helper 拒绝动态变量 `0` 和字符串 `"0"` step，报 `'for' step is zero`。
-  - 已知差异：跨 32 位边界和接近 `math.maxinteger` 的整数循环仍没有 Lua 5.4 的“不回绕”语义；完整整数/浮点控制变量类型仍受当前 32 位兼容层限制。
+  - 当前进展：Lua 5.4 兼容模式已把常量 `0` / `0.0` step 从编译期错误改为运行期 `FORI` 前 helper 错误，和动态变量 `0`、字符串 `"0"` 一样在执行时统一报 `'for' step is zero`，可被官方 `checkerror(function() for ... do end end)` 捕获。
+  - 已知差异：跨 32 位边界和接近 `math.maxinteger` 的整数循环仍没有 Lua 5.4 的“不回绕”语义；当前 Windows x64 compat 构建仍是非 dual-number 表示，`math.type(1.0)` / `for i = 1.0, 10 do math.type(i) end` 这类浮点控制变量子类型无法按官方 Lua 5.4 保留，官方 `testes/nextvar.lua` 当前会继续卡在该数值/TValue 表示缺口。
   - 需要补测试：正/负步长边界、`math.maxinteger` / `math.mininteger` 附近、整数和浮点控制变量的类型、循环变量不回绕、循环变量在 debug API 下的行为。
 
 - [x] Lua 5.4 运算符元方法。
@@ -292,6 +292,7 @@
   - 当前进展：`package.searchpath()` / `package.searchers` 返回的错误片段已按 Lua 5.4 去掉前导换行缩进，`require()` 组装最终 module-not-found 错误时再补 `\n\t`。
   - 当前进展：`os.rename()` 失败时已按 Lua 5.4 返回原始系统错误文本，不再把源文件名拼进错误字符串；`os.remove()` 失败返回保留文件名前缀并已进入 smoke 覆盖。
   - 当前进展：`pairs()` 已按 Lua 5.4 延迟 table 检查；没有 `__pairs` 时会返回原始 `next, value, nil`，由后续 `next()` 调用决定是否报错。
+  - 当前进展：`ipairs()` 已按官方 Lua 5.4 复用稳定的辅助迭代函数，`ipairs{} == ipairs{}` 成立；辅助迭代器在当前 32 位 integer 表面下会把 `math.maxinteger + 1` 回绕到 `math.mininteger`。
   - 当前进展：`assert()`、`type()`、`tostring()`、`pcall()`、`xpcall()`、`select()`、`error()`、`tonumber()`、`load()`、`loadfile()`、`next()`、`pairs()`、`ipairs()`、`getmetatable()`、`setmetatable()`、`rawget()` / `rawset()` / `rawequal()` / `rawlen()` 的基础参数错误会带实际函数名；`rawlen()` 非 table/string 的期望类型文本已收紧为 `table or string`；`assert(false, value)` 在 Lua 5.4 兼容模式下会保留 number/table 等非 string 错误对象。
   - 当前进展：`math.deg()` / `math.rad()` 在 Lua 5.4 兼容模式下已从 LuaJIT 内置 Lua 片段改为带参数检查的 C helper，缺参和错误类型会报标准参数错误并保留数值字符串转换。
   - 当前进展：`//` helper 的无元方法失败路径已从私有 C helper 参数错误收紧为 Lua 5.4 `idiv` 运算符错误，覆盖左右操作数类型和 `__name`。
@@ -305,6 +306,7 @@
   - 当前进展：`table.concat` / `table.insert` / `table.remove` 的默认长度路径共用 Lua 5.4 表库长度兼容逻辑，`__len` 返回无整数表示的值时会报 `object length is not an integer`。
   - 当前进展：`table.insert` / `table.remove` / `table.move` 在 Lua 5.4 兼容模式下已改用严格整数参数检查；`1.2` 等无整数表示的位置参数会报错，数字字符串仍按官方 Lua 5.4 接受。
   - 当前进展：`table.insert` / `table.remove` 在 Lua 5.4 兼容模式下移动元素时会通过 `__index` 读取、通过 `__newindex` 写入代理表。
+  - 当前进展：`table.remove(t)` 在长度为 0 时已按官方 `ltablib.c` 读取并清除 key `0`，因此 `{[0]="ban"}` 会返回 `"ban"` 并把 `t[0]` 置空。
   - 当前进展：`table.move` 在 Lua 5.4 兼容模式下已改用 API get/set 路径移动元素，因此会通过 `__index` 读取源值、通过 `__newindex` 写入目标值。
   - 当前进展：`table.move` 的 Lua 5.4 参数检查顺序已对齐，先检查 `f/e/t` 整数参数，再检查源表和目标表；缺参时会优先报第 2 个参数。
   - 当前进展：`table.insert` / `table.remove` 的默认长度已对齐当前兼容层的 Lua 5.4 表库长度语义，支持带 `__len` 的表以及 `{1,nil,3}` 这类新建 list table 中间 nil 洞的默认尾部操作。

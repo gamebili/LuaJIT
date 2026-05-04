@@ -352,16 +352,18 @@ static int lj_cf_table_remove54(lua_State *L)
     if (pos != len && (pos < 1 || pos-1 > len))
       table_argerror_named54(L, 2, "table.remove", "position out of bounds");
   }
-  if (pos >= 1 && pos <= len) {
-    int32_t i;
-    /* Lua 5.4 table.remove reads and writes through the public table API. */
+  if (pos >= 0 && pos <= len + 1) {
+    int32_t i, nilpos = pos < len ? len : pos;
+    /* Lua 5.4 table.remove reads and clears pos=size even when size is zero;
+    ** this is observable for tables with a value stored at integer key 0.
+    */
     lua_geti(L, 1, pos);
     for (i = pos; i < len; i++) {
       lua_geti(L, 1, i+1);
       lua_seti(L, 1, i);
     }
     lua_pushnil(L);
-    lua_seti(L, 1, len);
+    lua_seti(L, 1, nilpos);
     return 1;
   }
   setnilV(L->top++);

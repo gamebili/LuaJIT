@@ -164,6 +164,14 @@ do
   assert(ok == false and err:match("to 'pairs'") ~= nil)
   ok, err = pcall(ipairs)
   assert(ok == false and err:match("to 'ipairs'") ~= nil)
+  assert(type(ipairs({})) == "function" and ipairs({}) == ipairs({}))
+  do
+    local iter = ipairs({})
+    local k, v = iter({ [math.mininteger] = 10 }, math.maxinteger)
+    assert(k == math.mininteger and v == 10)
+    k, v = iter({ [math.mininteger] = 10 }, k)
+    assert(k == nil and v == nil)
+  end
   ok, err = pcall(setmetatable)
   assert(ok == false and err:match("to 'setmetatable'") ~= nil)
   ok, err = pcall(getmetatable)
@@ -782,10 +790,14 @@ do
 end
 do
   local f, err = load("for i = 1, 3, 0 do end")
-  assert(f == nil and err:match("'for' step is zero") ~= nil)
-  f, err = load("for i = 1, 3, 0.0 do end")
-  assert(f == nil and err:match("'for' step is zero") ~= nil)
+  assert(f ~= nil and err == nil)
   local ok
+  ok, err = pcall(f)
+  assert(ok == false and err:match("'for' step is zero") ~= nil)
+  f, err = load("for i = 1, 3, 0.0 do end")
+  assert(f ~= nil and err == nil)
+  ok, err = pcall(f)
+  assert(ok == false and err:match("'for' step is zero") ~= nil)
   ok, err = pcall(assert(load("local z = 0; for i = 1, 3, z do end")))
   assert(ok == false and err:match("'for' step is zero") ~= nil)
   ok, err = pcall(assert(load([[for i = 1, 3, "0" do end]])))
@@ -1304,6 +1316,8 @@ do
   local t = { 1, 2 }
   assert(table.remove(t, 3) == nil and t[1] == 1 and t[2] == 2)
   assert(table.remove({}, 0) == nil)
+  local zero = { [0] = "ban" }
+  assert(#zero == 0 and table.remove(zero) == "ban" and zero[0] == nil)
   local with_hole = { 1, nil, 3 }
   assert(table.remove(with_hole) == 3)
   assert(with_hole[1] == 1 and with_hole[2] == nil and with_hole[3] == nil)

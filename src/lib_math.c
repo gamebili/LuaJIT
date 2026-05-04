@@ -257,6 +257,12 @@ static int lj_cf_math_type(lua_State *L)
   else if (tvisint(o))
     setstrV(L, L->top++, lj_str_newlit(L, "integer"));
   else {
+#if LJ_DUALNUM
+    /* With dual numbers the TValue tag already carries Lua 5.4's integer vs.
+    ** float distinction; exact float values such as 1.0 must stay "float".
+    */
+    setstrV(L, L->top++, lj_str_newlit(L, "float"));
+#else
     int32_t i;
     int isnum;
     /* Non-dual-number builds cannot preserve Lua 5.4's exact integer tag.
@@ -267,6 +273,7 @@ static int lj_cf_math_type(lua_State *L)
       setstrV(L, L->top++, lj_str_newlit(L, "integer"));
     else
       setstrV(L, L->top++, lj_str_newlit(L, "float"));
+#endif
   }
   return 1;
 }
