@@ -1209,6 +1209,29 @@ do
     assert(seen[2] == "return:true:4:1")
     assert(tail_target(1, 2, false) == 3)
   end
+  do
+    local seen = {}
+    local function hook(ev)
+      local info = debug.getinfo(2, "rt")
+      if ev == "tail call" or (ev == "return" and info.istailcall) then
+        seen[#seen+1] = ev..":"..tostring(info.istailcall)..":"..
+          info.ftransfer..":"..info.ntransfer
+      end
+    end
+    local function tail_vararg_target(...)
+      assert(debug.getinfo(1, "t").istailcall == true)
+      return ...
+    end
+    local function tail_vararg_caller(...)
+      return tail_vararg_target(...)
+    end
+    debug.sethook(hook, "cr")
+    local a, b, c = tail_vararg_caller(1, 2, 3)
+    debug.sethook()
+    assert(a == 1 and b == 2 and c == 3)
+    assert(seen[1] == "tail call:true:0:0")
+    assert(seen[2] == "return:true:1:3")
+  end
 end
 
 do

@@ -90,6 +90,8 @@
 - 已继续扩展 Lua 5.4 debug hook transfer 覆盖：Lua smoke 校验 fast C 函数 return hook transfer，C API smoke 校验注册 C 函数 call/return hook transfer；更深的 tailcall 嵌套、错误展开和 tail-position C return 边界继续留在同一批次后续推进。
 - 已继续补 Lua 5.4 debug frame metadata 批次的 Lua tailcall 元数据：x64 / ARM64 `BC_CALLT` 会为普通 Lua tail call 保存 frame side marker，`debug.getinfo(..., "t")`、Lua hook 和 C API hook 可报告 `istailcall=true`，并在 frame 返回时清 marker。
 - 已继续扩展 Lua 5.4 tailcall 回归：Lua smoke 覆盖 `tail call` hook 文本、tailcall return transfer 和直接普通调用不误判，C API smoke 覆盖 `LUA_HOOKTAILCALL`、`lua_Debug.istailcall` 和 transfer 字段。
+- 已继续补 Lua 5.4 vararg tailcall 元数据边界：debug 层会把 `FRAME_VARG` pseudo-frame 回溯到真实 Lua frame 判断 tailcall marker，vararg tailcall 的 return hook 现在也会报告 `istailcall=true` 和完整返回 transfer。
+- 已继续扩展 Lua/C API tailcall 回归：Lua smoke 和 C API smoke 均覆盖 vararg tailcall 的 tail event、return event、`istailcall` 和 transfer 字段。
 - 已补充 Lua 5.4 `os.remove()` 失败返回 smoke：对齐官方保留文件名前缀、返回系统错误文本和 errno code 的表面；`os.rename()` 继续保持不拼接源文件名。
 - 已用本机 `emcc 5.0.6` 试跑 Emscripten 构建入口，当前 Makefile 在 `lj_arch.h` 阶段明确失败为 wasm 架构不受支持；该平台仍需要单独 wasm/interpreter VM 后端方案。
 - 已继续收紧 Lua 5.4 GC 公开表面：兼容构建中 `collectgarbage("setstepmul", n)` 的初始旧值现在对齐 Lua 5.4 的 `100`。
@@ -269,8 +271,8 @@
   - `luaL_loadbufferx()` / `luaL_loadfilex()` 的 `mode` 参数路径已通过 C API smoke 覆盖；text 模式可加载源码，binary-only 模式会拒绝 text chunk。
   - `luaL_fileresult()`、`luaL_execresult()`、`luaL_newlib()`、`luaL_setfuncs()`、`luaL_newmetatable()` / `luaL_getmetatable()`、`luaL_setmetatable()`、`luaL_testudata()`、`luaL_checkudata()`、`luaL_traceback()` 和 `luaL_dostring()` 已进入 Lua 5.4 C API smoke。
   - `LUA_COMPAT_APIINTCASTS` 下的 deprecated unsigned/int/long cast 宏已进入单独 C smoke，覆盖编译可见性和基础 push/check/opt 转换。
-  - `lua_Debug` 新增 Lua 5.4 字段：`nparams`、`isvararg`、`istailcall`、`ftransfer`、`ntransfer`；C API `lua_getinfo(..., "ut")` 已能读取参数字段，并对尚未精确支持的 tail/transfer 字段返回保守零值。
-  - `debug.getinfo(f, "t")` 不再报 invalid option，并返回 `istailcall=false`；真实 tail-call 识别和 hook transfer 字段仍在 `TODO.md` 保留。
+  - `lua_Debug` 新增 Lua 5.4 字段：`nparams`、`isvararg`、`istailcall`、`ftransfer`、`ntransfer`；C API `lua_getinfo(..., "ut")` 已能读取参数字段，普通 Lua tailcall 和 vararg tailcall 会报告 `istailcall=true`。
+  - `debug.getinfo(f, "t")` 不再报 invalid option；普通 Lua tailcall frame 会返回 `istailcall=true`，非 tailcall 场景返回 `false`，更深的错误展开和 tail-position C return 边界仍在 `TODO.md` 保留。
   - 全局 `_ENV` 在 Lua 5.4 兼容模式下指向 `_G`。
   - 局部 `_ENV` 在 Lua 5.4 兼容模式下会接管未解析名字的读写，例如 `local _ENV = {x=1}; return x`。
   - `utf8.char()` 在 Lua 5.4 兼容模式下接受 `0..0x7fffffff`，可生成 5/6 字节扩展形式；`utf8.charpattern` 首字节范围同步扩展到 `\xfd`。

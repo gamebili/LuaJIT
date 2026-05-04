@@ -434,6 +434,21 @@ void lj_debug_pushloc(lua_State *L, GCproto *pt, BCPos pc)
 
 /* lua_getupvalue() and lua_setupvalue() are in lj_api.c. */
 
+#if LJ_54
+static int debug_istailcall(lua_State *L, cTValue *frame)
+{
+  if (frame == NULL)
+    return 0;
+  if (frame_isvarg(frame))
+    frame = frame_prevd(frame);
+  /* Vararg pseudo-frames sit above the real Lua frame. The VM stores the
+  ** marker on the real frame, so normalize before exposing Lua 5.4 metadata.
+  */
+  return frame_islua(frame) &&
+    L->tailcall_ci == (int32_t)(frame - tvref(L->stack));
+}
+#endif
+
 LUA_API const char *lua_getlocal(lua_State *L, const lua_Debug *ar, int n)
 {
   const char *name = NULL;
@@ -541,8 +556,12 @@ int lj_debug_getinfo(lua_State *L, const char *what, lj_Debug *ar, int ext)
       opt_L = 1;
     } else if (*what == 't') {
       if (ext)
-	ar->istailcall = frame && frame_islua(frame) &&
-	  L->tailcall_ci == (int32_t)(frame - tvref(L->stack));
+	ar->istailcall =
+#if LJ_54
+	  debug_istailcall(L, frame);
+#else
+	  0;
+#endif
       continue;
     } else if (*what == 'r') {
       /* Lua 5.4 exposes transferred argument/result ranges while a hook is
