@@ -9,6 +9,7 @@
 - 已补齐 Lua 5.4 debug 名字和 transfer 边界：operator metamethod、table finalizer `__gc`、`for iterator`、hook 回调帧、普通/fast C return、`pcall` / `xpcall` 合成 C return、traceback 裁剪格式和 stripped upvalue `(no name)` 均已进入 smoke；官方 `testes/db.lua` 当前通过。
 - 已继续推进 `<close>` / VM unwind 批次：parser 生成的普通 `__close` 调用现在会被 debug/traceback 识别为 `metamethod 'close'`，同时隐藏 `_lua54_closevalue` / `_lua54_packreturn` / `_lua54_unpackreturn` 等内部 helper 的 return hook 噪声，避免用户 hook 看见编译器桥接细节。
 - 官方 `testes/locals.lua` 当前已越过 `__close` 错误 traceback、return hook 顺序和基础 coroutine close-yield 用例，下一处阻塞定位为 error unwind 期间的 close-yield continuation：剩余外层 close 仍走 C `lua_pcall` 桥接，会把 `coroutine.yield()` 变成跨 C 边界 yield 错误，后续需要 VM 级 continuation 接管。
+- 已验证并排除一个低成本替代方案：把 `lj_close_unwind()` 的 C `lua_pcall` 改成 C `lua_call` 仍会在第三个 close-yield 处触发跨 C 边界 yield，说明后续必须接入 VM `FRAME_CONT`/OP_CLOSE 等价 continuation，而不是继续替换 C 调用 API。
 - 已修正 Lua 5.4 字符串算术错误路径：VM arithmetic helper 在当前 Lua 帧补齐 `L->top` 后抛出错误，`pcall(function() return "x"+1 end)` 以及 hook 回调里的 `pcall(load(...))` 都能捕获，并保留源码位置。
 - 已用用户指定的 `https://github.com/lua/lua/archive/refs/tags/v5.4.8.zip` 重新下载官方源码并和本地 `D:\p4_gl2\pristine\tools\lua\v5.4.8.zip` 核对 SHA256，确认当前对照源码一致。
 - 已继续按官方 Lua 5.4.8 `lstrlib.c` / `testes/strings.lua` 成批收紧字符串库边界：`string.rep` 结果过大时稳定报 `resulting string too large`；`string.format("%p")` 支持宽度/左对齐，primitive 仍输出 `(null)`；带宽度/精度的 `%s` 会拒绝内嵌 NUL，裸 `%s` 仍保留原字节。

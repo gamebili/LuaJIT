@@ -57,6 +57,8 @@
   - 当前进展：普通块退出和 close-active `return` 路径中的 `__close` 现在由 parser 生成普通 Lua 调用，已支持 `__close` 内 `coroutine.yield()` 后恢复继续执行，并保留 `return` 的多返回值和 `nil` 洞。
   - 当前进展：parser 生成的普通 `__close` 调用已能在 debug/traceback 中显示 `metamethod 'close'`，并隐藏 `_lua54_closevalue` / `_lua54_unpackreturn` 等内部 helper 的 return hook 噪声；官方 `testes/locals.lua` 已越过 `__close` 错误 traceback、return hook 顺序和基础 coroutine close-yield 用例。
   - 当前阻塞：官方 `testes/locals.lua` 当前停在错误展开期间的 close-yield continuation（约第 969 行）。最小根因是 `__close` 自身抛错或函数体抛错后，剩余外层 close 仍由 `lj_close_unwind()` 的 C `lua_pcall` 桥接调度，`__close` 内 `coroutine.yield()` 会退化为 `attempt to yield across C-call boundary`，后续协程状态也可能被破坏。
+  - 已排除方案：把 `lj_close_unwind()` 中的 C `lua_pcall` 直接换成 C `lua_call` 仍然会在第三个 close-yield 处报 `attempt to yield across C-call boundary`；问题不是 protected call 本身，而是 close 调度没有可恢复的 VM continuation。
+  - 下一步接口方向：需要新增类似官方 Lua 5.4 `OP_CLOSE` / `OP_RETURN` 可重复执行的 VM close continuation，或在 LuaJIT 现有 `FRAME_CONT` / `cont_dispatch` 体系下为 `__close(value, err)` 建立专用 continuation；C helper 只能准备 close call 和 close-list 状态，不能直接承担 yieldable 调用。
   - 需要补测试/实现：error unwind、`pcall`/`xpcall` 保护展开、C API `lua_toclose` 正常 C 返回以及 coroutine reset/close 路径中的 `__close` yield/continuation 边界；这些路径仍需要 VM 级 unwind continuation，不能继续用不可 yield 的 C `lua_pcall` 桥接。
   - 实现重点：普通 fall-through、固定返回值 return、动态多返回 return、break、goto、generic for 普通控制流退出、error unwind、coroutine reset/close 和 C API 弹栈关闭已先走 parser/helper/close-list 桥接；完整实现仍需要 VM/字节码/栈帧层提供统一 close 调度，最终替换动态 return 的 pack/unpack 临时桥和 error unwind close-list 桥接。
 
