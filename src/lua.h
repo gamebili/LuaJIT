@@ -159,7 +159,12 @@ LUA_API void       (lua_close) (lua_State *L);
 LUA_API lua_State *(lua_newthread) (lua_State *L);
 
 LUA_API lua_CFunction (lua_atpanic) (lua_State *L, lua_CFunction panicf);
+#if LUAJIT_EXTERNAL_LUA54
+LUA_API void       *(lua_getextraspace54) (lua_State *L);
+#define lua_getextraspace(L)	lua_getextraspace54((L))
+#else
 LUA_API void       *(lua_getextraspace) (lua_State *L);
+#endif
 
 
 /*
@@ -168,13 +173,17 @@ LUA_API void       *(lua_getextraspace) (lua_State *L);
 LUA_API int   (lua_gettop) (lua_State *L);
 LUA_API void  (lua_settop) (lua_State *L, int idx);
 LUA_API void  (lua_pushvalue) (lua_State *L, int idx);
+#if !LUAJIT_EXTERNAL_LUA54
 LUA_API void  (lua_remove) (lua_State *L, int idx);
 LUA_API void  (lua_insert) (lua_State *L, int idx);
+#endif
 LUA_API void  (lua_rotate) (lua_State *L, int idx, int n);
 #ifdef LUAJIT_ENABLE_LUA54COMPAT
 LUA_API void  (lua_copy) (lua_State *L, int fromidx, int toidx);
 #endif
+#if !LUAJIT_EXTERNAL_LUA54
 LUA_API void  (lua_replace) (lua_State *L, int idx);
+#endif
 LUA_API int   (lua_checkstack) (lua_State *L, int sz);
 #ifdef LUAJIT_ENABLE_LUA54COMPAT
 LUA_API int   (lua_setcstacklimit) (lua_State *L, unsigned int limit);
@@ -202,14 +211,19 @@ LUA_API int            (lua_equal) (lua_State *L, int idx1, int idx2);
 LUA_API int            (lua_lessthan) (lua_State *L, int idx1, int idx2);
 #endif
 
+#if !LUAJIT_EXTERNAL_LUA54
 LUA_API lua_Number      (lua_tonumber) (lua_State *L, int idx);
 LUA_API lua_Integer     (lua_tointeger) (lua_State *L, int idx);
+#endif
 LUA_API int             (lua_toboolean) (lua_State *L, int idx);
 LUA_API const char     *(lua_tolstring) (lua_State *L, int idx, size_t *len);
-#if !LUAJIT_EXTERNAL_LUA54
+#if LUAJIT_EXTERNAL_LUA54
+LUA_API lua_Unsigned    (lua_rawlen54) (lua_State *L, int idx);
+#define lua_rawlen(L,idx)	lua_rawlen54((L), (idx))
+#else
 LUA_API size_t          (lua_objlen) (lua_State *L, int idx);
-#endif
 LUA_API size_t          (lua_rawlen) (lua_State *L, int idx);
+#endif
 LUA_API void            (lua_len) (lua_State *L, int idx);
 LUA_API lua_CFunction   (lua_tocfunction) (lua_State *L, int idx);
 LUA_API void	       *(lua_touserdata) (lua_State *L, int idx);
@@ -223,10 +237,18 @@ LUA_API const void     *(lua_topointer) (lua_State *L, int idx);
 LUA_API void  (lua_pushnil) (lua_State *L);
 LUA_API void  (lua_pushnumber) (lua_State *L, lua_Number n);
 LUA_API void  (lua_pushinteger) (lua_State *L, lua_Integer n);
+#if LUAJIT_EXTERNAL_LUA54
+LUA_API const char *(lua_pushlstring54) (lua_State *L, const char *s,
+					 size_t l);
+LUA_API const char *(lua_pushstring54) (lua_State *L, const char *s);
+#define lua_pushlstring(L,s,l)	lua_pushlstring54((L), (s), (l))
+#define lua_pushstring(L,s)	lua_pushstring54((L), (s))
+#else
 LUA_API void  (lua_pushlstring) (lua_State *L, const char *s, size_t l);
 LUA_API void  (lua_pushstring) (lua_State *L, const char *s);
+#endif
 LUA_API const char *(lua_pushvfstring) (lua_State *L, const char *fmt,
-                                                      va_list argp);
+						       va_list argp);
 LUA_API const char *(lua_pushfstring) (lua_State *L, const char *fmt, ...);
 LUA_API void  (lua_pushcclosure) (lua_State *L, lua_CFunction fn, int n);
 LUA_API void  (lua_pushboolean) (lua_State *L, int b);
@@ -259,13 +281,21 @@ LUA_API void  (lua_rawgeti) (lua_State *L, int idx, int n);
 LUA_API void  (lua_rawgetp) (lua_State *L, int idx, const void *p);
 #endif
 LUA_API void  (lua_createtable) (lua_State *L, int narr, int nrec);
+#if LUAJIT_EXTERNAL_LUA54
+/* Lua 5.4 keeps the old single-uservalue helpers as aliases for slot 1. */
+#define lua_newuserdata(L,s)	lua_newuserdatauv((L), (s), 1)
+#else
 LUA_API void *(lua_newuserdata) (lua_State *L, size_t sz);
+#endif
 LUA_API void *(lua_newuserdatauv) (lua_State *L, size_t sz, int nuvalue);
 LUA_API int   (lua_getmetatable) (lua_State *L, int objindex);
 #if !LUAJIT_EXTERNAL_LUA54
 LUA_API void  (lua_getfenv) (lua_State *L, int idx);
 #endif
 LUA_API int   (lua_getiuservalue) (lua_State *L, int idx, int n);
+#if LUAJIT_EXTERNAL_LUA54
+#define lua_getuservalue(L,idx)	lua_getiuservalue((L), (idx), 1)
+#endif
 
 
 /*
@@ -287,6 +317,9 @@ LUA_API int   (lua_setmetatable) (lua_State *L, int objindex);
 LUA_API int   (lua_setfenv) (lua_State *L, int idx);
 #endif
 LUA_API int   (lua_setiuservalue) (lua_State *L, int idx, int n);
+#if LUAJIT_EXTERNAL_LUA54
+#define lua_setuservalue(L,idx)	lua_setiuservalue((L), (idx), 1)
+#endif
 
 
 /*
@@ -425,18 +458,38 @@ LUA_API void lua_setglobal54 (lua_State *L, const char *name);
 
 #define lua_tostring(L,i)	lua_tolstring(L, (i), NULL)
 
+#if LUAJIT_EXTERNAL_LUA54
+#define lua_tonumber(L,i)	lua_tonumberx((L), (i), NULL)
+#define lua_tointeger(L,i)	lua_tointegerx((L), (i), NULL)
+#define lua_insert(L,idx)	lua_rotate((L), (idx), 1)
+#define lua_remove(L,idx)	(lua_rotate((L), (idx), -1), lua_pop((L), 1))
+#define lua_replace(L,idx)	(lua_copy((L), -1, (idx)), lua_pop((L), 1))
+#endif
+
 #if defined(LUAJIT_ENABLE_LUA54COMPAT) && defined(LUA_COMPAT_APIINTCASTS)
 #define lua_pushunsigned(L,n)	lua_pushinteger(L, (lua_Integer)(n))
 #define lua_tounsignedx(L,i,is)	((lua_Unsigned)lua_tointegerx(L, (i), (is)))
 #define lua_tounsigned(L,i)	lua_tounsignedx(L, (i), NULL)
 #endif
 
+#if LUAJIT_EXTERNAL_LUA54
+#define lua_callk(L,n,r,ctx,k) \
+  ((void)(ctx), (void)(k), (lua_call)((L), (n), (r)))
+#define lua_pcallk(L,n,r,e,ctx,k) \
+  ((void)(ctx), (void)(k), (lua_pcall)((L), (n), (r), (e)))
+#define lua_yieldk(L,n,ctx,k) \
+  ((void)(ctx), (void)(k), (lua_yield)((L), (n)))
+#define lua_call(L,n,r)	lua_callk((L), (n), (r), 0, NULL)
+#define lua_pcall(L,n,r,e)	lua_pcallk((L), (n), (r), (e), 0, NULL)
+#define lua_yield(L,n)	lua_yieldk((L), (n), 0, NULL)
+#else
 #define lua_callk(L,n,r,ctx,k) \
   ((void)(ctx), (void)(k), lua_call((L), (n), (r)))
 #define lua_pcallk(L,n,r,e,ctx,k) \
   ((void)(ctx), (void)(k), lua_pcall((L), (n), (r), (e)))
 #define lua_yieldk(L,n,ctx,k) \
   ((void)(ctx), (void)(k), lua_yield((L), (n)))
+#endif
 
 #define lua_numbertointeger(n,p) \
   ((n) >= (lua_Number)LUA_MININTEGER && \

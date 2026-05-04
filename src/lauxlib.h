@@ -69,6 +69,10 @@ LUALIB_API int (luaL_argerror) (lua_State *L, int numarg, const char *extramsg);
 LUALIB_API int (luaL_typeerror) (lua_State *L, int narg, const char *tname);
 LUALIB_API void (luaL_argexpected) (lua_State *L, int cond, int arg,
                                     const char *tname);
+#if LUAJIT_EXTERNAL_LUA54
+#define luaL_argexpected(L,cond,arg,tname) \
+  ((void)((cond) || luaL_typeerror((L), (arg), (tname))))
+#endif
 LUALIB_API const char *(luaL_checklstring) (lua_State *L, int numArg,
                                                           size_t *l);
 LUALIB_API const char *(luaL_optlstring) (lua_State *L, int numArg,
@@ -81,6 +85,9 @@ LUALIB_API lua_Integer (luaL_optinteger) (lua_State *L, int nArg,
                                           lua_Integer def);
 LUALIB_API lua_Integer (luaL_len) (lua_State *L, int idx);
 LUALIB_API void (luaL_pushfail) (lua_State *L);
+#if LUAJIT_EXTERNAL_LUA54
+#define luaL_pushfail(L)	lua_pushnil(L)
+#endif
 LUALIB_API const char *(luaL_tolstring) (lua_State *L, int idx, size_t *len);
 LUALIB_API void (luaL_checkversion_) (lua_State *L, lua_Number ver, size_t sz);
 
@@ -125,6 +132,10 @@ LUALIB_API int (luaL_loadfilex) (lua_State *L, const char *filename,
 				 const char *mode);
 LUALIB_API int (luaL_loadbufferx) (lua_State *L, const char *buff, size_t sz,
 				   const char *name, const char *mode);
+#if LUAJIT_EXTERNAL_LUA54
+#define luaL_loadfile(L,f)	luaL_loadfilex((L), (f), NULL)
+#define luaL_loadbuffer(L,s,sz,n)	luaL_loadbufferx((L), (s), (sz), (n), NULL)
+#endif
 LUALIB_API void luaL_traceback (lua_State *L, lua_State *L1, const char *msg,
 				int level);
 LUALIB_API void (luaL_setfuncs) (lua_State *L, const luaL_Reg *l, int nup);
@@ -250,6 +261,9 @@ LUALIB_API char *(luaL_prepbuffsize) (luaL_Buffer *B, size_t sz);
 
 LUALIB_API void (luaL_buffinit) (lua_State *L, luaL_Buffer *B);
 LUALIB_API char *(luaL_prepbuffer) (luaL_Buffer *B);
+#if LUAJIT_EXTERNAL_LUA54
+#define luaL_prepbuffer(B)	luaL_prepbuffsize((B), LUAL_BUFFERSIZE)
+#endif
 LUALIB_API void (luaL_addlstring) (luaL_Buffer *B, const char *s, size_t l);
 LUALIB_API void (luaL_addstring) (luaL_Buffer *B, const char *s);
 LUALIB_API void (luaL_addgsub) (luaL_Buffer *B, const char *s,

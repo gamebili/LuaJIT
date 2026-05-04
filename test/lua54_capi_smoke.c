@@ -81,6 +81,74 @@
 #error "Lua 5.4 lauxlib header must expose lua_writestringerror"
 #endif
 
+#ifndef luaL_prepbuffer
+#error "Lua 5.4 lauxlib header must expose luaL_prepbuffer macro"
+#endif
+
+#ifndef luaL_argexpected
+#error "Lua 5.4 lauxlib header must expose luaL_argexpected macro"
+#endif
+
+#ifndef luaL_pushfail
+#error "Lua 5.4 lauxlib header must expose luaL_pushfail macro"
+#endif
+
+#ifndef luaL_loadfile
+#error "Lua 5.4 lauxlib header must expose luaL_loadfile macro"
+#endif
+
+#ifndef luaL_loadbuffer
+#error "Lua 5.4 lauxlib header must expose luaL_loadbuffer macro"
+#endif
+
+#ifndef lua_newuserdata
+#error "Lua 5.4 compatibility header must expose lua_newuserdata alias macro"
+#endif
+
+#ifndef lua_getuservalue
+#error "Lua 5.4 compatibility header must expose lua_getuservalue alias macro"
+#endif
+
+#ifndef lua_setuservalue
+#error "Lua 5.4 compatibility header must expose lua_setuservalue alias macro"
+#endif
+
+#ifndef lua_insert
+#error "Lua 5.4 compatibility header must expose lua_insert macro"
+#endif
+
+#ifndef lua_remove
+#error "Lua 5.4 compatibility header must expose lua_remove macro"
+#endif
+
+#ifndef lua_replace
+#error "Lua 5.4 compatibility header must expose lua_replace macro"
+#endif
+
+#ifndef lua_tonumber
+#error "Lua 5.4 compatibility header must expose lua_tonumber macro"
+#endif
+
+#ifndef lua_tointeger
+#error "Lua 5.4 compatibility header must expose lua_tointeger macro"
+#endif
+
+#ifndef lua_getextraspace
+#error "Lua 5.4 compatibility header must expose lua_getextraspace macro"
+#endif
+
+#ifndef lua_call
+#error "Lua 5.4 compatibility header must expose lua_call macro"
+#endif
+
+#ifndef lua_pcall
+#error "Lua 5.4 compatibility header must expose lua_pcall macro"
+#endif
+
+#ifndef lua_yield
+#error "Lua 5.4 compatibility header must expose lua_yield macro"
+#endif
+
 #include "lualib.h"
 
 #ifndef LUA_VERSUFFIX
@@ -269,6 +337,8 @@ static void test_stack_and_number_api(lua_State *L)
   lua_Integer iv = 0;
   int okflag;
   void **extra;
+  const char *ret;
+  const char with_nul[] = { 'a', '\0', 'b' };
   lua_State *co;
 
   lua_rawgeti(L, LUA_REGISTRYINDEX, LUA_RIDX_MAINTHREAD);
@@ -317,6 +387,17 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, *(void **)lua_getextraspace(co) == L, "lua_getextraspace copy");
   lua_pop(L, 1);
 
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+  {
+    typedef char lua_rawlen_returns_lua_Unsigned[
+      _Generic(lua_rawlen(L, -1), lua_Unsigned: 1, default: -1)];
+    (void)sizeof(lua_rawlen_returns_lua_Unsigned);
+  }
+#endif
+  lua_pushliteral(L, "rawlen");
+  check(L, lua_rawlen(L, -1) == 6, "lua_rawlen lua_Unsigned result");
+  lua_pop(L, 1);
+
   check(L, lua_stringtonumber(L, "123") == 4, "lua_stringtonumber length");
   check_integer(L, -1, 123, "lua_stringtonumber value");
   lua_pop(L, 1);
@@ -335,6 +416,35 @@ static void test_stack_and_number_api(lua_State *L)
   okflag = -1;
   check(L, lua_tointegerx(L, -1, &okflag) == 0 && okflag == 0,
 	"lua_tointegerx rejects binary prefix string");
+  lua_pop(L, 1);
+
+  lua_pushnumber(L, (lua_Number)2.5);
+  check(L, lua_tonumber(L, -1) == (lua_Number)2.5, "lua_tonumber macro");
+  lua_pop(L, 1);
+
+  lua_pushinteger(L, 17);
+  check_integer(L, -1, 17, "lua_tointeger macro");
+  lua_pop(L, 1);
+
+  ret = lua_pushlstring(L, with_nul, sizeof(with_nul));
+  check(L, ret != NULL && memcmp(ret, with_nul, sizeof(with_nul)) == 0,
+	"lua_pushlstring return value");
+  check(L, lua_rawlen(L, -1) == sizeof(with_nul),
+	"lua_pushlstring return length");
+  lua_pop(L, 1);
+
+  ret = lua_pushstring(L, "pushstring-return");
+  check(L, ret != NULL && strcmp(ret, "pushstring-return") == 0,
+	"lua_pushstring return value");
+  lua_pop(L, 1);
+
+  ret = lua_pushstring(L, NULL);
+  check(L, ret == NULL && lua_isnil(L, -1), "lua_pushstring NULL return");
+  lua_pop(L, 1);
+
+  ret = lua_pushliteral(L, "pushliteral-return");
+  check(L, ret != NULL && strcmp(ret, "pushliteral-return") == 0,
+	"lua_pushliteral return value");
   lua_pop(L, 1);
 
   check(L, lua_numbertointeger((lua_Number)42, &iv) && iv == 42,
@@ -362,11 +472,37 @@ static void test_stack_and_number_api(lua_State *L)
   check_string(L, -1, "c", "lua_rotate fourth");
   lua_pop(L, 4);
 
+  lua_pushliteral(L, "one");
+  lua_pushliteral(L, "two");
+  lua_pushliteral(L, "three");
+  lua_insert(L, -3);
+  check_string(L, -3, "three", "lua_insert macro first");
+  check_string(L, -2, "one", "lua_insert macro second");
+  check_string(L, -1, "two", "lua_insert macro third");
+  lua_remove(L, -2);
+  check_string(L, -2, "three", "lua_remove macro first");
+  check_string(L, -1, "two", "lua_remove macro second");
+  lua_pushliteral(L, "replacement");
+  lua_replace(L, -2);
+  check_string(L, -2, "three", "lua_replace macro first");
+  check_string(L, -1, "replacement", "lua_replace macro target");
+  lua_pop(L, 2);
+
   lua_pushliteral(L, "copy-source");
   lua_pushnil(L);
   lua_copy(L, -2, -1);
   check_string(L, -1, "copy-source", "lua_copy destination");
   lua_pop(L, 2);
+
+  lua_pushcfunction(L, push_answer);
+  lua_call(L, 0, 1);
+  check_integer(L, -1, 42, "lua_call macro");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, push_answer);
+  check(L, lua_pcall(L, 0, 1, 0) == LUA_OK, "lua_pcall macro");
+  check_integer(L, -1, 42, "lua_pcall macro result");
+  lua_pop(L, 1);
 
   lua_pushcfunction(L, push_answer);
   lua_callk(L, 0, 1, 0, NULL);
@@ -539,6 +675,7 @@ static void test_compare_len_arith(lua_State *L)
 static void test_uservalue_api(lua_State *L)
 {
   int top;
+  void *alias_ud;
   void *ud = lua_newuserdatauv(L, 4, 2);
   check(L, ud != NULL, "lua_newuserdatauv");
   lua_pushliteral(L, "uv1");
@@ -558,6 +695,15 @@ static void test_uservalue_api(lua_State *L)
   check(L, lua_setiuservalue(L, -2, 3) == 0,
 	"lua_setiuservalue out of range");
   check(L, lua_gettop(L) == top, "lua_setiuservalue invalid pops value");
+
+  alias_ud = lua_newuserdata(L, 4);
+  check(L, alias_ud != NULL, "lua_newuserdata alias");
+  lua_pushliteral(L, "uv-alias");
+  check(L, lua_setuservalue(L, -2) == 1, "lua_setuservalue alias");
+  check(L, lua_getuservalue(L, -1) == LUA_TSTRING,
+	"lua_getuservalue alias type");
+  check_string(L, -1, "uv-alias", "lua_getuservalue alias value");
+  lua_pop(L, 2);
 
   lua_getglobal(L, "debug");
   lua_getfield(L, -1, "getuservalue");
@@ -804,11 +950,21 @@ static void test_lauxlib_api(lua_State *L)
   check_integer(L, -1, 54, "luaL_loadbufferx loaded function");
   lua_pop(L, 1);
 
+  status = luaL_loadbuffer(L, "return 55", 9, "=capi-loadbuffer");
+  check(L, status == LUA_OK, "luaL_loadbuffer macro");
+  lua_call(L, 0, 1);
+  check_integer(L, -1, 55, "luaL_loadbuffer macro result");
+  lua_pop(L, 1);
+
   status = luaL_loadbufferx(L, "return 54", 9, "=capi-buffer", "b");
   check(L, status == LUA_ERRSYNTAX, "luaL_loadbufferx binary mode rejects text");
   check(L, strstr(lua_tostring(L, -1),
 		  "attempt to load a text chunk (mode is 'b')") != NULL,
 	"luaL_loadbufferx wrong mode error");
+  lua_pop(L, 1);
+
+  status = luaL_loadfile(L, "test/smoke.lua");
+  check(L, status == LUA_OK, "luaL_loadfile macro");
   lua_pop(L, 1);
 
   status = luaL_loadfilex(L, "test/smoke.lua", "t");

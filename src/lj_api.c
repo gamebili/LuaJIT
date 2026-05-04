@@ -159,6 +159,13 @@ LUA_API void *lua_getextraspace(lua_State *L)
   return &L->exdata;
 }
 
+#if LJ_54
+LUA_API void *lua_getextraspace54(lua_State *L)
+{
+  return lua_getextraspace(L);
+}
+#endif
+
 /* -- Stack manipulation -------------------------------------------------- */
 
 LUA_API int lua_gettop(lua_State *L)
@@ -792,6 +799,15 @@ LUA_API size_t lua_rawlen(lua_State *L, int idx)
     return 0;
 }
 
+#if LJ_54
+LUA_API lua_Unsigned lua_rawlen54(lua_State *L, int idx)
+{
+  /* Lua 5.4 headers expose lua_rawlen as lua_Unsigned; keep the old ABI
+  ** entrypoint above for LuaJIT/internal callers and adapt only externally. */
+  return (lua_Unsigned)lua_rawlen(L, idx);
+}
+#endif
+
 static void api_call_len_meta(lua_State *L, cTValue *o, cTValue *mo)
 {
   TValue *top;
@@ -907,6 +923,21 @@ LUA_API void lua_pushstring(lua_State *L, const char *str)
   }
   incr_top(L);
 }
+
+#if LJ_54
+LUA_API const char *lua_pushlstring54(lua_State *L, const char *str,
+				      size_t len)
+{
+  lua_pushlstring(L, str, len);
+  return lua_tolstring(L, -1, NULL);
+}
+
+LUA_API const char *lua_pushstring54(lua_State *L, const char *str)
+{
+  lua_pushstring(L, str);
+  return lua_tolstring(L, -1, NULL);
+}
+#endif
 
 LUA_API const char *lua_pushvfstring(lua_State *L, const char *fmt,
 				     va_list argp)

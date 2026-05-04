@@ -27,14 +27,24 @@
 - 已继续对齐 Lua 5.4 头文件归属：`LUA_LOADED_TABLE` / `LUA_PRELOAD_TABLE` 现在由 `lauxlib.h` 暴露；新增 `lua.h` 单独包含 smoke，防止外部 Lua 5.4 `lua.h` 泄露 lauxlib-only 宏。
 - 已继续补 Lua 5.4 `lualib.h` 头文件宏：新增 `LUA_VERSUFFIX`，并在 C API smoke 中确认值为 `"_5_4"`。
 - 已继续补 Lua 5.4 `lauxlib.h` 输出宏：新增可覆写的 `lua_writestring` / `lua_writeline` / `lua_writestringerror`，并用 compile-only smoke 覆盖宏展开。
+- 已继续补 Lua 5.4 `lauxlib.h` buffer 宏：外部兼容头中的 `luaL_prepbuffer` 现在按官方映射到 `luaL_prepbuffsize(B, LUAL_BUFFERSIZE)`，内部和默认构建保留旧函数 ABI。
+- 已继续补 Lua 5.4 `lauxlib.h` 辅助宏：外部兼容头中的 `luaL_argexpected` / `luaL_pushfail` 现在按官方作为宏暴露，内部和默认构建保留旧函数 ABI。
+- 已继续补 Lua 5.4 `lauxlib.h` load 宏：外部兼容头中的 `luaL_loadfile` / `luaL_loadbuffer` 现在按官方映射到 `luaL_loadfilex(..., NULL)` / `luaL_loadbufferx(..., NULL)`。
 - 已继续补 Lua 5.4 `lua.h` 兼容宏：新增 `LUA_NUMTAGS` 作为 `LUA_NUMTYPES` 别名，并进入 C API smoke。
 - 已继续补 Lua 5.4 C API 表面：新增 `lua_closethread()` no-`<close>` 基础实现，覆盖 yielded/fresh coroutine 关闭后返回 `LUA_OK`、清空栈并恢复 OK 状态。
 - 已继续补 Lua 5.4 deprecated intcast 兼容宏：在 `LUA_COMPAT_APIINTCASTS` 下暴露 `lua_pushunsigned` / `lua_tounsignedx` / `lua_tounsigned` / `luaL_checkunsigned` / `luaL_optunsigned`，并新增单独 C smoke。
+- 已继续补 Lua 5.4 外部兼容头别名：`lua_newuserdata()`、`lua_getuservalue()`、`lua_setuservalue()` 现在作为官方 slot 1 alias 宏暴露，默认 LuaJIT 5.1 ABI 不变。
 - 已继续清理 Lua 5.4 外部兼容头：旧 `LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` 伪索引和一批 Lua 5.1 API 声明已从外部 5.4 表面隐藏，`lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 改走 registry globals 包装路径。
 - 已继续清理 Lua 5.4 外部 lauxlib 头：`luaL_openlib` / `luaL_register` / `luaL_pushmodule` 不再对外声明，并新增负向编译 gate；默认构建 C smoke 覆盖这些旧 API 仍可用。
 - 已继续补 C API GC 常量覆盖：`LUA_GCCOUNTB` 已进入 smoke，验证 byte remainder 在 `0..1023` 范围内。
 - 已继续补 Lua 5.4 getter 返回值签名：外部兼容头中的 `lua_gettable()` / `lua_getfield()` / `lua_geti()` / `lua_rawget()` / `lua_rawgeti()` / `lua_rawgetp()` 现在通过包装入口返回取到值的 Lua 类型。
 - 已继续补 Lua 5.4 raw integer API 签名：外部兼容头中的 `lua_rawgeti()` / `lua_rawseti()` 索引参数现在通过 `*54` 包装入口暴露为 `lua_Integer`。
+- 已继续补 Lua 5.4 栈操作宏表面：外部兼容头中的 `lua_insert()` / `lua_remove()` / `lua_replace()` 现在按官方映射到 `lua_rotate()` / `lua_copy()`，默认构建仍保留旧函数 ABI。
+- 已继续补 Lua 5.4 字符串 push 返回值表面：外部兼容头中的 `lua_pushlstring()` / `lua_pushstring()` 现在通过 `*54` wrapper 返回入栈字符串指针，默认构建仍保留 LuaJIT 5.1 的 `void` 头文件 ABI。
+- 已继续补 Lua 5.4 number 转换宏表面：外部兼容头中的 `lua_tonumber()` / `lua_tointeger()` 现在按官方映射到 `lua_tonumberx(..., NULL)` / `lua_tointegerx(..., NULL)`，默认构建仍保留旧函数 ABI。
+- 已继续补 Lua 5.4 extraspace 宏表面：外部兼容头中的 `lua_getextraspace()` 现在作为宏映射到当前 pointer-sized `L->exdata` 兼容存储，默认构建仍保留旧函数 ABI。
+- 已继续补 Lua 5.4 `lua_rawlen()` 返回值表面：外部兼容头现在通过 `lua_rawlen54()` wrapper 暴露 `lua_Unsigned` 返回类型，内部和默认构建仍保留 LuaJIT 旧 `size_t` ABI。
+- 已继续补 Lua 5.4 调用入口宏表面：外部兼容头中的 `lua_call()` / `lua_pcall()` / `lua_yield()` 现在按官方映射到 `*k(..., 0, NULL)`；当前 `*k` 仍是不支持 continuation 的兼容映射。
 - 已继续扩展 JIT smoke：开启 JIT 后的 `math.random(1, 4)` 区间路径已在热循环中验证返回整数区间值并产生 trace。
 - 已继续补 Lua 5.4 C API 表面：外部兼容头中的 `lua_load(L, reader, data, chunkname, mode)` 已映射到现有 `lua_loadx()`，并覆盖 text/binary mode 行为。
 - 已继续补 Lua 5.4 C API 表面：外部兼容头中的 `lua_dump(L, writer, data, strip)` 已映射到 `lua_dump54()`，并覆盖 full/stripped LuaJIT bytecode 写出和 binary mode 回读。
@@ -307,6 +317,10 @@
 - 覆盖 Lua 5.4 外部兼容头单独包含 `lua.h` 时不暴露 lauxlib-only 的 `LUA_LOADED_TABLE` / `LUA_PRELOAD_TABLE`。
 - 覆盖 Lua 5.4 `lualib.h` 暴露 `LUA_VERSUFFIX`，并确认其值为 `"_5_4"`。
 - 覆盖 Lua 5.4 `lauxlib.h` 输出宏 `lua_writestring` / `lua_writeline` / `lua_writestringerror` 的可见性和可编译展开。
+- 覆盖 Lua 5.4 `lauxlib.h` 中 `luaL_prepbuffer` 的宏可见性，以及该宏返回 buffer 后配合 `luaL_addsize()` / `luaL_pushresult()` 的基础写入结果。
+- 覆盖 Lua 5.4 `lauxlib.h` 中 `luaL_argexpected` / `luaL_pushfail` 的宏可见性，并继续覆盖 `luaL_pushfail()` 的 nil 返回表面。
+- 覆盖 Lua 5.4 `lauxlib.h` 中 `luaL_loadfile` / `luaL_loadbuffer` 的宏可见性和基础加载执行结果。
+- 覆盖 Lua 5.4 外部兼容头中 `lua_newuserdata()` / `lua_getuservalue()` / `lua_setuservalue()` 作为 slot 1 alias 宏的可见性和基础运行行为。
 - 覆盖 `LUA_COMPAT_APIINTCASTS` 下 `lua_pushunsigned` / `lua_tounsignedx` / `lua_tounsigned` / `luaL_checkunsigned` / `luaL_optunsigned` 以及既有 int/long cast 宏。
 - 覆盖 Lua 5.4 外部兼容头声明 `luaopen_coroutine()`，并确认独立打开 coroutine 库会返回包含 `create` 的库表。
 - 覆盖 Lua 5.4 外部兼容头中的 `luaopen_base()` 返回 1 个 base 库表，并确认返回表包含 `assert`。
@@ -315,6 +329,11 @@
 - 覆盖 Lua 5.4 外部兼容头的负向编译 gate：`luaL_openlib` / `luaL_register` / `luaL_pushmodule` 不应可编译；默认构建 smoke 覆盖这三个旧 lauxlib API 仍可用。
 - 覆盖 Lua 5.4 外部兼容头中 `lua_gettable()`、`lua_getfield()`、`lua_geti()`、`lua_rawget()`、`lua_rawgeti()`、`lua_rawgetp()` 的返回类型签名和运行时返回值。
 - 覆盖 Lua 5.4 外部兼容头中 `lua_rawgeti54()` / `lua_rawseti54()` 的 `lua_Integer` 索引签名。
+- 覆盖 Lua 5.4 外部兼容头中 `lua_insert()` / `lua_remove()` / `lua_replace()` 的宏可见性和基础栈行为。
+- 覆盖 Lua 5.4 外部兼容头中 `lua_pushlstring()` / `lua_pushstring()` / `lua_pushliteral()` 返回入栈字符串指针，以及 `lua_pushstring(NULL)` 返回 `NULL` 并压入 nil。
+- 覆盖 Lua 5.4 外部兼容头中 `lua_tonumber()` / `lua_tointeger()` 的宏可见性和基础转换结果。
+- 覆盖 Lua 5.4 外部兼容头中 `lua_getextraspace()` 的宏可见性，并继续覆盖主线程 extraspace 写入会复制到新线程。
+- 覆盖 Lua 5.4 外部兼容头中 `lua_call()` / `lua_pcall()` / `lua_yield()` 的宏可见性，以及 `lua_call()` / `lua_pcall()` 基础运行路径。
 - 覆盖 Lua 5.4 兼容模式拒绝 `0b...` 二进制数字字面量、`L` / `LL` / `UL` / `ULL` / `uLL` 整数后缀和 imaginary `i` 数字字面量。
 - 用临时 C 程序编译/链接验证 `lua_absindex`、`lua_isinteger`、`lua_rawlen`、`lua_geti` / `lua_seti`、`lua_rawgetp` / `lua_rawsetp`、`lua_pushglobaltable` 和 `luaL_newmetatable` 写入 `__name`。
 - 覆盖 `luaL_loadbufferx()` / `luaL_loadfilex()` 的 `mode="t"` 和 `mode="b"` 路径。
