@@ -96,6 +96,87 @@ retlit:
   return fs->len ? STRFMT_LIT : STRFMT_EOF;
 }
 
+#if LJ_54
+static MSize strfmt_speclen_lua54(const FormatState *fs)
+{
+  const uint8_t *p = (const uint8_t *)fs->str, *q = p + 1, *e = fs->e;
+  while (q < e && (*q == '-' || *q == '+' || *q == '0' || *q == ' ' ||
+		  *q == '#'))
+    q++;
+  while (q < e && lj_char_isdigit(*q))
+    q++;
+  if (q < e && *q == '.') {
+    q++;
+    while (q < e && lj_char_isdigit(*q))
+      q++;
+  }
+  if (q < e)
+    q++;
+  return (MSize)(q - p);
+}
+
+static void strfmt_badconv_lua54(lua_State *L, const char *fmt, MSize len)
+{
+  GCstr *s = lj_str_new(L, fmt, len);
+  lj_err_callermsg(L, lj_strfmt_pushf(L,
+    "invalid conversion '%s' to 'format'", strdata(s)));
+}
+
+static void strfmt_parseerr_lua54(lua_State *L, const FormatState *fs)
+{
+  MSize len = strfmt_speclen_lua54(fs);
+  if (len > 32)  /* Same user-facing limit as Lua 5.4's MAX_FORMAT. */
+    lj_err_callermsg(L, "invalid format (too long)");
+  strfmt_badconv_lua54(L, fs->str, len);
+}
+
+static void strfmt_checkconv_lua54(lua_State *L, SFormat sf,
+				   const char *fmt, MSize len)
+{
+  uint32_t flags = sf & (STRFMT_F_LEFT|STRFMT_F_PLUS|STRFMT_F_ZERO|
+			 STRFMT_F_SPACE|STRFMT_F_ALT);
+  int hasprec = ((sf >> STRFMT_SH_PREC) & 255u) != 0;
+  if (len > 32)  /* Successful parses can still be too long, e.g. many '0's. */
+    lj_err_callermsg(L, "invalid format (too long)");
+  switch (STRFMT_TYPE(sf)) {
+  case STRFMT_INT:
+    if ((flags & STRFMT_F_ALT))
+      strfmt_badconv_lua54(L, fmt, len);
+    break;
+  case STRFMT_UINT:
+    if ((sf & (STRFMT_T_HEX|STRFMT_T_OCT))) {
+      if ((flags & ~(STRFMT_F_LEFT|STRFMT_F_ZERO|STRFMT_F_ALT)))
+	strfmt_badconv_lua54(L, fmt, len);
+    } else if ((flags & ~(STRFMT_F_LEFT|STRFMT_F_ZERO))) {
+      strfmt_badconv_lua54(L, fmt, len);
+    }
+    break;
+  case STRFMT_NUM:
+    if ((sf & STRFMT_F_UPPER) && (sf & STRFMT_T_FP_G) == STRFMT_T_FP_F)
+      strfmt_badconv_lua54(L, fmt, len);  /* Lua 5.4 does not accept %F. */
+    break;
+  case STRFMT_STR:
+    if ((sf & STRFMT_T_QUOTED)) {
+      if (sf != STRFMT_Q)
+	lj_err_callermsg(L, "specifier '%q' cannot have modifiers");
+    } else if ((flags & ~STRFMT_F_LEFT)) {
+      strfmt_badconv_lua54(L, fmt, len);
+    }
+    break;
+  case STRFMT_CHAR:
+    if ((flags & ~STRFMT_F_LEFT) || hasprec)
+      strfmt_badconv_lua54(L, fmt, len);
+    break;
+  case STRFMT_PTR:
+    if ((flags & ~STRFMT_F_LEFT) || hasprec)
+      strfmt_badconv_lua54(L, fmt, len);
+    break;
+  default:
+    break;
+  }
+}
+#endif
+
 /* -- Raw conversions ----------------------------------------------------- */
 
 #define WINT_R(x, sh, sc) \
@@ -462,12 +543,27 @@ int lj_strfmt_putarg(lua_State *L, SBuf *sb, int arg, int retry)
     if (sf == STRFMT_LIT) {
       lj_buf_putmem(sb, fs.str, fs.len);
     } else if (sf == STRFMT_ERR) {
+#if LJ_54
+      strfmt_parseerr_lua54(L, &fs);
+#else
       lj_err_callerv(L, LJ_ERR_STRFMT,
 		     strdata(lj_str_new(L, fs.str, fs.len)));
+#endif
     } else {
-      TValue *o = &L->base[arg++];
+      TValue *o;
+#if LJ_54
+      strfmt_checkconv_lua54(L, sf, fs.str,
+			     (MSize)((const uint8_t *)fs.p -
+				     (const uint8_t *)fs.str));
+#endif
+      o = &L->base[arg++];
+#if LJ_54
+      if (arg > narg)
+	strfmt_argerror_named54(L, arg, "no value");
+#else
       if (arg > narg)
 	lj_err_arg(L, arg, LJ_ERR_NOVAL);
+#endif
       switch (STRFMT_TYPE(sf)) {
       case STRFMT_INT:
 	if (tvisint(o)) {
@@ -568,6 +664,18 @@ int lj_strfmt_putarg(lua_State *L, SBuf *sb, int arg, int retry)
 	  len = str->len;
 	  s = strdata(str);
 	}
+#if LJ_54
+	if (!(sf & STRFMT_T_QUOTED) && sf != STRFMT_STR) {
+	  MSize i;
+	  /* Lua 5.4 routes modified %s through C printf, where embedded NULs
+	  ** would truncate the value. Reject them instead of formatting partial
+	  ** data; plain "%s" still preserves Lua strings byte-for-byte.
+	  */
+	  for (i = 0; i < len; i++)
+	    if (s[i] == '\0')
+	      strfmt_argerror_named54(L, arg, "string contains zeros");
+	}
+#endif
 	if ((sf & STRFMT_T_QUOTED))
 	  strfmt_putquotedlen(sb, s, len);  /* No formatting. */
 	else
@@ -586,18 +694,30 @@ int lj_strfmt_putarg(lua_State *L, SBuf *sb, int arg, int retry)
 	break;
       case STRFMT_PTR: {  /* No formatting. */
 #if LJ_54
+	const char *pstr;
+	MSize plen;
+	char pbuf[64];
 	if (!tvisgcv(o)) {
 	  /* Lua 5.4 delegates %p to lua_topointer(), so primitive values
 	  ** without an addressable GC object format as a null pointer. */
-	  lj_buf_putmem(sb, "(null)", 6);
+	  pstr = "(null)";
+	  plen = 6;
 	} else {
-	  char pbuf[64];
 	  int len = snprintf(pbuf, sizeof(pbuf), "%p", lj_obj_ptr(G(L), o));
-	  if (len < 0 || len >= (int)sizeof(pbuf))
-	    lj_strfmt_putptr(sb, lj_obj_ptr(G(L), o));
-	  else
-	    lj_buf_putmem(sb, pbuf, (MSize)len);
+	  if (len < 0 || len >= (int)sizeof(pbuf)) {
+	    /* Keep a deterministic internal fallback, but still run it through
+	    ** the formatted string path so width and left alignment are honored.
+	    */
+	    plen = (MSize)(lj_strfmt_wptr(pbuf, lj_obj_ptr(G(L), o)) - pbuf);
+	  } else {
+	    plen = (MSize)len;
+	  }
+	  pstr = pbuf;
 	}
+	/* Official Lua formats %p with the parsed C width/alignment. Precision
+	** was previously ignored for %p here, so clear it before reusing %s logic.
+	*/
+	strfmt_putfstrlen(sb, sf & ~((SFormat)255u << STRFMT_SH_PREC), pstr, plen);
 #else
 	lj_strfmt_putptr(sb, lj_obj_ptr(G(L), o));
 #endif

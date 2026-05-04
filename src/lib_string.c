@@ -245,6 +245,18 @@ LJLIB_CF(string_rep)		LJLIB_REC(.)
   GCstr *s = string_checkstr_named54(L, 1, "string.rep");
   int32_t rep = string_checkint_named54(L, 2, "string.rep");
   GCstr *sep = string_optstr_named54(L, 3, "string.rep");
+  if (rep > 0) {
+    uint64_t slen = (uint64_t)s->len;
+    uint64_t seplen = sep ? (uint64_t)sep->len : 0;
+    uint64_t tlen = slen * (uint32_t)rep;
+    if (rep > 1)
+      tlen += seplen * (uint32_t)(rep - 1);
+    /* Match Lua 5.4's deterministic overflow error instead of relying on
+    ** the allocator to fail after constructing the repeated buffer shape.
+    */
+    if (LJ_UNLIKELY(tlen > LJ_MAX_STR))
+      return luaL_error(L, "resulting string too large");
+  }
 #else
   GCstr *s = lj_lib_checkstr(L, 1);
   int32_t rep = lj_lib_checkint(L, 2);

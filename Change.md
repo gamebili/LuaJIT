@@ -4,6 +4,11 @@
 
 - 已按要求采用 `Change.md` 记录修改、新功能和进展；仓库中未创建 `Modify.md`。
 - 已用用户指定的 `https://github.com/lua/lua/archive/refs/tags/v5.4.8.zip` 重新下载官方源码并和本地 `D:\p4_gl2\pristine\tools\lua\v5.4.8.zip` 核对 SHA256，确认当前对照源码一致。
+- 已继续按官方 Lua 5.4.8 `lstrlib.c` / `testes/strings.lua` 成批收紧字符串库边界：`string.rep` 结果过大时稳定报 `resulting string too large`；`string.format("%p")` 支持宽度/左对齐，primitive 仍输出 `(null)`；带宽度/精度的 `%s` 会拒绝内嵌 NUL，裸 `%s` 仍保留原字节。
+- 已按官方 `testes/strings.lua` 补齐 `string.format` 规格校验：超长规格报 `too long`，三位宽度/精度、非法 flag、`%F`、`%q` modifier、`%p` precision、缺少参数等边界进入 smoke。
+- 已按官方 Lua 5.4 行为收紧 `tostring()`：`__tostring` 返回非 string 时会报 `'__tostring' must return a string`，不再把任意 metamethod 返回值透出。
+- 已按官方 `testes/strings.lua` 修正 `table.concat` 的 `math.maxinteger` 终点边界，避免循环自增回绕后多读 `math.mininteger`。
+- 已用官方 `testes/strings.lua` 继续做源码级对照：除已记录到 `TODO.md` 的长字符串非内化、真实 64 位 integer/TValue、locale-aware 字符串比较/字符分类和未启用 `testC` 块外，临时跳过这些大改项后当前字符串测试可跑到 `OK`。
 - 已按官方 Lua 5.4.8 `lutf8lib.c` / `testes/utf8.lua` 成批对齐 UTF-8 边界：源码 `\u{...}` 字面量接受 `0..0x7fffffff` 和 surrogate 字节序列，`utf8.codes` 迭代器按官方处理越界控制变量和 continuation byte，`utf8.codepoint` / `len` / `offset` 错误文本与边界归属收紧，`utf8.offset` 不再用 strict decode 阻断 lax 5/6 字节序列。
 - 已按官方 Lua 5.4.8 `lstrlib.c` 修正 string pattern 对内嵌 NUL 的处理：`MatchState` 现在保存 pattern end 指针，`find` / `match` / `gmatch` / `gsub` 会按长度解析模式串，因此 `utf8.charpattern` 可保持官方内嵌 NUL 常量而不是改写成替代表达式。
 - 已先把 Lua 5.4 lowered 位运算 helper 的原始数值路径提升到 64 位内部计算：`1 << 31`、`(1 << 31) - 1`、`1 << 40`、跨 32 位的 `&` / `|` / `~` / shift 和 `>=64` 位移已进入 smoke；超出当前 32 位 TValue integer 表面的结果暂以精确 double 桥接，完整 64 位 integer/TValue 仍保留在 `TODO.md`。

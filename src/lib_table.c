@@ -424,6 +424,11 @@ static int table_concat54(lua_State *L, GCstr *sep, int32_t i, int32_t e)
       luaL_error(L, "invalid value (%s) at index %d in table for 'concat'",
 		 luaL_typename(L, -1), i);
     luaL_addvalue(&b);
+    /* Stop exactly at the requested end index. Incrementing maxinteger wraps
+    ** to mininteger on this build and would make the loop read one extra key.
+    */
+    if (i == e)
+      break;
     i++;
   }
   luaL_pushresult(&b);

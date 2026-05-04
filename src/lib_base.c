@@ -677,8 +677,21 @@ LJLIB_ASM(tostring)		LJLIB_REC(.)
   cTValue *mo;
   L->top = o+1;  /* Only keep one argument. */
   if (!tvisnil(mo = lj_meta_lookup(L, o, MM_tostring))) {
+#if LJ_54
+    copyTV(L, L->top++, mo);
+    copyTV(L, L->top++, o);
+    lua_call(L, 1, 1);
+    /* Lua 5.4's tostring() requires __tostring to return an actual string;
+    ** do not leak arbitrary metamethod results as the tostring result.
+    */
+    if (!tvisstr(L->top-1))
+      lj_err_callermsg(L, "'__tostring' must return a string");
+    copyTV(L, L->base-1-LJ_FR2, L->top-1);
+    return FFH_RES(1);
+#else
     copyTV(L, L->base-1-LJ_FR2, mo);  /* Replace callable. */
     return FFH_TAILCALL;
+#endif
   }
   lj_gc_check(L);
   setstrV(L, L->base-1-LJ_FR2, lj_strfmt_obj(L, L->base));

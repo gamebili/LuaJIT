@@ -67,7 +67,8 @@
   - 当前状态：兼容层仍沿用 LuaJIT 当前 32 位内部整数策略，`math.mininteger`/`math.maxinteger` 是 `-2147483648..2147483647`。
   - 当前进展：`math.type()` 在非 dual-number 构建下会把当前 32 位范围内可精确表示为整数的 number 报告为 `integer`；`math.floor`、`math.ceil`、`math.modf` 的整数部分会尽量返回当前兼容整数表面。
   - 当前进展：lowered 位运算 helper 已先用 64 位内部计算打通 `1 << 31`、`(1 << 31) - 1`、`1 << 40`、跨 32 位 `&` / `|` / `~` / shift 和 `>=64` 位移；超出当前 32 位 TValue integer 表面的结果暂以精确 double 桥接。
-  - 已知差异：TValue integer 子类型、`lua_Integer` / `lua_Unsigned` 头文件 ABI、`math.mininteger` / `math.maxinteger`、整数字面量扫描、numeric for、`math.tointeger` / `math.ult`、`string.pack("j/i8/I8")` 和 C API 边界仍没有完整 Lua 5.4 64 位整数语义；整数/浮点子类型也仍不能像官方 Lua 5.4 一样完整区分所有字面量和运行期结果。
+  - 已知差异：TValue integer 子类型、`lua_Integer` / `lua_Unsigned` 头文件 ABI、`math.mininteger` / `math.maxinteger`、整数字面量扫描、numeric for、`math.tointeger` / `math.ult`、`string.pack("j/i8/I8")`、`string.format` 的 `maxinteger`/`mininteger` 边界和 C API 边界仍没有完整 Lua 5.4 64 位整数语义；整数/浮点子类型也仍不能像官方 Lua 5.4 一样完整区分所有字面量和运行期结果。
+  - 对照结论：官方 `testes/bitwise.lua` 的 `0xF0F0F0F0F0F0F0F0`、`testes/strings.lua` 的 `0x7fffffffffffffff` / `-0x8000000000000000` 格式化块都会卡在真实 64 位 integer/TValue 缺失上，不能继续用单个库函数补丁硬凑。
   - 需要补测试：64 位整数字面量边界、`math.tointeger`、`math.ult`、`math.random(0)` 全范围、位运算、整除、比较、`string.pack` 的 `j`/`I8`/`i8`、C API `lua_Integer` 边界。
   - 实现重点：需要统一 TValue 表示、数值转换、字符串扫描、格式化、运算符和库函数的整数路径。
 
@@ -110,6 +111,7 @@
   - 当前状态：`tostring(setmetatable({}, {__name="Foo"}))` 已显示 `Foo: ...`；参数类型错误也会使用 `__name` 字符串。
   - 当前进展：`luaL_newmetatable()` 在 Lua 5.4 兼容模式下会把注册类型名写入 `__name`。
   - 当前进展：`luaL_tolstring()` 已使用 `__name` 作为默认对象前缀，C API smoke 已覆盖 lauxlib 路径。
+  - 当前进展：`tostring()` 已按 Lua 5.4 校验 `__tostring` 返回值必须是 string，返回 table 等非 string 值时会报 `'__tostring' must return a string`。
   - 当前进展：`coroutine.resume()` / `coroutine.close()` 的 Lua 5.4 兼容路径已改用通用 `thread expected, got <__name>` 类型错误；默认 LuaJIT 构建仍保留旧 `coroutine expected` 文本。
   - 当前进展：`coroutine.isyieldable([co])` 已支持 Lua 5.4 可选 thread 参数；挂起或死亡的非主 coroutine 返回 true，非 thread 参数使用 Lua 5.4 风格函数名和 `__name` 类型文本。
   - 当前进展：`coroutine.create()` / `resume()` / `status()` / `wrap()` / `close()` 的基础参数错误会带 `coroutine.xxx` 函数名，并使用 Lua 5.4 的 `function/thread expected` 文本。
@@ -118,9 +120,10 @@
   - 说明：其他函数名/逐字错误文本继续归入“标准库错误消息与边界参数完全对齐”。
 
 - [ ] `tonumber` 和 `string.format` 的 Lua 5.4 数值格式规则。
-  - 当前状态：已补 `tonumber("0x10", 16) == nil`；`tonumber` 的显式 base 参数会拒绝无整数表示的 number，仍接受字符串数字；`tonumber()` 在 Lua 5.4 兼容模式下已拒绝 C 风格 `inf` / `infinity` / `nan` 字符串和 LuaJIT 扩展 `0b` / `0B` 二进制前缀字符串；整数格式 `%d`/`%i`/`%u`/`%x`/`%o` 和字符格式 `%c` 已拒绝无整数表示的 number/string number；`string.format("%q", number)` 已输出可读回文本，覆盖整数、十六进制浮点、负零、NaN 和正负无穷；`%q` 对 table 等没有 Lua 字面量形式的值会报错，不再走 `__tostring`；`string.format("%p", nil/boolean/number)` 已输出 `(null)`，GC 对象继续使用平台 C `%p` 文本。
-  - 已覆盖：base16 的 `0x` 前缀、base34 下 `x` 仍作为有效数字、base 参数 fraction number 报错、base 字符串数字转换、`tonumber` 拒绝 `inf` / `infinity` / `nan` 及大小写/符号/空白变体、`0b` / `0B` 及符号/空白变体、`%d` 严格整数检查、`%c` fraction number 报错和字符串数字转换、`%q` nil/boolean/integer/float/negative-zero/NaN/Inf/string 基础输出、`%q` table/`__tostring` table 报错、`%p` nil/boolean/number/string。
-  - 剩余：完整 64 位整数格式归入整数语义继续处理，错误文本仍可继续和官方逐字收紧。
+  - 当前状态：已补 `tonumber("0x10", 16) == nil`；`tonumber` 的显式 base 参数会拒绝无整数表示的 number，仍接受字符串数字；`tonumber()` 在 Lua 5.4 兼容模式下已拒绝 C 风格 `inf` / `infinity` / `nan` 字符串和 LuaJIT 扩展 `0b` / `0B` 二进制前缀字符串；整数格式 `%d`/`%i`/`%u`/`%x`/`%o` 和字符格式 `%c` 已拒绝无整数表示的 number/string number；`string.format("%q", number)` 已输出可读回文本，覆盖整数、十六进制浮点、负零、NaN 和正负无穷；`%q` 对 table 等没有 Lua 字面量形式的值会报错，不再走 `__tostring`；`string.format("%p", nil/boolean/number)` 已输出 `(null)`，GC 对象继续使用平台 C `%p` 文本，并支持宽度和左对齐。
+  - 当前进展：`string.format` 已按 Lua 5.4 校验格式规格长度、各转换允许的 flag/precision、`%q` 禁止 modifier、缺少参数报 `no value`；带宽度/精度的 `%s` 遇到内嵌 NUL 会报 `string contains zeros`，裸 `%s` 仍保留 Lua 字符串字节。
+  - 已覆盖：base16 的 `0x` 前缀、base34 下 `x` 仍作为有效数字、base 参数 fraction number 报错、base 字符串数字转换、`tonumber` 拒绝 `inf` / `infinity` / `nan` 及大小写/符号/空白变体、`0b` / `0B` 及符号/空白变体、`%d` 严格整数检查、`%c` fraction number 报错和字符串数字转换、`%q` nil/boolean/integer/float/negative-zero/NaN/Inf/string 基础输出、`%q` table/`__tostring` table 报错、`%p` nil/boolean/number/string/width/left-align、`%s` NUL modifier 边界、非法格式规格错误文本。
+  - 剩余：完整 64 位整数格式归入整数语义继续处理；`%p` 对长字符串的对象身份仍受 LuaJIT 全字符串内化影响，归入字符串对象语义批次。
 
 - [ ] 字符串到数字的运算转换细节。
   - 当前状态：普通算术路径仍依赖 LuaJIT 旧转换；`//` helper 已支持字符串数字；bitwise helper 继续拒绝 string；Lua 5.4 兼容模式下通用字符串数字转换已拒绝 `inf` / `nan` / `0b` 等 LuaJIT 扩展数字文本。
@@ -149,6 +152,12 @@
   - 当前进展：`utf8.codes` 迭代器、`utf8.codepoint` / `utf8.len` / `utf8.offset` 的边界错误文本和越界归属已按官方 `lutf8lib.c` 收紧；`utf8.offset` 按官方只扫描 continuation byte，不用 strict decode 阻断 lax 5/6 字节序列。
   - 当前进展：`utf8.charpattern` 保持官方内嵌 NUL 常量；string pattern 引擎已改为按 pattern end 指针解析，`find` / `match` / `gmatch` / `gsub` 可处理模式串中间的 `\0`。
   - 已覆盖：超过 `0x10ffff` 的扩展码点、surrogate 字节序列、严格模式报错、lax 模式成功返回码点、内嵌 NUL `charpattern`、官方 Lua 5.4.8 `testes/utf8.lua`；本机 Lua 5.4.8 对照探针已确认一致。
+
+- [ ] 字符串对象身份和 locale 语义。
+  - 当前状态：LuaJIT 仍会内化所有字符串；官方 Lua 5.4 只内化短字符串，长字符串是独立对象。
+  - 对照结论：官方 `testes/strings.lua` 中两个同内容 300 字节长字符串的 `string.format("%p", s)` 必须不同，当前 LuaJIT 会得到同一个 `GCstr` 指针；这需要字符串对象模型批次处理，不能在 `%p` 输出层真实修复。
+  - 当前状态：字符串 `<` / `<=` 和 pattern 字符分类仍主要走 LuaJIT 当前字节/固定分类路径。
+  - 对照结论：官方 `testes/strings.lua` 在可用 `collate` / `ctype` locale 下会测试 `strcoll` 顺序和 locale 字符分类；当前需要 VM 字符串比较、JIT 比较记录和 `lj_char`/pattern 分类一起设计。
 
 - [x] `debug.getuservalue` / `debug.setuservalue` 的 indexed uservalue 语义。
   - 当前状态：Lua 5.4 兼容模式不再暴露 LuaJIT userdata 内部环境表；`debug.getuservalue(io.stdout, 1)` 返回 `nil`，`debug.setuservalue(io.stdout, {}, 1)` 返回 `nil`。
@@ -294,6 +303,7 @@
   - 当前进展：`table.concat` 的显式 `i` / `j` 已改用严格整数参数检查。
   - 当前进展：`table.unpack` 的默认终点已共用 Lua 5.4 表库长度兼容逻辑，并对显式 `i` / `j` 做严格整数检查；读取元素时会通过 `__index` 访问代理表。
   - 当前进展：`table.concat` 在 Lua 5.4 兼容模式下读取元素时会通过 `__index` 访问代理表，并保留 nil/非 string/number 元素的错误检查。
+  - 当前进展：`table.concat` 显式终点等于 `math.maxinteger` 时不会在循环自增后回绕到 `math.mininteger` 继续读取；`{[maxi]="alo"}` 和 `{[maxi-1]="y",[maxi]="alo"}` 边界已进入 smoke。
   - 当前进展：`table.sort` 的排序范围已共用 Lua 5.4 表库长度兼容逻辑，因此会尊重 `__len`，并在 `__len` 返回无整数表示的值时报 `object length is not an integer`。
   - 当前进展：`table.sort` 在 Lua 5.4 兼容模式下会在分区扫描到 pivot 哨兵时拒绝非严格 comparator，例如 `a <= b` / `a >= b`，并报 `invalid order function for sorting`。
   - 当前进展：`table.sort` 在 Lua 5.4 兼容模式下已改用 API get/set 路径读写元素，因此代理表排序会通过 `__index` 读取、通过 `__newindex` 写入。

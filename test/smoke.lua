@@ -1004,6 +1004,9 @@ do
   assert(type(named) == "table")
   assert(tostring(named):match("^Lua54Smoke: ") ~= nil)
   assert(tostring(nonstr):match("^table: ") ~= nil)
+  local badtostring = setmetatable({}, { __tostring = function() return {} end })
+  local ok, err = pcall(tostring, badtostring)
+  assert(ok == false and err:match("'__tostring' must return a string") ~= nil)
   local ok, err = pcall(math.abs, setmetatable({}, { __name = "Lua54Number" }))
   assert(ok == false and err:match("Lua54Number") ~= nil)
   ok, err = pcall(coroutine.resume, named)
@@ -1086,6 +1089,38 @@ do
   assert(string.format("%p", true) == "(null)")
   assert(string.format("%p", 1) == "(null)")
   assert(string.format("%p", "x") ~= "(null)")
+  do
+    local null = "(null)"
+    assert(#string.format("%90p", {}) == 90)
+    assert(#string.format("%-60p", {}) == 60)
+    assert(string.format("%10p", false) == string.rep(" ", 10 - #null) .. null)
+    assert(string.format("%-12p", 1.5) == null .. string.rep(" ", 12 - #null))
+  end
+  assert(string.format("%s", "\0") == "\0")
+  ok, err = pcall(string.format, "%10s", "\0")
+  assert(ok == false and err:match("contains zeros") ~= nil)
+  ok, err = pcall(string.format, "%.1s", "\0")
+  assert(ok == false and err:match("contains zeros") ~= nil)
+  do
+    local function expect_format_error(fmt, msg, value)
+      local ok_fmt, err_fmt = pcall(string.format, fmt, value or 10)
+      assert(ok_fmt == false and err_fmt:match(msg) ~= nil)
+    end
+    local long_width = string.rep("0", 600)
+    expect_format_error("%100.3d", "invalid conversion")
+    expect_format_error("%1" .. long_width .. ".3d", "too long")
+    expect_format_error("%1.100d", "invalid conversion")
+    expect_format_error("%" .. long_width .. "d", "too long")
+    expect_format_error("%010c", "invalid conversion")
+    expect_format_error("%.10c", "invalid conversion")
+    expect_format_error("%0.34s", "invalid conversion", "abc")
+    expect_format_error("%#i", "invalid conversion")
+    expect_format_error("%3.1p", "invalid conversion")
+    expect_format_error("%0.s", "invalid conversion", "abc")
+    expect_format_error("%10q", "cannot have modifiers", "abc")
+    expect_format_error("%F", "invalid conversion", 1.5)
+    expect_format_error("%d %d", "no value")
+  end
 end
 do
   local function expect_bad_integer(f, ...)
@@ -1102,6 +1137,13 @@ do
   expect_bad_integer(string.sub, "abc", 1.2)
   expect_bad_integer(string.sub, "abc", 1, 2.2)
   expect_bad_integer(string.rep, "a", 1.2)
+  do
+    local huge_rep = 1073741824
+    local ok_rep, err_rep = pcall(string.rep, "aa", huge_rep)
+    local ok_sep, err_sep = pcall(string.rep, "a", huge_rep, ",")
+    assert(ok_rep == false and err_rep:match("too large") ~= nil)
+    assert(ok_sep == false and err_sep:match("too large") ~= nil)
+  end
   expect_bad_integer(string.find, "abc", "b", 1.2)
   expect_bad_integer(string.match, "abc", "b", 1.2)
   expect_bad_integer(string.gmatch, "abc", "b", 1.2)
@@ -1169,6 +1211,12 @@ do
   assert(ok == false and err:match("number has no integer representation") ~= nil)
   assert(table.concat({}, ",", 1, 0) == "")
   assert(table.concat({ 1, 2 }, ",", 2, 1) == "")
+  do
+    local maxi = math.maxinteger
+    assert(table.concat({ [maxi] = "alo" }, "x", maxi, maxi) == "alo")
+    assert(table.concat({ [maxi - 1] = "y", [maxi] = "alo" },
+      "-", maxi - 1, maxi) == "y-alo")
+  end
 end
 do
   local ok, err = pcall(table.insert, { 1, 2 }, 1.2, "x")
