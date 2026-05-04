@@ -288,6 +288,12 @@ LUALIB_API void luaL_pushresult(luaL_Buffer *B)
   B->n = 0;
 }
 
+LUALIB_API void luaL_pushresultsize(luaL_Buffer *B, size_t sz)
+{
+  luaL_addsize(B, sz);
+  luaL_pushresult(B);
+}
+
 LUALIB_API void luaL_addvalue(luaL_Buffer *B)
 {
   lua_State *L = B->L;
@@ -303,6 +309,12 @@ LUALIB_API void luaL_buffinit(lua_State *L, luaL_Buffer *B)
   B->b = B->initb;
   B->size = LUAL_BUFFERSIZE;
   B->n = 0;
+}
+
+LUALIB_API char *luaL_buffinitsize(lua_State *L, luaL_Buffer *B, size_t sz)
+{
+  luaL_buffinit(L, B);
+  return luaL_prepbuffsize(B, sz);
 }
 
 #else

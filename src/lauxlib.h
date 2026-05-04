@@ -261,15 +261,23 @@ typedef struct luaL_Buffer {
 #define luaL_bufflen(B)		((size_t)((B)->p - (B)->buffer))
 #define luaL_buffsub(B,n)	((B)->p -= (n))
 #endif
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+LUALIB_API void (luaL_pushresultsize) (luaL_Buffer *B, size_t sz);
+#else
 #define luaL_pushresultsize(B,sz) \
   (luaL_addsize((B), (sz)), luaL_pushresult((B)))
+#endif
 #ifdef LUAJIT_ENABLE_LUA54COMPAT
 LUALIB_API char *(luaL_prepbuffsize) (luaL_Buffer *B, size_t sz);
 #else
 #define luaL_prepbuffsize(B,sz)	luaL_prepbuffer((B))
 #endif
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+LUALIB_API char *(luaL_buffinitsize) (lua_State *L, luaL_Buffer *B, size_t sz);
+#else
 #define luaL_buffinitsize(L,B,sz) \
   (luaL_buffinit((L), (B)), luaL_prepbuffsize((B), (sz)))
+#endif
 
 LUALIB_API void (luaL_buffinit) (lua_State *L, luaL_Buffer *B);
 LUALIB_API char *(luaL_prepbuffer) (luaL_Buffer *B);

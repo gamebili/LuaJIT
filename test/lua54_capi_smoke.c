@@ -1358,6 +1358,9 @@ static void test_lauxlib_api(lua_State *L)
   luaL_Buffer b;
   luaL_Stream stream;
   char *p;
+  void (*pushresultsize_fn)(luaL_Buffer *, size_t) = luaL_pushresultsize;
+  char *(*buffinitsize_fn)(lua_State *, luaL_Buffer *, size_t) =
+    luaL_buffinitsize;
   const char *gs;
   int status;
   int ref;
@@ -1604,7 +1607,7 @@ static void test_lauxlib_api(lua_State *L)
   luaL_buffinit(L, &b);
   p = luaL_prepbuffer(&b);
   memcpy(p, "xy", 2);
-  luaL_pushresultsize(&b, 2);
+  pushresultsize_fn(&b, 2);
   check_string(L, -1, "xy", "luaL_pushresultsize");
   lua_pop(L, 1);
 
@@ -1625,9 +1628,9 @@ static void test_lauxlib_api(lua_State *L)
 
   {
     size_t big = LUAL_BUFFERSIZE + 17;
-    p = luaL_buffinitsize(L, &b, big);
+    p = buffinitsize_fn(L, &b, big);
     memset(p, 'q', big);
-    luaL_pushresultsize(&b, big);
+    pushresultsize_fn(&b, big);
     check(L, lua_rawlen(L, -1) == big, "luaL_buffinitsize big result size");
     check(L, lua_tostring(L, -1)[0] == 'q' &&
 	     lua_tostring(L, -1)[big - 1] == 'q',

@@ -68,6 +68,7 @@
 - 已继续补 Lua 5.4 `lualib.h` 头文件宏：新增 `LUA_VERSUFFIX`，并在 C API smoke 中确认值为 `"_5_4"`。
 - 已继续补 Lua 5.4 `lauxlib.h` 输出宏：新增可覆写的 `lua_writestring` / `lua_writeline` / `lua_writestringerror`，并用 compile-only smoke 覆盖宏展开。
 - 已继续补 Lua 5.4 `lauxlib.h` buffer 宏：外部兼容头中的 `luaL_prepbuffer` 现在按官方映射到 `luaL_prepbuffsize(B, LUAL_BUFFERSIZE)`，内部和默认构建保留旧函数 ABI。
+- 已继续补 Lua 5.4 `lauxlib.h` buffer ABI：`luaL_pushresultsize()` / `luaL_buffinitsize()` 现在是可取函数指针的真实函数入口，默认构建继续保留 LuaJIT 旧宏表面。
 - 已继续补 Lua 5.4 `lauxlib.h` 辅助宏：外部兼容头中的 `luaL_argexpected` / `luaL_pushfail` 现在按官方作为宏暴露，内部和默认构建保留旧函数 ABI。
 - 已继续补 Lua 5.4 `lauxlib.h` load 宏：外部兼容头中的 `luaL_loadfile` / `luaL_loadbuffer` 现在按官方映射到 `luaL_loadfilex(..., NULL)` / `luaL_loadbufferx(..., NULL)`。
 - 已继续补 Lua 5.4 `lauxlib.h` newlib 宏：外部兼容头中的 `luaL_newlib` 现在按官方先执行 `luaL_checkversion()`，默认 LuaJIT 5.1 宏保持不变。
