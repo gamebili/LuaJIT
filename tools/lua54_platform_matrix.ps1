@@ -96,6 +96,69 @@ function Get-EnvPath {
   return $null
 }
 
+function Get-AdbPath {
+  $cmd = Get-Command adb -ErrorAction SilentlyContinue
+  if ($cmd) {
+    return $cmd.Source
+  }
+  $candidates = @()
+  if ($env:ANDROID_HOME) {
+    $candidates += (Join-Path $env:ANDROID_HOME "platform-tools\adb.exe")
+  }
+  if ($env:ANDROID_SDK_ROOT) {
+    $candidates += (Join-Path $env:ANDROID_SDK_ROOT "platform-tools\adb.exe")
+  }
+  $candidates += (Join-Path $env:LOCALAPPDATA "Android\Sdk\platform-tools\adb.exe")
+  foreach ($candidate in $candidates) {
+    if ($candidate -and (Test-Path $candidate)) {
+      return $candidate
+    }
+  }
+  return $null
+}
+
+function Get-FirstAdbDevice {
+  param([string]$Adb)
+  $lines = & $Adb devices 2>$null
+  if ($LASTEXITCODE -ne 0) {
+    return $null
+  }
+  foreach ($line in $lines) {
+    if ($line -match "^(\S+)\s+device$") {
+      return $matches[1]
+    }
+  }
+  return $null
+}
+
+function Invoke-AndroidDeviceSmoke {
+  param([string]$Artifact)
+  $adb = Get-AdbPath
+  if (-not $adb) {
+    Add-Result "android-arm64-device-smoke" "SKIP" "adb not found; set ANDROID_HOME/ANDROID_SDK_ROOT or put adb on PATH."
+    return
+  }
+
+  $device = Get-FirstAdbDevice $adb
+  if (-not $device) {
+    Add-Result "android-arm64-device-smoke" "SKIP" "adb found at $adb but no online device is listed by 'adb devices'."
+    return
+  }
+
+  $remoteDir = "/data/local/tmp/luajit-lua54-matrix"
+  try {
+    Invoke-Checked $adb @("-s", $device, "shell", "rm", "-rf", $remoteDir)
+    Invoke-Checked $adb @("-s", $device, "shell", "mkdir", "-p", $remoteDir)
+    Invoke-Checked $adb @("-s", $device, "push", $Artifact, "$remoteDir/luajit")
+    Invoke-Checked $adb @("-s", $device, "push", (Join-Path $RepoRoot "test\smoke.lua"), "$remoteDir/smoke.lua")
+    Invoke-Checked $adb @("-s", $device, "shell", "chmod", "755", "$remoteDir/luajit")
+    Invoke-Checked $adb @("-s", $device, "shell", "cd $remoteDir && ./luajit smoke.lua lua54compat")
+    Add-Result "android-arm64-device-smoke" "PASS" "Ran test/smoke.lua lua54compat on Android device $device."
+  } catch {
+    Add-Result "android-arm64-device-smoke" "FAIL" $_.Exception.Message
+  }
+}
+
 function Invoke-AndroidArm64 {
   Add-LocalMsysPath
   if (-not (Get-Command $Make -ErrorAction SilentlyContinue)) {
@@ -149,6 +212,7 @@ function Invoke-AndroidArm64 {
       }
     }
     Add-Result "android-arm64-lua54compat" "PASS" "Built Lua 5.4 compat Android ARM64 static artifacts with NDK $ndkRoot."
+    Invoke-AndroidDeviceSmoke $exe
   } catch {
     Add-Result "android-arm64-lua54compat" "FAIL" $_.Exception.Message
   }
