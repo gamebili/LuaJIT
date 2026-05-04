@@ -414,6 +414,12 @@ LUA_API int lua_isnumber(lua_State *L, int idx)
 LUA_API int lua_isinteger(lua_State *L, int idx)
 {
   cTValue *o = index2adr(L, idx);
+#if LJ_54 && LJ_DUALNUM
+  /* Lua 5.4's C API observes the TValue integer/float subtype, not merely
+  ** whether a float has an exact integer representation.
+  */
+  return tvisint(o);
+#else
   if (tvisint(o))
     return 1;
   if (tvisnum(o)) {
@@ -423,6 +429,7 @@ LUA_API int lua_isinteger(lua_State *L, int idx)
 	   n <= (lua_Number)LUA_MAXINTEGER;
   }
   return 0;
+#endif
 }
 
 LUA_API int lua_isstring(lua_State *L, int idx)
@@ -1239,6 +1246,35 @@ static int32_t api_shift32(int32_t a, int32_t sh, int left)
 		(int32_t)((uint32_t)a >> s);
 }
 
+#if LJ_54 && LJ_DUALNUM
+static int api_rawarith_int(lua_State *L, TValue *res, cTValue *a, cTValue *b,
+			    int op)
+{
+  uint32_t ia, ib;
+  if (op == LUA_OPUNM) {
+    if (!tvisint(a)) return 0;
+    setintV(res, (int32_t)(0u - (uint32_t)intV(a)));
+    return 1;
+  }
+  if (!tvisint(a) || !tvisint(b))
+    return 0;
+  ia = (uint32_t)intV(a);
+  ib = (uint32_t)intV(b);
+  switch (op) {
+  case LUA_OPADD: setintV(res, (int32_t)(ia + ib)); return 1;
+  case LUA_OPSUB: setintV(res, (int32_t)(ia - ib)); return 1;
+  case LUA_OPMUL: setintV(res, (int32_t)(ia * ib)); return 1;
+  case LUA_OPMOD:
+    /* Keep lua_arith aligned with Lua 5.4's integer modulo subtype rules. */
+    if (intV(b) == 0) lj_err_callermsg(L, "attempt to perform 'n%0'");
+    setintV(res, lj_vm_modi(intV(a), intV(b)));
+    return 1;
+  default:
+    return 0;
+  }
+}
+#endif
+
 static int api_rawarith(lua_State *L, TValue *res, cTValue *a, cTValue *b,
 			int op)
 {
@@ -1273,6 +1309,10 @@ static int api_rawarith(lua_State *L, TValue *res, cTValue *a, cTValue *b,
     return 0;
   if (op != LUA_OPUNM && !lj_strscan_numberobj(&tb))
     return 0;
+#if LJ_54 && LJ_DUALNUM
+  if (api_rawarith_int(L, res, &ta, &tb, op))
+    return 1;
+#endif
   na = numberVnum(&ta);
   nb = numberVnum(&tb);
   switch (op) {

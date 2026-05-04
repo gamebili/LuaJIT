@@ -874,7 +874,14 @@ do
   assert(eval("8 >> -1") == 16)
   assert(eval("8 << -1") == 4)
   do
-    assert(assert(load([[return "1" + "2"]]))() == 3)
+    local r = assert(load([[return "1" + "2"]]))()
+    assert(r == 3 and math.type(r) == "integer")
+    r = assert(load([[return "1" + 2]]))()
+    assert(r == 3 and math.type(r) == "integer")
+    r = assert(load([[return "1.0" + 2]]))()
+    assert(r == 3 and math.type(r) == "float")
+    r = assert(load([[return "1e0" + 2]]))()
+    assert(r == 3 and math.type(r) == "float")
     local string_mt = debug.getmetatable("")
     debug.setmetatable("", {
       __add = function(a, b) return "add:"..tostring(a)..":"..tostring(b) end,

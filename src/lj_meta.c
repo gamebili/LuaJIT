@@ -232,15 +232,51 @@ static cTValue *str2num(cTValue *o, TValue *n)
 {
   if (tvisnum(o))
     return o;
+#if LJ_54 && LJ_DUALNUM
+  else if (tvisint(o))
+    return o;
+  else if (tvisstr(o) && lj_strscan_number(strV(o), n))
+    return n;
+#else
   else if (tvisint(o))
     return (setnumV(n, (lua_Number)intV(o)), n);
   else if (tvisstr(o) && lj_strscan_num(strV(o), n))
     return n;
+#endif
   else
     return NULL;
 }
 
 #if LJ_54
+#if LJ_DUALNUM
+static int lua54_arith_int(lua_State *L, TValue *ra, cTValue *b, cTValue *c,
+			   MMS mm)
+{
+  uint32_t ib, ic;
+  if (mm == MM_unm) {
+    if (!tvisint(b)) return 0;
+    setintV(ra, (int32_t)(0u - (uint32_t)intV(b)));
+    return 1;
+  }
+  if (!tvisint(b) || !tvisint(c))
+    return 0;
+  ib = (uint32_t)intV(b);
+  ic = (uint32_t)intV(c);
+  switch (mm) {
+  case MM_add: setintV(ra, (int32_t)(ib + ic)); return 1;
+  case MM_sub: setintV(ra, (int32_t)(ib - ic)); return 1;
+  case MM_mul: setintV(ra, (int32_t)(ib * ic)); return 1;
+  case MM_mod:
+    /* Lua 5.4 integer modulo by zero is an error; float modulo keeps NaN. */
+    if (intV(c) == 0) lj_err_callermsg(L, "attempt to perform 'n%0'");
+    setintV(ra, lj_vm_modi(intV(b), intV(c)));
+    return 1;
+  default:
+    return 0;  /* Division and power always use the float path. */
+  }
+}
+#endif
+
 static void lua54_strarith_error(lua_State *L, cTValue *rb, cTValue *rc,
 				 MMS mm)
 {
@@ -284,7 +320,12 @@ TValue *lj_meta_arith(lua_State *L, TValue *ra, cTValue *rb, cTValue *rc,
 #endif
   if ((b = str2num(rb, &tempb)) != NULL &&
       (c = str2num(rc, &tempc)) != NULL) {  /* Try coercion first. */
-    setnumV(ra, lj_vm_foldarith(numV(b), numV(c), (int)mm-MM_add));
+#if LJ_54 && LJ_DUALNUM
+    if (lua54_arith_int(L, ra, b, c, mm))
+      return NULL;
+#endif
+    setnumV(ra, lj_vm_foldarith(numberVnum(b), numberVnum(c),
+				(int)mm-MM_add));
     return NULL;
   } else {
     cTValue *mo = lj_meta_lookup(L, rb, mm);

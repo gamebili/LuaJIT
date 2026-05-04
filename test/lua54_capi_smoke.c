@@ -1311,7 +1311,26 @@ static void test_compare_len_arith(lua_State *L)
   lua_pushinteger(L, 5);
   lua_pushinteger(L, 2);
   lua_arith(L, LUA_OPADD);
+  check(L, lua_isinteger(L, -1), "lua_arith integer add subtype");
   check_integer(L, -1, 7, "lua_arith add");
+  lua_pop(L, 1);
+
+  lua_pushnumber(L, (lua_Number)3);
+  check(L, !lua_isinteger(L, -1), "lua_isinteger float subtype");
+  lua_pop(L, 1);
+
+  lua_pushliteral(L, "1");
+  lua_pushinteger(L, 2);
+  lua_arith(L, LUA_OPADD);
+  check(L, lua_isinteger(L, -1), "lua_arith string integer add subtype");
+  check_integer(L, -1, 3, "lua_arith string integer add");
+  lua_pop(L, 1);
+
+  lua_pushliteral(L, "1.0");
+  lua_pushinteger(L, 2);
+  lua_arith(L, LUA_OPADD);
+  check(L, !lua_isinteger(L, -1) && lua_tonumber(L, -1) == (lua_Number)3,
+	"lua_arith string float add subtype");
   lua_pop(L, 1);
 
   lua_pushinteger(L, 7);
