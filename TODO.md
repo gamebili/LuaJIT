@@ -81,6 +81,7 @@
   - 当前状态：`//`、`&`、`|`、`~`、`<<`、`>>` 仍通过内部 helper 降级实现；helper 已在原始数值路径失败时查找并调用 `__idiv`、`__band`、`__bor`、`__bxor`、`__bnot`、`__shl`、`__shr`。
   - 当前进展：`//` helper 的无元方法失败路径已按 Lua 5.4 报 `attempt to idiv a '<lhs>' with a '<rhs>'`，不再泄露私有 helper 名，并保留 `__name` 类型名。
   - 当前进展：bitwise helper 的失败路径已按 Lua 5.4 报运算符错误，不再泄露私有 helper 名；无整数表示的 number 报 `number has no integer representation`，string/boolean/带 `__name` 的 table 报 `attempt to perform bitwise operation on ... value`。
+  - 当前进展：官方 `testes/bwcoercion.lua` 通过 string metatable 覆盖 bitwise/idiv 字符串边界；当前 lowered helper 已规整 metamethod 返回栈，只返回 metamethod 第一个结果，不再把原操作数漏成额外返回值。
   - 已覆盖：左右操作数元方法、反向查找、无元方法时报错、元方法返回值透传；一元 `~` 按 Lua 5.4 传入两份同一操作数。
   - 剩余边界：整数范围仍受当前 32 位兼容层限制，完整 64 位位运算归入“完整 Lua 5.4 64 位整数语义”继续处理。
 

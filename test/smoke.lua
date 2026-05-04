@@ -729,6 +729,17 @@ do
     _G.__lua54_named_bitwise = nil
   end
   do
+    local string_mt = debug.getmetatable("")
+    local old_band, old_idiv = string_mt.__band, string_mt.__idiv
+    string_mt.__band = function(a, b) return "band", a, b end
+    string_mt.__idiv = function(a, b) return "idiv", a, b end
+    local r1, r2 = assert(load([[return "7" & 3]]))()
+    assert(r1 == "band" and r2 == nil)
+    r1, r2 = assert(load([[return "x" // 3]]))()
+    assert(r1 == "idiv" and r2 == nil)
+    string_mt.__band, string_mt.__idiv = old_band, old_idiv
+  end
+  do
     local ok, err = pcall(assert(load([[return "x" // 1]])))
     assert(ok == false and err:match("idiv") ~= nil and
            err:match("'string'") ~= nil and err:match("'number'") ~= nil)

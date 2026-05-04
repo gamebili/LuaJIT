@@ -282,6 +282,12 @@ static int lua54_callbinmeta(lua_State *L, const char *mmname, int unary)
   copyTV(L, L->top++, L->base);
   copyTV(L, L->top++, unary ? L->base : L->base+1);
   lua_call(L, 2, 1);
+  /* The lowered helper is itself a C function.  Normalize the metamethod's
+  ** single result to the helper result slot so original operands do not leak
+  ** as extra returns when string/table metamethods return multiple values.
+  */
+  copyTV(L, L->base, L->top-1);
+  L->top = L->base + 1;
   return 1;
 }
 
