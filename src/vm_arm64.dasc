@@ -3533,6 +3533,17 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |    mov RB, TMP1
     |   bne <2
     |3:
+#if LJ_54
+    |  cbnz TMP2w, >9
+    |  // BC_CALLT replaces the caller frame with the callee. Preserve that
+    |  // fact out-of-band for Lua 5.4 debug.getinfo(..., "t") and tail hooks.
+    |  ldr TMP0, L->stack
+    |  sub TMP1, BASE, TMP0
+    |  lsr TMP1, TMP1, #3
+    |  sub TMP1w, TMP1w, #1
+    |  str TMP1w, L->tailcall_ci
+    |9:
+#endif
     |  cmp TMP2, #1			// (> FF_C) Calling a fast function?
     |  bhi >5
     |4:
@@ -3744,6 +3755,20 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |    add RA, BASE, RA, lsl #3
     |->BC_RETM_Z:
     |   str RCw, SAVE_MULTRES
+#if LJ_54
+    |  // Tail-called Lua frames reuse their caller frame. Clear the side
+    |  // marker when that frame really returns so later ordinary calls at the
+    |  // same stack offset are not reported as tail calls.
+    |  ldr TMP0, L->stack
+    |  ldrsw TMP1, L->tailcall_ci
+    |  sub TMP0, BASE, TMP0
+    |  lsr TMP0, TMP0, #3
+    |  sub TMP0w, TMP0w, #1
+    |  cmp TMP1w, TMP0w
+    |  bne >9
+    |  str wzr, L->tailcall_ci
+    |9:
+#endif
     |1:
     |  ands CARG1, PC, #FRAME_TYPE
     |   eor CARG2, PC, #FRAME_VARG
@@ -3797,6 +3822,18 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  ldr PC, [BASE, FRAME_PC]
     |   lsl RC, RC, #3
     |   str RCw, SAVE_MULTRES
+#if LJ_54
+    |  // See BC_RET above: clear any tailcall marker for this returning frame.
+    |  ldr TMP0, L->stack
+    |  ldrsw TMP1, L->tailcall_ci
+    |  sub TMP0, BASE, TMP0
+    |  lsr TMP0, TMP0, #3
+    |  sub TMP0w, TMP0w, #1
+    |  cmp TMP1w, TMP0w
+    |  bne >9
+    |  str wzr, L->tailcall_ci
+    |9:
+#endif
     |  ands CARG1, PC, #FRAME_TYPE
     |   eor CARG2, PC, #FRAME_VARG
     |  bne ->BC_RETV1_Z

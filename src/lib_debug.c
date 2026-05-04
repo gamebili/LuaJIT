@@ -581,7 +581,13 @@ LJLIB_CF(debug_setuservalue)
 static void hookf(lua_State *L, lua_Debug *ar)
 {
   static const char *const hooknames[] =
-    {"call", "return", "line", "count", "tail return"};
+    {"call", "return", "line", "count",
+#if LJ_54
+     "tail call"
+#else
+     "tail return"
+#endif
+    };
   (L->top++)->u64 = KEY_HOOK;
   lua_rawget(L, LUA_REGISTRYINDEX);
   if (lua_isfunction(L, -1)) {

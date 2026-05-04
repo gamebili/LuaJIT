@@ -4180,6 +4180,19 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |3:
     |  cleartp LFUNC:RB
     |  mov NARGS:RDd, MULTRES
+#if LJ_54
+    |  cmp byte LFUNC:RB->ffid, FF_LUA
+    |  jne >9
+    |  // BC_CALLT replaces the caller frame with the callee. Preserve that
+    |  // fact out-of-band for Lua 5.4 debug.getinfo(..., "t") and tail hooks.
+    |  mov L:RA, SAVE_L
+    |  mov TMPR, BASE
+    |  sub TMPR, L:RA->stack
+    |  sar TMPR, 3
+    |  sub TMPRd, 1
+    |  mov dword L:RA->tailcall_ci, TMPRd
+    |9:
+#endif
     |  cmp byte LFUNC:RB->ffid, 1	// (> FF_C) Calling a fast function?
     |  ja >5
     |4:
@@ -4402,6 +4415,20 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
       |  shl RAd, 3
     }
     |1:
+#if LJ_54
+    |  // Tail-called Lua frames reuse their caller frame. Clear the side
+    |  // marker when that frame really returns so later ordinary calls at the
+    |  // same stack offset are not reported as tail calls.
+    |  mov L:RB, SAVE_L
+    |  mov TMPR, BASE
+    |  sub TMPR, L:RB->stack
+    |  sar TMPR, 3
+    |  sub TMPRd, 1
+    |  cmp dword L:RB->tailcall_ci, TMPRd
+    |  jne >9
+    |  mov dword L:RB->tailcall_ci, 0
+    |9:
+#endif
     |  mov PC, [BASE-8]
     |  mov MULTRES, RDd			// Save nresults+1.
     |  test PCd, FRAME_TYPE		// Check frame type marker.

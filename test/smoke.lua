@@ -1185,6 +1185,30 @@ do
     assert(seen[1] == "call:1:1")
     assert(seen[2] == "return:2:2")
   end
+  do
+    local seen = {}
+    local function hook(ev)
+      local info = debug.getinfo(2, "rt")
+      if ev == "tail call" or (ev == "return" and info.istailcall) then
+        seen[#seen+1] = ev..":"..tostring(info.istailcall)..":"..
+          info.ftransfer..":"..info.ntransfer
+      end
+    end
+    local function tail_target(a, b, expect_tail)
+      assert(debug.getinfo(1, "t").istailcall == expect_tail)
+      return a + b
+    end
+    local function tail_caller(a, b)
+      return tail_target(a, b, true)
+    end
+    debug.sethook(hook, "cr")
+    local v = tail_caller(2, 3)
+    debug.sethook()
+    assert(v == 5)
+    assert(seen[1] == "tail call:true:1:3")
+    assert(seen[2] == "return:true:4:1")
+    assert(tail_target(1, 2, false) == 3)
+  end
 end
 
 do

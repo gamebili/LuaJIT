@@ -87,7 +87,9 @@
 - 已继续补 Lua 5.4 debug hook transfer 的 vararg 边界覆盖：Lua smoke 和 C API smoke 均校验 vararg 函数 call hook 只报告固定参数 transfer，return hook 报告完整返回值 transfer。
 - 已继续补 Lua 5.4 debug hook transfer 的 C 函数 call 边界：C 函数在 call hook 中会按本次调用的实际参数个数报告 transfer 范围。
 - 已继续补 Lua 5.4 debug frame metadata 批次的 C return transfer 接口：新增统一 C return hook dispatch 入口，x64 / ARM64 VM 的普通 C 返回路径会在结果折叠前发布 `ftransfer` / `ntransfer`，fast C 函数入口会先保留原始参数 transfer 起点。
-- 已继续扩展 Lua 5.4 debug hook transfer 覆盖：Lua smoke 校验 fast C 函数 return hook transfer，C API smoke 校验注册 C 函数 call/return hook transfer；tailcall / `istailcall` 元数据继续留在同一批次后续推进。
+- 已继续扩展 Lua 5.4 debug hook transfer 覆盖：Lua smoke 校验 fast C 函数 return hook transfer，C API smoke 校验注册 C 函数 call/return hook transfer；更深的 tailcall 嵌套、错误展开和 tail-position C return 边界继续留在同一批次后续推进。
+- 已继续补 Lua 5.4 debug frame metadata 批次的 Lua tailcall 元数据：x64 / ARM64 `BC_CALLT` 会为普通 Lua tail call 保存 frame side marker，`debug.getinfo(..., "t")`、Lua hook 和 C API hook 可报告 `istailcall=true`，并在 frame 返回时清 marker。
+- 已继续扩展 Lua 5.4 tailcall 回归：Lua smoke 覆盖 `tail call` hook 文本、tailcall return transfer 和直接普通调用不误判，C API smoke 覆盖 `LUA_HOOKTAILCALL`、`lua_Debug.istailcall` 和 transfer 字段。
 - 已补充 Lua 5.4 `os.remove()` 失败返回 smoke：对齐官方保留文件名前缀、返回系统错误文本和 errno code 的表面；`os.rename()` 继续保持不拼接源文件名。
 - 已用本机 `emcc 5.0.6` 试跑 Emscripten 构建入口，当前 Makefile 在 `lj_arch.h` 阶段明确失败为 wasm 架构不受支持；该平台仍需要单独 wasm/interpreter VM 后端方案。
 - 已继续收紧 Lua 5.4 GC 公开表面：兼容构建中 `collectgarbage("setstepmul", n)` 的初始旧值现在对齐 Lua 5.4 的 `100`。

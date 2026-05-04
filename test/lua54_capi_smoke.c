@@ -177,6 +177,9 @@ static int hook_c_call_ftransfer = -1;
 static int hook_c_call_ntransfer = -1;
 static int hook_c_ret_ftransfer = -1;
 static int hook_c_ret_ntransfer = -1;
+static int hook_tail_ftransfer = -1;
+static int hook_tail_ntransfer = -1;
+static int hook_tail_istailcall = -1;
 
 static void header_output_macros_compile_only(void)
 {
@@ -247,12 +250,16 @@ static int panic_b(lua_State *L)
 
 static void capi_transfer_hook(lua_State *L, lua_Debug *ar)
 {
-  if (!lua_getinfo(L, "nruS", ar))
+  if (!lua_getinfo(L, "nrutS", ar))
     return;
   if (ar->nparams == 2 && !ar->isvararg) {
     if (ar->event == LUA_HOOKCALL) {
       hook_call_ftransfer = ar->ftransfer;
       hook_call_ntransfer = ar->ntransfer;
+    } else if (ar->event == LUA_HOOKTAILCALL) {
+      hook_tail_ftransfer = ar->ftransfer;
+      hook_tail_ntransfer = ar->ntransfer;
+      hook_tail_istailcall = ar->istailcall;
     } else if (ar->event == LUA_HOOKRET) {
       hook_ret_ftransfer = ar->ftransfer;
       hook_ret_ntransfer = ar->ntransfer;
@@ -1511,7 +1518,7 @@ static void test_warning_and_gc_api(lua_State *L)
   lua_sethook(L, capi_transfer_hook, LUA_MASKCALL | LUA_MASKRET, 0);
   status = luaL_dostring(L,
     "local function capi_transfer_probe(a, b) return a + b, a - b end\n"
-    "return capi_transfer_probe(3, 1)");
+    "local x, y = capi_transfer_probe(3, 1); return x, y");
   lua_sethook(L, NULL, 0, 0);
   check(L, status == LUA_OK, "lua_getinfo hook transfer setup");
   check_integer(L, -2, 4, "lua_getinfo hook transfer result 1");
@@ -1527,7 +1534,7 @@ static void test_warning_and_gc_api(lua_State *L)
   lua_sethook(L, capi_transfer_hook, LUA_MASKCALL | LUA_MASKRET, 0);
   status = luaL_dostring(L,
     "local function capi_transfer_vararg(a, ...) return a, ... end\n"
-    "return capi_transfer_vararg(1, 2, 3)");
+    "local a, b, c = capi_transfer_vararg(1, 2, 3); return a, b, c");
   lua_sethook(L, NULL, 0, 0);
   check(L, status == LUA_OK, "lua_getinfo vararg hook transfer setup");
   check_integer(L, -3, 1, "lua_getinfo vararg transfer result 1");
@@ -1540,6 +1547,21 @@ static void test_warning_and_gc_api(lua_State *L)
   check(L, hook_vararg_ret_ftransfer == 2 &&
 	hook_vararg_ret_ntransfer == 3,
 	"lua_getinfo vararg return hook transfer fields");
+
+  hook_tail_ftransfer = hook_tail_ntransfer = -1;
+  hook_tail_istailcall = -1;
+  lua_sethook(L, capi_transfer_hook, LUA_MASKCALL | LUA_MASKRET, 0);
+  status = luaL_dostring(L,
+    "local function capi_tail_target(a, b) return a + b end\n"
+    "local function capi_tail_caller(a, b) return capi_tail_target(a, b) end\n"
+    "local x = capi_tail_caller(2, 3); return x");
+  lua_sethook(L, NULL, 0, 0);
+  check(L, status == LUA_OK, "lua_getinfo tail hook transfer setup");
+  check_integer(L, -1, 5, "lua_getinfo tail hook transfer result");
+  lua_pop(L, 1);
+  check(L, hook_tail_istailcall == 1 &&
+	hook_tail_ftransfer == 1 && hook_tail_ntransfer == 2,
+	"lua_getinfo tail call hook transfer fields");
 
   lua_pushcfunction(L, capi_transfer_cfunc);
   lua_setglobal(L, "capi_transfer_cfunc");

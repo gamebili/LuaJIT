@@ -542,6 +542,7 @@ ASMFunction LJ_FASTCALL lj_dispatch_call(lua_State *L, const BCIns *pc)
 #endif
   if ((g->hookmask & LUA_MASKCALL)) {
     int i;
+    int event = LUA_HOOKCALL;
     uint16_t nparams = 0;
     if (isluafunc(fn))
       nparams = funcproto(fn)->numparams;
@@ -552,9 +553,14 @@ ASMFunction LJ_FASTCALL lj_dispatch_call(lua_State *L, const BCIns *pc)
       */
       nparams = nargs > 65535 ? 65535u : (uint16_t)nargs;
     }
+#if LJ_54
+    if (isluafunc(fn) &&
+	(int32_t)((L->base-1) - tvref(L->stack)) == L->tailcall_ci)
+      event = LUA_HOOKTAILCALL;
+#endif
     for (i = 0; i < missing; i++)  /* Add missing parameters. */
       setnilV(L->top++);
-    callhook(L, LUA_HOOKCALL, -1, nparams ? 1 : 0, nparams);
+    callhook(L, event, -1, nparams ? 1 : 0, nparams);
     /* Preserve modifications of missing parameters by lua_setlocal(). */
     while (missing-- > 0 && tvisnil(L->top - 1))
       L->top--;

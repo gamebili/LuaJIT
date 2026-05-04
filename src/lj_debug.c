@@ -540,12 +540,9 @@ int lj_debug_getinfo(lua_State *L, const char *what, lj_Debug *ar, int ext)
     } else if (*what == 'L') {
       opt_L = 1;
     } else if (*what == 't') {
-      /* Lua 5.4 accepts option 't' for tail-call information. LuaJIT does
-      ** not preserve an exact tail-call marker in the public frame metadata
-      ** yet, so this remains conservative until VM frame support is added.
-      */
       if (ext)
-	ar->istailcall = 0;
+	ar->istailcall = frame && frame_islua(frame) &&
+	  L->tailcall_ci == (int32_t)(frame - tvref(L->stack));
       continue;
     } else if (*what == 'r') {
       /* Lua 5.4 exposes transferred argument/result ranges while a hook is
