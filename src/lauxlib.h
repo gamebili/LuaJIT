@@ -226,7 +226,10 @@ typedef struct luaL_Buffer {
   size_t size;			/* buffer size */
   size_t n;			/* number of characters in buffer */
   lua_State *L;
-  char initb[LUAL_BUFFERSIZE];
+  union {
+    LUAI_MAXALIGN;		/* ensure maximum alignment for buffer */
+    char b[LUAL_BUFFERSIZE];	/* initial buffer */
+  } init;
 } luaL_Buffer;
 #else
 typedef struct luaL_Buffer {

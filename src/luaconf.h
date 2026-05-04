@@ -187,6 +187,12 @@
 #define LUAI_MAXNUMBER2STR	32
 #define LUA_INTFRMLEN		"l"
 #define LUA_INTFRM_T		long
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+/* Lua 5.4's luaL_Buffer embeds its initial storage in a max-aligned union.
+** Keep the macro available so external lauxlib users see the official layout.
+*/
+#define LUAI_MAXALIGN	lua_Number n; double u; void *s; lua_Integer i; long l
+#endif
 
 /* Linkage of public API functions. */
 #if defined(LUA_BUILD_AS_DLL)

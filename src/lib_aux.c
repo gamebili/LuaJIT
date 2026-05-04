@@ -246,7 +246,7 @@ static char *resizebuffer(luaL_Buffer *B, size_t sz)
   newbuf = (char *)lj_mem_realloc(L, NULL, 0, (GCSize)newsize);
   if (B->n)
     memcpy(newbuf, B->b, B->n);
-  if (B->b != B->initb)
+  if (B->b != B->init.b)
     lj_mem_realloc(L, B->b, (GCSize)B->size, 0);
   B->b = newbuf;
   B->size = newsize;
@@ -281,9 +281,9 @@ LUALIB_API void luaL_pushresult(luaL_Buffer *B)
 {
   lua_State *L = B->L;
   lua_pushlstring(L, B->b, B->n);
-  if (B->b != B->initb)
+  if (B->b != B->init.b)
     lj_mem_realloc(L, B->b, (GCSize)B->size, 0);
-  B->b = B->initb;
+  B->b = B->init.b;
   B->size = LUAL_BUFFERSIZE;
   B->n = 0;
 }
@@ -306,7 +306,7 @@ LUALIB_API void luaL_addvalue(luaL_Buffer *B)
 LUALIB_API void luaL_buffinit(lua_State *L, luaL_Buffer *B)
 {
   B->L = L;
-  B->b = B->initb;
+  B->b = B->init.b;
   B->size = LUAL_BUFFERSIZE;
   B->n = 0;
 }

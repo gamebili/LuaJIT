@@ -54,6 +54,10 @@
 #error "Lua 5.4 compatibility header must expose LUA_EXTRASPACE"
 #endif
 
+#ifndef LUAI_MAXALIGN
+#error "Lua 5.4 compatibility header must expose LUAI_MAXALIGN"
+#endif
+
 #ifndef LUA_GNAME
 #error "Lua 5.4 lauxlib header must expose LUA_GNAME"
 #endif
@@ -69,6 +73,10 @@
 #ifndef LUA_PRELOAD_TABLE
 #error "Lua 5.4 lauxlib header must expose LUA_PRELOAD_TABLE"
 #endif
+
+typedef char lua54_buffer_init_field[
+  sizeof(((luaL_Buffer *)0)->init.b) == LUAL_BUFFERSIZE ? 1 : -1
+];
 
 #ifndef lua_writestring
 #error "Lua 5.4 lauxlib header must expose lua_writestring"
