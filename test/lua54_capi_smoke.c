@@ -446,12 +446,15 @@ static int dump_writer(lua_State *L, const void *p, size_t sz, void *ud)
 
 static void test_stack_and_number_api(lua_State *L)
 {
+  static const char light_key;
   lua_Integer iv = 0;
   int okflag;
+  int status;
   void **extra;
   const char *ret;
   const char with_nul[] = { 'a', '\0', 'b' };
   lua_State *co;
+  void *fullud;
 
   lua_rawgeti(L, LUA_REGISTRYINDEX, LUA_RIDX_MAINTHREAD);
   check(L, lua_tothread(L, -1) == L, "LUA_RIDX_MAINTHREAD");
@@ -468,6 +471,76 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, strcmp(LUA_LOADED_TABLE, "_LOADED") == 0, "LUA_LOADED_TABLE");
   check(L, strcmp(LUA_PRELOAD_TABLE, "_PRELOAD") == 0, "LUA_PRELOAD_TABLE");
   check(L, strcmp(LUA_VERSUFFIX, "_5_4") == 0, "LUA_VERSUFFIX");
+
+  check(L, lua_type(L, lua_gettop(L) + 1) == LUA_TNONE,
+	"lua_type none");
+  check(L, lua_isnone(L, lua_gettop(L) + 1), "lua_isnone none");
+  check(L, lua_isnoneornil(L, lua_gettop(L) + 1),
+	"lua_isnoneornil none");
+  check(L, strcmp(lua_typename(L, LUA_TNONE), "no value") == 0,
+	"lua_typename none");
+  check(L, strcmp(lua_typename(L, LUA_TNIL), "nil") == 0,
+	"lua_typename nil");
+
+  lua_pushnil(L);
+  check(L, lua_type(L, -1) == LUA_TNIL, "lua_type nil");
+  check(L, lua_isnil(L, -1), "lua_isnil nil");
+  check(L, lua_isnoneornil(L, -1), "lua_isnoneornil nil");
+  check(L, !lua_toboolean(L, -1), "lua_toboolean nil");
+  lua_pop(L, 1);
+
+  lua_pushboolean(L, 0);
+  lua_pushboolean(L, 1);
+  check(L, lua_isboolean(L, -2) && lua_isboolean(L, -1),
+	"lua_isboolean values");
+  check(L, !lua_toboolean(L, -2) && lua_toboolean(L, -1),
+	"lua_toboolean booleans");
+  check(L, !lua_rawequal(L, -2, -1), "lua_rawequal booleans false");
+  lua_pop(L, 2);
+
+  lua_pushliteral(L, "same");
+  lua_pushliteral(L, "same");
+  check(L, lua_rawequal(L, -2, -1), "lua_rawequal strings");
+  lua_pop(L, 2);
+
+  lua_pushinteger(L, 123);
+  check(L, lua_isstring(L, -1), "lua_isstring number");
+  check(L, lua_toboolean(L, -1), "lua_toboolean number");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, push_answer);
+  check(L, lua_iscfunction(L, -1), "lua_iscfunction c closure");
+  check(L, lua_tocfunction(L, -1) == push_answer,
+	"lua_tocfunction c closure");
+  check(L, lua_topointer(L, -1) != NULL, "lua_topointer c closure");
+  lua_pop(L, 1);
+
+  status = luaL_loadstring(L, "return 1");
+  check(L, status == LUA_OK, "luaL_loadstring lua function setup");
+  check(L, lua_isfunction(L, -1), "lua_isfunction lua closure");
+  check(L, !lua_iscfunction(L, -1), "lua_iscfunction lua closure false");
+  check(L, lua_tocfunction(L, -1) == NULL, "lua_tocfunction lua closure");
+  lua_pop(L, 1);
+
+  lua_pushlightuserdata(L, (void *)&light_key);
+  check(L, lua_type(L, -1) == LUA_TLIGHTUSERDATA,
+	"lua_type lightuserdata");
+  check(L, lua_isuserdata(L, -1), "lua_isuserdata lightuserdata");
+  check(L, lua_islightuserdata(L, -1), "lua_islightuserdata");
+  check(L, lua_touserdata(L, -1) == (void *)&light_key,
+	"lua_touserdata lightuserdata");
+  check(L, lua_topointer(L, -1) == (void *)&light_key,
+	"lua_topointer lightuserdata");
+  lua_pop(L, 1);
+
+  fullud = lua_newuserdatauv(L, 8, 0);
+  check(L, lua_type(L, -1) == LUA_TUSERDATA, "lua_type userdata");
+  check(L, lua_isuserdata(L, -1), "lua_isuserdata full userdata");
+  check(L, !lua_islightuserdata(L, -1),
+	"lua_islightuserdata full userdata false");
+  check(L, lua_touserdata(L, -1) == fullud, "lua_touserdata userdata");
+  check(L, lua_topointer(L, -1) != NULL, "lua_topointer userdata");
+  lua_pop(L, 1);
 
   check(L, lua_pushthread(L) == 1, "lua_pushthread main return");
   check(L, lua_tothread(L, -1) == L, "lua_pushthread main value");

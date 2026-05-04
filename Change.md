@@ -16,6 +16,7 @@
 - C API 烟测继续扩展到状态 allocator 表面：`lua_newstate()` 可使用自定义 allocator，`lua_getallocf()` / `lua_setallocf()` 可读写 allocator 与 userdata。
 - C API 烟测继续扩展到状态/错误入口：`lua_atpanic()` 返回旧 panic handler，`lua_pushthread()` 区分主线程和 coroutine，`lua_error()` 可通过 `lua_pcall()` 捕获错误对象。
 - C API 烟测继续扩展到栈/表基础入口：`lua_checkstack()`、`lua_settop()`、`lua_pushvalue()`、`lua_concat()` 和 `lua_next()`。
+- C API 烟测继续扩展到类型/取值基础入口：`lua_type()`、`lua_typename()`、`lua_rawequal()`、`lua_iscfunction()`、`lua_tocfunction()`、`lua_touserdata()`、`lua_topointer()`、`lua_toboolean()` 以及 light/full userdata 判定。
 - 已继续补 Lua 5.4 `<close>` 声明点语义：`local x <close>` 现在会在运行期校验非 `nil`/`false` 值必须有 `__close`，非 closable 值按官方报 `variable 'x' got a non-closable value`；完整作用域退出调度仍保留在 `TODO.md`。
 - 已继续打通 Lua debug 库和 C API indexed uservalue：C 创建带 declared uservalue 的 userdata 后，`debug.getuservalue()` / `debug.setuservalue()` 已能按 Lua 5.4 表面读写声明槽位。
 - 已继续补 `table.concat({1,nil,3}, ",")` 的 Lua 5.4 边界：默认终点会覆盖 LuaJIT 旧长度搜索提前停在 1 的情况，从而检查到 index 2 的 nil 并报错。
