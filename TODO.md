@@ -31,13 +31,18 @@
 
 4. **debug frame metadata 批次**
    - 目标：在 VM frame 层保留 Lua 5.4 hook/tailcall 所需元信息。
-  - 覆盖：真实 `istailcall`、C function call/return hook transfer、tail call transfer、Lua/C hook 的边界一致性。
+   - 覆盖：真实 `istailcall`、C function call/return hook transfer、tail call transfer、Lua/C hook 的边界一致性。
    - 接口要求：call/return hook 的 transfer 信息应来自统一 frame/dispatch 元数据，而不是每个 hook 特判。
+   - 当前进展：line hook 已按启用 hook 的具体 frame/line 做同一行跳过，call hook 内启用 line hook 不再误跳过被调函数首行；一行函数入口会按 Lua 5.4 报告定义行；hook 回调帧的 `debug.getinfo(..., "n")` / traceback 已能显示 `hook '?'`。
+   - 当前进展：普通 Lua call/return、vararg return、tailcall transfer、普通 C 函数 call/return、fast C 函数 return、`pcall` / `xpcall` 合成 C return 已进入 smoke；字符串算术错误在 hook 内 protected call 下可被捕获。
+   - 当前进展：metamethod/finalizer 的 debug 名字、`for iterator` 名字反推、traceback 大栈裁剪格式、stripped chunk 的 `(no name)` upvalue 和无行号 line hook `nil` 参数已按官方 Lua 5.4.8 `testes/db.lua` 收口。
+   - 验证状态：官方 Lua 5.4.8 `testes/db.lua` 当前已通过；该批次没有已知剩余阻塞。
 
 5. **平台和 JIT 批次**
    - 目标：把 PC/Android/iOS/Emscripten 64 位构建矩阵变成常规验证门，并明确各平台 JIT/解释器策略。
    - 覆盖：Windows PC x64、Android ARM64、iOS ARM64、Emscripten wasm/wasm64；JIT on/off 和 Lua 5.4 compat smoke。
    - 接口要求：Emscripten 不能假设传统本机 JIT；需要单独 wasm/interpreter 后端或明确禁用 JIT 的构建路径。
+   - 当前进展：新增 Lua 5.4 perf/memory smoke，固定 `jit.opt.start` 参数，分别覆盖 JIT on/off 下的 `pairs` / `__pairs` / `//` / `%` / hook churn，避免 opt 默认值变化掩盖性能回退。
 
 6. **C API / lauxlib / 标准库收尾批次**
    - 目标：在上述底层接口稳定后，统一核对 ABI、头文件宏、错误文本和冷门边界。
@@ -50,6 +55,8 @@
   - 当前状态：已接受 `local x <close>` 语法并记录属性，声明点会按 Lua 5.4 校验非 `nil`/`false` 值必须带 `__close`；普通块自然执行到 `end`、固定返回值 `return`、`break` 退出循环、已知向后 `goto`、前向 `goto` 跳出 close local 作用域以及 generic for 第 4 个 closing value 的普通退出路径时会按 LIFO 调用 `__close(value, nil)`。
   - 当前进展：`io.lines(filename)` 已按 Lua 5.4 返回第 4 个 closing value，迭代器仍会在 EOF 时主动关闭文件；`local x <close> = 1` 已按 Lua 5.4 在运行期报 `variable 'x' got a non-closable value`，`nil` / `false` 声明会跳过校验，带 `__close` 的值可声明；C API 已补 `lua_toclose()` 的 closable 校验、只能高于当前 active close slot 的标记顺序检查，以及 `lua_closeslot()` 只能关闭最后一个 active marked slot 的检查；普通 fall-through block exit、固定返回值 `return`、`break`、已知向后 `goto`、前向 `goto` 离开作用域和 generic for 自然结束/`break` 退出已通过 parser helper 调度 close locals；动态多返回 `return f()` / `return fixed, ...` 已用临时 pack/close/unpack 桥接保持返回值数量和 nil 洞；error 展开已通过 close-list 桥接关闭 active close locals，并覆盖 `pcall`/`xpcall`、`__close(value, err)`、`__close` 自身抛错替换错误对象和 generic for 错误展开；`coroutine.close` / `lua_closethread` / `lua_resetthread` 已能关闭 suspended coroutine 中的 active close locals，yield 状态传 `nil` 错误对象，close 抛错时返回失败和替换后的错误；C API `lua_settop` / `lua_pop` 弹出 `lua_toclose` 标记槽位时会自动关闭，C 函数抛错展开时会把 body error 传给 `__close`；C 函数正常返回时会在 return hook 和返回值搬移前关闭 `lua_toclose` 标记槽位，`__close` 抛错会替换为返回错误，且被关闭槽位作为返回值时不会被清成 `nil`。
   - 当前进展：普通块退出和 close-active `return` 路径中的 `__close` 现在由 parser 生成普通 Lua 调用，已支持 `__close` 内 `coroutine.yield()` 后恢复继续执行，并保留 `return` 的多返回值和 `nil` 洞。
+  - 当前进展：parser 生成的普通 `__close` 调用已能在 debug/traceback 中显示 `metamethod 'close'`，并隐藏 `_lua54_closevalue` / `_lua54_unpackreturn` 等内部 helper 的 return hook 噪声；官方 `testes/locals.lua` 已越过 `__close` 错误 traceback、return hook 顺序和基础 coroutine close-yield 用例。
+  - 当前阻塞：官方 `testes/locals.lua` 当前停在错误展开期间的 close-yield continuation（约第 969 行）。最小根因是 `__close` 自身抛错或函数体抛错后，剩余外层 close 仍由 `lj_close_unwind()` 的 C `lua_pcall` 桥接调度，`__close` 内 `coroutine.yield()` 会退化为 `attempt to yield across C-call boundary`，后续协程状态也可能被破坏。
   - 需要补测试/实现：error unwind、`pcall`/`xpcall` 保护展开、C API `lua_toclose` 正常 C 返回以及 coroutine reset/close 路径中的 `__close` yield/continuation 边界；这些路径仍需要 VM 级 unwind continuation，不能继续用不可 yield 的 C `lua_pcall` 桥接。
   - 实现重点：普通 fall-through、固定返回值 return、动态多返回 return、break、goto、generic for 普通控制流退出、error unwind、coroutine reset/close 和 C API 弹栈关闭已先走 parser/helper/close-list 桥接；完整实现仍需要 VM/字节码/栈帧层提供统一 close 调度，最终替换动态 return 的 pack/unpack 临时桥和 error unwind close-list 桥接。
 
@@ -186,15 +193,16 @@
   - 已覆盖：`generational`/`incremental` 参数和旧模式返回、`minor`/`major` invalid option、`setpause` 初始返回 `200`、`setstepmul` 初始返回 `100`，以及负数、非 4 对齐值、超过 1000、fraction number、string number 的参数边界。
   - 实现重点：如果不重做 GC，至少要明确哪些行为是 shim，哪些行为可以做到语义兼容。
 
-- [ ] `debug.getinfo` 的 Lua 5.4 选项和 hook 字段。
+- [x] `debug.getinfo` 的 Lua 5.4 选项和 hook 字段。
   - 当前状态：`debug.getinfo(f, "u")` 已有 `nparams`/`isvararg`；`"t"` 选项已接受，普通 Lua tail call frame 会报告 `istailcall=true`。
   - 当前进展：`lua_Debug` 已补 Lua 5.4 的 `nparams`、`isvararg`、`istailcall`、`ftransfer`、`ntransfer` 字段；`lua_getinfo(..., "ut")` 会填入 `nparams/isvararg`，普通 Lua tail call hook/return hook 会填入 `istailcall=true`，非 hook transfer 场景仍返回保守 `0/0`。
-  - 当前进展：`debug.getinfo(..., "r")` 和 C API `lua_getinfo(..., "r")` 已接受 Lua 5.4 transfer-info 选项；非 hook 场景返回保守的 `ftransfer=0` / `ntransfer=0`，普通 Lua 函数（含 vararg）call/return hook 已能报告参数和返回值 transfer 范围，普通 C 函数和 fast C 函数的 call/return hook 已能按实际参数和返回值报告 transfer 范围。
-  - 当前进展：C return hook 已新增统一 dispatch 入口并在 x64 / ARM64 VM 返回路径接入；fast C 函数入口会保留原始参数 transfer 起点，避免返回路径覆盖结果数量后丢失 Lua 5.4 debug 元数据。
+  - 当前进展：`debug.getinfo(..., "r")` 和 C API `lua_getinfo(..., "r")` 已接受 Lua 5.4 transfer-info 选项；非 hook 场景返回保守的 `ftransfer=0` / `ntransfer=0`，普通 Lua 函数（含 vararg）call/return hook已能报告参数和返回值 transfer 范围，普通 C 函数和 fast C 函数的 call/return hook 也能按实际参数/结果报告 transfer 范围。
+  - 当前进展：C return hook 已新增统一 dispatch 入口并在 x64 / ARM64 VM 普通 C 返回路径接入；fast C 函数入口会保留原始参数 transfer 起点，fast return 路径会在结果槽仍可被 debug API 观察时发布 result transfer 窗口。
   - 当前进展：普通 Lua `BC_CALLT` 路径已在 x64 / ARM64 VM 中保存 side marker，`debug.getinfo(..., "t")`、Lua hook 和 C API hook 都能识别 `tail call` / `LUA_HOOKTAILCALL`，并在该 frame 返回时清理 marker，避免后续普通调用误判；vararg pseudo-frame 已会回溯到真实 Lua frame 判断 `istailcall`，因此 vararg tailcall return hook 也能报告 `istailcall=true`。
   - 当前进展：Lua 5.4 兼容模式下，debug 库的 level/index/count 参数已改用严格整数检查；`debug.getinfo`、`getlocal`、`setlocal`、`getupvalue`、`setupvalue`、`upvalueid`、`upvaluejoin`、`sethook`、`traceback`、`getuservalue`、`setuservalue` 和 `setcstacklimit` 都会拒绝无整数表示的 number，同时保留字符串数字转换。
-  - 已覆盖：C API smoke 读取新增 `lua_Debug` 字段，并通过 `lua_sethook` / `lua_getinfo(..., "r")` 覆盖普通 Lua 函数固定参数和 vararg 的 hook transfer、Lua tail call hook transfer / `istailcall`、vararg tailcall return hook 的 `istailcall`、tail-position C return 不误报 Lua tail hook，以及普通 C 函数 call/return hook transfer；Lua smoke 覆盖非 hook 场景和 `debug.getinfo(2, "r")` 的固定参数 / vararg call-return hook transfer、C 函数 call hook transfer、fast C 函数 return hook transfer、Lua tail call hook/return transfer、vararg tailcall return transfer、tail-position C return transfer、`pcall` / `xpcall` protected C return hook transfer、tailcall error unwind 后普通调用不误报 `istailcall`，以及直接调用清 marker。
-  - 需要补测试：更多 hook transfer 字段边界。
+  - 当前进展：debug 名字反推已覆盖 Lua 5.4 operator metamethod、table finalizer `__gc`、`for iterator` 和 hook 回调帧；stripped chunk 的 `currentline=-1`、upvalue `(no name)` 和 line hook `nil` 行号也已对齐。
+  - 已覆盖：C API smoke 读取新增 `lua_Debug` 字段，并通过 `lua_sethook` / `lua_getinfo(..., "r")` 覆盖普通 Lua 函数固定参数和 vararg 的 hook transfer、Lua tail call hook transfer / `istailcall`、vararg tailcall return hook 的 `istailcall`、tail-position C return 不误报 Lua tail hook，以及普通 C 函数 call/return hook transfer；Lua smoke 覆盖非 hook 场景和 `debug.getinfo(2, "r")` 的固定参数 / vararg call-return hook transfer、C 函数 call/return hook transfer、fast C 函数 return hook transfer、Lua tail call hook/return transfer、vararg tailcall return transfer、tail-position C return transfer、`pcall` / `xpcall` protected C return hook transfer、tailcall error unwind 后普通调用不误报 `istailcall`，以及直接调用清 marker。
+  - 官方验证：Lua 5.4.8 `testes/db.lua` 已通过；后续若扩展 debug 元数据，只作为压力/平台矩阵补充，不再作为当前已知功能缺口。
 
 - [ ] Lua 5.4 C API / 头文件兼容。
   - 当前状态：`lua.h` 已开始按官方 Lua 5.4.8 源码收紧外部表面，但仍有部分 C API 语义缺失或保持 LuaJIT 内部 ABI wrapper，例如真实 continuation、allocator 缩小失败、完整 64 位 integer ABI 和更多冷门宏组合。

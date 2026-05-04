@@ -267,6 +267,8 @@ static int lua54_callbinmeta(lua_State *L, const char *mmname, int unary)
 {
   GCstr *mm = lj_str_newz(L, mmname);
   cTValue *mo = lua54_getmetafield(L, L->base, mm);
+  const char *oldmm;
+  GCfunc *oldmmfunc;
   if (!mo && !unary && L->base+1 < L->top)
     mo = lua54_getmetafield(L, L->base+1, mm);
   if (!mo)
@@ -277,12 +279,25 @@ static int lua54_callbinmeta(lua_State *L, const char *mmname, int unary)
   copyTV(L, L->top++, mo);
   copyTV(L, L->top++, L->base);
   copyTV(L, L->top++, unary ? L->base : L->base+1);
-  lua_call(L, 2, 1);
+  oldmm = G(L)->debug_mmname;
+  oldmmfunc = G(L)->debug_mmfunc;
+  G(L)->debug_mmname = mmname[0] == '_' && mmname[1] == '_' ?
+		       mmname + 2 : mmname;
+  G(L)->debug_mmfunc = tvisfunc(mo) ? funcV(mo) : NULL;
+  {
+    int status = lua_pcall(L, 2, 1, 0);
+    G(L)->debug_mmfunc = oldmmfunc;
+    G(L)->debug_mmname = oldmm;
+    if (status)
+      return lua_error(L);
+  }
   /* The lowered helper is itself a C function.  Normalize the metamethod's
   ** single result to the helper result slot so original operands do not leak
   ** as extra returns when string/table metamethods return multiple values.
   */
   copyTV(L, L->base, L->top-1);
+  setnilV(L->base + 1);
+  setnilV(L->base + 2);
   L->top = L->base + 1;
   return 1;
 }
@@ -492,14 +507,22 @@ static int lj_cf_jit__lua54_forstep(lua_State *L)
   return 1;
 }
 
+static void lua54_skip_helper_return(lua_State *L)
+{
+  if (G(L)->hookmask & LUA_MASKRET)
+    G(L)->hook_skipret++;
+}
+
 static int lj_cf_jit__lua54_checkclose(lua_State *L)
 {
   cTValue *o = L->base;
   const char *name = luaL_checkstring(L, 2);
   int32_t slotdelta = lj_lib_checkint(L, 3);
   TValue *slot = L->base + slotdelta;
-  if (o >= L->top || lj_close_isfalse(o))
+  if (o >= L->top || lj_close_isfalse(o)) {
+    lua54_skip_helper_return(L);
     return 0;
+  }
   /* Keep the variable-specific Lua 5.4 declaration error here, but delegate
   ** the actual closable test to the shared runtime helper used by C API and
   ** the later VM unwind implementation.
@@ -511,12 +534,13 @@ static int lj_cf_jit__lua54_checkclose(lua_State *L)
   ** mark survives after the temporary call registers are recycled.
   */
   lj_close_mark(L, slot);
+  lua54_skip_helper_return(L);
   return 0;
 }
 
 static int lj_cf_jit__lua54_nopclose(lua_State *L)
 {
-  (void)L;
+  lua54_skip_helper_return(L);
   return 0;
 }
 
@@ -541,6 +565,7 @@ static int lua54_pushnopclose(lua_State *L)
   lua_pushcfunction(L, lj_cf_jit__lua54_nopclose);
   setnilV(L->top++);
   setnilV(L->top++);
+  lua54_skip_helper_return(L);
   return 3;
 }
 
@@ -554,6 +579,7 @@ static int lua54_pushcloseerror(lua_State *L)
     "attempt to call a nil value (metamethod 'close')"));
   setnilV(top++);
   L->top = top;
+  lua54_skip_helper_return(L);
   return 3;
 }
 
@@ -567,6 +593,12 @@ static int lj_cf_jit__lua54_closevalue(lua_State *L)
     return lua54_pushnopclose(L);
   if (lj_close_isfalse(o))
     return lua54_pushnopclose(L);
+  /* Generic-for reserves a Lua 5.4 closing slot even when the iterator does
+  ** not return a fourth value. Only a slot that was actually marked by the
+  ** declaration/check helper should run or diagnose __close at scope exit.
+  */
+  if (!lj_close_islast(L, o))
+    return lua54_pushnopclose(L);
   lj_close_unmark(L, o);
   if (!lj_close_getmethod(L, o))
     return lua54_pushcloseerror(L);
@@ -576,6 +608,11 @@ static int lj_cf_jit__lua54_closevalue(lua_State *L)
   mo = lj_close_getmethod(L, o);
   if (!mo)
     return lua54_pushcloseerror(L);
+  /* This helper is compiler plumbing for Lua 5.4 close scheduling. Hide its
+  ** own C return from user hooks; the following plain Lua __close call remains
+  ** visible and yieldable.
+  */
+  lua54_skip_helper_return(L);
   return lua54_pushclosecall(L, mo, o);
 }
 
@@ -590,6 +627,7 @@ static int lj_cf_jit__lua54_packreturn(lua_State *L)
   }
   lua_pushinteger(L, n);
   lua_setfield(L, -2, "n");
+  lua54_skip_helper_return(L);
   return 1;
 }
 
@@ -611,6 +649,7 @@ static int lj_cf_jit__lua54_unpackreturn(lua_State *L)
   luaL_checkstack(L, n, "too many return values");
   for (i = 1; i <= n; i++)
     lua_rawgeti(L, 1, i);
+  lua54_skip_helper_return(L);
   return n;
 }
 #endif

@@ -39,6 +39,8 @@
 #include "lj_strfmt.h"
 #include "lj_lib.h"
 
+#include "luajit.h"
+
 /* -- Base library: checks ------------------------------------------------ */
 
 #define LJLIB_MODULE_base
@@ -415,9 +417,24 @@ LJLIB_ASM(setmetatable)		LJLIB_REC(.)
     ** tables only become finalizable if __gc existed when mt was assigned.
     */
     {
-      cTValue *gc = lj_tab_getstr(mt, mmname_str(G(L), MM_gc));
-      if (gc && !tvisnil(gc))
+      global_State *g = G(L);
+      cTValue *gc = lj_tab_getstr(mt, mmname_str(g, MM_gc));
+      if (gc && !tvisnil(gc)) {
 	t->flags54 |= LJ_TAB_HAS_GC;
+	/* A newly armed table finalizer should become observable through normal
+	** allocation-driven GC, as in Lua 5.4's repeat-until-finalized tests.
+	*/
+	if (g->gc.threshold != LJ_MAX_MEM && g->gc.threshold > g->gc.total)
+	  g->gc.threshold = g->gc.total;
+#if LJ_HASJIT
+	/* LuaJIT traces do not run table finalizers until the trace exits. Keep
+	** the function that armed __gc interpreted so allocation-driven finalizer
+	** loops observe the callback like PUC Lua 5.4.
+	*/
+	if (!(g->hookmask & HOOK_GC))
+	  luaJIT_setmode(L, 0, LUAJIT_MODE_FUNC|LUAJIT_MODE_OFF);
+#endif
+      }
     }
 #endif
   }

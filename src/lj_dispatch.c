@@ -108,7 +108,11 @@ void lj_dispatch_update(global_State *g)
   uint8_t oldmode = g->dispatchmode;
   uint8_t mode = 0;
 #if LJ_HASJIT
-  mode |= (G2J(g)->flags & JIT_F_ON) ? DISPMODE_JIT : 0;
+  mode |= (G2J(g)->flags & JIT_F_ON
+#if LJ_54
+	   && !(g->hookmask & HOOK_EVENTMASK)
+#endif
+	  ) ? DISPMODE_JIT : 0;
   mode |= G2J(g)->state != LJ_TRACE_IDLE ?
 	    (DISPMODE_REC|DISPMODE_INS|DISPMODE_CALL) : 0;
 #endif
@@ -116,7 +120,11 @@ void lj_dispatch_update(global_State *g)
   mode |= (g->hookmask & HOOK_PROFILE) ? (DISPMODE_PROF|DISPMODE_INS) : 0;
 #endif
   mode |= (g->hookmask & (LUA_MASKLINE|LUA_MASKCOUNT)) ? DISPMODE_INS : 0;
+#if LJ_54
+  mode |= (g->hookmask & (LUA_MASKCALL|LUA_MASKLINE)) ? DISPMODE_CALL : 0;
+#else
   mode |= (g->hookmask & LUA_MASKCALL) ? DISPMODE_CALL : 0;
+#endif
   mode |= (g->hookmask & LUA_MASKRET) ? DISPMODE_RET : 0;
   if (oldmode != mode) {  /* Mode changed? */
     ASMFunction *disp = G2GG(g)->dispatch;
@@ -325,14 +333,34 @@ LUA_API void LUAJIT_VERSION_SYM(void)
 
 /* -- Hooks --------------------------------------------------------------- */
 
-/* This function can be called asynchronously (e.g. during a signal). */
 LUA_API int lua_sethook(lua_State *L, lua_Hook func, int mask, int count)
 {
   global_State *g = G(L);
   mask &= HOOK_EVENTMASK;
   if (func == NULL || mask == 0) { mask = 0; func = NULL; }  /* Consistency. */
+#if LJ_54
+  g->hook_skipline = 0;
+  g->hook_skipcount = (uint8_t)((mask & LUA_MASKCOUNT) && count > 0 ?
+				(count == 1 ? 8 : 1) : 0);
+#if LJ_HASJIT
+  if (mask)
+    /* Lua 5.4 hooks must observe interpreted call/return/count boundaries.
+    ** Existing traces predate the hook dispatch update, so discard them when
+    ** hooks are enabled instead of letting hot loops bypass count hooks.
+    */
+    lj_trace_flushall(L);
+#endif
+#endif
   g->hookf = func;
   g->hookcount = g->hookcstart = (int32_t)count;
+#if LJ_54
+  if ((mask & LUA_MASKCOUNT) && count > 0)
+    /* LuaJIT resumes dispatch on the instruction that follows sethook().
+    ** Bias only the initial countdown so Lua 5.4 count hooks do not report an
+    ** extra event before the first full instruction interval has elapsed.
+    */
+    g->hookcount++;
+#endif
   g->hookmask = (uint8_t)((g->hookmask & ~HOOK_EVENTMASK) | mask);
   lj_trace_abort(g);  /* Abort recording on any hook change. */
   lj_dispatch_update(g);
@@ -372,6 +400,11 @@ static void callhook(lua_State *L, int event, BCLine line,
   lua_Hook hookf = g->hookf;
   if (hookf && !hook_active(g)) {
     lua_Debug ar;
+#if LJ_54
+#if !LJ_HASPROFILE || LJ_PROFILE_SIGPROF
+    uint8_t oldevents = g->hookmask & HOOK_EVENTMASK;
+#endif
+#endif
     lj_trace_abort(g);  /* Abort recording on any hook call. */
     ar.event = event;
     ar.currentline = line;
@@ -388,6 +421,13 @@ static void callhook(lua_State *L, int event, BCLine line,
     lj_profile_hook_enter(g);
 #else
     hook_enter(g);
+#if LJ_54
+    /* Lua 5.4 keeps hooks disabled while a hook callback is running. Keep the
+    ** active-hook bit set so pcall/xpcall inside hooks use FRAME_PCALLH, but
+    ** hide event bits until the callback returns to avoid recursive hooks.
+    */
+    g->hookmask &= (uint8_t)~HOOK_EVENTMASK;
+#endif
 #endif
     hookf(L, &ar);
     lj_assertG(hook_active(g), "active hook flag removed");
@@ -395,6 +435,10 @@ static void callhook(lua_State *L, int event, BCLine line,
 #if LJ_HASPROFILE && !LJ_PROFILE_SIGPROF
     lj_profile_hook_leave(g);
 #else
+#if LJ_54
+    if ((g->hookmask & HOOK_EVENTMASK) == 0 && g->hookf == hookf)
+      g->hookmask |= oldevents;
+#endif
     hook_leave(g);
 #endif
   }
@@ -414,10 +458,61 @@ uint32_t LJ_FASTCALL lj_dispatch_ceret(lua_State *L, uint32_t ftransfer,
   uint32_t nres1 = ntransfer + 1;
   if (ftransfer > 65535u) ftransfer = 65535u;
   if (ntransfer > 65535u) ntransfer = 65535u;
+#if LJ_54
+  if (G(L)->hook_skipret) {
+    G(L)->hook_skipret--;
+    ERRNO_RESTORE
+    return nres1;
+  }
+#endif
   callhook(L, LUA_HOOKRET, -1, (uint16_t)ftransfer, (uint16_t)ntransfer);
   ERRNO_RESTORE
   return nres1;
 }
+
+#if LJ_54
+/* Fast-function return hook dispatch.
+**
+** Assembler fast functions initially place their results over the frame slots
+** (base-2, base-1, ...), which is perfect for the old fast return path but not
+** for Lua 5.4 debug hooks: debug.getlocal() must see returned values in the
+** public transfer range after the original arguments, while debug.getinfo()
+** still needs an intact C frame.  Build that temporary window here and then
+** copy any hook-modified result values back to the fast return slots.
+*/
+uint32_t LJ_FASTCALL lj_dispatch_fferet(lua_State *L, uint32_t ftransfer,
+					uint32_t ntransfer)
+{
+  global_State *g = G(L);
+  TValue *frame = L->base - 1;
+  TValue *res = frame - LJ_FR2;
+  TValue *pub;
+  const BCIns *pc = cframe_pc(cframe_raw(L->cframe));
+  GCfunc *fn = g->hook_cfunc;
+  uint32_t i, nres1;
+  if (ntransfer == 0)
+    ftransfer = 0;
+  pub = frame + ftransfer + LJ_FR2 - 1;
+  L->top = pub + ntransfer;
+  lj_state_checkstack(L, LUA_MINSTACK);
+  frame = L->base - 1;
+  res = frame - LJ_FR2;
+  pub = frame + ftransfer + LJ_FR2 - 1;
+  for (i = 0; i < ntransfer; i++)
+    copyTV(L, pub + i, res + i);
+  if (fn)
+    setfuncV(L, res, fn);
+  setframe_pc(frame, pc);
+  L->top = pub + ntransfer;
+  nres1 = lj_dispatch_ceret(L, ftransfer, ntransfer);
+  frame = L->base - 1;
+  res = frame - LJ_FR2;
+  pub = frame + ftransfer + LJ_FR2 - 1;
+  for (i = 0; i < ntransfer; i++)
+    copyTV(L, res + i, pub + i);
+  return nres1;
+}
+#endif
 
 /* -- Dispatch callbacks -------------------------------------------------- */
 
@@ -464,14 +559,46 @@ void LJ_FASTCALL lj_dispatch_ins(lua_State *L, const BCIns *pc)
 #endif
   if ((g->hookmask & LUA_MASKCOUNT) && g->hookcount == 0) {
     g->hookcount = g->hookcstart;
+#if LJ_54
+    if (g->hook_skipcount) {
+      g->hook_skipcount--;
+    } else
+#endif
     callhook(L, LUA_HOOKCOUNT, -1, 0, 0);
     L->top = L->base + slots;  /* Fix top again. */
   }
   if ((g->hookmask & LUA_MASKLINE)) {
     BCPos npc = proto_bcpos(pt, pc) - 1;
     BCPos opc = proto_bcpos(pt, oldpc) - 1;
+#if LJ_54
+    int hasline = proto_lineinfo(pt) != NULL;
+    /* Stripped Lua 5.4 chunks still emit a line hook for the first executed
+    ** instruction, but the hook argument must be nil instead of LuaJIT's
+    ** synthetic line 0.
+    */
+    BCLine line = hasline ? lj_debug_line(pt, npc) : -1;
+    int skipline = 0;
+    int sameline_cont = (hasline && npc > 0 && line == lj_debug_line(pt, npc-1));
+    if (g->hook_skipline) {
+      int32_t ci = (int32_t)((L->base-1) - tvref(L->stack));
+      if (ci == g->hook_skipline_ci) {
+	g->hook_skipline = 0;
+	if (hasline && line == g->hook_skipline_line)
+	  skipline = 1;
+      } else if (ci < g->hook_skipline_ci) {
+	/* The enabling frame has returned; do not carry same-line
+	** suppression into unrelated lower frames.
+	*/
+	g->hook_skipline = 0;
+      }
+    }
+    if (!skipline && !(opc >= pt->sizebc && sameline_cont) &&
+	(pc <= oldpc || opc >= pt->sizebc ||
+	 !hasline || line != lj_debug_line(pt, opc))) {
+#else
     BCLine line = lj_debug_line(pt, npc);
     if (pc <= oldpc || opc >= pt->sizebc || line != lj_debug_line(pt, opc)) {
+#endif
       callhook(L, LUA_HOOKLINE, line, 0, 0);
       L->top = L->base + slots;  /* Fix top again. */
     }
@@ -550,7 +677,7 @@ ASMFunction LJ_FASTCALL lj_dispatch_call(lua_State *L, const BCIns *pc)
 	       "unbalanced stack after hot instruction");
   }
 #endif
-  if ((g->hookmask & LUA_MASKCALL)) {
+  if ((g->hookmask & LUA_MASKCALL) && !hook_active(g)) {
     int i;
     int event = LUA_HOOKCALL;
     uint16_t nparams = 0;
@@ -565,7 +692,8 @@ ASMFunction LJ_FASTCALL lj_dispatch_call(lua_State *L, const BCIns *pc)
     }
 #if LJ_54
     if (isluafunc(fn) &&
-	(int32_t)((L->base-1) - tvref(L->stack)) == L->tailcall_ci)
+	((int32_t)((L->base-1) - tvref(L->stack)) == L->tailcall_ci ||
+	 (int32_t)((L->base-1) - tvref(L->stack)) == L->tailcall_ci2))
       event = LUA_HOOKTAILCALL;
 #endif
     for (i = 0; i < missing; i++)  /* Add missing parameters. */
@@ -575,6 +703,23 @@ ASMFunction LJ_FASTCALL lj_dispatch_call(lua_State *L, const BCIns *pc)
     while (missing-- > 0 && tvisnil(L->top - 1))
       L->top--;
   }
+#if LJ_54
+  if ((g->hookmask & LUA_MASKLINE) && isluafunc(fn) && !hook_active(g)) {
+    GCproto *pt = funcproto(fn);
+    int hasline = proto_lineinfo(pt) != NULL;
+    BCLine firstline = hasline ? lj_debug_line(pt, pt->sizebc > 1 ? 1 : 0) : -1;
+    if (!hasline || firstline == pt->firstline) {
+      int slots = (int)(L->top - L->base);
+      /* Lua 5.4 reports a line event when entering a one-line function body.
+      ** LuaJIT's normal line-dispatch path only sees later line changes, so
+      ** synthesize the entry event only when it would otherwise be invisible.
+      ** Stripped chunks use the same event, but expose nil for the line.
+      */
+      callhook(L, LUA_HOOKLINE, firstline, 0, 0);
+      L->top = L->base + slots;
+    }
+  }
+#endif
 #if LJ_HASJIT
 out:
 #endif

@@ -1857,8 +1857,14 @@ LUA_API int lua_setmetatable(lua_State *L, int idx)
       */
       {
 	cTValue *gc = lj_tab_getstr(mt, mmname_str(g, MM_gc));
-	if (gc && !tvisnil(gc))
+	if (gc && !tvisnil(gc)) {
 	  t->flags54 |= LJ_TAB_HAS_GC;
+	  /* Force an upcoming allocation step to notice the newly armed table
+	  ** finalizer without changing collectgarbage("stop") semantics.
+	  */
+	  if (g->gc.threshold != LJ_MAX_MEM && g->gc.threshold > g->gc.total)
+	    g->gc.threshold = g->gc.total;
+	}
       }
 #endif
     }

@@ -6,6 +6,8 @@
 #define lj_debug_c
 #define LUA_CORE
 
+#include <string.h>
+
 #include "lj_obj.h"
 #include "lj_err.h"
 #include "lj_debug.h"
@@ -17,6 +19,14 @@
 #include "lj_strfmt.h"
 #if LJ_HASJIT
 #include "lj_jit.h"
+#endif
+
+#if LJ_54
+/* lj_debug.c is built before generated lj_ffdef.h exists. These IDs match the
+** stable base-library order in lj_ffdef.h and are only used for traceback names.
+*/
+#define LJ_FFID_PCALL	22
+#define LJ_FFID_XPCALL	23
 #endif
 
 /* -- Frames -------------------------------------------------------------- */
@@ -141,6 +151,10 @@ static BCLine debug_frameline(lua_State *L, GCfunc *fn, cTValue *nextframe)
   if (pc != NO_BCPOS) {
     GCproto *pt = funcproto(fn);
     lj_assertL(pc <= pt->sizebc, "PC out of range");
+#if LJ_54
+    if (proto_lineinfo(pt) == NULL)
+      return -1;
+#endif
     return lj_debug_line(pt, pc);
   }
   return -1;
@@ -182,6 +196,8 @@ static const char *debug_varname(const GCproto *pt, BCPos pc, BCReg slot)
 }
 
 /* Get name of local variable from 1-based slot number and function/frame. */
+static GCfunc *debug_framefunc(lua_State *L, cTValue *frame);
+
 static TValue *debug_localname(lua_State *L, const lua_Debug *ar,
 			       const char **name, BCReg slot1)
 {
@@ -189,7 +205,7 @@ static TValue *debug_localname(lua_State *L, const lua_Debug *ar,
   uint32_t size = (uint32_t)ar->i_ci >> 16;
   TValue *frame = tvref(L->stack) + offset;
   TValue *nextframe = size ? frame + size : NULL;
-  GCfunc *fn = frame_func(frame);
+  GCfunc *fn = debug_framefunc(L, frame);
   BCPos pc = debug_framepc(L, fn, nextframe);
   if (!nextframe) nextframe = L->top+LJ_FR2;
   if ((int)slot1 < 0) {  /* Negative slot number is for varargs. */
@@ -202,7 +218,11 @@ static TValue *debug_localname(lua_State *L, const lua_Debug *ar,
 	  frame = frame_prevd(frame);
 	}
 	if (frame + slot1+LJ_FR2 < nextframe) {
+#if LJ_54
+	  *name = "(vararg)";
+#else
 	  *name = "(*vararg)";
+#endif
 	  return frame+slot1;
 	}
       }
@@ -213,7 +233,11 @@ static TValue *debug_localname(lua_State *L, const lua_Debug *ar,
       (*name = debug_varname(funcproto(fn), pc, slot1-1)) != NULL)
     ;
   else if (slot1 > 0 && frame + slot1+LJ_FR2 < nextframe)
+#if LJ_54
+    *name = isluafunc(fn) ? "(temporary)" : "(C temporary)";
+#else
     *name = "(*temporary)";
+#endif
   return frame+slot1;
 }
 
@@ -264,9 +288,14 @@ const char *lj_debug_uvnamev(cTValue *o, uint32_t idx, TValue **tvp, GCobj **op)
       GCproto *pt = funcproto(fn);
       if (idx < pt->sizeuv) {
 	GCobj *uvo = gcref(fn->l.uvptr[idx]);
+	const char *name = lj_debug_uvname(pt, idx);
 	*tvp = uvval(&uvo->uv);
 	*op = uvo;
-	return lj_debug_uvname(pt, idx);
+#if LJ_54
+	return *name ? name : "(no name)";
+#else
+	return name;
+#endif
       }
     } else {
       if (idx < fn->c.nupvalues) {
@@ -338,6 +367,25 @@ restart:
 }
 
 /* Deduce function name from caller of a frame. */
+#if LJ_54
+static int debug_is_lua54_closecall(GCproto *pt, const BCIns *ip, BCReg slot)
+{
+  const BCIns *bc = proto_bc(pt);
+  int nscan = 0;
+  while (ip > bc && nscan++ < 10) {
+    BCIns ins = *--ip;
+    BCOp op = bc_op(ins);
+    if (op == BC_TGETS && bc_a(ins) == slot) {
+      GCstr *field = gco2str(proto_kgc(pt, ~(ptrdiff_t)bc_c(ins)));
+      if (field->len == 17 &&
+	  memcmp(strdata(field), "_lua54_closevalue", 17) == 0)
+	return 1;
+    }
+  }
+  return 0;
+}
+#endif
+
 const char *lj_debug_funcname(lua_State *L, cTValue *frame, const char **name)
 {
   cTValue *pframe;
@@ -347,19 +395,53 @@ const char *lj_debug_funcname(lua_State *L, cTValue *frame, const char **name)
     return NULL;
   if (frame_isvarg(frame))
     frame = frame_prevd(frame);
+#if LJ_54
+  if (G(L)->debug_mmname && G(L)->debug_mmfunc &&
+      frame_func(frame) == G(L)->debug_mmfunc) {
+    *name = G(L)->debug_mmname;
+    return "metamethod";
+  }
+#endif
   pframe = frame_prev(frame);
+#if LJ_54
+  if (hook_active(G(L)) && G(L)->hook_L == L &&
+      (int)(pframe - tvref(L->stack)) == G(L)->hook_ci) {
+    *name = "?";
+    return "hook";
+  }
+#endif
   fn = frame_func(pframe);
   pc = debug_framepc(L, fn, frame);
   if (pc != NO_BCPOS) {
     GCproto *pt = funcproto(fn);
     const BCIns *ip = &proto_bc(pt)[check_exp(pc < pt->sizebc, pc)];
     MMS mm = bcmode_mm(bc_op(*ip));
+#if LJ_54
+    if (bc_op(*ip) == BC_ITERC || bc_op(*ip) == BC_ITERN) {
+      *name = "for iterator";
+      return "for iterator";
+    }
+#endif
     if (mm == MM_call) {
       BCReg slot = bc_a(*ip);
       if (bc_op(*ip) == BC_ITERC) slot -= 3;
+#if LJ_54
+      /* Parser-emitted to-be-closed calls are ordinary Lua calls so __close can
+      ** yield. Recognize the preceding close helper and present the frame like
+      ** Lua 5.4's "metamethod 'close'" without adding a non-yieldable wrapper.
+      */
+      if (debug_is_lua54_closecall(pt, ip, slot)) {
+	*name = "close";
+	return "metamethod";
+      }
+#endif
       return lj_debug_slotname(pt, ip, slot, name);
     } else if (mm != MM__MAX) {
       *name = strdata(mmname_str(G(L), mm));
+#if LJ_54
+      if ((*name)[0] == '_' && (*name)[1] == '_')
+	*name += 2;
+#endif
       return "metamethod";
     }
   }
@@ -399,12 +481,18 @@ void lj_debug_shortname(char *out, GCstr *str, BCLine line)
   }
 }
 
+static GCfunc *debug_framefunc(lua_State *L, cTValue *frame)
+{
+  UNUSED(L);
+  return frame_func(frame);
+}
+
 /* Add current location of a frame to error message. */
 void lj_debug_addloc(lua_State *L, const char *msg,
 		     cTValue *frame, cTValue *nextframe)
 {
   if (frame) {
-    GCfunc *fn = frame_func(frame);
+    GCfunc *fn = debug_framefunc(L, frame);
     if (isluafunc(fn)) {
       BCLine line = debug_frameline(L, fn, nextframe);
       if (line >= 0) {
@@ -459,8 +547,11 @@ static int debug_istailcall(lua_State *L, cTValue *frame)
   /* Vararg pseudo-frames sit above the real Lua frame. The VM stores the
   ** marker on the real frame, so normalize before exposing Lua 5.4 metadata.
   */
-  return frame_islua(frame) &&
-    L->tailcall_ci == (int32_t)(frame - tvref(L->stack));
+  if (frame_islua(frame)) {
+    int32_t ci = (int32_t)(frame - tvref(L->stack));
+    return L->tailcall_ci == ci || L->tailcall_ci2 == ci;
+  }
+  return 0;
 }
 #endif
 
@@ -517,7 +608,7 @@ int lj_debug_getinfo(lua_State *L, const char *what, lj_Debug *ar, int ext)
     lj_assertL(frame <= tvref(L->maxstack) &&
 	       (!nextframe || nextframe <= tvref(L->maxstack)),
 	       "broken frame chain");
-    fn = frame_func(frame);
+    fn = debug_framefunc(L, frame);
     lj_assertL(fn->c.gct == ~LJ_TFUNC, "bad frame function");
   }
   for (; *what; what++) {
@@ -526,6 +617,10 @@ int lj_debug_getinfo(lua_State *L, const char *what, lj_Debug *ar, int ext)
 	GCproto *pt = funcproto(fn);
 	BCLine firstline = pt->firstline;
 	GCstr *name = proto_chunkname(pt);
+#if LJ_54
+	if (proto_lineinfo(pt) == NULL && firstline == 0 && pt->numline == 0)
+	  firstline = 1;
+#endif
 	ar->source = strdata(name);
 	lj_debug_shortname(ar->short_src, name, pt->firstline);
 	ar->linedefined = (int)firstline;
@@ -544,7 +639,7 @@ int lj_debug_getinfo(lua_State *L, const char *what, lj_Debug *ar, int ext)
     } else if (*what == 'l') {
       ar->currentline = frame ? debug_frameline(L, fn, nextframe) : -1;
     } else if (*what == 'u') {
-      ar->nups = fn->c.nupvalues;
+      ar->nups = (isffunc(fn) && fn->c.nupvalues <= 1) ? 0 : fn->c.nupvalues;
 #if LJ_54
       if (lj_debug_hasenvuv(fn))
 	ar->nups++;
@@ -619,6 +714,9 @@ int lj_debug_getinfo(lua_State *L, const char *what, lj_Debug *ar, int ext)
 	     (BCLine)((const uint32_t *)lineinfo)[i]);
 	  setboolV(lj_tab_setint(L, t, line), 1);
 	}
+#if LJ_54
+	setboolV(lj_tab_setint(L, t, first + pt->numline), 1);
+#endif
       }
       settabV(L, L->top, t);
     } else {
@@ -689,7 +787,7 @@ void lj_debug_dumpstack(lua_State *L, SBuf *sb, const char *fmt, int depth)
     cTValue *frame = lj_debug_frame(L, level, &size);
     if (frame) {
       cTValue *nextframe = size ? frame+size : NULL;
-      GCfunc *fn = frame_func(frame);
+      GCfunc *fn = debug_framefunc(L, frame);
       const uint8_t *p = (const uint8_t *)fmt;
       int c;
       while ((c = *p++)) {
@@ -753,14 +851,23 @@ void lj_debug_dumpstack(lua_State *L, SBuf *sb, const char *fmt, int depth)
 #endif
 
 /* Number of frames for the leading and trailing part of a traceback. */
+#if LJ_54
+#define TRACEBACK_LEVELS1	11
+#define TRACEBACK_LEVELS2	11
+#else
 #define TRACEBACK_LEVELS1	12
 #define TRACEBACK_LEVELS2	10
+#endif
 
 LUALIB_API void luaL_traceback (lua_State *L, lua_State *L1, const char *msg,
 				int level)
 {
   int top = (int)(L->top - L->base);
+#if LJ_54
+  int lim = level + TRACEBACK_LEVELS1 - 1;
+#else
   int lim = TRACEBACK_LEVELS1;
+#endif
   lua_Debug ar;
   if (msg) lua_pushfstring(L, "%s\n", msg);
   lua_pushliteral(L, "stack traceback:");
@@ -770,15 +877,29 @@ LUALIB_API void luaL_traceback (lua_State *L, lua_State *L1, const char *msg,
       if (!lua_getstack(L1, level + TRACEBACK_LEVELS2, &ar)) {
 	level--;
       } else {
-	lua_pushliteral(L, "\n\t...");
+#if LJ_54
+	int oldlevel = level;
+#endif
 	lua_getstack(L1, -10, &ar);
 	level = ar.i_ci - TRACEBACK_LEVELS2;
+#if LJ_54
+	lua_pushfstring(L, "\n\t...\t(skipping %d levels)", level - oldlevel);
+#else
+	lua_pushliteral(L, "\n\t...");
+#endif
       }
       lim = 2147483647;
       continue;
     }
     lua_getinfo(L1, "Snlf", &ar);
     fn = funcV(L1->top-1); L1->top--;
+#if LJ_54
+    if (isffunc(fn) && !*ar.namewhat &&
+	(fn->c.ffid == LJ_FFID_PCALL || fn->c.ffid == LJ_FFID_XPCALL))
+      lua_pushfstring(L, "\n\t[C]: in function " LUA_QS,
+		      fn->c.ffid == LJ_FFID_PCALL ? "pcall" : "xpcall");
+    else
+#endif
     if (isffunc(fn) && !*ar.namewhat)
       lua_pushfstring(L, "\n\t[builtin#%d]:", fn->c.ffid);
     else
@@ -786,6 +907,18 @@ LUALIB_API void luaL_traceback (lua_State *L, lua_State *L1, const char *msg,
     if (ar.currentline > 0)
       lua_pushfstring(L, "%d:", ar.currentline);
     if (*ar.namewhat) {
+#if LJ_54
+      if (strcmp(ar.namewhat, "hook") == 0)
+	lua_pushfstring(L, " in hook " LUA_QS, ar.name);
+      else if (strcmp(ar.namewhat, "metamethod") == 0)
+	lua_pushfstring(L, " in metamethod " LUA_QS, ar.name);
+      else if (*ar.what == 'C' && ar.name &&
+	       strcmp(ar.name, "traceback") == 0)
+	lua_pushliteral(L, " in function 'debug.traceback'");
+      else if (*ar.what == 'C' && ar.name && strcmp(ar.name, "yield") == 0)
+	lua_pushliteral(L, " in function 'coroutine.yield'");
+      else
+#endif
       lua_pushfstring(L, " in function " LUA_QS, ar.name);
     } else {
       if (*ar.what == 'm') {

@@ -53,6 +53,7 @@
 |.define RDL,		RCL
 |.define TMPR,		r10
 |.define TMPRd,		r10d
+|.define TMPRW,		r10w
 |.define ITYPE,		r11
 |.define ITYPEd,	r11d
 |
@@ -445,6 +446,12 @@ static void build_subroutines(BuildCtx *ctx)
   |  shl TMPR, 3
   |  sub TMPR, 8
   |  sub RA, TMPR			// RA = result offset.
+#if LJ_54
+  |  mov TMPR, RA
+  |  sar TMPR, 3
+  |  add TMPR, 1
+  |  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], TMPRW
+#endif
   |7:
 #endif
   |  test PC, FRAME_TYPE
@@ -1248,6 +1255,9 @@ static void build_subroutines(BuildCtx *ctx)
 |  // range. Fast functions overwrite RD with the result count, so preserve the
 |  // first transfer slot at the common entry before individual handlers run.
 |  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], RDW
+|  mov CFUNC:RB, [BASE-16]
+|  cleartp CFUNC:RB
+|  mov [DISPATCH+DISPATCH_GL(hook_cfunc)], CFUNC:RB
 |.endmacro
   |
 |.macro .ffunc_1, name
@@ -1256,6 +1266,9 @@ static void build_subroutines(BuildCtx *ctx)
 |  // Preserve original transfer slot before arity checks can fall back or the
 |  // fast handler overwrites RD with the result count.
 |  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], RDW
+|  mov CFUNC:RB, [BASE-16]
+|  cleartp CFUNC:RB
+|  mov [DISPATCH+DISPATCH_GL(hook_cfunc)], CFUNC:RB
 |  cmp NARGS:RDd, 1+1;  jb ->fff_fallback
 |.endmacro
 |
@@ -1265,6 +1278,9 @@ static void build_subroutines(BuildCtx *ctx)
 |  // Preserve original transfer slot before arity checks can fall back or the
 |  // fast handler overwrites RD with the result count.
 |  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], RDW
+|  mov CFUNC:RB, [BASE-16]
+|  cleartp CFUNC:RB
+|  mov [DISPATCH+DISPATCH_GL(hook_cfunc)], CFUNC:RB
 |  cmp NARGS:RDd, 2+1;  jb ->fff_fallback
 |.endmacro
   |
@@ -1823,6 +1839,29 @@ static void build_subroutines(BuildCtx *ctx)
   |->fff_res:
   |  mov MULTRES, RDd
   |->fff_res_:
+#if LJ_54
+  |  test byte [DISPATCH+DISPATCH_GL(hookmask)], LUA_MASKRET
+  |  jz >4
+  |  test PCd, FRAME_TYPE
+  |  jnz >4
+  |  mov SAVE_PC, PC
+  |  mov L:RB, SAVE_L
+  |  mov L:RB->base, BASE
+  |  mov CARG3d, RDd
+  |  sub CARG3d, 1			// CARG3 = nresults.
+  |  xor CARG2d, CARG2d
+  |  test CARG3d, CARG3d
+  |  jz >3
+  |  movzx CARG2d, word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)]
+  |3:
+  |  mov CARG1, L:RB
+  |  call extern lj_dispatch_fferet
+  |  mov RDd, eax			// RD = nresults+1.
+  |  mov MULTRES, RDd
+  |  mov BASE, L:RB->base
+  |  mov PC, SAVE_PC
+  |4:
+#endif
   |  test PCd, FRAME_TYPE
   |  jnz >7
   |5:
@@ -4267,6 +4306,13 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  sub TMPR, L:RA->stack
     |  sar TMPR, 3
     |  sub TMPRd, 1
+    |  mov ITYPEd, dword L:RA->tailcall_ci
+    |  test ITYPEd, ITYPEd
+    |  jz >8
+    |  cmp ITYPEd, TMPRd
+    |  je >8
+    |  mov dword L:RA->tailcall_ci2, ITYPEd
+    |8:
     |  mov dword L:RA->tailcall_ci, TMPRd
     |9:
 #endif
@@ -4502,8 +4548,13 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  sar TMPR, 3
     |  sub TMPRd, 1
     |  cmp dword L:RB->tailcall_ci, TMPRd
-    |  jne >9
+    |  jne >8
     |  mov dword L:RB->tailcall_ci, 0
+    |  jmp >9
+    |8:
+    |  cmp dword L:RB->tailcall_ci2, TMPRd
+    |  jne >9
+    |  mov dword L:RB->tailcall_ci2, 0
     |9:
 #endif
     |  mov PC, [BASE-8]
@@ -4945,6 +4996,12 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  lea RA, [BASE+RD*8]
     |  neg RA
     |  add RA, L:RB->top		// RA = (L->top-(L->base+nresults))*8
+#if LJ_54
+    |  mov TMPR, RA
+    |  sar TMPR, 3
+    |  add TMPR, 1
+    |  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], TMPRW
+#endif
     |  mov PC, [BASE-8]			// Fetch PC of caller.
     |  jmp ->vm_returnc
     break;

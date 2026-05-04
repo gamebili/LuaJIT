@@ -12,6 +12,7 @@
 #include "lj_obj.h"
 #include "lj_gc.h"
 #include "lj_err.h"
+#include "lj_debug.h"
 #include "lj_buf.h"
 #include "lj_str.h"
 #include "lj_tab.h"
@@ -290,10 +291,21 @@ static void lua54_strarith_error(lua_State *L, cTValue *rb, cTValue *rc,
   /* Lua 5.4 routes string arithmetic through string-library metamethods.
   ** When conversion still fails, report the source operator and both operand
   ** types instead of LuaJIT's generic "arithmetic on string value" error.
+  ** This is raised from the VM arithmetic helper, so the current Lua frame is
+  ** already the source operation. Using the caller frame skips over pcall's
+  ** active-hook frame and can turn a protected error into an uncaught one.
   */
-  lj_err_callermsg(L, lj_strfmt_pushf(L,
+#if LJ_HASJIT
+  {
+    TValue *base = tvref(G(L)->jit_base);
+    if (base) L->base = base;
+  }
+#endif
+  if (curr_funcisL(L)) L->top = curr_topL(L);
+  lj_debug_addloc(L, lj_strfmt_pushf(L,
     "attempt to %s a '%s' with a '%s'",
-    opnames[(int)mm - (int)MM_add], bt, ct));
+    opnames[(int)mm - (int)MM_add], bt, ct), L->base-1, NULL);
+  lj_err_run(L);
 }
 #endif
 

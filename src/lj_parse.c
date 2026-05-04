@@ -683,49 +683,60 @@ static void bcemit_lua54_helper(FuncState *fs, const char *field, size_t len,
   LexState *ls = fs->ls;
   BCReg base;
   BCReg argbase;
-  int reuseleft = e1->k == VNONRELOC && e1->u.s.info >= fs->nactvar &&
-		  e1->u.s.info + 1 == fs->freereg;
+  BCReg reusebase = NO_REG;
   /* Keep new Lua 5.4 operators out of the VM bytecode format for now: lower
   ** them to private jit helpers so default LuaJIT bytecode remains unchanged.
   */
-  if (!reuseleft && e1->k != VNONRELOC && !expr_isk_nojump(e1)) {
+  if (e1->k == VNONRELOC && e1->u.s.info >= fs->nactvar)
+    reusebase = e1->u.s.info;
+  if (e1->k != VNONRELOC && !expr_isk_nojump(e1)) {
     /* Lua 5.4 global access is lowered through _ENV table indexing. Materialize
     ** it before loading jit._lua54_* so helper setup cannot overwrite the table
     ** register still needed by a pending VINDEXED expression.
     */
     expr_tonextreg(fs, e1);
+    if (e1->u.s.info >= fs->nactvar)
+      reusebase = e1->u.s.info;
   }
-  if (!reuseleft && nargs == 2 && e2->k != VNONRELOC && !expr_isk_nojump(e2))
-    expr_tonextreg(fs, e2);
+  if (nargs == 2) {
+    if (reusebase == NO_REG && e2->k == VNONRELOC &&
+	e2->u.s.info >= fs->nactvar)
+      reusebase = e2->u.s.info;
+    if (e2->k != VNONRELOC && !expr_isk_nojump(e2)) {
+      expr_tonextreg(fs, e2);
+      if (reusebase == NO_REG && e2->u.s.info >= fs->nactvar)
+	reusebase = e2->u.s.info;
+    }
+  }
   base = fs->freereg;
-  if (reuseleft) {
+  if (reusebase != NO_REG) {
     BCReg need;
-    base = e1->u.s.info;
+    base = reusebase;
     argbase = (BCReg)(base + 1 + ls->fr2);
     need = (BCReg)(argbase + nargs);
     if (fs->freereg < need)
       bcreg_reserve(fs, (BCReg)(need - fs->freereg));
-    /* Non-number left operands were already materialized by
-    ** bcemit_binop_left(). Reuse that slot as the helper call base so fixed
-    ** multi-assignment receives the helper result in the first result slot,
-    ** not the stale left operand.
+    /* Reuse the earliest temporary operand as the helper call base. Local
+    ** declarations make the first temporary become the first new local, so
+    ** placing the helper after a materialized right operand would leak that
+    ** operand into multi-assignment before the real result.
     */
-    if (nargs == 2 && e2->k != VNONRELOC && !expr_isk_nojump(e2))
+    if (nargs == 2)
       expr_toreg(fs, e2, (BCReg)(argbase + 1));
     expr_toreg(fs, e1, argbase);
   }
   bcemit_AD(fs, BC_GGET, base, const_lit(fs, "jit", 3));
-  if (!reuseleft) {
+  if (reusebase == NO_REG) {
     bcreg_reserve(fs, 1);
     if (ls->fr2) bcreg_reserve(fs, 1);
   }
   bcemit_lua54_jit_field(fs, base, field, len);
-  if (!reuseleft)
+  if (reusebase == NO_REG)
     bcreg_reserve(fs, nargs);
   argbase = (BCReg)(base + 1 + ls->fr2);
-  if (!reuseleft)
+  if (reusebase == NO_REG)
     expr_toreg(fs, e1, argbase);
-  if (nargs == 2)
+  if (reusebase == NO_REG && nargs == 2)
     expr_toreg(fs, e2, (BCReg)(argbase + 1));
   expr_init(e1, VCALL,
 	    bcemit_ABC(fs, BC_CALL, base, 2, fs->freereg - base - ls->fr2));
@@ -2612,11 +2623,18 @@ static BinOpr expr_binop(LexState *ls, ExpDesc *v, uint32_t limit)
   while (op != OPR_NOBINOPR && priority[op].left > limit) {
     ExpDesc v2;
     BinOpr nextop;
+#if LJ_54
+    BCLine opline = ls->linenumber;
+#endif
     lj_lex_next(ls);
     bcemit_binop_left(ls->fs, op, v);
     /* Parse binary expression with higher priority. */
     nextop = expr_binop(ls, &v2, priority[op].right);
     bcemit_binop(ls->fs, op, v, &v2);
+#if LJ_54
+    if (v->k == VRELOCABLE && v->u.s.info < ls->fs->pc)
+      ls->fs->bcbase[v->u.s.info].line = opline;
+#endif
     op = nextop;
   }
   synlevel_end(ls);
@@ -2647,13 +2665,53 @@ static BCPos expr_cond(LexState *ls)
   return v.f;
 }
 
+#if LJ_54
+/* Lua 5.4 exposes a line hook and an active line for a multiline 'then'.
+** LuaJIT emits the condition branch before consuming 'then', so the final
+** branch pair inherits the condition line unless it is retagged here.
+*/
+static void bcemit_lua54_thenline(FuncState *fs, BCPos condexit, BCLine thenline)
+{
+  if (condexit == NO_JMP)
+    return;
+  fs->bcbase[condexit].line = thenline;
+  if (condexit > 0) {
+    BCOp op = bc_op(fs->bcbase[condexit-1].ins);
+    if (op == BC_IST || op == BC_ISF || op == BC_ISTC || op == BC_ISFC)
+      fs->bcbase[condexit-1].line = thenline;
+  }
+}
+#endif
+
 /* -- Assignments --------------------------------------------------------- */
 
 /* List of LHS variables. */
 typedef struct LHSVarList {
   ExpDesc v;			/* LHS variable. */
+  BCPos startpc;		/* First bytecode emitted for this LHS. */
   struct LHSVarList *prev;	/* Link to previous LHS variable. */
 } LHSVarList;
+
+#if LJ_54
+static BCLine lua54_exprline(FuncState *fs, const ExpDesc *e)
+{
+  if ((e->k == VRELOCABLE || e->k == VCALL || e->k == VJMP) &&
+      e->u.s.info < fs->pc)
+    return fs->bcbase[e->u.s.info].line;
+  return 0;
+}
+
+static void lua54_retag_lhs_env(FuncState *fs, BCPos start, BCPos stop,
+				BCLine line)
+{
+  BCPos pc;
+  for (pc = start; pc < stop; pc++) {
+    BCOp op = bc_op(fs->bcbase[pc].ins);
+    if ((op == BC_UGET || op == BC_GGET) && fs->bcbase[pc].line < line)
+      fs->bcbase[pc].line = line;
+  }
+}
+#endif
 
 /* Eliminate write-after-read hazards for local variable assignment. */
 static void assign_hazard(LexState *ls, LHSVarList *lh, const ExpDesc *v)
@@ -2710,6 +2768,7 @@ static void parse_assignment(LexState *ls, LHSVarList *lh, BCReg nvars)
   checkcond(ls, VLOCAL <= lh->v.k && lh->v.k <= VINDEXED, LJ_ERR_XSYNTAX);
   if (lex_opt(ls, ',')) {  /* Collect LHS list and recurse upwards. */
     LHSVarList vl;
+    vl.startpc = ls->fs->pc;
     vl.prev = lh;
     expr_primary(ls, &vl.v);
     if (vl.v.k == VLOCAL)
@@ -2718,8 +2777,21 @@ static void parse_assignment(LexState *ls, LHSVarList *lh, BCReg nvars)
     parse_assignment(ls, &vl, nvars+1);
   } else {  /* Parse RHS. */
     BCReg nexps;
+#if LJ_54
+    BCPos rhspc;
+#endif
     lex_check(ls, '=');
+#if LJ_54
+    rhspc = ls->fs->pc;
+#endif
     nexps = expr_list(ls, &e);
+#if LJ_54
+    if (nvars == 1) {
+      BCLine rhsline = lua54_exprline(ls->fs, &e);
+      if (rhsline)
+	lua54_retag_lhs_env(ls->fs, lh->startpc, rhspc, rhsline);
+    }
+#endif
     if (nexps == nvars) {
       if (e.k == VCALL) {
 	if (bc_op(*bcptr(ls->fs, &e)) == BC_VARG) {  /* Vararg assignment. */
@@ -2745,9 +2817,23 @@ static void parse_call_assign(LexState *ls)
 {
   FuncState *fs = ls->fs;
   LHSVarList vl;
+  vl.startpc = fs->pc;
   expr_primary(ls, &vl.v);
   if (vl.v.k == VCALL) {  /* Function call statement. */
     setbc_b(bcptr(fs, &vl.v), 1);  /* No results. */
+#if LJ_54
+    /* Lua 5.4 finalizers make discarded temporaries observable: a call
+    ** statement such as setmetatable({}, {__gc=...}) must not keep the
+    ** returned table or argument temporaries alive in dead call slots.
+    */
+    {
+      BCIns call = *bcptr(fs, &vl.v);
+      BCReg nclear = bc_op(call) == BC_CALL ? (BCReg)(bc_c(call) + LJ_FR2) :
+		     (BCReg)(fs->freereg - vl.v.u.s.aux);
+      if (nclear > 0)
+	bcemit_nil(fs, vl.v.u.s.aux, nclear);
+    }
+#endif
   } else {  /* Start of an assignment. */
     vl.prev = NULL;
     parse_assignment(ls, &vl, 1);
@@ -3031,7 +3117,13 @@ static void parse_repeat(LexState *ls, BCLine line)
   fscope_begin(fs, &bl1, FSCOPE_LOOP);  /* Breakable loop scope. */
   fscope_begin(fs, &bl2, 0);  /* Inner scope. */
   lj_lex_next(ls);  /* Skip 'repeat'. */
-  bcemit_AD(fs, BC_LOOP, fs->nactvar, 0);
+  loop = bcemit_AD(fs, BC_LOOP, fs->nactvar, 0);
+#if LJ_54
+  /* Lua 5.4 line hooks enter a repeat loop at the first body statement, not
+  ** at the 'repeat' keyword line carried by LuaJIT's synthetic LOOP bytecode.
+  */
+  fs->bcbase[loop].line = ls->linenumber;
+#endif
   parse_chunk(ls);
   lex_match(ls, TK_until, TK_repeat, line);
   condexit = expr_cond(ls);  /* Parse condition (still inside inner scope). */
@@ -3220,8 +3312,18 @@ static void parse_for(LexState *ls, BCLine line)
 static BCPos parse_then(LexState *ls)
 {
   BCPos condexit;
+#if LJ_54
+  BCLine condline;
+#endif
   lj_lex_next(ls);  /* Skip 'if' or 'elseif'. */
+#if LJ_54
+  condline = ls->linenumber;
+#endif
   condexit = expr_cond(ls);
+#if LJ_54
+  if (ls->tok == TK_then && ls->linenumber > condline)
+    bcemit_lua54_thenline(ls->fs, condexit, ls->linenumber);
+#endif
   lex_check(ls, TK_then);
   parse_block(ls);
   return condexit;

@@ -3,6 +3,13 @@
 ## 当前进展
 
 - 已按要求采用 `Change.md` 记录修改、新功能和进展；仓库中未创建 `Modify.md`。
+- 已新增 `test/lua54_perf.lua` 和 `make smoketest-perf-lua54compat`，性能/内存 smoke 会固定 `jit.opt.start(hotloop=3,hotexit=2,instunroll=4,loopunroll=4)`，分别覆盖 JIT 开启和 `jit.off()`；`build.bat test` 已纳入该 perf 目标，`build.bat lua54perf` 可单独运行。
+- 已按用户提醒固定 perf guard 的 JIT optimizer 变量：测试默认显式设置 `hotloop=3,hotexit=2,instunroll=4,loopunroll=4`，避免 `jit.opt` 默认或外部嵌入配置变化造成性能结果不可比；本地排查可用 `LUA54_PERF_JIT_OPT` 覆盖。
+- 已按官方 Lua 5.4.8 `testes/db.lua` 收口 debug frame metadata 批次：line hook 现在按启用 hook 的具体 frame/line 跳过同一行剩余执行，一行函数入口会报告定义行，stripped chunk 仍触发首条 line hook 但行号参数为 `nil`。
+- 已补齐 Lua 5.4 debug 名字和 transfer 边界：operator metamethod、table finalizer `__gc`、`for iterator`、hook 回调帧、普通/fast C return、`pcall` / `xpcall` 合成 C return、traceback 裁剪格式和 stripped upvalue `(no name)` 均已进入 smoke；官方 `testes/db.lua` 当前通过。
+- 已继续推进 `<close>` / VM unwind 批次：parser 生成的普通 `__close` 调用现在会被 debug/traceback 识别为 `metamethod 'close'`，同时隐藏 `_lua54_closevalue` / `_lua54_packreturn` / `_lua54_unpackreturn` 等内部 helper 的 return hook 噪声，避免用户 hook 看见编译器桥接细节。
+- 官方 `testes/locals.lua` 当前已越过 `__close` 错误 traceback、return hook 顺序和基础 coroutine close-yield 用例，下一处阻塞定位为 error unwind 期间的 close-yield continuation：剩余外层 close 仍走 C `lua_pcall` 桥接，会把 `coroutine.yield()` 变成跨 C 边界 yield 错误，后续需要 VM 级 continuation 接管。
+- 已修正 Lua 5.4 字符串算术错误路径：VM arithmetic helper 在当前 Lua 帧补齐 `L->top` 后抛出错误，`pcall(function() return "x"+1 end)` 以及 hook 回调里的 `pcall(load(...))` 都能捕获，并保留源码位置。
 - 已用用户指定的 `https://github.com/lua/lua/archive/refs/tags/v5.4.8.zip` 重新下载官方源码并和本地 `D:\p4_gl2\pristine\tools\lua\v5.4.8.zip` 核对 SHA256，确认当前对照源码一致。
 - 已继续按官方 Lua 5.4.8 `lstrlib.c` / `testes/strings.lua` 成批收紧字符串库边界：`string.rep` 结果过大时稳定报 `resulting string too large`；`string.format("%p")` 支持宽度/左对齐，primitive 仍输出 `(null)`；带宽度/精度的 `%s` 会拒绝内嵌 NUL，裸 `%s` 仍保留原字节。
 - 已按官方 `testes/strings.lua` 补齐 `string.format` 规格校验：超长规格报 `too long`，三位宽度/精度、非法 flag、`%F`、`%q` modifier、`%p` precision、缺少参数等边界进入 smoke。

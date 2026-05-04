@@ -211,13 +211,19 @@ smoketest-capi-lua54compat: smoketest-lua54compat
 	@for sym in PREPBUFFER ARGEXPECTED PUSHFAIL LOADFILE LOADBUFFER; do if gcc -DLUAJIT_ENABLE_LUA54COMPAT -DLUA54_REJECT_$$sym -std=c99 -I src -c test/lua54_capi_lauxlib_macroonly_reject.c -o src/lua54_capi_lauxlib_macroonly_reject.o 2>src/lua54_capi_lauxlib_macroonly_reject.err; then echo "lauxlib macro-only API $$sym unexpectedly has a function address in Lua 5.4 headers"; rm -f src/lua54_capi_lauxlib_macroonly_reject.o src/lua54_capi_lauxlib_macroonly_reject.err; exit 1; else grep "luaL_" src/lua54_capi_lauxlib_macroonly_reject.err >/dev/null; rm -f src/lua54_capi_lauxlib_macroonly_reject.o src/lua54_capi_lauxlib_macroonly_reject.err; fi; done
 	@for sym in BIT JIT FFI STRING_BUFFER; do if gcc -DLUAJIT_ENABLE_LUA54COMPAT -DLUA54_REJECT_$$sym -std=c99 -Werror=implicit-function-declaration -I src -c test/lua54_lualib_extra_reject.c -o src/lua54_lualib_extra_reject.o 2>src/lua54_lualib_extra_reject.err; then echo "LuaJIT lualib API $$sym unexpectedly visible in Lua 5.4 headers"; rm -f src/lua54_lualib_extra_reject.o src/lua54_lualib_extra_reject.err; exit 1; else grep "luaopen_" src/lua54_lualib_extra_reject.err >/dev/null; rm -f src/lua54_lualib_extra_reject.o src/lua54_lualib_extra_reject.err; fi; done
 
+smoketest-perf-lua54compat:
+	$(MAKE) clean
+	$(MAKE) XCFLAGS='-DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2'
+	./src/luajit test/lua54_perf.lua jit_on
+	./src/luajit test/lua54_perf.lua jit_off
+
 smoketest-capi-default: smoketest
 	gcc -I src -x c test/lua51_capi_smoke.c -x none src/lua51.dll -o src/lua51_capi_smoke.exe
 	./src/lua51_capi_smoke.exe
 	rm -f src/lua51_capi_smoke.exe
 
-test: smoketest-capi-default smoketest-capi-lua54compat
+test: smoketest-capi-default smoketest-capi-lua54compat smoketest-perf-lua54compat
 
-.PHONY: all install amalg clean smoketest smoketest-lua54compat smoketest-capi-default smoketest-capi-lua54compat test
+.PHONY: all install amalg clean smoketest smoketest-lua54compat smoketest-capi-default smoketest-capi-lua54compat smoketest-perf-lua54compat test
 
 ##############################################################################

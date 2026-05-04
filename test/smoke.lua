@@ -409,6 +409,25 @@ do
   end
   do
     assert(assert(load([[
+      local function f()
+        local x <close> = setmetatable({}, {
+          __close = function()
+            local info = debug.getinfo(1, "n")
+            assert(info.namewhat == "metamethod" and info.name == "close")
+            error("@lua54-close")
+          end,
+        })
+      end
+      local ok, msg = xpcall(f, debug.traceback)
+      assert(ok == false and msg:find("@lua54%-close") ~= nil)
+      -- The close call stays a plain Lua call so it can yield; debug metadata
+      -- recognizes the compiler-emitted close helper and names the frame.
+      assert(msg:find("in metamethod 'close'", 1, true) ~= nil)
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
       local log = {}
       local mt = {
         __close = function(self, err)
@@ -904,6 +923,10 @@ do
     local ok, err = pcall(assert(load([[return "x" + 1]])))
     assert(ok == false and err:match("attempt to add") ~= nil and
            err:match("'string'") ~= nil and err:match("'number'") ~= nil)
+    ok, err = pcall(function() return "x" + 1 end)
+    assert(ok == false and err:match("attempt to add") ~= nil and
+           err:match("%(temporary%)") == nil and
+           err:match("smoke%.lua:%d+:") ~= nil)
     ok, err = pcall(assert(load([[return 1 + "x"]])))
     assert(ok == false and err:match("attempt to add") ~= nil and
            err:match("'number'") ~= nil and err:match("'string'") ~= nil)
@@ -1033,10 +1056,45 @@ do
       local r = assert(load("return 7 & __lua54_meta_reverse"))()
       assert(r[1] == 7 and r[2] == reverse)
     end
+    do
+      local named = {}
+      local function meta()
+        local info = debug.getinfo(1, "n")
+        assert(info.namewhat == "metamethod")
+        return info.name, "extra"
+      end
+      setmetatable(named, { __mod = meta, __band = meta })
+      _G.__lua54_meta_named = named
+      -- Lowered helper calls must still look like real Lua 5.4 metamethods,
+      -- and only the first metamethod result participates in the expression.
+      local a, b, c = assert(load("return 3 % __lua54_meta_named"))()
+      assert(a == "mod" and b == nil and c == nil)
+      a, b, c = assert(load("return __lua54_meta_named & 3"))()
+      assert(a == "band" and b == nil and c == nil)
+      setmetatable(named, { __mod = function()
+        local function inner()
+          local here = debug.getinfo(1, "n")
+          local caller = debug.getinfo(2, "n")
+          assert(here.namewhat == "local" and here.name == "inner")
+          assert(caller.namewhat == "metamethod" and caller.name == "mod")
+        end
+        inner()
+        return "mod"
+      end })
+      assert(assert(load("return 3 % __lua54_meta_named"))() == "mod")
+      _G.__lua54_meta_named = nil
+    end
     _G.__lua54_meta_lhs = nil
     _G.__lua54_meta_rhs = nil
     _G.__lua54_meta_reverse = nil
   end
+end
+do
+  local function lua54_iterator_name_probe()
+    local info = debug.getinfo(1, "n")
+    assert(info.namewhat == "for iterator" and info.name == "for iterator")
+  end
+  for _ in lua54_iterator_name_probe do end
 end
 do
   for _, name in ipairs({ "type", "tointeger", "ult", "min", "max" }) do
@@ -1596,6 +1654,193 @@ do
     assert(info.ftransfer == 0 and info.ntransfer == 0)
   end
   do
+    local function countlines(s)
+      return select(2, string.gsub(s, "\n", ""))
+    end
+    local function deep(level, skip)
+      if level == 0 then
+        return (debug.traceback("message", skip))
+      end
+      return (deep(level - 1, skip))
+    end
+    local function checkdeep()
+      local trace = deep(21, 1)
+      return trace
+    end
+    local trace = coroutine.wrap(checkdeep)()
+    local rest = assert(trace:match("^message\nstack traceback:\n(.*)$"))
+    local brk = assert(rest:find("%.%.%.\t%(skip"))
+    assert(countlines(rest:sub(1, brk)) == 10)
+    assert(countlines(rest:sub(brk)) == 11)
+  end
+  do
+    local stripped = assert(load(string.dump(assert(load([[
+      local debug = require "debug"
+      local a = 12
+      local f = function() return a end
+      local n, v = debug.getupvalue(f, 1)
+      assert(n == "(no name)" and v == 12)
+      assert(debug.setupvalue(f, 1, 13) == "(no name)")
+      local info = debug.getinfo(f)
+      assert(info.linedefined == 1 and info.lastlinedefined == 1)
+      assert(debug.getinfo(1).currentline == -1)
+      return a
+    ]])), true)))
+    assert(stripped() == 13)
+  end
+  do
+    local function stripped_linehook_probe()
+      local a = 1
+      local b = 2
+      return b
+    end
+    local stripped = assert(load(string.dump(stripped_linehook_probe, true)))
+    local line = true
+    debug.sethook(function(event, l)
+      assert(event == "line")
+      line = l
+    end, "l")
+    -- Stripped Lua 5.4 code keeps the entry line event, but there is no debug
+    -- line table left, so the hook receives nil instead of a synthetic 0.
+    assert(stripped() == 2); debug.sethook()
+    assert(line == nil)
+  end
+  do
+    local function lua54_vararg_probe(a, ...)
+      local n, v = debug.getlocal(1, -1)
+      assert(n == "(vararg)" and v == 2)
+      assert(debug.setlocal(1, -1, 9) == "(vararg)")
+      assert((...) == 9)
+    end
+    lua54_vararg_probe(1, 2)
+    do
+      local n, v = debug.getlocal(0, 1)
+      assert(n == "(C temporary)" and v == 0)
+    end
+  end
+  do
+    local count = 0
+    local function hook()
+      local info = debug.getinfo(1, "n")
+      assert(info.namewhat == "hook" and info.name == "?")
+      assert(debug.traceback():find("in hook", 1, true))
+      count = count + 1
+    end
+    debug.sethook(hook, "l")
+    local lua54_hook_name_probe = 0
+    lua54_hook_name_probe = lua54_hook_name_probe + 1
+    debug.sethook()
+    assert(count >= 2)
+    assert(getmetatable(debug.getregistry()._HOOKKEY).__mode == "k")
+  end
+  do
+    local count = 0
+    local function hook()
+      local fn = assert(load([[lua54_hook_arith_probe = "x" + 1]]))
+      local ok, err = pcall(fn)
+      -- The hook runs with FRAME_PCALLH active; Lua 5.4 string-arithmetic
+      -- errors still need to stay inside the protected call.
+      assert(ok == false and err:match("attempt to add") ~= nil and
+             err:match("^%[string") ~= nil)
+      count = count + 1
+    end
+    debug.sethook(hook, "c")
+    local function lua54_hook_pcall_arith_probe() end
+    lua54_hook_pcall_arith_probe()
+    debug.sethook()
+    assert(count >= 1)
+    lua54_hook_arith_probe = nil
+  end
+  do
+    local source = [[if
+math.sin(1)
+then
+  lua54_linehook_if_probe = 1
+else
+  lua54_linehook_if_probe = 2
+end
+]]
+    local expected = { 2, 3, 4, 7 }
+    local seen = {}
+    local function hook(event, line)
+      if event == "line" and line <= 7 then
+        seen[#seen+1] = line
+      end
+    end
+    debug.sethook(hook, "l")
+    assert(load(source))()
+    debug.sethook()
+    assert(table.concat(seen, ",") == table.concat(expected, ","))
+    lua54_linehook_if_probe = nil
+  end
+  do
+    local seen = {}
+    local function lua54_oneline_linehook_probe() local a = 1 end
+    local defline = debug.getinfo(lua54_oneline_linehook_probe, "S").linedefined
+    local function hook(event, line)
+      if event == "line" then
+        seen[line] = true
+      end
+    end
+    debug.sethook(hook, "l")
+    lua54_oneline_linehook_probe()
+    debug.sethook()
+    assert(seen[defline] == true)
+  end
+  do
+    local source = [[a=1
+repeat
+  lua54_linehook_repeat_probe = (lua54_linehook_repeat_probe or 1) + 1
+until lua54_linehook_repeat_probe == 3
+]]
+    local expected = { 1, 3, 4, 3, 4 }
+    local seen = {}
+    local function hook(event, line)
+      if event == "line" and line <= 4 then
+        seen[#seen+1] = line
+      end
+    end
+    debug.sethook(hook, "l")
+    assert(load(source))()
+    debug.sethook()
+    assert(table.concat(seen, ",") == table.concat(expected, ","))
+    lua54_linehook_repeat_probe = nil
+  end
+  do
+    local source = [[
+local b = {10}
+lua54_linehook_gap_probe = b[1]
++
+b[1]
+lua54_linehook_gap_probe = 4
+]]
+    local expected = { 1, 3, 4, 3, 4, 5 }
+    local seen = {}
+    local function hook(event, line)
+      if event == "line" and line <= 5 then
+        seen[#seen+1] = line
+      end
+    end
+    debug.sethook(hook, "l")
+    assert(load(source))()
+    debug.sethook()
+    assert(table.concat(seen, ",") == table.concat(expected, ","))
+    lua54_linehook_gap_probe = nil
+  end
+  do
+    local seen = {}
+    local function hook(event, line)
+      if event == "line" then
+        seen[#seen+1] = line
+      end
+    end
+    -- Lua 5.4 does not report the caller line again when a hooked chunk
+    -- returns to the rest of the same source line that invoked it.
+    debug.sethook(hook, "l"); assert(load("lua54_linehook_if_probe = 1\n"))(); debug.sethook()
+    assert(table.concat(seen, ",") == "1")
+    lua54_linehook_if_probe = nil
+  end
+  do
     local seen = {}
     local function hook(ev)
       local info = debug.getinfo(2, "nr")
@@ -1664,6 +1909,53 @@ do
     assert(seen[2] == "return:2:2")
   end
   do
+    local inp, out
+    local on = false
+    local function hook(ev)
+      if not on then return end
+      local info = debug.getinfo(2, "ruS")
+      if info.what ~= "C" then return end
+      local t = {}
+      for i = info.ftransfer, info.ftransfer + info.ntransfer - 1 do
+        local _, v = debug.getlocal(2, i)
+        t[#t+1] = v
+      end
+      if ev == "return" then out = t else inp = t end
+    end
+    debug.sethook(hook, "cr")
+    on = true
+    local v = math.sin(3)
+    on = false
+    debug.sethook()
+    -- Fast C functions overwrite their frame slots with results before the
+    -- normal C-return path runs; keep a stable Lua 5.4 transfer window so
+    -- debug hooks can inspect both arguments and return values.
+    assert(inp[1] == 3)
+    assert(out[1] == v)
+  end
+  do
+    local out
+    local on = false
+    local function hook(ev)
+      if not on or ev ~= "return" then return end
+      local info = debug.getinfo(2, "ruS")
+      if info.what ~= "C" then return end
+      local t = {}
+      for i = info.ftransfer, info.ftransfer + info.ntransfer - 1 do
+        local _, v = debug.getlocal(2, i)
+        t[#t+1] = v
+      end
+      out = t
+    end
+    debug.sethook(hook, "cr")
+    on = true
+    local a, b, c = select(2, 10, 20, 30, 40)
+    on = false
+    debug.sethook()
+    assert(a == 20 and b == 30 and c == 40)
+    assert(out[1] == 20 and out[2] == 30 and out[3] == 40)
+  end
+  do
     local seen = {}
     local function hook(ev)
       local info = debug.getinfo(2, "rt")
@@ -1709,6 +2001,20 @@ do
     assert(a == 1 and b == 2 and c == 3)
     assert(seen[1] == "tail call:true:0:0")
     assert(seen[2] == "return:true:1:3")
+  end
+  do
+    local g, g1
+    local function target(x)
+      if x then
+        local caller = debug.getinfo(2)
+        assert(debug.getinfo(1, "t").istailcall == true)
+        assert(caller.func == g1 and caller.istailcall == true)
+      end
+    end
+    function g(x) return target(x) end
+    function g1(x) g(x) end
+    local function h(x) local f = g1; return f(x) end
+    h(true)
   end
   do
     local seen = {}
@@ -1799,6 +2105,26 @@ do
       return v
     end
     assert(driver() == "ok")
+  end
+  do
+    local function hot_count_probe()
+      local s = 0
+      for i = 1, 100 do s = s + i end
+      return s
+    end
+    if jit then
+      jit.opt.start("hotloop=1")
+      for _ = 1, 8 do hot_count_probe() end
+    end
+    local n = 0
+    debug.sethook(function() n = n + 1 end, "", 1)
+    hot_count_probe()
+    debug.sethook()
+    -- Count hooks are defined in VM instruction units. Existing traces must
+    -- not keep running after hooks are enabled, or Lua 5.4 debug counts collapse
+    -- to a handful of trace exits instead of the interpreted instruction stream.
+    assert(n > 100)
+    if jit then jit.opt.start("hotloop=56") end
   end
 end
 
@@ -2063,6 +2389,22 @@ do
   collectgarbage()
   assert(table.concat(log, ",") == "b,a")
 
+  do
+    local name
+    setmetatable({}, { __gc = function()
+      local info = debug.getinfo(1, "n")
+      assert(info.namewhat == "metamethod")
+      name = info.name
+    end })
+    -- Lua 5.4 table finalizers are observable from allocation-driven GC; this
+    -- keeps official repeat-until-finalized debug tests from spinning forever.
+    for _ = 1, 10000 do
+      local t = {}
+      if name then break end
+    end
+    assert(name == "__gc")
+  end
+
   log = {}
   do
     local mt = {}
@@ -2213,14 +2555,14 @@ do
   loaded = assert(load(with_upvalue, "=dumped-upvalue", "b", dump_env))
   assert(loaded() == dump_env)
   local n, v = debug.getupvalue(loaded, 1)
-  assert(n == "" and v == dump_env)
+  assert(n == "(no name)" and v == dump_env)
   assert(debug.getupvalue(loaded, 2) == nil)
   loaded = assert(load(with_upvalue, "=dumped-upvalue-number", "b", 5))
   -- Lua 5.4 initializes the first real upvalue to the exact env argument;
   -- unlike function environments, that slot is allowed to hold non-tables.
   assert(loaded() == 5)
   n, v = debug.getupvalue(loaded, 1)
-  assert(n == "" and v == 5)
+  assert(n == "(no name)" and v == 5)
   loaded = assert(load(with_upvalue, "=dumped-upvalue-false", "b", false))
   assert(loaded() == false)
   loaded = assert(load(with_upvalue, "=dumped-upvalue-nil", "b", nil))
@@ -2229,7 +2571,7 @@ do
   assert(debug.getupvalue(loaded, 1) == nil)
   loaded = assert(load(string.dump(function() return math.type(1) end, true), "=dumped-global", "b"))
   n, v = debug.getupvalue(loaded, 1)
-  assert(n == "" and v == _G)
+  assert(n == "(no name)" and v == _G)
   assert(debug.getupvalue(loaded, 2) == nil)
   local f, err = load(stripped, "=dumped", "t")
   assert(f == nil and err:match("attempt to load a binary chunk %(mode is 't'%)"))

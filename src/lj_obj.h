@@ -668,6 +668,16 @@ typedef struct global_State {
   uint16_t hook_ftransfer;  /* First transferred slot for active hook. */
   uint16_t hook_ntransfer;  /* Number of transferred slots for active hook. */
   uint16_t hook_cres_ftransfer;  /* First result slot for pending C return. */
+  GCfunc *hook_cfunc;	/* C frame function restored for fast return hooks. */
+  GCfunc *debug_mmfunc;	/* Lua 5.4 lowered helper metamethod function. */
+  const char *debug_mmname;	/* Lua 5.4 lowered helper metamethod name. */
+#if LJ_54
+  uint8_t hook_skipline;	/* Suppress same-line hook once after sethook. */
+  uint8_t hook_skipcount;	/* Suppress first count hook after sethook. */
+  uint8_t hook_skipret;		/* Suppress return hooks for internal helpers. */
+  int32_t hook_skipline_ci;	/* Frame that enabled the line hook. */
+  BCLine hook_skipline_line;	/* Source line that enabled the line hook. */
+#endif
   lua_Hook hookf;	/* Hook function. */
   lua_CFunction wrapf;	/* Wrapper for C function calls. */
   lua_CFunction panic;	/* Called as a last resort for errors. */
@@ -722,6 +732,7 @@ struct lua_State {
   void *exdata;		/* Pointer-sized Lua 5.4 extraspace compatibility. */
   void *closelist;	/* Lua 5.4 active to-be-closed stack slots. */
   int32_t tailcall_ci;	/* Lua 5.4 tail-called frame offset, or 0. */
+  int32_t tailcall_ci2;	/* Secondary Lua 5.4 tail-call marker. */
 };
 
 #define G(L)			(mref(L->glref, global_State))

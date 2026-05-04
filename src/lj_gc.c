@@ -604,6 +604,10 @@ static void gc_call_finalizer(global_State *g, lua_State *L,
   int errcode;
   lua_State *VL = vmthread(g);
   TValue *top;
+#if LJ_54
+  const char *oldmm = g->debug_mmname;
+  GCfunc *oldmmfunc = g->debug_mmfunc;
+#endif
   lj_trace_abort(g);
   hook_entergc(g);  /* Disable hooks and new traces during __gc. */
   if (LJ_HASPROFILE && (oldh & HOOK_PROFILE)) lj_dispatch_update(g);
@@ -613,7 +617,19 @@ static void gc_call_finalizer(global_State *g, lua_State *L,
   if (LJ_FR2) setnilV(top++);
   setgcV(VL, top, o, ~o->gch.gct);
   VL->top = top+1;
+#if LJ_54
+  /* Finalizers are invoked from the collector, not from a bytecode MM site.
+  ** Bind the active callback explicitly so debug.getinfo(1) reports __gc as a
+  ** Lua 5.4 metamethod while the finalizer is running.
+  */
+  g->debug_mmname = "__gc";
+  g->debug_mmfunc = tvisfunc(mo) ? funcV(mo) : NULL;
+#endif
   errcode = lj_vm_pcall(VL, top, 1+0, -1);  /* Stack: |mo|o| -> | */
+#if LJ_54
+  g->debug_mmfunc = oldmmfunc;
+  g->debug_mmname = oldmm;
+#endif
   setgcref(g->cur_L, obj2gco(L));
   hook_restore(g, oldh);
   if (LJ_HASPROFILE && (oldh & HOOK_PROFILE)) lj_dispatch_update(g);

@@ -229,7 +229,7 @@ LJLIB_CF(debug_getinfo)
   lua_State *L1 = getthread(L, &arg);
 #if LJ_54
   GCstr *optstr = debug_optstr_named54(L, arg+2, "debug.getinfo");
-  const char *options = optstr ? strdata(optstr) : "flnSu";
+  const char *options = optstr ? strdata(optstr) : "flnSrtu";
   if (L->base+arg < L->top && tvisfunc(L->base+arg)) {
     options = lua_pushfstring(L, ">%s", options);
     setfuncV(L1, L1->top++, funcV(L->base+arg));
@@ -577,6 +577,9 @@ LJLIB_CF(debug_setuservalue)
 /* ------------------------------------------------------------------------ */
 
 #define KEY_HOOK	(U64x(81000000,00000000)|'h')
+#if LJ_54
+#define KEY_HOOK54	"_HOOKKEY"
+#endif
 
 static void hookf(lua_State *L, lua_Debug *ar)
 {
@@ -588,14 +591,28 @@ static void hookf(lua_State *L, lua_Debug *ar)
      "tail return"
 #endif
     };
+#if LJ_54
+  lua_getfield(L, LUA_REGISTRYINDEX, KEY_HOOK54);
+  if (lua_istable(L, -1)) {
+    lua_pushthread(L);
+    lua_rawget(L, -2);
+    lua_remove(L, -2);
+  } else {
+    lua_pop(L, 1);
+    lua_pushnil(L);
+  }
+#else
   (L->top++)->u64 = KEY_HOOK;
   lua_rawget(L, LUA_REGISTRYINDEX);
+#endif
   if (lua_isfunction(L, -1)) {
     lua_pushstring(L, hooknames[(int)ar->event]);
     if (ar->currentline >= 0)
       lua_pushinteger(L, ar->currentline);
     else lua_pushnil(L);
     lua_call(L, 2, 0);
+  } else {
+    lua_pop(L, 1);
   }
 }
 
@@ -619,11 +636,36 @@ static char *unmakemask(int mask, char *smask)
   return smask;
 }
 
+#if LJ_54
+static void hook_skipline54(lua_State *L, lua_State *L1, lua_Hook func,
+			    int mask)
+{
+  global_State *g = G(L1);
+  lua_Debug ar;
+  if (func == NULL || !(mask & LUA_MASKLINE) || L != L1)
+    return;
+  /* Lua 5.4 skips only the remainder of the source line that enabled the
+  ** hook. Record that exact Lua frame; if debug.sethook is called from a call
+  ** hook, the first line in the callee must still be reported.
+  */
+  if (lua_getstack(L, 1, &ar) && lua_getinfo(L, "l", &ar) &&
+      ar.currentline >= 0) {
+    g->hook_skipline = 1;
+    g->hook_skipline_ci = ar.i_ci & 0xffff;
+    g->hook_skipline_line = (BCLine)ar.currentline;
+  }
+}
+#endif
+
 LJLIB_CF(debug_sethook)
 {
   int arg, mask, count;
   lua_Hook func;
+#if LJ_54
+  lua_State *L1 = getthread(L, &arg);
+#else
   (void)getthread(L, &arg);
+#endif
   if (lua_isnoneornil(L, arg+1)) {
     lua_settop(L, arg+1);
     func = NULL; mask = 0; count = 0;  /* turn off hooks */
@@ -640,26 +682,57 @@ LJLIB_CF(debug_sethook)
 #endif
     func = hookf; mask = makemask(smask, count);
   }
+#if LJ_54
+  if (!luaL_getsubtable(L, LUA_REGISTRYINDEX, KEY_HOOK54)) {
+    lua_pushliteral(L, "k");
+    lua_setfield(L, -2, "__mode");
+    lua_pushvalue(L, -1);
+    lua_setmetatable(L, -2);
+  }
+  lua_pushthread(L1);
+  lua_xmove(L1, L, 1);
+  lua_pushvalue(L, arg+1);
+  lua_rawset(L, -3);
+  lua_pop(L, 1);
+  lua_sethook(L1, func, mask, count);
+  hook_skipline54(L, L1, func, mask);
+#else
   (L->top++)->u64 = KEY_HOOK;
   lua_pushvalue(L, arg+1);
   lua_rawset(L, LUA_REGISTRYINDEX);
   lua_sethook(L, func, mask, count);
+#endif
   return 0;
 }
 
 LJLIB_CF(debug_gethook)
 {
+  int arg;
+  lua_State *L1 = getthread(L, &arg);
   char buff[5];
-  int mask = lua_gethookmask(L);
-  lua_Hook hook = lua_gethook(L);
+  int mask = lua_gethookmask(L1);
+  lua_Hook hook = lua_gethook(L1);
   if (hook != NULL && hook != hookf) {  /* external hook? */
     lua_pushliteral(L, "external hook");
   } else {
+#if LJ_54
+    lua_getfield(L, LUA_REGISTRYINDEX, KEY_HOOK54);
+    if (lua_istable(L, -1)) {
+      lua_pushthread(L1);
+      lua_xmove(L1, L, 1);
+      lua_rawget(L, -2);
+      lua_remove(L, -2);
+    } else {
+      lua_pop(L, 1);
+      lua_pushnil(L);
+    }
+#else
     (L->top++)->u64 = KEY_HOOK;
     lua_rawget(L, LUA_REGISTRYINDEX);   /* get hook */
+#endif
   }
   lua_pushstring(L, unmakemask(mask, buff));
-  lua_pushinteger(L, lua_gethookcount(L));
+  lua_pushinteger(L, lua_gethookcount(L1));
   return 3;
 }
 
@@ -693,17 +766,22 @@ LJLIB_CF(debug_traceback)
   int arg;
   lua_State *L1 = getthread(L, &arg);
   const char *msg = lua_tostring(L, arg+1);
+#if LJ_54
+  if (msg == NULL && L->top > L->base+arg && !tvisnil(L->base+arg)) {
+    L->top = L->base+arg+1;
+  } else {
+    luaL_traceback(L, L1, msg,
+		   debug_optint_named54(L, arg+2, (L == L1),
+					"debug.traceback"));
+  }
+#else
   if (msg == NULL && L->top > L->base+arg)
     L->top = L->base+arg+1;
   else
     luaL_traceback(L, L1, msg,
-#if LJ_54
-		   debug_optint_named54(L, arg+2, (L == L1),
-					"debug.traceback")
-#else
 		   lj_lib_optint(L, arg+2, (L == L1))
-#endif
 		   );
+#endif
   return 1;
 }
 
