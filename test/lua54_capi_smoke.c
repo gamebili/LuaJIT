@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <errno.h>
+#include <stdlib.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -180,6 +181,11 @@ typedef struct DumpBuffer {
   size_t len;
 } DumpBuffer;
 
+typedef struct AllocCtx {
+  int calls;
+  int frees;
+} AllocCtx;
+
 typedef int (*RawGetI54Sig)(lua_State *L, int idx, lua_Integer n);
 typedef void (*RawSetI54Sig)(lua_State *L, int idx, lua_Integer n);
 typedef int (*LuaOpenBaseSig)(lua_State *L);
@@ -209,6 +215,38 @@ static void check_integer(lua_State *L, int idx, lua_Integer want,
   int ok = 0;
   lua_Integer got = lua_tointegerx(L, idx, &ok);
   check(L, ok && got == want, msg);
+}
+
+static void *counting_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
+{
+  AllocCtx *ctx = (AllocCtx *)ud;
+  (void)osize;
+  ctx->calls++;
+  if (nsize == 0) {
+    ctx->frees++;
+    free(ptr);
+    return NULL;
+  }
+  return realloc(ptr, nsize);
+}
+
+static void test_state_allocator_api(lua_State *L)
+{
+  AllocCtx ctx = { 0, 0 };
+  void *ud = NULL;
+  lua_Alloc allocf;
+  lua_State *T = lua_newstate(counting_alloc, &ctx);
+  check(L, T != NULL, "lua_newstate custom allocator");
+  allocf = lua_getallocf(T, &ud);
+  check(L, allocf == counting_alloc && ud == &ctx,
+	"lua_getallocf custom allocator");
+  lua_setallocf(T, allocf, ud);
+  allocf = lua_getallocf(T, &ud);
+  check(L, allocf == counting_alloc && ud == &ctx,
+	"lua_setallocf preserves allocator");
+  lua_close(T);
+  check(L, ctx.calls > 0 && ctx.frees > 0,
+	"lua_close uses custom allocator");
 }
 
 static int checkinteger_fraction(lua_State *L)
@@ -1122,6 +1160,7 @@ int main(void)
   if (L == NULL)
     return 2;
   luaL_openlibs(L);
+  test_state_allocator_api(L);
   test_stack_and_number_api(L);
   test_compare_len_arith(L);
   test_uservalue_api(L);
