@@ -258,7 +258,7 @@
   - 当前进展：`debug.getinfo()` / `getlocal()` / `setlocal()` / `getupvalue()` / `setupvalue()` / `upvalueid()` / `upvaluejoin()` / `sethook()` / `getuservalue()` / `setuservalue()` / `setcstacklimit()` 的 Lua 5.4 基础参数错误已带 `debug.xxx` 函数名。
   - 当前进展：`utf8.char()` / `codepoint()` / `codes()` / `len()` / `offset()` 的 Lua 5.4 基础参数错误已带 `utf8.xxx` 函数名。
   - 当前进展：`string.byte()` / `char()` / `dump()` / `find()` / `format()` / `gmatch()` / `gsub()` / `len()` / `lower()` / `match()` / `rep()` / `reverse()` / `sub()` / `upper()` / `pack()` / `unpack()` / `packsize()` 的 Lua 5.4 基础参数错误已带 `string.xxx` 函数名。
-  - 当前进展：`error(message, level)` 的 level 参数已拒绝无整数表示的 number。
+  - 当前进展：`error(message, level)` 的 level 参数已拒绝无整数表示的 number；Lua 5.4 兼容模式下非 string 错误对象会保留原值，不再被当成 5.1 风格 string 加位置信息。
   - 当前进展：`select(index, ...)` 的 index 参数已拒绝无整数表示的 number，仍接受字符串数字。
   - 当前进展：Lua 5.4 兼容模式下 `getmetatable()` 无参数已报 value error，并保留 `__metatable` 保护返回值。
   - 当前进展：debug 库整数边界已按 Lua 5.4 收紧，覆盖 stack level、local/upvalue index、hook count、traceback level、uservalue slot 和 `setcstacklimit`。

@@ -132,6 +132,13 @@ do
   end
 end
 assert(select(1, pcall(error, "lua54 error level", 1.2)) == false)
+do
+  local ok, err = pcall(function() error(101) end)
+  assert(ok == false and err == 101)
+  local marker = { tag = "lua54-error-object" }
+  ok, err = pcall(function() error(marker) end)
+  assert(ok == false and err == marker)
+end
 assert(select(1, pcall(getmetatable)) == false)
 assert(select(1, pcall(select, 1.2, "a", "b")) == false)
 assert(select(1, pcall(select, -1.2, "a", "b")) == false)
@@ -459,6 +466,35 @@ do
         getmetatable(y).__close = nil
       end)
       assert(ok == false and err:match("metamethod 'close'") ~= nil)
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
+      local function func2close(f)
+        return setmetatable({}, { __close = f })
+      end
+      local track = {}
+      local function foo()
+        local x0 <close> = func2close(function(_, msg)
+          assert(msg == 202)
+          track[#track + 1] = "x0"
+        end)
+        local x <close> = func2close(function()
+          local xx <close> = func2close(function(_, msg)
+            assert(msg == 101)
+            track[#track + 1] = "xx"
+            error(202)
+          end)
+          track[#track + 1] = "x"
+          error(101)
+        end)
+        track[#track + 1] = "foo"
+        return 20, 30, 40
+      end
+      local ok, err = pcall(foo)
+      assert(ok == false and err == 202)
+      assert(table.concat(track, ",") == "foo,x,xx,x0")
       return true
     ]]))())
   end

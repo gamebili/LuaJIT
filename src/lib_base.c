@@ -691,7 +691,13 @@ LJLIB_CF(error)
   int32_t level = lj_lib_optint(L, 2, 1);
 #endif
   lua_settop(L, 1);
-  if (lua_isstring(L, 1) && level > 0) {
+  if (
+#if LJ_54
+      tvisstr(L->base) &&
+#else
+      lua_isstring(L, 1) &&
+#endif
+      level > 0) {
     luaL_where(L, level);
     lua_pushvalue(L, 1);
     lua_concat(L, 2);
