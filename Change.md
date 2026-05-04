@@ -23,6 +23,7 @@
 - 已按官方 `error()` 行为收紧 Lua 5.4 非字符串错误对象：`error(101)` / `error(table)` 会保留原错误对象，不再因 LuaJIT 5.1 的 `lua_isstring(number)` 兼容规则被加上位置信息；同时覆盖 close 方法内部再声明 `<close>` 后抛数值错误的错误替换链。
 - 已继续按官方字符串数值运算边界收紧 lowered operator helper：`local a, b = "1.0" // "2"` 这类固定多赋值不再泄漏左操作数临时槽，helper 原始数值结果和 parser 调用 base 已规整为单返回值。
 - 已按官方 `assert()` 行为继续收紧 Lua 5.4 非字符串错误对象：`assert(false, 123)` / `assert(false, table)` 会保留原错误对象，只有 string 消息走字符串错误文本路径。
+- 已继续收紧 Lua 5.4 兼容模式下的 JIT 工具链：启动时仍隐藏旧全局 `bit`，但把 `bit` 作为显式 preload 模块保留，确保 `jit.dump` / `-jdump` 这类 LuaJIT 自带工具可通过 `require("bit")` 运行。
 - 已修复 Lua 5.4 compat 的 amalgamation 构建遗漏：`ljamalg.c` 现在包含 `lib_utf8.c`，避免 `luaopen_utf8` 在合并编译链接时缺失。
 - 已完成实验性 Lua 5.4 兼容模式的阶段性实现与测试。
 - 已通过 `make test` 验证默认构建和 Lua 5.4 兼容构建的 smoke 测试。

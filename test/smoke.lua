@@ -122,6 +122,14 @@ assert(type(math.type) == "function")
 assert(_ENV == _G)
 assert(rawget(_G, "_ENV") == nil)
 do
+  assert(bit == nil)
+  local ok, mod = pcall(require, "jit.dump")
+  assert(ok == true and type(mod) == "table")
+  package.loaded["jit.dump"] = nil
+  package.loaded.bit = nil
+  _G.bit = nil
+end
+do
   local k = nil
   repeat
     k = next(_G, k)

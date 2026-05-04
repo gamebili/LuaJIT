@@ -36,6 +36,13 @@ static const luaL_Reg lj_lib_load[] = {
 };
 
 static const luaL_Reg lj_lib_preload[] = {
+#if LJ_54
+  /* Lua 5.4 mode hides the legacy global bit library at startup, but LuaJIT's
+  ** own JIT tooling still uses require("bit"). Keep it available as an
+  ** explicit extension module without restoring the initial global.
+  */
+  { LUA_BITLIBNAME,	luaopen_bit },
+#endif
 #if LJ_HASFFI
   { LUA_FFILIBNAME,	luaopen_ffi },
 #endif
