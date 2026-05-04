@@ -565,8 +565,12 @@ LUA_API void lua_setlevel	(lua_State *from, lua_State *to);
 #define LUA_HOOKRET	1
 #define LUA_HOOKLINE	2
 #define LUA_HOOKCOUNT	3
+#if LUAJIT_EXTERNAL_LUA54
+#define LUA_HOOKTAILCALL 4
+#else
 #define LUA_HOOKTAILRET 4
 #define LUA_HOOKTAILCALL LUA_HOOKTAILRET
+#endif
 
 
 /*

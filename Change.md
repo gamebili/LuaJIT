@@ -15,6 +15,7 @@
 - 已按官方 Lua 5.4.8 `lua.h` / `lapi.c` 对齐头文件和外部识别符：兼容构建现在暴露 `LUA_VERSION_RELEASE "8"`、`LUA_RELEASE "Lua 5.4.8"`、`LUA_VERSION_RELEASE_NUM 50408`、5.4.8 版权/作者文本以及 `lua_ident` 符号。
 - 已按官方 Lua 5.4.8 `lua.h` / `ldebug.c` 对齐 `lua_sethook` 外部签名：兼容构建的外部头现在把 `lua_sethook` 暴露为 `void` 返回表面，默认构建和 LuaJIT 内部继续保留旧 `int` ABI。
 - 已按官方 Lua 5.4.8 `lua.h` 对齐 `lua_pushglobaltable` 宏返回表面：外部兼容头现在显式返回 `void`，同时继续从 registry globals 表取全局表。
+- 已按官方 Lua 5.4.8 `lua.h` 对齐 debug hook 事件宏：外部兼容头只暴露 `LUA_HOOKTAILCALL`，不再暴露旧 LuaJIT/Lua 5.1 `LUA_HOOKTAILRET`。
 - 已按官方 `testes/bwcoercion.lua` 修正 Lua 5.4 lowered operator helper 的 metamethod 返回栈：`__band` / `__idiv` 等路径只返回 metamethod 第一个结果，不再把原操作数漏成额外返回值。
 - 已修复 Lua 5.4 compat 的 amalgamation 构建遗漏：`ljamalg.c` 现在包含 `lib_utf8.c`，避免 `luaopen_utf8` 在合并编译链接时缺失。
 - 已完成实验性 Lua 5.4 兼容模式的阶段性实现与测试。
@@ -393,6 +394,7 @@
 - 覆盖 Lua 5.4.8 版本头文件常量和识别符：`LUA_VERSION_RELEASE`、`LUA_RELEASE`、`LUA_VERSION_RELEASE_NUM`、`LUA_COPYRIGHT`、`LUA_AUTHORS` 和 `lua_ident` 均按官方 5.4.8 暴露。
 - 覆盖 Lua 5.4 外部兼容头中的 `lua_sethook` 官方签名：纯 `lua.h` 编译烟测会断言其函数指针类型为 `void (*)(lua_State *, lua_Hook, int, int)`。
 - 覆盖 Lua 5.4 外部兼容头中的 `lua_pushglobaltable` 官方宏表面：纯 `lua.h` 编译烟测会断言该宏表达式类型为 `void`。
+- 覆盖 Lua 5.4 外部兼容头不会暴露旧 `LUA_HOOKTAILRET`，只保留官方 `LUA_HOOKTAILCALL` 表面。
 - 覆盖 Lua 5.4 lowered bitwise/idiv helper 的 string metatable metamethod 返回值：`&` / `|` / `~` / unary `~` / `<<` / `>>` / `//` 在对应 metamethod 返回多值时只保留第一个结果。
 - 覆盖 Lua 5.4 外部兼容头不会暴露 `LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` / `lua_strlen`，并覆盖 `lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 的 registry globals 路径。
 - 覆盖 Lua 5.4 外部兼容头暴露 `LUA_RIDX_LAST`，并确认其值等于 `LUA_RIDX_GLOBALS`。

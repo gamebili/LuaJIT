@@ -23,6 +23,10 @@ typedef char lua54_pushglobaltable_must_return_void[
 #error "Lua 5.4 lua.h must not expose lauxlib-only LUA_PRELOAD_TABLE"
 #endif
 
+#ifdef LUA_HOOKTAILRET
+#error "Lua 5.4 lua.h must not expose LuaJIT/Lua 5.1 LUA_HOOKTAILRET"
+#endif
+
 int main(void)
 {
   return 0;
