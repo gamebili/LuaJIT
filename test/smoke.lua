@@ -410,6 +410,57 @@ do
     ]]))())
   end
   do
+    assert(assert(load([[
+      local log = {}
+      local mt = {
+        __close = function(self, err)
+          assert(err == nil)
+          log[#log + 1] = self.name
+        end,
+      }
+      do
+        local a <close> = setmetatable({ name = "a" }, mt)
+        goto done
+      end
+      ::done::
+      assert(table.concat(log, ",") == "a")
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
+      local n = 0
+      local mt = { __close = function() n = n + 1 end }
+      do
+        goto done
+        local a <close> = setmetatable({}, mt)
+      end
+      ::done::
+      assert(n == 0)
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
+      local log = {}
+      local mt = {
+        __close = function(self, err)
+          assert(err == nil)
+          log[#log + 1] = self.name
+        end,
+      }
+      do
+        local a <close> = setmetatable({ name = "a" }, mt)
+        goto inside
+        assert(false)
+        ::inside::
+        assert(#log == 0)
+      end
+      assert(table.concat(log, ",") == "a")
+      return true
+    ]]))())
+  end
+  do
     local setlocal_const = assert(load([[
     return function()
       local x <const> = {}

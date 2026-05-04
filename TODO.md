@@ -7,10 +7,10 @@
 ## P0：核心语义缺口
 
 - [ ] `<close>` 的运行期 `__close` 调度。
-  - 当前状态：已接受 `local x <close>` 语法并记录属性，声明点会按 Lua 5.4 校验非 `nil`/`false` 值必须带 `__close`；普通块自然执行到 `end`、固定返回值 `return`、`break` 退出循环和已知向后 `goto` 跳到可见标签时会按 LIFO 调用 `__close(value, nil)`。
-  - 当前进展：`io.lines(filename)` 已按 Lua 5.4 返回第 4 个 closing value，迭代器仍会在 EOF 时主动关闭文件；`local x <close> = 1` 已按 Lua 5.4 在运行期报 `variable 'x' got a non-closable value`，`nil` / `false` 声明会跳过校验，带 `__close` 的值可声明；C API 已补 `lua_toclose()` 的 closable 校验和 `lua_closeslot()` 的显式 `__close(value, nil)` 调用并置空槽位；普通 fall-through block exit、固定返回值 `return`、`break` 和已知向后 `goto` 已通过 parser helper 调度 close locals；动态多返回 `return f()`、前向/未解析 `goto`、error 展开、generic for 和 VM 级 `<close>` 调度仍未完成。
-  - 需要补测试：动态多返回 `return f()`、前向/未解析 `goto`、错误展开、`pcall`/`xpcall`、协程关闭、`__close` 接收错误对象、`__close` 自身抛错、generic for 的 closing value 在循环退出和错误展开时自动关闭。
-  - 实现重点：普通 fall-through、固定返回值 return、break 和已知向后 goto 已先走 parser helper；完整实现仍需要 VM/字节码/栈帧层支持动态多返回、前向/未解析 goto、错误展开等非本地退出时的关闭流程，不能只在解析器层处理。
+  - 当前状态：已接受 `local x <close>` 语法并记录属性，声明点会按 Lua 5.4 校验非 `nil`/`false` 值必须带 `__close`；普通块自然执行到 `end`、固定返回值 `return`、`break` 退出循环、已知向后 `goto` 和前向 `goto` 跳出 close local 作用域时会按 LIFO 调用 `__close(value, nil)`。
+  - 当前进展：`io.lines(filename)` 已按 Lua 5.4 返回第 4 个 closing value，迭代器仍会在 EOF 时主动关闭文件；`local x <close> = 1` 已按 Lua 5.4 在运行期报 `variable 'x' got a non-closable value`，`nil` / `false` 声明会跳过校验，带 `__close` 的值可声明；C API 已补 `lua_toclose()` 的 closable 校验和 `lua_closeslot()` 的显式 `__close(value, nil)` 调用并置空槽位；普通 fall-through block exit、固定返回值 `return`、`break`、已知向后 `goto` 和前向 `goto` 离开作用域已通过 parser helper 调度 close locals；动态多返回 `return f()`、error 展开、generic for 和 VM 级 `<close>` 调度仍未完成。
+  - 需要补测试：动态多返回 `return f()`、错误展开、`pcall`/`xpcall`、协程关闭、`__close` 接收错误对象、`__close` 自身抛错、generic for 的 closing value 在循环退出和错误展开时自动关闭。
+  - 实现重点：普通 fall-through、固定返回值 return、break 和 goto 的普通控制流退出已先走 parser helper；完整实现仍需要 VM/字节码/栈帧层支持动态多返回、错误展开等非本地退出时的关闭流程，不能只在解析器层处理。
 
 - [ ] `_ENV` 的完整 upvalue 语义。
   - 当前状态：显式 `local _ENV = ...` 和 `load(..., env)` 的基础访问已可用，但隐式全局访问没有暴露为名为 `_ENV` 的第一个 upvalue。

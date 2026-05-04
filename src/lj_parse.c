@@ -120,6 +120,7 @@ typedef uint16_t VarIndex;
 #define VSTACK_LABEL		0x04	/* Label. */
 #define VSTACK_VAR_CONST	0x08	/* Lua 5.4 const local. */
 #define VSTACK_VAR_CLOSE	0x10	/* Lua 5.4 to-be-closed local. */
+#define VSTACK_GOTO_CLOSE	0x20	/* Lua 5.4 goto close helpers done. */
 #define VSTACK_VAR_ATTRMASK	(VSTACK_VAR_CONST|VSTACK_VAR_CLOSE)
 
 /* Per-function state. */
@@ -1501,11 +1502,14 @@ static void fscope_begin(FuncState *fs, FuncScope *bl, int flags)
 
 /* End a scope. */
 #if LJ_54
-static int fscope_hascloseactive(FuncState *fs, BCReg tolevel)
+static int fscope_hascloseactive_range(FuncState *fs, BCReg fromlevel,
+				       BCReg tolevel)
 {
   LexState *ls = fs->ls;
   BCReg closevar;
-  for (closevar = fs->nactvar; closevar > tolevel; ) {
+  if (fromlevel > fs->nactvar)
+    fromlevel = fs->nactvar;
+  for (closevar = fromlevel; closevar > tolevel; ) {
     VarInfo *v = &var_get(ls, fs, --closevar);
     if (v->info & VSTACK_VAR_CLOSE)
       return 1;
@@ -1513,17 +1517,30 @@ static int fscope_hascloseactive(FuncState *fs, BCReg tolevel)
   return 0;
 }
 
-static void fscope_closeactive(FuncState *fs, BCReg tolevel)
+static int fscope_hascloseactive(FuncState *fs, BCReg tolevel)
+{
+  return fscope_hascloseactive_range(fs, fs->nactvar, tolevel);
+}
+
+static void fscope_closeactive_range(FuncState *fs, BCReg fromlevel,
+				     BCReg tolevel)
 {
   LexState *ls = fs->ls;
   BCReg closevar;
+  if (fromlevel > fs->nactvar)
+    fromlevel = fs->nactvar;
   if (fs->freereg < fs->nactvar)
     fs->freereg = fs->nactvar;
-  for (closevar = fs->nactvar; closevar > tolevel; ) {
+  for (closevar = fromlevel; closevar > tolevel; ) {
     VarInfo *v = &var_get(ls, fs, --closevar);
     if (v->info & VSTACK_VAR_CLOSE)
       bcemit_lua54_closevalue(fs, closevar);
   }
+}
+
+static void fscope_closeactive(FuncState *fs, BCReg tolevel)
+{
+  fscope_closeactive_range(fs, fs->nactvar, tolevel);
 }
 
 static BCReg fscope_breaklevel(FuncState *fs)
@@ -1533,6 +1550,33 @@ static BCReg fscope_breaklevel(FuncState *fs)
     if (bl->flags & FSCOPE_LOOP)
       return bl->nactvar;
   return 0;
+}
+
+static void gola_closependinggotos(LexState *ls, FuncScope *bl)
+{
+  FuncState *fs = ls->fs;
+  VarInfo *v = ls->vstack + bl->vstart;
+  VarInfo *ve = ls->vstack + ls->vtop;
+  BCPos skip = NO_JMP;
+  for (; v < ve; v++) {
+    GCstr *name = strref(v->name);
+    if (name != NULL && gola_isgoto(v) &&
+	!(v->info & VSTACK_GOTO_CLOSE) &&
+	fscope_hascloseactive_range(fs, v->slot, bl->nactvar)) {
+      BCPos closepc;
+      if (skip == NO_JMP)
+	skip = bcemit_jmp(fs);
+      closepc = fs->pc;
+      jmp_patch(fs, v->startpc, closepc);
+      /* A forward goto may be written before later locals in the same block.
+      ** Only close variables that were already active at the goto site.
+      */
+      fscope_closeactive_range(fs, v->slot, bl->nactvar);
+      v->startpc = bcemit_jmp(fs);
+    }
+  }
+  if (skip != NO_JMP)
+    jmp_tohere(fs, skip);
 }
 #endif
 
@@ -1544,6 +1588,7 @@ static void fscope_end(FuncState *fs)
 #if LJ_54
   fs->freereg = fs->nactvar;
   fscope_closeactive(fs, bl->nactvar);
+  gola_closependinggotos(ls, bl);
 #endif
   var_remove(ls, bl->nactvar);
   fs->freereg = fs->nactvar;
@@ -2665,14 +2710,16 @@ static void parse_return(LexState *ls)
 /* Parse 'break' statement. */
 static void parse_break(LexState *ls)
 {
+  uint8_t info = VSTACK_GOTO;
   ls->fs->bl->flags |= FSCOPE_BREAK;
 #if LJ_54
   /* A break leaves the innermost loop immediately; close locals that belong
   ** to the loop body or nested blocks before the jump is emitted.
   */
   fscope_closeactive(ls->fs, fscope_breaklevel(ls->fs));
+  info |= VSTACK_GOTO_CLOSE;
 #endif
-  gola_new(ls, NAME_BREAK, VSTACK_GOTO, bcemit_jmp(ls->fs));
+  gola_new(ls, NAME_BREAK, info, bcemit_jmp(ls->fs));
 }
 
 /* Parse 'goto' statement. */
@@ -2681,6 +2728,7 @@ static void parse_goto(LexState *ls)
   FuncState *fs = ls->fs;
   GCstr *name = lex_str(ls);
   VarInfo *vl;
+  uint8_t info = VSTACK_GOTO;
 #if LJ_54
   vl = gola_findactivelabel(ls, name);
 #else
@@ -2693,11 +2741,12 @@ static void parse_goto(LexState *ls)
     */
     if (fscope_hascloseactive(fs, vl->slot))
       fscope_closeactive(fs, vl->slot);
+    info |= VSTACK_GOTO_CLOSE;
 #endif
     bcemit_AJ(fs, BC_LOOP, vl->slot, -1);  /* No BC range check. */
   }
   fs->bl->flags |= FSCOPE_GOLA;
-  gola_new(ls, name, VSTACK_GOTO, bcemit_jmp(fs));
+  gola_new(ls, name, info, bcemit_jmp(fs));
 }
 
 /* Parse label. */
