@@ -537,6 +537,7 @@ LUA_API void lua_setglobal54 (lua_State *L, const char *name);
 ** compatibility macros and functions
 */
 
+#if !LUAJIT_EXTERNAL_LUA54
 #define lua_open()	luaL_newstate()
 
 #define lua_getregistry(L)	lua_pushvalue(L, LUA_REGISTRYINDEX)
@@ -549,6 +550,7 @@ LUA_API void lua_setglobal54 (lua_State *L, const char *name);
 
 /* hack */
 LUA_API void lua_setlevel	(lua_State *from, lua_State *to);
+#endif
 
 
 /*

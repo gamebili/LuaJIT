@@ -28,6 +28,26 @@
 #error "default header must keep exposing lua_strlen"
 #endif
 
+#ifndef lua_open
+#error "default header must keep exposing lua_open"
+#endif
+
+#ifndef lua_getregistry
+#error "default header must keep exposing lua_getregistry"
+#endif
+
+#ifndef lua_getgccount
+#error "default header must keep exposing lua_getgccount"
+#endif
+
+#ifndef lua_Chunkreader
+#error "default header must keep exposing lua_Chunkreader"
+#endif
+
+#ifndef lua_Chunkwriter
+#error "default header must keep exposing lua_Chunkwriter"
+#endif
+
 static void check(lua_State *L, int cond, const char *msg)
 {
   if (!cond) {
@@ -55,7 +75,15 @@ static const luaL_Reg capi51_reg[] = {
 int main(void)
 {
   lua_State *L = luaL_newstate();
+  lua_State *L2;
+  lua_Chunkreader chunkreader = NULL;
+  lua_Chunkwriter chunkwriter = NULL;
   check(L, L != NULL, "luaL_newstate");
+  check(L, chunkreader == NULL && chunkwriter == NULL, "lua_Chunk aliases");
+
+  L2 = lua_open();
+  check(L, L2 != NULL, "lua_open default macro");
+  lua_close(L2);
 
   lua_pushliteral(L, "ok");
   lua_setglobal(L, "__lua51_capi_global");
@@ -64,6 +92,11 @@ int main(void)
   check(L, lua_strlen(L, -1) == 2, "lua_strlen macro");
   check(L, lua_objlen(L, -1) == 2, "lua_objlen default API");
   lua_pop(L, 1);
+
+  lua_getregistry(L);
+  check(L, lua_istable(L, -1), "lua_getregistry default macro");
+  lua_pop(L, 1);
+  check(L, lua_getgccount(L) >= 0, "lua_getgccount default macro");
 
   lua_pushthread(L);
   lua_getfenv(L, -1);

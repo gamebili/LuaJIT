@@ -27,6 +27,26 @@ typedef char lua54_pushglobaltable_must_return_void[
 #error "Lua 5.4 lua.h must not expose LuaJIT/Lua 5.1 LUA_HOOKTAILRET"
 #endif
 
+#ifdef lua_open
+#error "Lua 5.4 lua.h must not expose LuaJIT lua_open"
+#endif
+
+#ifdef lua_getregistry
+#error "Lua 5.4 lua.h must not expose LuaJIT lua_getregistry"
+#endif
+
+#ifdef lua_getgccount
+#error "Lua 5.4 lua.h must not expose LuaJIT lua_getgccount"
+#endif
+
+#ifdef lua_Chunkreader
+#error "Lua 5.4 lua.h must not expose LuaJIT lua_Chunkreader"
+#endif
+
+#ifdef lua_Chunkwriter
+#error "Lua 5.4 lua.h must not expose LuaJIT lua_Chunkwriter"
+#endif
+
 int main(void)
 {
   return 0;
