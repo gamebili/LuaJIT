@@ -371,6 +371,16 @@ static void build_subroutines(BuildCtx *ctx)
   |  tbz PC, #2, ->cont_dispatch	// (PC & FRAME_P) == 0?
   |
   |  // Return from pcall or xpcall fast func.
+  |  // pcall/xpcall synthesize a C return after the protected Lua frame is
+  |  // gone. Preserve the first public result slot for the return hook before
+  |  // PC is replaced by the caller PC.
+  |  and TMP1, PC, #~FRAME_TYPEP
+  |  mov TMP2w, #1
+  |  cmp TMP1, #16
+  |  beq >8
+  |  mov TMP2w, #3
+  |8:
+  |  strh TMP2w, GL->hook_cres_ftransfer
   |  ldr PC, [RB, FRAME_PC]		// Fetch PC of previous frame.
   |   mov_true TMP0
   |  mov BASE, RB
@@ -394,6 +404,12 @@ static void build_subroutines(BuildCtx *ctx)
   |  cbz CARG3w, >8
   |  ldrh CARG2w, GL->hook_cres_ftransfer
   |8:
+  |  // The hook can inspect the returning C frame and call back into Lua. Keep
+  |  // the public stack window consistent before entering it; protected-call
+  |  // returns otherwise still point L->base at the unwound inner frame.
+  |  sub TMP1, RC, #8
+  |  add TMP1, RA, TMP1
+  |  stp BASE, TMP1, L->base
   |  mov CARG1, L
   |  bl extern lj_dispatch_ceret
   |  ldr BASE, L->base
@@ -497,9 +513,33 @@ static void build_subroutines(BuildCtx *ctx)
   |    mov_false TMP0
   |  sub RA, BASE, #8			// Results start at BASE-8.
   |  ldr PC, [BASE, FRAME_PC]		// Fetch PC of previous frame.
-  |    str TMP0, [BASE, #-8]		// Prepend false to error message.
   |   st_vmstate ST_INTERP
-  |  b ->vm_returnc
+  |  ldrb TMP1w, GL->hookmask
+  |  tbz TMP1w, #LUA_HOOKRET, >7
+  |  // The pcall frame is still intact here. Fire the synthetic C return hook
+  |  // before false+error overwrite the function/PC slots below.
+  |  mov TMP1w, #3
+  |  ldr CARG1, [BASE, FRAME_FUNC]
+  |  and CFUNC:CARG1, CARG1, #LJ_GCVMASK
+  |  ldrb TMP2w, CFUNC:CARG1->ffid
+  |  cmp TMP2w, #FF_xpcall_N
+  |  bne >6
+  |  mov TMP1w, #5
+  |6:
+  |  strh TMP1w, GL->hook_cres_ftransfer
+  |  mov CARG2w, TMP1w
+  |  mov CARG3w, #2
+  |  mov CARG1, L
+  |  bl extern lj_dispatch_ceret
+  |  ldr BASE, L->base
+  |  sub RA, BASE, #8
+  |  ldr PC, [BASE, FRAME_PC]
+  |7:
+  |    mov_false TMP0
+  |    str TMP0, [BASE, #-8]		// Prepend false to error message.
+  |  mov RC, #24			// false + error, already adjusted.
+  |  str RCw, SAVE_MULTRES
+  |  b ->BC_RET_Z
   |
   |//-----------------------------------------------------------------------
   |//-- Grow stack for calls -----------------------------------------------

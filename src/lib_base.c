@@ -215,6 +215,7 @@ static int lj_cf_type54(lua_State *L)
 
 /* This solves a circular dependency problem -- change FF_next_N as needed. */
 LJ_STATIC_ASSERT((int)FF_next == FF_next_N);
+LJ_STATIC_ASSERT((int)FF_xpcall == FF_xpcall_N);
 
 LJLIB_ASM(next)			LJLIB_REC(.)
 {

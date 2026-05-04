@@ -93,6 +93,7 @@
 - 已继续补 Lua 5.4 vararg tailcall 元数据边界：debug 层会把 `FRAME_VARG` pseudo-frame 回溯到真实 Lua frame 判断 tailcall marker，vararg tailcall 的 return hook 现在也会报告 `istailcall=true` 和完整返回 transfer。
 - 已继续扩展 Lua/C API tailcall 回归：Lua smoke 和 C API smoke 均覆盖 vararg tailcall 的 tail event、return event、`istailcall` 和 transfer 字段。
 - 已继续补 Lua 5.4 tail-position C return 回归：Lua smoke 和 C API smoke 覆盖 Lua 函数尾位置返回 C 函数时不误报 Lua tail hook，并继续报告 C call/return transfer。
+- 已继续收口 Lua 5.4 debug frame metadata 批次：`pcall` / `xpcall` 的 protected-call 合成 C return hook 现在会在 frame 被覆盖前报告 Lua 5.4 transfer 范围，成功路径会先同步可被 hook/debug API 观察的 `L->base` / `L->top` 窗口；同时补了 tailcall error unwind 后普通调用不误报 `istailcall` 的回归。
 - 已补充 Lua 5.4 `os.remove()` 失败返回 smoke：对齐官方保留文件名前缀、返回系统错误文本和 errno code 的表面；`os.rename()` 继续保持不拼接源文件名。
 - 已用本机 `emcc 5.0.6` 试跑 Emscripten 构建入口，当前 Makefile 在 `lj_arch.h` 阶段明确失败为 wasm 架构不受支持；该平台仍需要单独 wasm/interpreter VM 后端方案。
 - 已继续收紧 Lua 5.4 GC 公开表面：兼容构建中 `collectgarbage("setstepmul", n)` 的初始旧值现在对齐 Lua 5.4 的 `100`。

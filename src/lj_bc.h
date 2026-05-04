@@ -229,6 +229,14 @@ LJ_STATIC_ASSERT((int)BC_FUNCV + 2 == (int)BC_JFUNCV);
 
 /* This solves a circular dependency problem, change as needed. */
 #define FF_next_N	4
+/* Protected-call return hook metadata needs to distinguish xpcall before the
+** generated fast-function header is available to the VM builder.
+*/
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+#define FF_xpcall_N	23
+#else
+#define FF_xpcall_N	22
+#endif
 
 /* Stack slots used by FORI/FORL, relative to operand A. */
 enum {

@@ -1252,6 +1252,76 @@ do
     assert(seen[2] == "call:false:1:3")
     assert(seen[3] == "return:false:4:1")
   end
+  do
+    local seen = {}
+    local function hook(ev)
+      local info = debug.getinfo(2, "nrS")
+      if ev == "return" and info.what == "C" and info.name == "pcall" then
+        seen[#seen+1] = info.ftransfer..":"..info.ntransfer
+      end
+    end
+    debug.sethook(hook, "r")
+    local ok, a, b = pcall(function(x, y) return x + y, "ok" end, 2, 3)
+    debug.sethook()
+    assert(ok == true and a == 5 and b == "ok")
+    assert(seen[1] == "1:3")
+  end
+  do
+    local seen = {}
+    local function hook(ev)
+      local info = debug.getinfo(2, "nrS")
+      if ev == "return" and info.what == "C" and info.name == "pcall" then
+        seen[#seen+1] = info.ftransfer..":"..info.ntransfer
+      end
+    end
+    debug.sethook(hook, "r")
+    local ok, err = pcall(function() error("pcall hook error", 0) end)
+    debug.sethook()
+    assert(ok == false and err == "pcall hook error")
+    assert(seen[1] == "3:2")
+  end
+  do
+    local seen = {}
+    local function hook(ev)
+      local info = debug.getinfo(2, "nrS")
+      if ev == "return" and info.what == "C" and info.name == "xpcall" then
+        seen[#seen+1] = info.ftransfer..":"..info.ntransfer
+      end
+    end
+    debug.sethook(hook, "r")
+    local ok, value = xpcall(function() return 7 end, debug.traceback)
+    debug.sethook()
+    assert(ok == true and value == 7)
+    assert(seen[1] == "3:2")
+    seen = {}
+    debug.sethook(hook, "r")
+    ok, value = xpcall(function() error("xpcall hook error", 0) end,
+      function(e) return "handled:"..e end)
+    debug.sethook()
+    assert(ok == false and value == "handled:xpcall hook error")
+    assert(seen[1] == "5:2")
+  end
+  do
+    local function boom()
+      error("tail unwind", 0)
+    end
+    local function tailfail()
+      return boom()
+    end
+    local function probe(expect_tail)
+      assert(debug.getinfo(1, "t").istailcall == expect_tail)
+      return "ok"
+    end
+    local function driver()
+      local ok = pcall(tailfail)
+      assert(ok == false)
+      -- Error unwinding must clear side markers for frames that were removed;
+      -- the following ordinary call is not in tail position.
+      local v = probe(false)
+      return v
+    end
+    assert(driver() == "ok")
+  end
 end
 
 do

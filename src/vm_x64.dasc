@@ -400,6 +400,14 @@ static void build_subroutines(BuildCtx *ctx)
   |
   |  // Return from pcall or xpcall fast func.
   |  and PC, -8
+  |  // pcall/xpcall synthesize a C return after the protected Lua frame is
+  |  // gone. Preserve the first public result slot for the return hook before
+  |  // PC is replaced by the caller PC.
+  |  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], 1
+  |  cmp PCd, 16
+  |  je >8
+  |  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], 3
+  |8:
   |  sub BASE, PC			// Restore caller base.
   |  lea RA, [RA+PC-8]			// Rebase RA and prepend one result.
   |  mov PC, [BASE-8]			// Fetch PC of previous frame.
@@ -417,6 +425,17 @@ static void build_subroutines(BuildCtx *ctx)
   |  jz ->BC_RET_Z			// Handle regular return to Lua.
   |  // C return hooks need the result range before results are moved down.
   |  // Recompute RA/RD afterwards because the hook is a regular C call.
+  |  mov L:RB, SAVE_L
+  |  // The hook can inspect the returning C frame and call back into Lua. Keep
+  |  // the public stack window consistent before entering it; protected-call
+  |  // returns otherwise still point L->base at the unwound inner frame.
+  |  mov L:RB->base, BASE
+  |  lea TMPR, [BASE+RA]
+  |  mov CARG1, RD
+  |  shl CARG1, 3
+  |  sub CARG1, 8
+  |  add TMPR, CARG1
+  |  mov L:RB->top, TMPR
   |  mov CARG3d, RDd
   |  sub CARG3d, 1			// CARG3 = nresults.
   |  xor CARG2d, CARG2d
@@ -424,7 +443,6 @@ static void build_subroutines(BuildCtx *ctx)
   |  jz >8
   |  movzx CARG2d, word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)]
   |8:
-  |  mov L:RB, SAVE_L
   |  mov CARG1, L:RB
   |  call extern lj_dispatch_ceret
   |  mov RDd, eax			// RD = nresults+1.
@@ -550,13 +568,34 @@ static void build_subroutines(BuildCtx *ctx)
   |  mov DISPATCH, L:RB->glref		// Setup pointer to dispatch table.
   |  add DISPATCH, GG_G2DISP
   |  mov PC, [BASE-8]			// Fetch PC of previous frame.
+  |  set_vmstate INTERP
+  |  test byte [DISPATCH+DISPATCH_GL(hookmask)], LUA_MASKRET
+  |  jz >7
+  |  // The pcall frame is still intact here. Fire the synthetic C return hook
+  |  // before false+error overwrite the function/PC slots below.
+  |  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], 3
+  |  mov CFUNC:RB, [BASE-16]
+  |  cleartp CFUNC:RB
+  |  cmp byte CFUNC:RB->ffid, FF_xpcall_N
+  |  jne >6
+  |  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], 5
+  |6:
+  |  movzx CARG2d, word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)]
+  |  mov CARG3d, 2
+  |  mov L:RB, SAVE_L
+  |  mov CARG1, L:RB
+  |  call extern lj_dispatch_ceret
+  |  mov BASE, L:RB->base
+  |  mov PC, [BASE-8]
+  |7:
   |  mov_false RA
   |  mov RB, [BASE]
   |  mov [BASE-16], RA			// Prepend false to error message.
   |  mov [BASE-8], RB
   |  mov RA, -16			// Results start at BASE+RA = BASE-16.
-  |  set_vmstate INTERP
-  |  jmp ->vm_returnc			// Increments RD/MULTRES and returns.
+  |  mov RDd, 1+2			// false + error, already adjusted.
+  |  mov MULTRES, RDd
+  |  jmp ->BC_RET_Z
   |
   |//-----------------------------------------------------------------------
   |//-- Grow stack for calls -----------------------------------------------
