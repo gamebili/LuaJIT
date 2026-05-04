@@ -27,7 +27,7 @@
    - 目标：统一 `lua_Integer`、TValue 数字子类型、字符串扫描、格式化、算术、bitwise、numeric for 和 JIT recorder 的整数路径。
    - 覆盖：`1 << 40`、`math.mininteger/maxinteger`、`math.type(1.0)`、`"1.0"+2`、`math.tointeger`、`math.ult`、`string.pack("j/i8/I8")`、C API integer 边界。
    - 接口要求：先决定 dual-number / 64-bit integer 表示与 JIT IR 扩展策略，再批量改库函数；不要在单个库函数里继续做 32 位补丁。
-  - 当前进展：PC x64 Lua 5.4 compat 构建已切到 `LUAJIT_NUMMODE=2` dual-number；float 字面量、常量折叠、字符串数字转换、字符串数字算术、`lua_arith()` 和 numeric for 已开始按 TValue 子类型保留 integer/float 区分，`lua_isinteger()` 在 dual-number 兼容构建下也改为按子类型判断；完整 64 位 `lua_Integer` / IR / ABI 仍未完成。
+  - 当前进展：PC x64 Lua 5.4 compat 构建已切到 `LUAJIT_NUMMODE=2` dual-number；float 字面量、常量折叠、字符串数字转换、字符串数字算术、`%` helper、`lua_arith()` 和 numeric for 已开始按 TValue 子类型保留 integer/float 区分，`lua_isinteger()` 在 dual-number 兼容构建下也改为按子类型判断；完整 64 位 `lua_Integer` / IR / ABI 仍未完成。
 
 4. **debug frame metadata 批次**
    - 目标：在 VM frame 层保留 Lua 5.4 hook/tailcall 所需元信息。
@@ -67,7 +67,7 @@
 - [ ] 完整 Lua 5.4 64 位整数语义。
   - 当前状态：兼容层仍沿用 LuaJIT 当前 32 位内部整数策略，`math.mininteger`/`math.maxinteger` 是 `-2147483648..2147483647`。
   - 当前进展：`math.type()` 在非 dual-number 构建下会把当前 32 位范围内可精确表示为整数的 number 报告为 `integer`；`math.floor`、`math.ceil`、`math.modf` 的整数部分会尽量返回当前兼容整数表面。
-  - 当前进展：PC x64 Lua 5.4 compat smoke 已启用 dual-number 构建；`1.0`、`1e0`、`0x1p0` 这类按拼写应为 float 的常量不会再因常量表把 `1` / `1.0` 统一为同一个 key 而丢失子类型，`1.0 + 2` / `4 / 2` / `2 ^ 3` 等常量折叠也会保留官方 integer/float 结果形态；字符串数字算术会保留 `"1" + 2` 的 integer 结果和 `"1.0" + 2` 的 float 结果，C API `lua_arith()` / `lua_isinteger()` 也按同一子类型表面覆盖。
+  - 当前进展：PC x64 Lua 5.4 compat smoke 已启用 dual-number 构建；`1.0`、`1e0`、`0x1p0` 这类按拼写应为 float 的常量不会再因常量表把 `1` / `1.0` 统一为同一个 key 而丢失子类型，`1.0 + 2` / `4 / 2` / `2 ^ 3` 等常量折叠也会保留官方 integer/float 结果形态；字符串数字算术会保留 `"1" + 2` 的 integer 结果和 `"1.0" + 2` 的 float 结果，integer `%` / `lua_arith(LUA_OPMOD)` 保留 integer 子类型并在 `% 0` 时报 Lua 5.4 错误，C API `lua_arith()` / `lua_isinteger()` 也按同一子类型表面覆盖。
   - 当前进展：lowered 位运算 helper 已先用 64 位内部计算打通 `1 << 31`、`(1 << 31) - 1`、`1 << 40`、跨 32 位 `&` / `|` / `~` / shift 和 `>=64` 位移；超出当前 32 位 TValue integer 表面的结果暂以精确 double 桥接。
   - 已知差异：`lua_Integer` / `lua_Unsigned` 头文件 ABI、`math.mininteger` / `math.maxinteger`、64 位整数字面量扫描、`math.tointeger` / `math.ult`、`string.pack("j/i8/I8")`、`string.format` 的 `maxinteger`/`mininteger` 边界和 C API 边界仍没有完整 Lua 5.4 64 位整数语义。
   - 对照结论：官方 `testes/bitwise.lua` 的 `0xF0F0F0F0F0F0F0F0`、`testes/strings.lua` 的 `0x7fffffffffffffff` / `-0x8000000000000000` 格式化块都会卡在真实 64 位 integer/TValue 缺失上，不能继续用单个库函数补丁硬凑。
@@ -83,8 +83,9 @@
   - 需要补测试：正/负步长边界、`math.maxinteger` / `math.mininteger` 附近、整数和浮点控制变量的类型、循环变量不回绕、循环变量在 debug API 下的行为。
 
 - [x] Lua 5.4 运算符元方法。
-  - 当前状态：`//`、`&`、`|`、`~`、`<<`、`>>` 仍通过内部 helper 降级实现；helper 已在原始数值路径失败时查找并调用 `__idiv`、`__band`、`__bor`、`__bxor`、`__bnot`、`__shl`、`__shr`。
+  - 当前状态：`//`、`%`、`&`、`|`、`~`、`<<`、`>>` 在 Lua 5.4 兼容模式下通过内部 helper 降级实现；helper 已在原始数值路径失败时查找并调用 `__idiv`、`__mod`、`__band`、`__bor`、`__bxor`、`__bnot`、`__shl`、`__shr`。
   - 当前进展：`//` helper 的无元方法失败路径已按 Lua 5.4 报 `attempt to idiv a '<lhs>' with a '<rhs>'`，不再泄露私有 helper 名，并保留 `__name` 类型名。
+  - 当前进展：`%` helper 已覆盖 integer `%` 子类型、integer `% 0` 错误和 float `%` 结果；字符串操作数会先尊重显式 `__mod`，`__idiv` 也同步修正为字符串显式元方法优先。
   - 当前进展：bitwise helper 的失败路径已按 Lua 5.4 报运算符错误，不再泄露私有 helper 名；无整数表示的 number 报 `number has no integer representation`，string/boolean/带 `__name` 的 table 报 `attempt to perform bitwise operation on ... value`。
   - 当前进展：官方 `testes/bwcoercion.lua` 通过 string metatable 覆盖 bitwise/idiv 字符串边界；当前 lowered helper 已规整 metamethod 返回栈，只返回 metamethod 第一个结果，不再把原操作数漏成额外返回值。
   - 当前进展：lowered helper 的原始数值结果路径也已规整返回槽；`local a, b = "1.0" // "2"` 不再把左操作数字符串漏到 `a`，只返回单个 Lua 5.4 结果。
@@ -135,11 +136,11 @@
   - 剩余：完整 64 位整数格式归入整数语义继续处理；`%p` 对长字符串的对象身份仍受 LuaJIT 全字符串内化影响，归入字符串对象语义批次。
 
 - [ ] 字符串到数字的运算转换细节。
-  - 当前状态：普通算术路径已在 Lua 5.4 dual-number 兼容构建下保留字符串数字转换后的 integer/float 子类型；`//` helper 已支持字符串数字；bitwise helper 继续拒绝 string；Lua 5.4 兼容模式下通用字符串数字转换已拒绝 `inf` / `nan` / `0b` 等 LuaJIT 扩展数字文本。
+  - 当前状态：普通算术路径已在 Lua 5.4 dual-number 兼容构建下保留字符串数字转换后的 integer/float 子类型；`//` / `%` helper 已支持字符串数字并尊重显式 string metatable；bitwise helper 继续拒绝 string；Lua 5.4 兼容模式下通用字符串数字转换已拒绝 `inf` / `nan` / `0b` 等 LuaJIT 扩展数字文本。
   - 当前进展：普通算术中字符串无法转换且无元方法时，错误文本已按 Lua 5.4 报具体操作名和左右操作数类型，例如 `attempt to add a 'string' with a 'number'`。
   - 当前进展：字符串 metatable 显式提供 `__add` / `__mul` / `__unm` 时，会优先于字符串数字转换执行，覆盖 `"1" + 2`、`2 + "1"`、`"1" * 2` 和 `-"1"`。
   - 已知差异：Lua 5.4 把字符串到数字的算术转换放到 string 库元方法层，算术可转换但位运算不可转换；当前 PC x64 兼容 smoke 已用 dual-number 覆盖常见字符串算术子类型，非 dual-number 兼容层仍只能提供降级表面。
-  - 已覆盖：`"1" + "2"` / `"1" + 2` 的 integer 结果、`"1.0" + 2` / `"1e0" + 2` 的 float 结果、`"5" % "2"` 和 `-"1"` 的 integer 结果、字符串算术元方法优先级、普通算术字符串失败路径、`//` 字符串失败路径、`math.abs()` / `math.tointeger()` / `math.type()` 以及 C API 数字转换拒绝扩展数字文本，同时保留 `"1e9999"` 溢出为无穷大的 Lua 5.4 行为。
+  - 已覆盖：`"1" + "2"` / `"1" + 2` 的 integer 结果、`"1.0" + 2` / `"1e0" + 2` 的 float 结果、`"5" % "2"`、变量 integer `%`、integer `% 0` 错误和 `-"1"` 的 integer 结果、字符串算术元方法优先级、普通算术字符串失败路径、`//` 字符串失败路径、`math.abs()` / `math.tointeger()` / `math.type()` 以及 C API 数字转换拒绝扩展数字文本，同时保留 `"1e9999"` 溢出为无穷大的 Lua 5.4 行为。
 
 - [x] `string.gmatch` 的 `init` 参数和空匹配推进语义。
   - 当前状态：第三个 `init` 参数已按 Lua 5.4 规则处理正数、负数和越界起点。

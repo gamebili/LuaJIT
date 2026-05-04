@@ -1160,6 +1160,11 @@ static void bcemit_binop_left(FuncState *fs, BinOpr op, ExpDesc *e)
 /* Emit binary operator. */
 static void bcemit_binop(FuncState *fs, BinOpr op, ExpDesc *e1, ExpDesc *e2)
 {
+#if LJ_54
+  if (op == OPR_MOD) {
+    bcemit_lua54_helper(fs, "_lua54_mod", 10, e1, e2, 2);
+  } else
+#endif
   if (op <= OPR_POW) {
     bcemit_arith(fs, op, e1, e2);
 #if LJ_54

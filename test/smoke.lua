@@ -882,6 +882,14 @@ do
     assert(r == 3 and math.type(r) == "float")
     r = assert(load([[return "1e0" + 2]]))()
     assert(r == 3 and math.type(r) == "float")
+    do
+      local a, b = 5, 2
+      r = a % b
+      assert(r == 1 and math.type(r) == "integer")
+      a, b = 5, 0
+      local ok, err = pcall(function() return a % b end)
+      assert(ok == false and err:match("n%%0") ~= nil)
+    end
     local string_mt = debug.getmetatable("")
     debug.setmetatable("", {
       __add = function(a, b) return "add:"..tostring(a)..":"..tostring(b) end,
@@ -926,7 +934,7 @@ do
   end
   do
     local string_mt = debug.getmetatable("")
-    local names = { "band", "bor", "bxor", "bnot", "shl", "shr", "idiv" }
+    local names = { "band", "bor", "bxor", "bnot", "shl", "shr", "idiv", "mod" }
     local old = {}
     for _, name in ipairs(names) do
       old[name] = string_mt["__"..name]
@@ -939,7 +947,8 @@ do
       { [[return ~"x"]], "bnot" },
       { [[return "x" << 3]], "shl" },
       { [[return "x" >> 3]], "shr" },
-      { [[return "x" // 3]], "idiv" },
+      { [[return "7" // 3]], "idiv" },
+      { [[return "7" % 3]], "mod" },
     }
     for _, case in ipairs(cases) do
       local r1, r2 = assert(load(case[1]))()

@@ -1333,6 +1333,13 @@ static void test_compare_len_arith(lua_State *L)
 	"lua_arith string float add subtype");
   lua_pop(L, 1);
 
+  lua_pushinteger(L, 5);
+  lua_pushinteger(L, 2);
+  lua_arith(L, LUA_OPMOD);
+  check(L, lua_isinteger(L, -1), "lua_arith integer mod subtype");
+  check_integer(L, -1, 1, "lua_arith integer mod");
+  lua_pop(L, 1);
+
   lua_pushinteger(L, 7);
   lua_pushinteger(L, 3);
   lua_arith(L, LUA_OPIDIV);

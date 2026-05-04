@@ -334,6 +334,9 @@ static int lj_cf_jit__lua54_idiv(lua_State *L)
   int ia, ib;
   int32_t a = 0, b = 0;
   double na, nb;
+  if ((tvisstr(L->base) || tvisstr(L->base+1)) &&
+      lua54_callbinmeta(L, "__idiv", 0))
+    return 1;
   if (!lua54_tonumop(L, 1, &ia, &a, &na) ||
       !lua54_tonumop(L, 2, &ib, &b, &nb)) {
     if (lua54_callbinmeta(L, "__idiv", 0))
@@ -353,6 +356,28 @@ static int lj_cf_jit__lua54_idiv(lua_State *L)
     return lua54_pushbinnum(L, (lua_Number)q);
   }
   return lua54_pushbinnum(L, lj_vm_floor(na / nb));
+}
+
+static int lj_cf_jit__lua54_mod(lua_State *L)
+{
+  int ia, ib;
+  int32_t a = 0, b = 0;
+  double na, nb;
+  if ((tvisstr(L->base) || tvisstr(L->base+1)) &&
+      lua54_callbinmeta(L, "__mod", 0))
+    return 1;
+  if (!lua54_tonumop(L, 1, &ia, &a, &na) ||
+      !lua54_tonumop(L, 2, &ib, &b, &nb)) {
+    if (lua54_callbinmeta(L, "__mod", 0))
+      return 1;
+    lua54_binop_error(L, "mod");
+  }
+  if (ia && ib) {
+    if (b == 0)
+      return luaL_error(L, "attempt to perform 'n%%0'");
+    return lua54_pushbinint(L, lj_vm_modi(a, b));
+  }
+  return lua54_pushbinnum(L, lj_vm_foldarith(na, nb, MM_mod-MM_add));
 }
 
 static int lj_cf_jit__lua54_band(lua_State *L)
@@ -1198,6 +1223,8 @@ LUALIB_API int luaopen_jit(lua_State *L)
   lua_getglobal(L, LUA_JITLIBNAME);
   lua_pushcfunction(L, lj_cf_jit__lua54_idiv);
   lua_setfield(L, -2, "_lua54_idiv");
+  lua_pushcfunction(L, lj_cf_jit__lua54_mod);
+  lua_setfield(L, -2, "_lua54_mod");
   lua_pushcfunction(L, lj_cf_jit__lua54_band);
   lua_setfield(L, -2, "_lua54_band");
   lua_pushcfunction(L, lj_cf_jit__lua54_bor);
