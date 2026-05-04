@@ -353,9 +353,16 @@ typedef struct MatchState {
 
 static int check_capture(MatchState *ms, int l)
 {
+#if LJ_54
+  int c = l;
+#endif
   l -= '1';
   if (l < 0 || l >= ms->level || ms->capture[l].len == CAP_UNFINISHED)
+#if LJ_54
+    luaL_error(ms->L, "invalid capture index %%%c", c);
+#else
     lj_err_caller(ms->L, LJ_ERR_STRCAPI);
+#endif
   return l;
 }
 
@@ -447,7 +454,11 @@ static const char *match(MatchState *ms, const char *s, const char *p);
 static const char *matchbalance(MatchState *ms, const char *s, const char *p)
 {
   if (p+1 >= ms->p_end)
+#if LJ_54
+    luaL_error(ms->L, "malformed pattern (missing arguments to '%%b')");
+#else
     lj_err_caller(ms->L, LJ_ERR_STRPATU);
+#endif
   if (*s != *p) {
     return NULL;
   } else {
@@ -622,8 +633,13 @@ static void push_onecapture(MatchState *ms, int i, const char *s, const char *e)
   if (i >= ms->level) {
     if (i == 0)  /* ms->level == 0, too */
       lua_pushlstring(ms->L, s, (size_t)(e - s));  /* add whole match */
+#if LJ_54
+    else
+      luaL_error(ms->L, "invalid capture index %%%d", i + 1);
+#else
     else
       lj_err_caller(ms->L, LJ_ERR_STRCAPI);
+#endif
   } else {
     ptrdiff_t l = ms->capture[i].len;
     if (l == CAP_UNFINISHED) lj_err_caller(ms->L, LJ_ERR_STRCAPU);
@@ -725,6 +741,10 @@ LJLIB_NOREG LJLIB_CF(string_gmatch_aux)
   GCstr *str = strV(lj_lib_upvalue(L, 1));
   const char *s = strdata(str);
   TValue *tvpos = lj_lib_upvalue(L, 3);
+#if LJ_54
+  TValue *tvlast = lj_lib_upvalue(L, 4);
+  uint32_t last = tvlast->u32.lo;
+#endif
   const char *src = s + tvpos->u32.lo;
   MatchState ms;
   ms.L = L;
@@ -734,12 +754,27 @@ LJLIB_NOREG LJLIB_CF(string_gmatch_aux)
   for (; src <= ms.src_end; src++) {
     const char *e;
     ms.level = ms.depth = 0;
+#if LJ_54
+    if ((e = match(&ms, src, p)) != NULL) {
+      uint32_t pos = (uint32_t)(e - s);
+      if (pos == last)
+	continue;
+      /* Lua 5.4 remembers the end of the previous match. This prevents a
+      ** new empty match at that same position while still allowing the scan
+      ** loop to advance and find the next real match.
+      */
+      tvpos->u32.lo = pos;
+      tvlast->u32.lo = pos;
+      return push_captures(&ms, src, e);
+    }
+#else
     if ((e = match(&ms, src, p)) != NULL) {
       int32_t pos = (int32_t)(e - s);
       if (e == src) pos++;  /* Ensure progress for empty match. */
       tvpos->u32.lo = (uint32_t)pos;
       return push_captures(&ms, src, e);
     }
+#endif
   }
   return 0;  /* not found */
 }
@@ -766,7 +801,13 @@ LJLIB_CF(string_gmatch)
     st = s->len + 1;
   L->top = L->base+3;
   (L->top-1)->u64 = (uint64_t)st;
+#if LJ_54
+  L->top = L->base+4;
+  (L->top-1)->u32.lo = ~(uint32_t)0;
+  lj_lib_pushcc(L, lj_cf_string_gmatch_aux, FF_string_gmatch_aux, 4);
+#else
   lj_lib_pushcc(L, lj_cf_string_gmatch_aux, FF_string_gmatch_aux, 3);
+#endif
   return 1;
 }
 
@@ -780,6 +821,9 @@ static void add_s(MatchState *ms, luaL_Buffer *b, const char *s, const char *e)
     } else {
       i++;  /* skip ESC */
       if (!lj_char_isdigit(uchar(news[i]))) {
+	if (LJ_54 && lj_char_isalnum(uchar(news[i])))
+	  luaL_error(ms->L, "invalid use of '%c' in replacement string",
+		     L_ESC);
 	luaL_addchar(b, news[i]);
       } else if (news[i] == '0') {
 	luaL_addlstring(b, s, (size_t)(e - s));
@@ -847,6 +891,9 @@ LJLIB_CF(string_gsub)
   int n = 0;
   MatchState ms;
   luaL_Buffer b;
+#if LJ_54
+  const char *lastmatch = NULL;
+#endif
   if (!(tr == LUA_TNUMBER || tr == LUA_TSTRING ||
 	tr == LUA_TFUNCTION || tr == LUA_TTABLE))
 #if LJ_54
@@ -864,6 +911,21 @@ LJLIB_CF(string_gsub)
     const char *e;
     ms.level = ms.depth = 0;
     e = match(&ms, src, p);
+#if LJ_54
+    if (e && e != lastmatch) {
+      n++;
+      add_value(&ms, &b, src, e);
+      /* Same empty-match rule as official Lua 5.4: after replacing an empty
+      ** match, the next search at that same end position is ignored and the
+      ** scan advances by one subject byte.
+      */
+      src = lastmatch = e;
+    } else if (src < ms.src_end) {
+      luaL_addchar(&b, *src++);
+    } else {
+      break;
+    }
+#else
     if (e) {
       n++;
       add_value(&ms, &b, src, e);
@@ -874,6 +936,7 @@ LJLIB_CF(string_gsub)
       luaL_addchar(&b, *src++);
     else
       break;
+#endif
     if (anchor)
       break;
   }

@@ -133,9 +133,11 @@
   - 已覆盖：`"1" + "2"` 基础算术转换、字符串算术元方法优先级、普通算术字符串失败路径、`//` 字符串失败路径、`math.abs()` / `math.tointeger()` / `math.type()` 以及 C API 数字转换拒绝扩展数字文本，同时保留 `"1e9999"` 溢出为无穷大的 Lua 5.4 行为。
   - 需要补测试/实现：`"1.0" + 2` 的结果 `math.type`；本机 Lua 5.4.8 对照为 `float`，当前非 dual-number 兼容层仍会把精确整数值 `3.0` 报为 `integer`。
 
-- [x] `string.gmatch` 的 `init` 参数。
+- [x] `string.gmatch` 的 `init` 参数和空匹配推进语义。
   - 当前状态：第三个 `init` 参数已按 Lua 5.4 规则处理正数、负数和越界起点。
-  - 已覆盖：正数 init、负数 init、越界 init、带捕获和无捕获模式；本机 Lua 5.4.8 对照的负数起点探针已确认一致。
+  - 当前进展：`string.gsub` / `string.gmatch` 已按官方 Lua 5.4 的 `lastmatch` 规则处理空匹配，避免在上一轮空匹配的同一结束位置立刻再次匹配；`"a b cd"` + `" *"` 和 `()%s*()` 用例已进入 smoke。
+  - 当前进展：replacement 字符串中的非法 capture 会报具体 `%0/%1/%2`，`%x` 这类字母 escape 会报 `invalid use of '%' in replacement string`；`%b` 缺少两个参数时报 `malformed pattern (missing arguments to '%b')`。
+  - 已覆盖：正数 init、负数 init、越界 init、带捕获和无捕获模式、空匹配推进、replacement capture 错误文本、`%b` 缺参数错误文本；本机 Lua 5.4.8 对照的负数起点探针和官方 `testes/pm.lua` 非长字符串身份部分已确认一致。
 
 - [x] `warn()` 参数转换规则。
   - 当前状态：`warn()` 已按 Lua 5.4 兼容转换 number / nil / 带 `__tostring` 的值，boolean 仍按官方行为报错。
@@ -155,7 +157,7 @@
 
 - [ ] 字符串对象身份和 locale 语义。
   - 当前状态：LuaJIT 仍会内化所有字符串；官方 Lua 5.4 只内化短字符串，长字符串是独立对象。
-  - 对照结论：官方 `testes/strings.lua` 中两个同内容 300 字节长字符串的 `string.format("%p", s)` 必须不同，当前 LuaJIT 会得到同一个 `GCstr` 指针；这需要字符串对象模型批次处理，不能在 `%p` 输出层真实修复。
+  - 对照结论：官方 `testes/strings.lua` 中两个同内容 300 字节长字符串的 `string.format("%p", s)` 必须不同，当前 LuaJIT 会得到同一个 `GCstr` 指针；官方 `testes/pm.lua` 中 `string.gsub` 生成同内容长字符串后也要求 `%p` 不同。这需要字符串对象模型批次处理，不能在 `%p` 输出层真实修复。
   - 当前状态：字符串 `<` / `<=` 和 pattern 字符分类仍主要走 LuaJIT 当前字节/固定分类路径。
   - 对照结论：官方 `testes/strings.lua` 在可用 `collate` / `ctype` locale 下会测试 `strcoll` 顺序和 locale 字符分类；当前需要 VM 字符串比较、JIT 比较记录和 `lj_char`/pattern 分类一起设计。
 
@@ -277,6 +279,7 @@
   - 当前进展：Lua 5.4 兼容模式下 `getmetatable()` 无参数已报 value error，并保留 `__metatable` 保护返回值。
   - 当前进展：debug 库整数边界已按 Lua 5.4 收紧，覆盖 stack level、local/upvalue index、hook count、traceback level、uservalue slot 和 `setcstacklimit`。
   - 当前进展：string / utf8 库的常见整数参数已按 Lua 5.4 收紧，覆盖 `string.byte`、`char`、`sub`、`rep`、`find`、`match`、`gmatch`、`gsub`、`pack`、`unpack` 以及 `utf8.char`、`codepoint`、`len`、`offset`，都会拒绝无整数表示的 number。
+  - 当前进展：pattern/replacement 的常见 Lua 5.4 错误文本已继续收紧，覆盖 invalid capture index `%0/%1/%2`、replacement 中非法 `%` 用法，以及 `%b` 缺参数。
   - 当前进展：`string.char()` 的越界错误文本已收紧为 Lua 5.4 风格的 `value out of range`。
   - 当前进展：`utf8.char()` 对整数可表示但超出 0..0x7fffffff 扩展码点范围的输入，也已按 Lua 5.4 报 `value out of range`。
   - 当前进展：`string.format()` 的整数格式转换错误、整数格式的 number 类型错误以及 `%q` 无 Lua 字面量形式的错误，均已带 `string.format` 函数名，不再在内部格式化 helper 中显示为 `?`。

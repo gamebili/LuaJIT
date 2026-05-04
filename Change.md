@@ -9,6 +9,8 @@
 - 已按官方 Lua 5.4 行为收紧 `tostring()`：`__tostring` 返回非 string 时会报 `'__tostring' must return a string`，不再把任意 metamethod 返回值透出。
 - 已按官方 `testes/strings.lua` 修正 `table.concat` 的 `math.maxinteger` 终点边界，避免循环自增回绕后多读 `math.mininteger`。
 - 已用官方 `testes/strings.lua` 继续做源码级对照：除已记录到 `TODO.md` 的长字符串非内化、真实 64 位 integer/TValue、locale-aware 字符串比较/字符分类和未启用 `testC` 块外，临时跳过这些大改项后当前字符串测试可跑到 `OK`。
+- 已继续按官方 Lua 5.4.8 `testes/pm.lua` 收紧 pattern/replacement 语义：`string.gsub` / `string.gmatch` 使用 `lastmatch` 规则处理空匹配，replacement 非法 capture 会带 `%0/%1/%2`，`%x` 非法 escape 和 `%b` 缺参数错误文本已对齐。
+- 已用官方 `testes/pm.lua` 做源码级对照：除已记录到 `TODO.md` 的长字符串非内化导致同内容长字符串 `%p` 身份相同外，临时跳过该大改项后当前 pattern 测试可跑到 `OK`。
 - 已按官方 Lua 5.4.8 `lutf8lib.c` / `testes/utf8.lua` 成批对齐 UTF-8 边界：源码 `\u{...}` 字面量接受 `0..0x7fffffff` 和 surrogate 字节序列，`utf8.codes` 迭代器按官方处理越界控制变量和 continuation byte，`utf8.codepoint` / `len` / `offset` 错误文本与边界归属收紧，`utf8.offset` 不再用 strict decode 阻断 lax 5/6 字节序列。
 - 已按官方 Lua 5.4.8 `lstrlib.c` 修正 string pattern 对内嵌 NUL 的处理：`MatchState` 现在保存 pattern end 指针，`find` / `match` / `gmatch` / `gsub` 会按长度解析模式串，因此 `utf8.charpattern` 可保持官方内嵌 NUL 常量而不是改写成替代表达式。
 - 已先把 Lua 5.4 lowered 位运算 helper 的原始数值路径提升到 64 位内部计算：`1 << 31`、`(1 << 31) - 1`、`1 << 40`、跨 32 位的 `&` / `|` / `~` / shift 和 `>=64` 位移已进入 smoke；超出当前 32 位 TValue integer 表面的结果暂以精确 double 桥接，完整 64 位 integer/TValue 仍保留在 `TODO.md`。

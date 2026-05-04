@@ -1148,6 +1148,33 @@ do
   expect_bad_integer(string.match, "abc", "b", 1.2)
   expect_bad_integer(string.gmatch, "abc", "b", 1.2)
   expect_bad_integer(string.gsub, "aaa", "a", "b", 1.2)
+  assert(string.gsub("a b cd", " *", "-") == "-a-b-c-d-")
+  do
+    local sub = "a  \nbc\t\td"
+    local res = ""
+    local i = 1
+    for p, e in string.gmatch(sub, "()%s*()") do
+      res = res .. string.sub(sub, i, p - 1) .. "-"
+      i = e
+    end
+    assert(res .. string.sub(sub, i) == "-a-b-c-d-")
+  end
+  do
+    local ok_cap, err_cap = pcall(string.gsub, "alo", ".", "%2")
+    assert(ok_cap == false and err_cap:match("invalid capture index %%2") ~= nil)
+    ok_cap, err_cap = pcall(string.gsub, "alo", "(%0)", "a")
+    assert(ok_cap == false and err_cap:match("invalid capture index %%0") ~= nil)
+    ok_cap, err_cap = pcall(string.gsub, "alo", "(%1)", "a")
+    assert(ok_cap == false and err_cap:match("invalid capture index %%1") ~= nil)
+    ok_cap, err_cap = pcall(string.gsub, "alo", ".", "%x")
+    assert(ok_cap == false and err_cap:match("invalid use of '%%'") ~= nil)
+    ok_cap, err_cap = pcall(string.find, "a", "%b")
+    assert(ok_cap == false and
+      err_cap:match("missing arguments to '%%b'") ~= nil)
+    ok_cap, err_cap = pcall(string.find, "a", "%ba")
+    assert(ok_cap == false and
+      err_cap:match("missing arguments to '%%b'") ~= nil)
+  end
 end
 do
   assert(debug.getuservalue(io.stdout) == nil)
