@@ -81,6 +81,7 @@
 - 已继续补 Lua 5.4 standalone 默认 package 搜索路径：兼容构建的 `package.path` / `package.cpath` 默认值已改用 Lua 5.4 风格的 executable-local、versioned share/lib 和当前目录 fallback。
 - 已重新核对 `<const>` debug API 行为：本机 Lua 5.4.8 允许 `debug.setlocal()` / `debug.setupvalue()` / `debug.upvaluejoin()` 绕过源码级 const 限制，当前行为已补 smoke 并从 TODO 缺口中移除。
 - 已继续收紧 `_ENV` 表面：Lua 5.4 兼容模式下 `rawget(_G, "_ENV")` 已按官方 Lua 5.4.8 返回 `nil`，`next(_G)` / `pairs(_G)` 也不会枚举内部兼容 `_ENV` 键，同时保留裸 `_ENV == _G` 的当前兼容访问。
+- 已继续扩展 `_ENV` 回归：覆盖闭包继承局部 `_ENV`、真实 lexical `_ENV` 的 `debug.upvalueid()` / `debug.upvaluejoin()`、非 table lexical `_ENV` 的 debug 枚举和运行期索引错误。
 - 已重新核对 GC 选项表面：本机 Lua 5.4.8 不接受 `collectgarbage("minor")` / `"major"`，当前 invalid option 行为已补 smoke。
 - 已继续补 table `__gc` 元方法：Lua 5.4 兼容构建会在 metatable 赋值时 armed table finalizer，GC 回收时按 LIFO 调度，并将 finalizer 抛错转入 Lua 5.4 warning 通道。
 - 已继续收尾 table 库 Lua 5.4 边界：显式空范围、`table.sort` comparator 错误传播、非严格 comparator 和官方允许的 always-true / always-false comparator 结果已进入 smoke。
@@ -409,6 +410,7 @@
 - 覆盖 Lua 5.4 standalone `-i` 交互启动不会输出额外 `JIT:` 状态行。
 - 覆盖 Lua 5.4 兼容模式中 main chunk 的伪 `_ENV` debug upvalue、`debug.setupvalue` 替换环境，以及含真实上值闭包的 `_ENV` upvalue 排序。
 - 覆盖 Lua 5.4 兼容模式中 `rawget(_G, "_ENV") == nil`，并覆盖 `next(_G)` / `pairs(_G)` 不枚举 `_ENV`，对齐官方全局表不暴露 `_ENV` 键的表面。
+- 覆盖 Lua 5.4 兼容模式中真实 lexical `_ENV` 的闭包继承、`debug.upvalueid()` / `debug.upvaluejoin()` identity 合并，以及非 table lexical `_ENV` 被闭包访问时的错误表面。
 - 覆盖弱键表 ephemeron 自环 key 清理，以及外部强引用 key 时 value 保留。
 - 覆盖大 smoke chunk 中 Lua 5.4 数值 `for` / 运算符 helper 字段名不会因常量表超过 255 被截断。
 

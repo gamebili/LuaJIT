@@ -352,6 +352,36 @@ do
   assert(assert(load("local _ENV = { f = function() return 3 end }; return f()"))() == 3)
 end
 do
+  local dbg, assert = debug, assert
+  local e1, e2 = { x = 1 }, { x = 2 }
+  local _ENV = e1
+  local function f() return x end
+  assert(f() == 1)
+  do
+    local name, value = dbg.getupvalue(f, 1)
+    assert(name == "_ENV" and value == e1)
+  end
+  do
+    local _ENV = e2
+    local function g() return x end
+    assert(g() == 2)
+    assert(dbg.upvalueid(f, 1) ~= dbg.upvalueid(g, 1))
+    dbg.upvaluejoin(f, 1, g, 1)
+    assert(f() == 2 and g() == 2)
+    assert(dbg.upvalueid(f, 1) == dbg.upvalueid(g, 1))
+  end
+end
+do
+  local dbg, pcall, type, assert = debug, pcall, type, assert
+  local _ENV = 5
+  local function f() return missing_global end
+  local name, value = dbg.getupvalue(f, 1)
+  assert(name == "_ENV" and type(value) == "number" and value == 5)
+  local ok, err = pcall(f)
+  assert(ok == false and err:match("_ENV") ~= nil and
+         err:match("number") ~= nil)
+end
+do
   local f, err = load("for i = 1, 3, 0 do end")
   assert(f == nil and err:match("'for' step is zero") ~= nil)
   f, err = load("for i = 1, 3, 0.0 do end")
