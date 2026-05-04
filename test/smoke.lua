@@ -1500,6 +1500,15 @@ do
       end
       return sum
     end
+    local function generic_for_close_loop(n)
+      local t = {}
+      local sum = 0
+      for i = 1, n do t[i] = i end
+      for _, v in next, t, nil, false do
+        sum = sum + v
+      end
+      return sum
+    end
     jit.flush()
     jit.on()
     jitopt.start("hotloop=1")
@@ -1527,6 +1536,11 @@ do
     assert(string_meta_arith_loop(80) == 11320)
     assert(trace_highwater() > before)
     debug.setmetatable("", string_mt)
+    jit.flush()
+    before = trace_highwater()
+    assert(generic_for_close_loop(80) == 3240)
+    assert(generic_for_close_loop(80) == 3240)
+    assert(trace_highwater() > before)
     jit.flush()
     jitopt.start("hotloop=56")
   end

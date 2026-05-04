@@ -32,6 +32,7 @@
 - 已继续补 table 库 Lua 5.4 边界：`table.insert` / `table.remove` / `table.move` 的位置参数现在拒绝无整数表示的数值，`table.concat` / `table.insert` / `table.remove` 的默认长度路径会对齐带 `__len` 和中间 nil 洞数组的 Lua 5.4 表库行为。
 - 已继续收紧 `table.move()` 参数检查顺序：Lua 5.4 兼容模式下先检查 `f/e/t` 整数参数，再检查源表和目标表，缺参时优先报第 2 个参数。
 - 已开始把 Lua 5.4 新语义纳入 JIT smoke：当前 PC 构建会在开启 JIT 后运行 `//`、位运算和局部 `_ENV` 热循环，并确认产生 trace。
+- 已继续扩展 Lua 5.4 JIT smoke：带第 4 个 closing value=`false` 的 generic `next` 热循环会在兼容构建下产生 trace，覆盖 generic for 新控制布局的 JIT 路径。
 - 已继续补 Lua 5.4 C API 表面：外部兼容头中的 `lua_resume(L, from, nargs, nresults)` 已映射到 `lua_resume54()` 包装入口，并覆盖 yield/return 的结果数量。
 - 已继续补 lauxlib C API smoke：`luaL_loadbufferx()` / `luaL_loadfilex()` 的 text 模式加载和 binary-only 模式拒绝 text chunk 已进入回归。
 - 已继续补 lauxlib C API smoke：覆盖 `luaL_fileresult()`、`luaL_execresult()`、`luaL_newlib()`、`luaL_setfuncs()`、registered metatable/userdata helper、`luaL_traceback()` 和 `luaL_dostring()`。

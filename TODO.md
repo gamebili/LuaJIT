@@ -277,6 +277,7 @@
   - 当前进展：已补 JIT smoke，覆盖开启 JIT 后 `math.random(1, 4)` 区间路径在热循环内返回整数区间值，并确认产生 trace。
   - 当前进展：已补 JIT smoke，覆盖开启 JIT 后 `tonumber()` 在热循环中仍拒绝 `inf` / `nan` / `0b` 等 LuaJIT 扫描器扩展数字字符串，并确认产生 trace。
   - 当前进展：已补 JIT smoke，覆盖字符串 metatable 的 `__add` 优先于字符串数字转换，并在热循环中产生 trace。
+  - 当前进展：已补 JIT smoke，覆盖 Lua 5.4 generic for 第 4 个 closing value 采用 `false` 时，`next` 热循环仍可产生 trace。
   - 当前进展：`jit._lua54_*` helper 字段访问已处理大 chunk 常量表超过 255 时的 `TGETS` 索引截断问题，超出 8 位范围时改用 `KSTR + TGETV`。
   - 需要补测试：继续扩展到更多 Lua 5.4 helper 路径，并在 unsupported trace 路径上补退出或 recorder。
 
