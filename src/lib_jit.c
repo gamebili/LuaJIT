@@ -293,7 +293,26 @@ static int lua54_callbinmeta(lua_State *L, const char *mmname, int unary)
 
 static int lua54_pushbinint(lua_State *L, int32_t v)
 {
-  setintV(L->top++, v);
+  TValue *base = L->base;
+  setintV(base, v);
+  /* The lowered helpers are compiled as ordinary calls but may be used as the
+  ** last expression in a multi-assignment. LuaJIT does not nil-fill stale
+  ** temporary argument slots for C helpers, so clear the two operand slots
+  ** after writing the single official Lua 5.4 result.
+  */
+  setnilV(base + 1);
+  setnilV(base + 2);
+  L->top = base + 1;
+  return 1;
+}
+
+static int lua54_pushbinnum(lua_State *L, lua_Number n)
+{
+  TValue *base = L->base;
+  setnumV(base, n);
+  setnilV(base + 1);
+  setnilV(base + 2);
+  L->top = base + 1;
   return 1;
 }
 
@@ -318,11 +337,9 @@ static int lj_cf_jit__lua54_idiv(lua_State *L)
       q--;
     if (q >= LJ_LUA54_MININTEGER && q <= LJ_LUA54_MAXINTEGER)
       return lua54_pushbinint(L, (int32_t)q);
-    setnumV(L->top++, (lua_Number)q);
-    return 1;
+    return lua54_pushbinnum(L, (lua_Number)q);
   }
-  setnumV(L->top++, lj_vm_floor(na / nb));
-  return 1;
+  return lua54_pushbinnum(L, lj_vm_floor(na / nb));
 }
 
 static int lj_cf_jit__lua54_band(lua_State *L)

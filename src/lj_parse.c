@@ -650,16 +650,36 @@ static void bcemit_lua54_helper(FuncState *fs, const char *field, size_t len,
   LexState *ls = fs->ls;
   BCReg base = fs->freereg;
   BCReg argbase;
+  int reuseleft = e1->k == VNONRELOC && e1->u.s.info >= fs->nactvar &&
+		  e1->u.s.info + 1 == fs->freereg;
   /* Keep new Lua 5.4 operators out of the VM bytecode format for now: lower
   ** them to private jit helpers so default LuaJIT bytecode remains unchanged.
   */
+  if (reuseleft) {
+    BCReg need;
+    base = e1->u.s.info;
+    argbase = (BCReg)(base + 1 + ls->fr2);
+    need = (BCReg)(argbase + nargs);
+    if (fs->freereg < need)
+      bcreg_reserve(fs, (BCReg)(need - fs->freereg));
+    /* Non-number left operands were already materialized by
+    ** bcemit_binop_left(). Reuse that slot as the helper call base so fixed
+    ** multi-assignment receives the helper result in the first result slot,
+    ** not the stale left operand.
+    */
+    expr_toreg(fs, e1, argbase);
+  }
   bcemit_AD(fs, BC_GGET, base, const_lit(fs, "jit", 3));
-  bcreg_reserve(fs, 1);
-  if (ls->fr2) bcreg_reserve(fs, 1);
+  if (!reuseleft) {
+    bcreg_reserve(fs, 1);
+    if (ls->fr2) bcreg_reserve(fs, 1);
+  }
   bcemit_lua54_jit_field(fs, base, field, len);
-  bcreg_reserve(fs, nargs);
+  if (!reuseleft)
+    bcreg_reserve(fs, nargs);
   argbase = (BCReg)(base + 1 + ls->fr2);
-  expr_toreg(fs, e1, argbase);
+  if (!reuseleft)
+    expr_toreg(fs, e1, argbase);
   if (nargs == 2)
     expr_toreg(fs, e2, (BCReg)(argbase + 1));
   expr_init(e1, VCALL,

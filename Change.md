@@ -21,6 +21,7 @@
 - 已按官方 `testes/locals.lua` 的 to-be-closed coroutine 用例推进 `<close>` yield 边界：普通块退出和 close-active `return` 路径不再在 C helper 内部调用 `__close`，而是由 parser 生成普通 Lua 调用，因此 `__close` 内 `coroutine.yield()` 后可恢复，并保留返回值数量与 `nil` 洞；error unwind / C return 等路径仍记录在 `TODO.md` 继续由 VM unwind continuation 接管。
 - 已继续按官方 `testes/locals.lua` 收紧普通 close 错误边界：隐式函数结尾会先关闭根作用域 `<close>` 再执行 final return，`__close` 自身抛错可被 `pcall` 捕获；声明后移除 `__close` 时错误文本包含 `metamethod 'close'`。
 - 已按官方 `error()` 行为收紧 Lua 5.4 非字符串错误对象：`error(101)` / `error(table)` 会保留原错误对象，不再因 LuaJIT 5.1 的 `lua_isstring(number)` 兼容规则被加上位置信息；同时覆盖 close 方法内部再声明 `<close>` 后抛数值错误的错误替换链。
+- 已继续按官方字符串数值运算边界收紧 lowered operator helper：`local a, b = "1.0" // "2"` 这类固定多赋值不再泄漏左操作数临时槽，helper 原始数值结果和 parser 调用 base 已规整为单返回值。
 - 已修复 Lua 5.4 compat 的 amalgamation 构建遗漏：`ljamalg.c` 现在包含 `lib_utf8.c`，避免 `luaopen_utf8` 在合并编译链接时缺失。
 - 已完成实验性 Lua 5.4 兼容模式的阶段性实现与测试。
 - 已通过 `make test` 验证默认构建和 Lua 5.4 兼容构建的 smoke 测试。

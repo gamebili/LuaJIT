@@ -774,6 +774,7 @@ do
   assert(eval("5.5 // 2") == 2)
   assert(eval([["5" // 2]]) == 2)
   assert(eval([["5.5" // 2]]) == 2)
+  assert(assert(load([[local a, b = "1.0" // "2"; return a == 0 and b == nil]]))())
   assert(assert(load("local a, b = 6, 3; return a & b"))() == 2)
   assert(eval("4 | 1") == 5)
   assert(eval("7 ~ 3") == 4)

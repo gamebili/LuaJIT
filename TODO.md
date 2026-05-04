@@ -83,6 +83,7 @@
   - 当前进展：`//` helper 的无元方法失败路径已按 Lua 5.4 报 `attempt to idiv a '<lhs>' with a '<rhs>'`，不再泄露私有 helper 名，并保留 `__name` 类型名。
   - 当前进展：bitwise helper 的失败路径已按 Lua 5.4 报运算符错误，不再泄露私有 helper 名；无整数表示的 number 报 `number has no integer representation`，string/boolean/带 `__name` 的 table 报 `attempt to perform bitwise operation on ... value`。
   - 当前进展：官方 `testes/bwcoercion.lua` 通过 string metatable 覆盖 bitwise/idiv 字符串边界；当前 lowered helper 已规整 metamethod 返回栈，只返回 metamethod 第一个结果，不再把原操作数漏成额外返回值。
+  - 当前进展：lowered helper 的原始数值结果路径也已规整返回槽；`local a, b = "1.0" // "2"` 不再把左操作数字符串漏到 `a`，只返回单个 Lua 5.4 结果。
   - 已覆盖：左右操作数元方法、反向查找、无元方法时报错、元方法返回值透传；一元 `~` 按 Lua 5.4 传入两份同一操作数。
   - 剩余边界：整数范围仍受当前 32 位兼容层限制，完整 64 位位运算归入“完整 Lua 5.4 64 位整数语义”继续处理。
 
@@ -128,7 +129,7 @@
   - 当前进展：字符串 metatable 显式提供 `__add` / `__mul` / `__unm` 时，会优先于字符串数字转换执行，覆盖 `"1" + 2`、`2 + "1"`、`"1" * 2` 和 `-"1"`。
   - 已知差异：Lua 5.4 把字符串到数字的算术转换放到 string 库元方法层，算术可转换但位运算不可转换，并且会保留字符串数字的整数/浮点隐式类型；当前非 dual-number 兼容层仍不能完整保留 `"1.0" + 2` 这类结果的 `float` 子类型。
   - 已覆盖：`"1" + "2"` 基础算术转换、字符串算术元方法优先级、普通算术字符串失败路径、`//` 字符串失败路径、`math.abs()` / `math.tointeger()` / `math.type()` 以及 C API 数字转换拒绝扩展数字文本，同时保留 `"1e9999"` 溢出为无穷大的 Lua 5.4 行为。
-  - 需要补测试：`"1.0" + 2` 的结果 `math.type`。
+  - 需要补测试/实现：`"1.0" + 2` 的结果 `math.type`；本机 Lua 5.4.8 对照为 `float`，当前非 dual-number 兼容层仍会把精确整数值 `3.0` 报为 `integer`。
 
 - [x] `string.gmatch` 的 `init` 参数。
   - 当前状态：第三个 `init` 参数已按 Lua 5.4 规则处理正数、负数和越界起点。
