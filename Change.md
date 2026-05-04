@@ -97,6 +97,7 @@
 - 已继续补 Lua 5.4 C API 表面：外部兼容头中的 `lua_dump(L, writer, data, strip)` 已映射到 `lua_dump54()`，并覆盖 full/stripped LuaJIT bytecode 写出和 binary mode 回读。
 - 已新增平台矩阵验证脚本 `tools/lua54_platform_matrix.ps1`：当前可在 Windows/MSYS2 环境一键构建并运行 PC x64 default / Lua 5.4 compat smoke；检测到 Android NDK 时会实际构建 Android ARM64 Lua 5.4 compat 静态 artifact，并用 `llvm-readelf` 确认 AArch64；iOS/Emscripten 目标先输出工具链探测和明确 SKIP 原因。
 - 已继续扩展 Android ARM64 平台矩阵：脚本检测到在线 adb 设备时会自动 push `luajit` 和 `test/smoke.lua` 到 `/data/local/tmp` 并运行 Lua 5.4 smoke；当前无在线设备时记录明确 SKIP。
+- 已修正 Android ARM64 设备 smoke 的 LuaJIT 工具模块布局：矩阵脚本现在同时 push `src/jit` 到远端工作目录，确保 `require("jit.dump")` / `-jdump` 等 JIT Lua 工具在 Android 设备上和 PC 一样可用；设备 `R5CN30J05BT` 已通过 `test/smoke.lua lua54compat`。
 - 已修正 Android ARM64 交叉编译中 Lua 5.4 兼容路径使用 `lj_vm_floor` 时触发的 `floor` 隐式声明警告，相关 C 文件显式包含 `<math.h>`。
 - 已修正 Windows 主机交叉构建后的清理边界：`src/Makefile clean` 现在会删除无扩展名的 `luajit`，避免 Android/Linux artifact 残留导致后续本机 smoke 误执行错误架构二进制。
 - 已继续补 Lua 5.4 standalone 环境变量优先级：兼容构建会优先读取 `LUA_INIT_5_4`、`LUA_PATH_5_4`、`LUA_CPATH_5_4`，再回退旧变量名。

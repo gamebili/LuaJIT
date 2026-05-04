@@ -240,7 +240,7 @@
 
 - [ ] Android / iOS / PC / Emscripten 64 位构建矩阵。
   - 当前状态：当前环境已反复覆盖 Windows PC 64 位默认构建和 `LUAJIT_ENABLE_LUA54COMPAT` 构建，并通过 `make test`。
-  - 当前进展：已新增 `tools/lua54_platform_matrix.ps1`，可一键在当前 Windows/MSYS2 环境构建并运行 PC x64 default 与 Lua 5.4 compat smoke；检测到 Android NDK 时会实际构建 Android ARM64 Lua 5.4 compat 静态 artifact，并用 `llvm-readelf` 确认 AArch64；检测到在线 Android 设备时会自动 push `luajit` 和 `test/smoke.lua` 到 `/data/local/tmp` 并运行 Lua 5.4 smoke；当前已在 Android 设备 `R5CN30J05BT` 取得 `test/smoke.lua lua54compat` PASS；iOS/Emscripten 目标先做工具链探测并输出明确 `SKIP` 原因。
+  - 当前进展：已新增 `tools/lua54_platform_matrix.ps1`，可一键在当前 Windows/MSYS2 环境构建并运行 PC x64 default 与 Lua 5.4 compat smoke；检测到 Android NDK 时会实际构建 Android ARM64 Lua 5.4 compat 静态 artifact，并用 `llvm-readelf` 确认 AArch64；检测到在线 Android 设备时会自动 push `luajit`、`test/smoke.lua` 和 `src/jit` LuaJIT 工具模块到 `/data/local/tmp` 并运行 Lua 5.4 smoke；当前已在 Android 设备 `R5CN30J05BT` 取得 `test/smoke.lua lua54compat` PASS；iOS/Emscripten 目标先做工具链探测并输出明确 `SKIP` 原因。
   - 当前进展：Android ARM64 交叉编译暴露的 `floor` 隐式声明警告已通过补 `<math.h>` 清理。
   - 已知缺口：Android ARM64 artifact 构建和在线设备 smoke 已取得 PASS；iOS ARM64、Emscripten wasm/wasm64 仍未完成实际跨平台编译命令、artifact 检查和目标运行 smoke；当前用 `emcc 5.0.6` 直接走 Makefile 会在 `lj_arch.h` 报 wasm 架构不受支持，Emscripten 还缺 interpreter/wasm VM 后端可行路径。
   - 需要补测试/脚本：继续按实际工具链补 iOS SDK ARM64、Emscripten 的构建入口；Android 继续补设备/模拟器 smoke；每个目标至少验证编译完成、`LUAJIT_ENABLE_LUA54COMPAT` 可打开、目标可运行时执行 smoke，不可直接运行时产出可检查 artifact。

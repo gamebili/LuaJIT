@@ -151,6 +151,9 @@ function Invoke-AndroidDeviceSmoke {
     Invoke-Checked $adb @("-s", $device, "shell", "mkdir", "-p", $remoteDir)
     Invoke-Checked $adb @("-s", $device, "push", $Artifact, "$remoteDir/luajit")
     Invoke-Checked $adb @("-s", $device, "push", (Join-Path $RepoRoot "test\smoke.lua"), "$remoteDir/smoke.lua")
+    # The Lua 5.4 smoke also checks LuaJIT tooling such as require("jit.dump").
+    # Push the bundled Lua modules so target-device runs match the PC layout.
+    Invoke-Checked $adb @("-s", $device, "push", (Join-Path $RepoRoot "src\jit"), "$remoteDir/jit")
     Invoke-Checked $adb @("-s", $device, "shell", "chmod", "755", "$remoteDir/luajit")
     Invoke-Checked $adb @("-s", $device, "shell", "cd $remoteDir && ./luajit smoke.lua lua54compat")
     Add-Result "android-arm64-device-smoke" "PASS" "Ran test/smoke.lua lua54compat on Android device $device."
