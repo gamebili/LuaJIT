@@ -156,6 +156,9 @@ typedef unsigned int lua_Unsigned;
 */
 LUA_API lua_State *(lua_newstate) (lua_Alloc f, void *ud);
 LUA_API void       (lua_close) (lua_State *L);
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+LUA_API void       (lua_closeslot) (lua_State *L, int idx);
+#endif
 LUA_API lua_State *(lua_newthread) (lua_State *L);
 
 LUA_API lua_CFunction (lua_atpanic) (lua_State *L, lua_CFunction panicf);
@@ -226,6 +229,9 @@ LUA_API size_t          (lua_rawlen) (lua_State *L, int idx);
 #endif
 LUA_API void            (lua_len) (lua_State *L, int idx);
 LUA_API lua_CFunction   (lua_tocfunction) (lua_State *L, int idx);
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+LUA_API void            (lua_toclose) (lua_State *L, int idx);
+#endif
 LUA_API void	       *(lua_touserdata) (lua_State *L, int idx);
 LUA_API lua_State      *(lua_tothread) (lua_State *L, int idx);
 LUA_API const void     *(lua_topointer) (lua_State *L, int idx);

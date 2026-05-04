@@ -8,7 +8,7 @@
 
 - [ ] `<close>` 的运行期 `__close` 调度。
   - 当前状态：已接受 `local x <close>` 语法并记录属性，声明点会按 Lua 5.4 校验非 `nil`/`false` 值必须带 `__close`；仍不会在离开作用域时调用 `__close`。
-  - 当前进展：`io.lines(filename)` 已按 Lua 5.4 返回第 4 个 closing value，迭代器仍会在 EOF 时主动关闭文件；`local x <close> = 1` 已按 Lua 5.4 在运行期报 `variable 'x' got a non-closable value`，`nil` / `false` 声明会跳过校验，带 `__close` 的值可声明；真正的 generic for / VM 级 `<close>` 调度仍未完成。
+  - 当前进展：`io.lines(filename)` 已按 Lua 5.4 返回第 4 个 closing value，迭代器仍会在 EOF 时主动关闭文件；`local x <close> = 1` 已按 Lua 5.4 在运行期报 `variable 'x' got a non-closable value`，`nil` / `false` 声明会跳过校验，带 `__close` 的值可声明；C API 已补 `lua_toclose()` 的 closable 校验和 `lua_closeslot()` 的显式 `__close(value, nil)` 调用并置空槽位；真正的 generic for / VM 级 `<close>` 调度仍未完成。
   - 需要补测试：正常块退出、`return`、`break`、`goto`、错误展开、`pcall`/`xpcall`、协程关闭、多个待关闭变量的 LIFO 顺序、`__close` 接收错误对象、`__close` 自身抛错、generic for 的 closing value 在循环退出和错误展开时自动关闭。
   - 实现重点：需要 VM/字节码/栈帧层支持作用域退出和错误展开时的关闭流程，不能只在解析器层处理。
 
@@ -112,7 +112,7 @@
   - 当前进展：C API 已补 `lua_newuserdatauv` / `lua_getiuservalue` / `lua_setiuservalue`，用 LuaJIT userdata 环境表保存声明数量和值；超出声明范围返回 `LUA_TNONE` / `0`。
   - 当前进展：Lua debug 库已改为通过 `lua_getiuservalue` / `lua_setiuservalue` 访问 declared uservalue；对未声明槽位返回 `nil`，`setuservalue` 返回 `nil`。
   - 已覆盖：无 declared uservalue 的内置 userdata、indexed 参数表面、`setuservalue` 返回值、C API 声明两个 user values 后的 get/set/out-of-range 行为，以及 C 创建 userdata 后通过 Lua `debug.getuservalue` / `debug.setuservalue` 读写 declared slot。
-  - 剩余：仍未支持 `<close>` / `lua_toclose` 相关 to-be-closed userdata 语义。
+  - 剩余：仍未支持 `<close>` 自动作用域退出相关的 to-be-closed userdata 语义；`lua_closeslot()` 的显式关闭路径已覆盖。
 
 - [ ] 真实 Lua 5.4 GC 模式。
   - 当前状态：`collectgarbage("generational")` / `"incremental"` 只是兼容返回值和模式记录，底层仍是 LuaJIT 自身 GC。
@@ -134,7 +134,7 @@
 
 - [ ] Lua 5.4 C API / 头文件兼容。
   - 当前状态：`lua.h` 会在兼容模式报告 `LUA_VERSION_NUM 504`，但大量 Lua 5.4 C API 仍缺失、保持旧签名，或仍暴露 Lua 5.1 宏/索引，例如 `LUA_GLOBALSINDEX`、`lua_objlen`、`lua_getfenv`、`lua_setfenv`。
-  - 当前进展：已补 `lua_Unsigned`、`LUA_MAXINTEGER`、`LUA_MININTEGER`、`LUA_NUMTAGS`、`LUA_RIDX_LAST`、`LUA_EXTRASPACE`、`LUA_GNAME`、`LUA_FILEHANDLE`、`LUA_VERSUFFIX`、`LUAMOD_API`、`luaopen_coroutine`、Lua 5.4 外部 `luaopen_base()` 单返回值包装、`lua_absindex`、`lua_isinteger`、`lua_isyieldable`、`lua_rawlen`、`lua_geti`、`lua_seti`、`lua_rawgetp`、`lua_rawsetp`、`lua_pushglobaltable`、`lua_arith`、`lua_compare`、`lua_len`、`lua_numbertointeger`、`lua_rotate`、`lua_stringtonumber`、`lua_getextraspace`、`lua_getallocf`、`lua_setallocf`、`lua_newuserdatauv`、`lua_newuserdata`、`lua_getiuservalue`、`lua_setiuservalue`、`lua_getuservalue`、`lua_setuservalue`、`lua_setwarnf`、`lua_warning`、`lua_resetthread`、`lua_closethread`。
+  - 当前进展：已补 `lua_Unsigned`、`LUA_MAXINTEGER`、`LUA_MININTEGER`、`LUA_NUMTAGS`、`LUA_RIDX_LAST`、`LUA_EXTRASPACE`、`LUA_GNAME`、`LUA_FILEHANDLE`、`LUA_VERSUFFIX`、`LUAMOD_API`、`luaopen_coroutine`、Lua 5.4 外部 `luaopen_base()` 单返回值包装、`lua_absindex`、`lua_isinteger`、`lua_isyieldable`、`lua_rawlen`、`lua_geti`、`lua_seti`、`lua_rawgetp`、`lua_rawsetp`、`lua_pushglobaltable`、`lua_arith`、`lua_compare`、`lua_len`、`lua_numbertointeger`、`lua_rotate`、`lua_stringtonumber`、`lua_getextraspace`、`lua_getallocf`、`lua_setallocf`、`lua_newuserdatauv`、`lua_newuserdata`、`lua_getiuservalue`、`lua_setiuservalue`、`lua_getuservalue`、`lua_setuservalue`、`lua_setwarnf`、`lua_warning`、`lua_toclose`、`lua_closeslot`、`lua_resetthread`、`lua_closethread`。
   - 当前进展：`lua_stringtonumber()`、`lua_isnumber()`、`lua_tonumberx()`、`lua_tointegerx()` 和 `luaL_checknumber()` 已和 Lua 5.4 `tonumber()` 对齐，拒绝 `inf` / `nan` / `0b` 等 LuaJIT 扩展数字字符串。
   - 当前进展：Lua 5.4 兼容模式下 `lua_tointegerx()` 已对无整数表示的 number 返回失败状态，和 `lua_numbertointeger()` 的精确整数语义保持一致。
   - 当前进展：已补 `LUA_VERSION_MAJOR`、`LUA_VERSION_MINOR`、`LUA_VERSION_RELEASE`、`LUA_VERSION_RELEASE_NUM`、`LUA_NUMTYPES`、`LUA_NUMTAGS` 头文件宏；兼容构建当前与既有 `LUA_RELEASE "Lua 5.4.0"` 保持一致。
@@ -160,8 +160,8 @@
   - 当前进展：`LUA_GCCOUNTB` 已进入 C API smoke，覆盖返回 0..1023 byte remainder 的基础契约；兼容构建下 `lua_gc(L, what, ...)` 可用官方变参调用形态。
   - 当前进展：已补 lauxlib 常用 Lua 5.4 表面：`luaL_pushfail`、`luaL_len`、`luaL_getsubtable`、`luaL_requiref`、`luaL_tolstring`、`luaL_typeerror`、`luaL_argexpected`、`luaL_checkversion` 以及 buffer API；`luaL_checkversion_()` 现在会实际校验版本号和 numeric ABI 尺寸。
   - 已覆盖：新增 `test/lua54_capi_smoke.c` 和 `make smoketest-capi-lua54compat`，包含 `lua_isyieldable()` 主 C frame / resumed coroutine C frame 表面。
-  - 当前进展：已补 `lua_closethread()` no-`<close>` 基础表面，当前等价于 `lua_resetthread()`，覆盖 yielded/fresh coroutine 返回 `LUA_OK`、清空栈并恢复 OK 状态。
-  - 需要补 API：`lua_toclose`、`lua_closeslot`、真实 continuation 版 `lua_yieldk` / `lua_callk` / `lua_pcallk`；当前只完成这些调用入口的头文件宏兼容表面，`lua_resetthread` / `lua_closethread` 的 `<close>` 关闭语义仍归入 `<close>` 运行期调度大项。
+  - 当前进展：已补 `lua_closethread()` no-`<close>` 基础表面，当前等价于 `lua_resetthread()`，覆盖 yielded/fresh coroutine 返回 `LUA_OK`、清空栈并恢复 OK 状态；已补 `lua_toclose()` / `lua_closeslot()` C API 表面，覆盖 closable 校验、false/nil 跳过和显式 `__close(value, nil)` 后置空槽位。
+  - 需要补 API：真实 continuation 版 `lua_yieldk` / `lua_callk` / `lua_pcallk`；当前只完成这些调用入口的头文件宏兼容表面，`lua_toclose` 的自动随 C 函数返回/错误/栈弹出关闭，以及 `lua_resetthread` / `lua_closethread` 的 `<close>` 关闭语义仍归入 `<close>` 运行期调度大项。
   - 需要补常量/类型/宏：继续核对完整 ABI 细节。
   - 需要清理/兼容旧 API：默认构建保留 LuaJIT/Lua 5.1 API；Lua 5.4 外部兼容头已隐藏一批旧 5.1 表面、旧 lauxlib 注册入口、`luaL_typerror` 和 `luaL_findtable`，并补了常见 getter/number 转换/字符串 push 返回值签名和栈操作宏表面，但仍需继续核对更多旧兼容宏和完整 ABI 细节。
   - 需要补内存分配语义：Lua 5.4 允许 allocator 在缩小内存块时失败；当前仍需核对 LuaJIT 分配器契约和错误处理。

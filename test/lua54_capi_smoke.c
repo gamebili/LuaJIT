@@ -163,6 +163,8 @@
 static int require_open_count = 0;
 static char warning_buf[64];
 static int warning_tocont = -1;
+static int close_call_count = 0;
+static int close_nil_error_count = 0;
 
 static void header_output_macros_compile_only(void)
 {
@@ -320,6 +322,21 @@ static int push_answer(lua_State *L)
 {
   lua_pushinteger(L, 42);
   return 1;
+}
+
+static int record_close(lua_State *L)
+{
+  close_call_count++;
+  if (lua_gettop(L) == 2 && lua_isnil(L, 2))
+    close_nil_error_count++;
+  return 0;
+}
+
+static int mark_nonclosable_slot(lua_State *L)
+{
+  lua_pushinteger(L, 1);
+  lua_toclose(L, -1);
+  return 0;
 }
 
 static int push_upvalue(lua_State *L)
@@ -750,6 +767,34 @@ static void test_stack_and_number_api(lua_State *L)
   lua_pushcfunction(L, raise_lua_error);
   check(L, lua_pcall(L, 0, 0, 0) == LUA_ERRRUN, "lua_error status");
   check_string(L, -1, "capi raised error", "lua_error message");
+  lua_pop(L, 1);
+
+  close_call_count = 0;
+  close_nil_error_count = 0;
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushcfunction(L, record_close);
+  lua_setfield(L, -2, "__close");
+  lua_setmetatable(L, -2);
+  lua_toclose(L, -1);
+  lua_closeslot(L, -1);
+  check(L, lua_isnil(L, -1), "lua_closeslot nils closed slot");
+  check(L, close_call_count == 1 && close_nil_error_count == 1,
+	"lua_closeslot calls __close with nil error");
+  lua_pop(L, 1);
+
+  lua_pushboolean(L, 0);
+  lua_toclose(L, -1);
+  lua_closeslot(L, -1);
+  check(L, lua_isnil(L, -1), "lua_closeslot nils false slot");
+  check(L, close_call_count == 1, "lua_closeslot skips false close");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, mark_nonclosable_slot);
+  check(L, lua_pcall(L, 0, 0, 0) == LUA_ERRRUN,
+	"lua_toclose rejects non-closable values");
+  check(L, strstr(lua_tostring(L, -1), "non-closable") != NULL,
+	"lua_toclose non-closable error text");
   lua_pop(L, 1);
 
   co = lua_newthread(L);
