@@ -383,7 +383,27 @@ static void build_subroutines(BuildCtx *ctx)
   |  beq ->vm_unwind_c_eh
   |  str RCw, SAVE_MULTRES
   |  ands CARG1, PC, #FRAME_TYPE
-  |  beq ->BC_RET_Z			// Handle regular return to Lua.
+  |  bne ->vm_return
+  |  ldrb TMP0w, GL->hookmask
+  |  tbz TMP0w, #LUA_HOOKRET, ->BC_RET_Z	// Handle regular return to Lua.
+  |  // C return hooks need the result range before results are moved down.
+  |  // Recompute RA/RC afterwards because the hook is a regular C call.
+  |  lsr CARG3w, RCw, #3
+  |  sub CARG3w, CARG3w, #1		// CARG3 = nresults.
+  |  mov CARG2w, #0
+  |  cbz CARG3w, >8
+  |  ldrh CARG2w, GL->hook_cres_ftransfer
+  |8:
+  |  mov CARG1, L
+  |  bl extern lj_dispatch_ceret
+  |  ldr BASE, L->base
+  |   lsl RC, CRET1, #3
+  |  str RCw, SAVE_MULTRES
+  |   ldr PC, [BASE, FRAME_PC]		// Hook may have called back into Lua.
+  |  ldr RA, L->top
+  |  sub RA, RA, RC
+  |  add RA, RA, #8			// RA = result pointer.
+  |  b ->BC_RET_Z
   |
   |->vm_return:
   |  // BASE = base, RA = resultptr, RC/MULTRES = (nresults+1)*8, PC = return
@@ -974,14 +994,25 @@ static void build_subroutines(BuildCtx *ctx)
   |//-- Fast functions -----------------------------------------------------
   |//-----------------------------------------------------------------------
   |
-  |.macro .ffunc, name
-  |->ff_ .. name:
-  |  bti_jump
-  |.endmacro
+|.macro .ffunc, name
+|->ff_ .. name:
+|  bti_jump
+|  // Lua 5.4 C return hooks report the original argument/result transfer
+|  // range. Fast functions overwrite RC with the result count, so preserve the
+|  // first transfer slot at the common entry before individual handlers run.
+|  lsr TMP0w, RCw, #3
+|  add TMP0w, TMP0w, #1
+|  strh TMP0w, GL->hook_cres_ftransfer
+|.endmacro
   |
   |.macro .ffunc_1, name
   |->ff_ .. name:
   |  bti_jump
+  |  // Preserve original transfer slot before arity checks can fall back or the
+  |  // fast handler overwrites RC with the result count.
+  |  lsr TMP0w, RCw, #3
+  |  add TMP0w, TMP0w, #1
+  |  strh TMP0w, GL->hook_cres_ftransfer
   |  ldr CARG1, [BASE]
   |   cmp NARGS8:RC, #8
   |   blo ->fff_fallback
@@ -990,6 +1021,11 @@ static void build_subroutines(BuildCtx *ctx)
   |.macro .ffunc_2, name
   |->ff_ .. name:
   |  bti_jump
+  |  // Preserve original transfer slot before arity checks can fall back or the
+  |  // fast handler overwrites RC with the result count.
+  |  lsr TMP0w, RCw, #3
+  |  add TMP0w, TMP0w, #1
+  |  strh TMP0w, GL->hook_cres_ftransfer
   |  ldp CARG1, CARG2, [BASE]
   |   cmp NARGS8:RC, #16
   |   blo ->fff_fallback
@@ -4057,6 +4093,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     }
     |   add CARG2, RA, NARGS8:RC
     |   ldr CARG1, L->maxstack
+    |  lsr TMP0w, RCw, #3
+    |  add TMP0w, TMP0w, #1
+    |  strh TMP0w, GL->hook_cres_ftransfer
     |  add RC, BASE, NARGS8:RC
     |   cmp CARG2, CARG1
     |  stp BASE, RC, L->base

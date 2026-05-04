@@ -412,7 +412,33 @@ static void build_subroutines(BuildCtx *ctx)
   |  jz ->vm_unwind_yield
   |  mov MULTRES, RDd
   |  test PC, FRAME_TYPE
+  |  jnz >9
+  |  test byte [DISPATCH+DISPATCH_GL(hookmask)], LUA_MASKRET
   |  jz ->BC_RET_Z			// Handle regular return to Lua.
+  |  // C return hooks need the result range before results are moved down.
+  |  // Recompute RA/RD afterwards because the hook is a regular C call.
+  |  mov CARG3d, RDd
+  |  sub CARG3d, 1			// CARG3 = nresults.
+  |  xor CARG2d, CARG2d
+  |  test CARG3d, CARG3d
+  |  jz >8
+  |  movzx CARG2d, word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)]
+  |8:
+  |  mov L:RB, SAVE_L
+  |  mov CARG1, L:RB
+  |  call extern lj_dispatch_ceret
+  |  mov RDd, eax			// RD = nresults+1.
+  |  mov BASE, L:RB->base
+  |  mov PC, [BASE-8]			// Hook may have called back into Lua.
+  |  mov MULTRES, RDd
+  |  mov RA, L:RB->top
+  |  sub RA, BASE
+  |  mov TMPR, RD
+  |  shl TMPR, 3
+  |  sub TMPR, 8
+  |  sub RA, TMPR			// RA = result offset.
+  |  jmp ->BC_RET_Z
+  |9:
   |
   |->vm_return:
   |  // BASE = base, RA = resultofs, RD = nresults+1 (= MULTRES), PC = return
@@ -1148,20 +1174,32 @@ static void build_subroutines(BuildCtx *ctx)
   |//-- Fast functions -----------------------------------------------------
   |//-----------------------------------------------------------------------
   |
-  |.macro .ffunc, name
-  |->ff_ .. name:
-  |  endbr
-  |.endmacro
+|.macro .ffunc, name
+|->ff_ .. name:
+|  endbr
+|  // Lua 5.4 C return hooks report the original argument/result transfer
+|  // range. Fast functions overwrite RD with the result count, so preserve the
+|  // first transfer slot at the common entry before individual handlers run.
+|  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], RDW
+|.endmacro
   |
-  |.macro .ffunc_1, name
-  |->ff_ .. name:
-  |  endbr; cmp NARGS:RDd, 1+1;  jb ->fff_fallback
-  |.endmacro
-  |
-  |.macro .ffunc_2, name
-  |->ff_ .. name:
-  |  endbr; cmp NARGS:RDd, 2+1;  jb ->fff_fallback
-  |.endmacro
+|.macro .ffunc_1, name
+|->ff_ .. name:
+|  endbr
+|  // Preserve original transfer slot before arity checks can fall back or the
+|  // fast handler overwrites RD with the result count.
+|  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], RDW
+|  cmp NARGS:RDd, 1+1;  jb ->fff_fallback
+|.endmacro
+|
+|.macro .ffunc_2, name
+|->ff_ .. name:
+|  endbr
+|  // Preserve original transfer slot before arity checks can fall back or the
+|  // fast handler overwrites RD with the result count.
+|  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], RDW
+|  cmp NARGS:RDd, 2+1;  jb ->fff_fallback
+|.endmacro
   |
   |.macro .ffunc_n, name, op
   |  .ffunc_1 name
@@ -4776,6 +4814,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  cleartp CFUNC:RB
     |  mov KBASE, CFUNC:RB->f
     |  mov L:RB, SAVE_L
+    |  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], RDW
     |  lea RD, [BASE+NARGS:RD*8-8]
     |  mov L:RB->base, BASE
     |  lea RA, [RD+8*LUA_MINSTACK]

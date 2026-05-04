@@ -390,6 +390,25 @@ static void callhook(lua_State *L, int event, BCLine line,
   }
 }
 
+/* C function return hook dispatch.
+**
+** The assembler C-call return path already knows the first returned slot and
+** result count before it folds results back into the caller frame. Keep that
+** architecture-specific stack arithmetic there, but route the hook state and
+** public debug metadata through the same callhook() path as Lua returns.
+*/
+uint32_t LJ_FASTCALL lj_dispatch_ceret(lua_State *L, uint32_t ftransfer,
+				       uint32_t ntransfer)
+{
+  ERRNO_SAVE
+  uint32_t nres1 = ntransfer + 1;
+  if (ftransfer > 65535u) ftransfer = 65535u;
+  if (ntransfer > 65535u) ntransfer = 65535u;
+  callhook(L, LUA_HOOKRET, -1, (uint16_t)ftransfer, (uint16_t)ntransfer);
+  ERRNO_RESTORE
+  return nres1;
+}
+
 /* -- Dispatch callbacks -------------------------------------------------- */
 
 /* Calculate number of used stack slots in the current frame. */

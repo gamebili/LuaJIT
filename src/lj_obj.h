@@ -667,6 +667,7 @@ typedef struct global_State {
   int32_t hook_ci;	/* Frame offset for Lua 5.4 hook transfer info. */
   uint16_t hook_ftransfer;  /* First transferred slot for active hook. */
   uint16_t hook_ntransfer;  /* Number of transferred slots for active hook. */
+  uint16_t hook_cres_ftransfer;  /* First result slot for pending C return. */
   lua_Hook hookf;	/* Hook function. */
   lua_CFunction wrapf;	/* Wrapper for C function calls. */
   lua_CFunction panic;	/* Called as a last resort for errors. */

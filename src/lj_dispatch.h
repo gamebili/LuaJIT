@@ -45,7 +45,8 @@ extern double __divdf3(double a, double b);
   _(floor) _(ceil) _(trunc) _(log) _(log10) _(exp) _(sin) _(cos) _(tan) \
   _(asin) _(acos) _(atan) _(sinh) _(cosh) _(tanh) _(frexp) _(modf) _(atan2) \
   _(pow) _(fmod) _(ldexp) _(lj_vm_modi) \
-  _(lj_dispatch_call) _(lj_dispatch_ins) _(lj_dispatch_stitch) \
+  _(lj_dispatch_call) _(lj_dispatch_ins) _(lj_dispatch_ceret) \
+  _(lj_dispatch_stitch) \
   _(lj_dispatch_profile) _(lj_err_throw) \
   _(lj_ffh_coroutine_wrap_err) _(lj_func_closeuv) _(lj_func_newL_gc) \
   _(lj_gc_barrieruv) _(lj_gc_step) _(lj_gc_step_fixtop) _(lj_meta_arith) \
@@ -137,6 +138,9 @@ LJ_FUNC void lj_dispatch_update(global_State *g);
 /* Instruction dispatch callback for hooks or when recording. */
 LJ_FUNCA void LJ_FASTCALL lj_dispatch_ins(lua_State *L, const BCIns *pc);
 LJ_FUNCA ASMFunction LJ_FASTCALL lj_dispatch_call(lua_State *L, const BCIns*pc);
+LJ_FUNCA uint32_t LJ_FASTCALL lj_dispatch_ceret(lua_State *L,
+						uint32_t ftransfer,
+						uint32_t ntransfer);
 #if LJ_HASJIT
 LJ_FUNCA void LJ_FASTCALL lj_dispatch_stitch(jit_State *J, const BCIns *pc);
 #endif

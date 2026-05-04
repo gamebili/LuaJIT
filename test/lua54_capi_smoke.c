@@ -175,6 +175,8 @@ static int hook_vararg_ret_ftransfer = -1;
 static int hook_vararg_ret_ntransfer = -1;
 static int hook_c_call_ftransfer = -1;
 static int hook_c_call_ntransfer = -1;
+static int hook_c_ret_ftransfer = -1;
+static int hook_c_ret_ntransfer = -1;
 
 static void header_output_macros_compile_only(void)
 {
@@ -268,6 +270,10 @@ static void capi_transfer_hook(lua_State *L, lua_Debug *ar)
 	     strcmp(ar->what, "C") == 0 && hook_c_call_ftransfer < 0) {
     hook_c_call_ftransfer = ar->ftransfer;
     hook_c_call_ntransfer = ar->ntransfer;
+  } else if (ar->event == LUA_HOOKRET && ar->what != NULL &&
+	     strcmp(ar->what, "C") == 0 && hook_c_ret_ftransfer < 0) {
+    hook_c_ret_ftransfer = ar->ftransfer;
+    hook_c_ret_ntransfer = ar->ntransfer;
   }
 }
 
@@ -1538,14 +1544,18 @@ static void test_warning_and_gc_api(lua_State *L)
   lua_pushcfunction(L, capi_transfer_cfunc);
   lua_setglobal(L, "capi_transfer_cfunc");
   hook_c_call_ftransfer = hook_c_call_ntransfer = -1;
-  lua_sethook(L, capi_transfer_hook, LUA_MASKCALL, 0);
-  status = luaL_dostring(L, "return capi_transfer_cfunc(1, 2, 3)");
+  hook_c_ret_ftransfer = hook_c_ret_ntransfer = -1;
+  lua_sethook(L, capi_transfer_hook, LUA_MASKCALL | LUA_MASKRET, 0);
+  status = luaL_dostring(L,
+    "local x = capi_transfer_cfunc(1, 2, 3); return x");
   lua_sethook(L, NULL, 0, 0);
   check(L, status == LUA_OK, "lua_getinfo C hook transfer setup");
   check_integer(L, -1, 6, "lua_getinfo C hook transfer result");
   lua_pop(L, 1);
   check(L, hook_c_call_ftransfer == 1 && hook_c_call_ntransfer == 3,
 	"lua_getinfo C call hook transfer fields");
+  check(L, hook_c_ret_ftransfer == 4 && hook_c_ret_ntransfer == 1,
+	"lua_getinfo C return hook transfer fields");
 }
 
 int main(void)

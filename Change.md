@@ -85,7 +85,9 @@
 - 已修正 Lua 5.4 `string.pack("lL")` smoke 的跨平台 ABI 假设：native `long` 在 Windows x64 为 4 字节、Android ARM64 为 8 字节，测试现在按目标 ABI 校验；Android ARM64 设备 `R5CN30J05BT` 已通过 `test/smoke.lua lua54compat`。
 - 已继续补 Lua 5.4 debug hook transfer 字段：普通 Lua 函数 call hook 会报告参数 transfer 范围，return hook 会报告返回值 transfer 范围；非 hook 场景仍返回 `0, 0`。
 - 已继续补 Lua 5.4 debug hook transfer 的 vararg 边界覆盖：Lua smoke 和 C API smoke 均校验 vararg 函数 call hook 只报告固定参数 transfer，return hook 报告完整返回值 transfer。
-- 已继续补 Lua 5.4 debug hook transfer 的 C 函数 call 边界：C 函数在 call hook 中会按本次调用的实际参数个数报告 transfer 范围；C 函数 return hook 仍保留在 TODO。
+- 已继续补 Lua 5.4 debug hook transfer 的 C 函数 call 边界：C 函数在 call hook 中会按本次调用的实际参数个数报告 transfer 范围。
+- 已继续补 Lua 5.4 debug frame metadata 批次的 C return transfer 接口：新增统一 C return hook dispatch 入口，x64 / ARM64 VM 的普通 C 返回路径会在结果折叠前发布 `ftransfer` / `ntransfer`，fast C 函数入口会先保留原始参数 transfer 起点。
+- 已继续扩展 Lua 5.4 debug hook transfer 覆盖：Lua smoke 校验 fast C 函数 return hook transfer，C API smoke 校验注册 C 函数 call/return hook transfer；tailcall / `istailcall` 元数据继续留在同一批次后续推进。
 - 已补充 Lua 5.4 `os.remove()` 失败返回 smoke：对齐官方保留文件名前缀、返回系统错误文本和 errno code 的表面；`os.rename()` 继续保持不拼接源文件名。
 - 已用本机 `emcc 5.0.6` 试跑 Emscripten 构建入口，当前 Makefile 在 `lj_arch.h` 阶段明确失败为 wasm 架构不受支持；该平台仍需要单独 wasm/interpreter VM 后端方案。
 - 已继续收紧 Lua 5.4 GC 公开表面：兼容构建中 `collectgarbage("setstepmul", n)` 的初始旧值现在对齐 Lua 5.4 的 `100`。

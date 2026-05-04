@@ -1167,6 +1167,24 @@ do
     assert(v == 3)
     assert(seen[1] == "call:1:3")
   end
+  do
+    local seen = {}
+    local function hook(ev)
+      local info = debug.getinfo(2, "nrS")
+      -- LuaJIT cannot always recover the library field name for fast C frames
+      -- in a large chunk, so exclude the hook-management call and assert the
+      -- transfer range itself.
+      if info.what == "C" and info.name ~= "sethook" then
+        seen[#seen+1] = ev..":"..info.ftransfer..":"..info.ntransfer
+      end
+    end
+    debug.sethook(hook, "cr")
+    local i, f = math.modf(1.5)
+    debug.sethook()
+    assert(i == 1 and f == 0.5)
+    assert(seen[1] == "call:1:1")
+    assert(seen[2] == "return:2:2")
+  end
 end
 
 do
