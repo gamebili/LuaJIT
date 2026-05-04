@@ -180,6 +180,23 @@ do
   assert(iter == next and state == 1 and key == nil)
   ok, err = pcall(iter, state, key)
   assert(ok == false and err:match("to 'next'") ~= nil)
+  do
+    local t = setmetatable({ 10, 20, 30 }, { __pairs = function(obj)
+      local inc = coroutine.yield("lua54-pairs-yield")
+      return function(state, i)
+        if i > 1 then return i - inc, state[i - inc] end
+      end, obj, #obj + 1
+    end })
+    local seen = {}
+    local co = coroutine.wrap(function()
+      for _, v in pairs(t) do seen[#seen + 1] = v end
+      return "done"
+    end)
+    -- Lua 5.4 runs __pairs through the VM call path, so it can yield here.
+    assert(co() == "lua54-pairs-yield")
+    assert(co(1) == "done")
+    assert(seen[1] == 30 and seen[2] == 20 and seen[3] == 10 and #seen == 3)
+  end
   for _, name in ipairs({ "create", "resume", "status", "wrap", "close" }) do
     ok, err = pcall(coroutine[name])
     assert(ok == false and err:match("coroutine%."..name) ~= nil)

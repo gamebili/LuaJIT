@@ -269,8 +269,29 @@ static int lj_cf_next54(lua_State *L)
 #if LJ_52 || LJ_HASFFI
 static int ffh_pairs(lua_State *L, MMS mm)
 {
-  TValue *o = lj_lib_checkany(L, 1);
-  cTValue *mo = lj_meta_lookup(L, o, mm);
+  TValue *o;
+  cTValue *mo;
+#if LJ_54
+  if (mm == MM_pairs) {
+    base_checkany_named54(L, 1, "pairs");
+    o = L->base;
+    mo = lj_meta_lookup(L, o, mm);
+    if (!tvisnil(mo)) {
+      L->top = o+1;  /* Only keep one argument. */
+      copyTV(L, L->base-1-LJ_FR2, mo);  /* Replace callable. */
+      return FFH_TAILCALL;
+    }
+    if (LJ_FR2) { copyTV(L, o-1, o); o--; }
+    /* Lua 5.4 delays table validation until next() runs. Keep this path as
+    ** a fast function so a yielding __pairs metamethod can tailcall via VM.
+    */
+    setfuncV(L, o-1, funcV(lj_lib_upvalue(L, 1)));
+    setnilV(o+1);
+    return FFH_RES(3);
+  }
+#endif
+  o = lj_lib_checkany(L, 1);
+  mo = lj_meta_lookup(L, o, mm);
   if ((LJ_52 || tviscdata(o)) && !tvisnil(mo)) {
     L->top = o+1;  /* Only keep one argument. */
     copyTV(L, L->base-1-LJ_FR2, mo);  /* Replace callable. */
@@ -335,22 +356,6 @@ static int lj_cf_ipairs54(lua_State *L)
   return 3;
 }
 
-static int lj_cf_pairs54(lua_State *L)
-{
-  base_checkany_named54(L, 1, "pairs");
-  if (luaL_getmetafield(L, 1, "__pairs")) {
-    lua_pushvalue(L, 1);
-    lua_call(L, 1, 3);
-    return 3;
-  }
-  /* Lua 5.4 pairs() does not require a table until next() is actually called.
-  ** This lets custom metatables or later iterator calls define the failure.
-  */
-  lua_pushvalue(L, lua_upvalueindex(1));
-  lua_pushvalue(L, 1);
-  lua_pushnil(L);
-  return 3;
-}
 #endif
 
 LJLIB_CF(warn)
@@ -1263,14 +1268,18 @@ LUALIB_API int luaopen_base(lua_State *L)
   lua_setglobal(L, "getmetatable");
   lua_pushcfunction(L, lj_cf_next54);
   lua_setglobal(L, "next");
+  lua_getglobal(L, "pairs");
+  lua_getglobal(L, "next");
+  /* The registered pairs fast function owns a cached next upvalue. Point it at
+  ** the Lua 5.4-compatible next so pairs(_G) hides internal _ENV as well.
+  */
+  lua_setupvalue(L, -2, 1);
+  lua_pop(L, 1);
   lua_pushcfunction(L, lj_cf_rawget54);
   lua_setglobal(L, "rawget");
   lua_pushcfunction(L, lj_cf_ipairs_aux54);
   lua_pushcclosure(L, lj_cf_ipairs54, 1);
   lua_setglobal(L, "ipairs");
-  lua_getglobal(L, "next");
-  lua_pushcclosure(L, lj_cf_pairs54, 1);
-  lua_setglobal(L, "pairs");
 #else
   setnilV(lj_tab_setstr(L, env, lj_str_newlit(L, "warn")));
 #endif
