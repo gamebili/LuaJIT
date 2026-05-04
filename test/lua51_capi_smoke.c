@@ -87,6 +87,16 @@ int main(void)
   check(L, lua_istable(L, -1), "luaL_pushmodule default API");
   lua_pop(L, 1);
 
+  check(L, luaL_findtable(L, LUA_REGISTRYINDEX, "__lua51.findtable", 1) == NULL,
+	"luaL_findtable default API");
+  check(L, lua_istable(L, -1), "luaL_findtable table");
+  lua_pushliteral(L, "value");
+  lua_setfield(L, -2, "key");
+  lua_getfield(L, -1, "key");
+  check(L, strcmp(lua_tostring(L, -1), "value") == 0,
+	"luaL_findtable table value");
+  lua_pop(L, 2);
+
   lua_pushcfunction(L, capi51_typerror);
   lua_pushliteral(L, "bad");
   check(L, lua_pcall(L, 1, 0, 0) == LUA_ERRRUN,

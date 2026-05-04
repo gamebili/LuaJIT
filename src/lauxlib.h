@@ -124,8 +124,10 @@ LUALIB_API lua_State *(luaL_newstate) (void);
 LUALIB_API const char *(luaL_gsub) (lua_State *L, const char *s, const char *p,
                                                   const char *r);
 
+#if !LUAJIT_EXTERNAL_LUA54
 LUALIB_API const char *(luaL_findtable) (lua_State *L, int idx,
                                          const char *fname, int szhint);
+#endif
 
 /* From Lua 5.2. */
 LUALIB_API int luaL_fileresult(lua_State *L, int stat, const char *fname);
