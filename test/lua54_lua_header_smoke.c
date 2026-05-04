@@ -9,6 +9,10 @@ typedef void (*lua54_sethook_type)(lua_State *, lua_Hook, int, int);
 typedef char lua54_sethook_must_return_void[
   __builtin_types_compatible_p(__typeof__(&lua_sethook), lua54_sethook_type) ? 1 : -1
 ];
+typedef char lua54_pushglobaltable_must_return_void[
+  __builtin_types_compatible_p(
+    __typeof__(lua_pushglobaltable((lua_State *)0)), void) ? 1 : -1
+];
 #endif
 
 #ifdef LUA_LOADED_TABLE

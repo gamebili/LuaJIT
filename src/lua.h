@@ -463,7 +463,7 @@ LUA_API void lua_setglobal54 (lua_State *L, const char *name);
 	lua_pushlstring(L, "" s, (sizeof(s)/sizeof(char))-1)
 
 #if LUAJIT_EXTERNAL_LUA54
-#define lua_pushglobaltable(L)	lua_rawgeti((L), LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS)
+#define lua_pushglobaltable(L)	((void)lua_rawgeti((L), LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS))
 #define lua_setglobal(L,s)	lua_setglobal54((L), (s))
 #define lua_getglobal(L,s)	lua_getglobal54((L), (s))
 #else
