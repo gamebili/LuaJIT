@@ -193,20 +193,45 @@ LUA_API int lua_absindex(lua_State *L, int idx)
   return (int)(L->top - L->base) + idx + 1;
 }
 
+#if LJ_54
+static void api_close_popped(lua_State *L, TValue *newtop)
+{
+  if (newtop < L->top && L->closelist != NULL) {
+    /* Lua 5.4 closes marked C API stack slots before they are removed by
+    ** lua_settop()/lua_pop(). The close-list bridge keeps stack-slot offsets,
+    ** so close before changing L->top, then restore the requested new top.
+    */
+    int status = lj_close_unwind_status(L, newtop, LUA_OK);
+    if (status != LUA_OK)
+      lua_error(L);
+  }
+}
+#endif
+
 LUA_API void lua_settop(lua_State *L, int idx)
 {
   if (idx >= 0) {
+    TValue *newtop;
     lj_checkapi(idx <= tvref(L->maxstack) - L->base, "bad stack slot %d", idx);
-    if (L->base + idx > L->top) {
-      if (L->base + idx >= tvref(L->maxstack))
+    newtop = L->base + idx;
+    if (newtop > L->top) {
+      if (newtop >= tvref(L->maxstack))
 	lj_state_growstack(L, (MSize)idx - (MSize)(L->top - L->base));
-      do { setnilV(L->top++); } while (L->top < L->base + idx);
+      do { setnilV(L->top++); } while (L->top < newtop);
     } else {
-      L->top = L->base + idx;
+#if LJ_54
+      api_close_popped(L, newtop);
+#endif
+      L->top = newtop;
     }
   } else {
+    TValue *newtop;
     lj_checkapi(-(idx+1) <= (L->top - L->base), "bad stack slot %d", idx);
-    L->top += idx+1;  /* Shrinks top (idx < 0). */
+    newtop = L->top + idx+1;  /* Shrinks top (idx < 0). */
+#if LJ_54
+    api_close_popped(L, newtop);
+#endif
+    L->top = newtop;
   }
 }
 
