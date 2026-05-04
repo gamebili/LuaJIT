@@ -686,6 +686,31 @@ static void bcemit_lua54_forstep(FuncState *fs, BCReg step)
   bcemit_AD(fs, BC_MOV, step, base);
   fs->freereg = base;
 }
+
+static void bcemit_lua54_checkclose(FuncState *fs, BCReg slot, GCstr *name)
+{
+  LexState *ls = fs->ls;
+  BCReg base = fs->freereg;
+  BCReg argbase, idx;
+  ExpDesc e;
+  /* Keep the first slice of <close> semantics in the same compatibility
+  ** helper path as the Lua 5.4-only operators, avoiding bytecode/VM churn
+  ** until full scope-exit dispatch is implemented.
+  */
+  bcemit_AD(fs, BC_GGET, base, const_lit(fs, "jit", 3));
+  bcreg_reserve(fs, 1);
+  if (ls->fr2) bcreg_reserve(fs, 1);
+  bcemit_lua54_jit_field(fs, base, "_lua54_checkclose", 17);
+  bcreg_reserve(fs, 2);
+  argbase = (BCReg)(base + 1 + ls->fr2);
+  bcemit_AD(fs, BC_MOV, argbase, slot);
+  expr_init(&e, VKSTR, 0);
+  e.u.sval = name;
+  idx = const_str(fs, &e);
+  bcemit_AD(fs, BC_KSTR, (BCReg)(argbase + 1), idx);
+  bcemit_ABC(fs, BC_CALL, base, 1, fs->freereg - base - ls->fr2);
+  fs->freereg = base;
+}
 #endif
 
 /* Partially discharge expression to a value. */
@@ -2436,12 +2461,20 @@ static void parse_local(LexState *ls)
     ExpDesc e;
     BCReg nexps, nvars = 0;
 #if LJ_54
+    FuncState *fs = ls->fs;
     int nclose = 0;
+    BCReg closeidx = 0;
+    GCstr *closename = NULL;
 #endif
     do {  /* Collect LHS. */
-      var_new(ls, nvars++, lex_str(ls));
+      GCstr *varname = lex_str(ls);
+      var_new(ls, nvars++, varname);
 #if LJ_54
-      nclose += var_attr_parse(ls, (VarIndex)(ls->vtop - 1));
+      if (var_attr_parse(ls, (VarIndex)(ls->vtop - 1))) {
+	nclose++;
+	closeidx = (BCReg)(nvars - 1);
+	closename = varname;
+      }
       if (nclose > 1)
 	err_syntax(ls, LJ_ERR_XCLOSE);
 #endif
@@ -2454,6 +2487,11 @@ static void parse_local(LexState *ls)
     }
     assign_adjust(ls, nvars, nexps, &e);
     var_add(ls, nvars);
+#if LJ_54
+    if (nclose)
+      bcemit_lua54_checkclose(fs, (BCReg)(fs->nactvar - nvars + closeidx),
+			      closename);
+#endif
   }
 }
 

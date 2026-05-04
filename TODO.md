@@ -7,9 +7,9 @@
 ## P0：核心语义缺口
 
 - [ ] `<close>` 的运行期 `__close` 调度。
-  - 当前状态：只接受 `local x <close>` 语法并记录属性，不会在离开作用域时调用 `__close`。
-  - 当前进展：`io.lines(filename)` 已按 Lua 5.4 返回第 4 个 closing value，迭代器仍会在 EOF 时主动关闭文件；真正的 generic for / VM 级 `<close>` 调度仍未完成。
-  - 需要补测试：正常块退出、`return`、`break`、`goto`、错误展开、`pcall`/`xpcall`、协程关闭、多个待关闭变量的 LIFO 顺序、`__close` 接收错误对象、`__close` 自身抛错、`nil`/`false` 跳过关闭、非 closable 值在声明点报错、generic for 的 closing value 在循环退出和错误展开时自动关闭。
+  - 当前状态：已接受 `local x <close>` 语法并记录属性，声明点会按 Lua 5.4 校验非 `nil`/`false` 值必须带 `__close`；仍不会在离开作用域时调用 `__close`。
+  - 当前进展：`io.lines(filename)` 已按 Lua 5.4 返回第 4 个 closing value，迭代器仍会在 EOF 时主动关闭文件；`local x <close> = 1` 已按 Lua 5.4 在运行期报 `variable 'x' got a non-closable value`，`nil` / `false` 声明会跳过校验，带 `__close` 的值可声明；真正的 generic for / VM 级 `<close>` 调度仍未完成。
+  - 需要补测试：正常块退出、`return`、`break`、`goto`、错误展开、`pcall`/`xpcall`、协程关闭、多个待关闭变量的 LIFO 顺序、`__close` 接收错误对象、`__close` 自身抛错、generic for 的 closing value 在循环退出和错误展开时自动关闭。
   - 实现重点：需要 VM/字节码/栈帧层支持作用域退出和错误展开时的关闭流程，不能只在解析器层处理。
 
 - [ ] `_ENV` 的完整 upvalue 语义。
@@ -161,7 +161,7 @@
   - 当前进展：已补 lauxlib 常用 Lua 5.4 表面：`luaL_pushfail`、`luaL_len`、`luaL_getsubtable`、`luaL_requiref`、`luaL_tolstring`、`luaL_typeerror`、`luaL_argexpected`、`luaL_checkversion` 以及 buffer API；`luaL_checkversion_()` 现在会实际校验版本号和 numeric ABI 尺寸。
   - 已覆盖：新增 `test/lua54_capi_smoke.c` 和 `make smoketest-capi-lua54compat`，包含 `lua_isyieldable()` 主 C frame / resumed coroutine C frame 表面。
   - 当前进展：已补 `lua_closethread()` no-`<close>` 基础表面，当前等价于 `lua_resetthread()`，覆盖 yielded/fresh coroutine 返回 `LUA_OK`、清空栈并恢复 OK 状态。
-  - 需要补 API：`lua_toclose`、真实 continuation 版 `lua_yieldk` / `lua_callk` / `lua_pcallk`；当前只完成这些调用入口的头文件宏兼容表面，`lua_resetthread` / `lua_closethread` 的 `<close>` 关闭语义仍归入 `<close>` 运行期调度大项。
+  - 需要补 API：`lua_toclose`、`lua_closeslot`、真实 continuation 版 `lua_yieldk` / `lua_callk` / `lua_pcallk`；当前只完成这些调用入口的头文件宏兼容表面，`lua_resetthread` / `lua_closethread` 的 `<close>` 关闭语义仍归入 `<close>` 运行期调度大项。
   - 需要补常量/类型/宏：继续核对完整 ABI 细节。
   - 需要清理/兼容旧 API：默认构建保留 LuaJIT/Lua 5.1 API；Lua 5.4 外部兼容头已隐藏一批旧 5.1 表面、旧 lauxlib 注册入口、`luaL_typerror` 和 `luaL_findtable`，并补了常见 getter/number 转换/字符串 push 返回值签名和栈操作宏表面，但仍需继续核对更多旧兼容宏和完整 ABI 细节。
   - 需要补内存分配语义：Lua 5.4 允许 allocator 在缩小内存块时失败；当前仍需核对 LuaJIT 分配器契约和错误处理。

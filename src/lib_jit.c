@@ -426,6 +426,21 @@ static int lj_cf_jit__lua54_forstep(lua_State *L)
   copyTV(L, L->top++, o);
   return 1;
 }
+
+static int lj_cf_jit__lua54_checkclose(lua_State *L)
+{
+  cTValue *o = L->base;
+  const char *name = luaL_checkstring(L, 2);
+  if (o >= L->top || tvisnil(o) || tvisfalse(o))
+    return 0;
+  /* Full scope-exit __close dispatch still belongs in the VM. This helper
+  ** implements the Lua 5.4 declaration-time rule first, so non-false values
+  ** cannot be marked to-be-closed unless a __close metamethod is visible.
+  */
+  if (!lua54_getmetafield(L, o, lj_str_newlit(L, "__close")))
+    return luaL_error(L, "variable '%s' got a non-closable value", name);
+  return 0;
+}
 #endif
 
 /* Metadata is copied from values pushed by luaopen_jit() before LJ_LIB_REG.
@@ -1050,6 +1065,8 @@ LUALIB_API int luaopen_jit(lua_State *L)
   lua_setfield(L, -2, "_lua54_shr");
   lua_pushcfunction(L, lj_cf_jit__lua54_forstep);
   lua_setfield(L, -2, "_lua54_forstep");
+  lua_pushcfunction(L, lj_cf_jit__lua54_checkclose);
+  lua_setfield(L, -2, "_lua54_checkclose");
   lua_pop(L, 1);
 #endif
 #if LJ_HASPROFILE

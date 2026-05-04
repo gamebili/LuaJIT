@@ -312,6 +312,16 @@ do
   assert(load("local x <const> = 1; local function f() x = 2 end") == nil)
   assert(load("local x <unknown> = 1") == nil)
   assert(load("local x <close>, y <close> = false, false") == nil)
+  do
+    local ok, err = pcall(assert(load("local x <close> = 1")))
+    assert(ok == false and err:match("variable 'x' got a non%-closable value") ~= nil)
+    assert(assert(load("local x <close>; return x"))() == nil)
+    assert(assert(load("local x <close> = nil; return x"))() == nil)
+    local closable = setmetatable({}, { __close = function() end })
+    _G.__lua54_closable_decl = closable
+    assert(assert(load("local x <close> = __lua54_closable_decl; return x"))() == closable)
+    _G.__lua54_closable_decl = nil
+  end
   assert(assert(load("local x <close> = false; return x"))() == false)
   do
     local setlocal_const = assert(load([[
