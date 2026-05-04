@@ -1429,6 +1429,14 @@ do
 end
 
 do
+  local missing = "__lua54_remove_missing__"
+  os.remove(missing)
+  local ok, msg, code = os.remove(missing)
+  assert(ok == nil and type(msg) == "string" and type(code) == "number")
+  assert(msg:match(missing) ~= nil)
+end
+
+do
   warn("@off")
   warn("ignored warning")
   warn("@on")

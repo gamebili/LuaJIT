@@ -82,6 +82,7 @@
 - 已继续补 Lua 5.4 debug hook transfer 字段：普通 Lua 函数 call hook 会报告参数 transfer 范围，return hook 会报告返回值 transfer 范围；非 hook 场景仍返回 `0, 0`。
 - 已继续补 Lua 5.4 debug hook transfer 的 vararg 边界覆盖：Lua smoke 和 C API smoke 均校验 vararg 函数 call hook 只报告固定参数 transfer，return hook 报告完整返回值 transfer。
 - 已继续补 Lua 5.4 debug hook transfer 的 C 函数 call 边界：C 函数在 call hook 中会按本次调用的实际参数个数报告 transfer 范围；C 函数 return hook 仍保留在 TODO。
+- 已补充 Lua 5.4 `os.remove()` 失败返回 smoke：对齐官方保留文件名前缀、返回系统错误文本和 errno code 的表面；`os.rename()` 继续保持不拼接源文件名。
 - 已用本机 `emcc 5.0.6` 试跑 Emscripten 构建入口，当前 Makefile 在 `lj_arch.h` 阶段明确失败为 wasm 架构不受支持；该平台仍需要单独 wasm/interpreter VM 后端方案。
 - 已继续收紧 Lua 5.4 GC 公开表面：兼容构建中 `collectgarbage("setstepmul", n)` 的初始旧值现在对齐 Lua 5.4 的 `100`。
 - 已继续收紧严格 Lua 5.4 语法表面：`L` / `LL` / `UL` / `ULL` / `uLL`、`0b...` 和 imaginary `i` 数字字面量扩展都已进入拒绝用例。
