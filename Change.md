@@ -24,6 +24,9 @@
 - 已继续按官方字符串数值运算边界收紧 lowered operator helper：`local a, b = "1.0" // "2"` 这类固定多赋值不再泄漏左操作数临时槽，helper 原始数值结果和 parser 调用 base 已规整为单返回值。
 - 已按官方 `assert()` 行为继续收紧 Lua 5.4 非字符串错误对象：`assert(false, 123)` / `assert(false, table)` 会保留原错误对象，只有 string 消息走字符串错误文本路径。
 - 已继续收紧 Lua 5.4 兼容模式下的 JIT 工具链：启动时仍隐藏旧全局 `bit`，但把 `bit` 作为显式 preload 模块保留，确保 `jit.dump` / `-jdump` 这类 LuaJIT 自带工具可通过 `require("bit")` 运行。
+- 已按官方 Lua 5.4 `_ENV` 语义推进源码 parser：main chunk 现在创建隐藏但真实的首个 `_ENV` upvalue，隐式全局访问降级为 `_ENV.name`，`debug.setupvalue(load("return x"), 1, 5)` 和 `debug.upvaluejoin` 到非 table lexical `_ENV` 后都会按 Lua 5.4 在运行时报 `_ENV` 非 table 索引错误。
+- 已修正 Lua 5.4 helper 降级在真实 `_ENV` 访问下的寄存器布局：`_ENV.name` 降级为 `TGETV` 时，`//`、位运算和一元 `~` helper 调用会先物化仍待求值的操作数，避免 helper 自身的 `jit._lua54_*` 取值覆盖 `_ENV` 表寄存器。
+- 已修正 Lua 5.4 debug 名字反推：大 chunk 中 `_ENV.name` 因常量索引超过 `TGETS` 范围而生成 `KSTR + TGETV` 时，`debug.getinfo(..., "n")` 仍能恢复 `xpcall` 等函数名，保持 hook transfer smoke 稳定。
 - 已修复 Lua 5.4 compat 的 amalgamation 构建遗漏：`ljamalg.c` 现在包含 `lib_utf8.c`，避免 `luaopen_utf8` 在合并编译链接时缺失。
 - 已完成实验性 Lua 5.4 兼容模式的阶段性实现与测试。
 - 已通过 `make test` 验证默认构建和 Lua 5.4 兼容构建的 smoke 测试。

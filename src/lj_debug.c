@@ -311,6 +311,21 @@ restart:
 	    return "method";
 	}
 	return "field";
+#if LJ_54
+      case BC_TGETV:
+	if (ip > proto_bc(pt)) {
+	  BCIns insp = ip[-1];
+	  /* Lua 5.4 global access can lower _ENV.name to KSTR + TGETV when a
+	  ** large chunk pushes the field name outside TGETS' 8-bit constant slot.
+	  ** Preserve debug.getinfo(..., "n") names for hooks and errors.
+	  */
+	  if (bc_op(insp) == BC_KSTR && bc_a(insp) == bc_c(ins)) {
+	    *name = strdata(gco2str(proto_kgc(pt, ~(ptrdiff_t)bc_d(insp))));
+	    return "field";
+	  }
+	}
+	break;
+#endif
       case BC_UGET:
 	*name = lj_debug_uvname(pt, bc_d(ins));
 	return "upvalue";

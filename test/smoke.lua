@@ -223,6 +223,10 @@ do
   local repl = { x = 54 }
   assert(debug.setupvalue(f, 1, repl) == "_ENV")
   assert(f() == 54)
+  assert(debug.setupvalue(f, 1, 5) == "_ENV")
+  local ok, err = pcall(f)
+  assert(ok == false and err:match("_ENV") ~= nil and
+         err:match("number") ~= nil)
 
   local no_global = assert(load("local y = 1; return y"))
   assert(debug.getupvalue(no_global, 1) == "_ENV")
@@ -238,6 +242,16 @@ do
   local n2, v2 = debug.getupvalue(h, 2)
   assert(n1 == "_ENV" and v1 == _G)
   assert(n2 == "y" and v2 == 7)
+
+  local source = assert(load("local _ENV = 5; return function() return x end"))()
+  local target = assert(load("return x"))
+  debug.upvaluejoin(target, 1, source, 1)
+  n1, v1 = debug.getupvalue(target, 1)
+  assert(n1 == "_ENV" and v1 == 5)
+  assert(debug.upvalueid(target, 1) == debug.upvalueid(source, 1))
+  ok, err = pcall(target)
+  assert(ok == false and err:match("_ENV") ~= nil and
+         err:match("number") ~= nil)
 end
 do
   for _, item in ipairs({
@@ -1969,7 +1983,7 @@ do
   assert(debug.getupvalue(loaded, 1) == nil)
   loaded = assert(load(string.dump(function() return math.type(1) end, true), "=dumped-global", "b"))
   n, v = debug.getupvalue(loaded, 1)
-  assert(n == "_ENV" and v == _G)
+  assert(n == "" and v == _G)
   assert(debug.getupvalue(loaded, 2) == nil)
   local f, err = load(stripped, "=dumped", "t")
   assert(f == nil and err:match("attempt to load a binary chunk %(mode is 't'%)"))

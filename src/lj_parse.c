@@ -144,6 +144,10 @@ typedef struct FuncState {
   uint8_t numparams;		/* Number of parameters. */
   uint8_t framesize;		/* Fixed frame size. */
   uint8_t nuv;			/* Number of upvalues */
+#if LJ_54
+  uint8_t lua54env;		/* Implicit Lua 5.4 _ENV upvalue is present. */
+  VarIndex lua54envvidx;	/* Variable-stack entry for implicit _ENV name. */
+#endif
   VarIndex varmap[LJ_MAX_LOCVAR];  /* Map from register to variable idx. */
   VarIndex uvmap[LJ_MAX_UPVAL];	/* Map from upvalue to variable idx. */
   VarIndex uvtmp[LJ_MAX_UPVAL];	/* Temporary upvalue map. */
@@ -648,13 +652,23 @@ static void bcemit_lua54_helper(FuncState *fs, const char *field, size_t len,
 				ExpDesc *e1, ExpDesc *e2, BCReg nargs)
 {
   LexState *ls = fs->ls;
-  BCReg base = fs->freereg;
+  BCReg base;
   BCReg argbase;
   int reuseleft = e1->k == VNONRELOC && e1->u.s.info >= fs->nactvar &&
 		  e1->u.s.info + 1 == fs->freereg;
   /* Keep new Lua 5.4 operators out of the VM bytecode format for now: lower
   ** them to private jit helpers so default LuaJIT bytecode remains unchanged.
   */
+  if (!reuseleft && e1->k != VNONRELOC && !expr_isk_nojump(e1)) {
+    /* Lua 5.4 global access is lowered through _ENV table indexing. Materialize
+    ** it before loading jit._lua54_* so helper setup cannot overwrite the table
+    ** register still needed by a pending VINDEXED expression.
+    */
+    expr_tonextreg(fs, e1);
+  }
+  if (!reuseleft && nargs == 2 && e2->k != VNONRELOC && !expr_isk_nojump(e2))
+    expr_tonextreg(fs, e2);
+  base = fs->freereg;
   if (reuseleft) {
     BCReg need;
     base = e1->u.s.info;
@@ -667,6 +681,8 @@ static void bcemit_lua54_helper(FuncState *fs, const char *field, size_t len,
     ** multi-assignment receives the helper result in the first result slot,
     ** not the stale left operand.
     */
+    if (nargs == 2 && e2->k != VNONRELOC && !expr_isk_nojump(e2))
+      expr_toreg(fs, e2, (BCReg)(argbase + 1));
     expr_toreg(fs, e1, argbase);
   }
   bcemit_AD(fs, BC_GGET, base, const_lit(fs, "jit", 3));
@@ -1315,6 +1331,35 @@ static int var_attr_islit(GCstr *s, const char *lit, MSize len)
   return s->len == len && memcmp(strdata(s), lit, len) == 0;
 }
 
+static void var_new_lua54_envuv(LexState *ls)
+{
+  FuncState *fs = ls->fs;
+  MSize vtop = ls->vtop;
+  GCstr *name;
+  if (LJ_UNLIKELY(vtop >= ls->sizevstack)) {
+    if (ls->sizevstack >= LJ_MAX_VSTACK)
+      lj_lex_error(ls, 0, LJ_ERR_XLIMC, LJ_MAX_VSTACK);
+    lj_mem_growvec(ls->L, ls->vstack, ls->sizevstack, LJ_MAX_VSTACK, VarInfo);
+  }
+  name = lj_parse_keepstr(ls, "_ENV", 4);
+  /* Main chunks in Lua 5.4 expose _ENV as a real first upvalue, even when
+  ** their bytecode has no free-name access. Keep the debug name in vstack,
+  ** but advance vbase so it is not emitted as a visible local variable.
+  */
+  setgcref(ls->vstack[vtop].name, obj2gco(name));
+  ls->vstack[vtop].startpc = 0;
+  ls->vstack[vtop].endpc = 0;
+  ls->vstack[vtop].slot = 0;
+  ls->vstack[vtop].info = 0;
+  fs->lua54env = 1;
+  fs->lua54envvidx = (VarIndex)vtop;
+  fs->uvmap[0] = (VarIndex)vtop;
+  fs->uvtmp[0] = 0;
+  fs->nuv = 1;
+  ls->vtop = vtop+1;
+  fs->vbase = ls->vtop;
+}
+
 static int var_attr_parse(LexState *ls, VarIndex vidx)
 {
   if (lex_opt(ls, '<')) {
@@ -1382,6 +1427,15 @@ static MSize var_lookup_(FuncState *fs, GCstr *name, ExpDesc *e, int first)
       if (!first)
 	fscope_uvmark(fs, reg);  /* Scope now has an upvalue. */
       return (MSize)(e->u.s.aux = (uint32_t)fs->varmap[reg]);
+#if LJ_54
+    } else if (fs->lua54env && var_attr_islit(name, "_ENV", 4)) {
+      /* The main chunk's implicit _ENV has no local register. Expose it as a
+      ** normal upvalue so debug.setupvalue/upvaluejoin can replace it with
+      ** any Lua value, matching Lua 5.4 instead of LuaJIT's table env.
+      */
+      expr_init(e, VUPVAL, 0);
+      return (MSize)(e->u.s.aux = fs->lua54envvidx);
+#endif
     } else {
       MSize vidx = var_lookup_(fs->prev, name, e, 0);  /* Var in outer func? */
       if ((int32_t)vidx >= 0) {  /* Yes, make it an upvalue here. */
@@ -2010,6 +2064,10 @@ static void fs_init(LexState *ls, FuncState *fs)
   fs->bl = NULL;
   fs->flags = 0;
   fs->framesize = 1;  /* Minimum frame size. */
+#if LJ_54
+  fs->lua54env = 0;
+  fs->lua54envvidx = 0;
+#endif
   fs->kt = lj_tab_new(L, 0, 0);
   /* Anchor table of constants in stack to avoid being collected. */
   settabV(L, L->top, fs->kt);
@@ -3244,6 +3302,9 @@ GCproto *lj_parse(LexState *ls)
   fs.bcbase = NULL;
   fs.bclim = 0;
   fs.flags |= PROTO_VARARG;  /* Main chunk is always a vararg func. */
+#if LJ_54
+  var_new_lua54_envuv(ls);
+#endif
   fscope_begin(&fs, &bl, 0);
   bcemit_AD(&fs, BC_FUNCV, 0, 0);  /* Placeholder. */
   lj_lex_next(ls);  /* Read-ahead first token. */
@@ -3253,7 +3314,11 @@ GCproto *lj_parse(LexState *ls)
   pt = fs_finish(ls, ls->linenumber);
   L->top--;  /* Drop chunkname. */
   lj_assertL(fs.prev == NULL && ls->fs == NULL, "mismatched frame nesting");
+#if LJ_54
+  lj_assertL(pt->sizeuv == 1, "toplevel proto must have _ENV upvalue");
+#else
   lj_assertL(pt->sizeuv == 0, "toplevel proto has upvalues");
+#endif
   return pt;
 }
 

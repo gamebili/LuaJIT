@@ -52,13 +52,11 @@
   - 需要补测试/实现：error unwind、`pcall`/`xpcall` 保护展开、C API `lua_toclose` 正常 C 返回以及 coroutine reset/close 路径中的 `__close` yield/continuation 边界；这些路径仍需要 VM 级 unwind continuation，不能继续用不可 yield 的 C `lua_pcall` 桥接。
   - 实现重点：普通 fall-through、固定返回值 return、动态多返回 return、break、goto、generic for 普通控制流退出、error unwind、coroutine reset/close 和 C API 弹栈关闭已先走 parser/helper/close-list 桥接；完整实现仍需要 VM/字节码/栈帧层提供统一 close 调度，最终替换动态 return 的 pack/unpack 临时桥和 error unwind close-list 桥接。
 
-- [ ] `_ENV` 的完整 upvalue 语义。
-  - 当前状态：显式 `local _ENV = ...` 和 `load(..., env)` 的基础访问已可用，但隐式全局访问没有暴露为名为 `_ENV` 的第一个 upvalue。
-  - 当前进展：Lua 5.4 兼容模式下，main chunk 以及仍使用 LuaJIT 函数环境访问全局名的 Lua 函数，会通过 debug API 暴露一个伪 `_ENV` upvalue；`debug.getupvalue` / `debug.getinfo(..., "u")` / `debug.setupvalue` 已覆盖基础路径。
-  - 已知差异：伪 `_ENV` 仍依赖 LuaJIT 函数环境，`debug.setupvalue(load("return x"), 1, 5)` 这类把伪 `_ENV` 替换为非 table 的路径仍不能完整表达；伪 `_ENV` 的 identity 仍是兼容映射，不是 VM 里的真实 upvalue 槽。
+- [x] `_ENV` 的完整 upvalue 语义。
+  - 当前状态：源码 main chunk 已在 Lua 5.4 兼容模式下创建隐藏但真实的首个 `_ENV` upvalue，普通隐式全局访问会降级为 `_ENV.name`，不再依赖只能保存 table 的 LuaJIT 函数环境伪 upvalue。
+  - 当前进展：`debug.getupvalue` / `debug.getinfo(..., "u")` / `debug.setupvalue` / `debug.upvalueid` / `debug.upvaluejoin` 已能操作真实 `_ENV` upvalue；`debug.setupvalue(load("return x"), 1, 5)` 和把隐式 `_ENV` join 到非 table lexical `_ENV` 后，运行期会按 Lua 5.4 报 `_ENV` 非 table 索引错误。
   - 当前进展：Lua 5.4 兼容模式下 `rawget(_G, "_ENV")` 已对齐官方返回 `nil`，`next(_G)` / `pairs(_G)` 也会跳过内部兼容 `_ENV` 键，同时保留裸 `_ENV == _G` 的当前兼容表面。
-  - 已覆盖：chunk 的 `_ENV` upvalue 名称/位置、`debug.setupvalue` 用 table 替换环境、带真实上值且访问全局的闭包会把 `_ENV` 排在第一个 debug upvalue、闭包继承局部 `_ENV`、真实 lexical `_ENV` 的 `debug.upvalueid` / `debug.upvaluejoin`、非 table lexical `_ENV` 的 debug 枚举和运行期索引错误、dumped chunk 的真实首个 upvalue 可由 `load(..., env)` 初始化为 table / number / false / nil、`rawget(_G, "_ENV") == nil`、`next(_G)` / `pairs(_G)` 不枚举 `_ENV`。
-  - 仍需补测试/实现：伪 `_ENV` 被 `debug.setupvalue` / `debug.upvaluejoin` 替换为非 table 时的完整 Lua 5.4 upvalue 语义，以及伪 `_ENV` 的真实 upvalue identity。
+  - 已覆盖：chunk 的 `_ENV` upvalue 名称/位置、`debug.setupvalue` 用 table 和非 table 替换环境、带真实上值且访问全局的闭包会把 `_ENV` 排在第一个 debug upvalue、闭包继承局部 `_ENV`、真实 lexical `_ENV` 的 `debug.upvalueid` / `debug.upvaluejoin`、非 table lexical `_ENV` 的 debug 枚举和运行期索引错误、隐式 `_ENV` join 到非 table lexical `_ENV`、dumped chunk 的真实首个 upvalue可由 `load(..., env)` 初始化为 table / number / false / nil、`rawget(_G, "_ENV") == nil`、`next(_G)` / `pairs(_G)` 不枚举 `_ENV`。
 
 - [x] `<const>` 的 debug API 行为核对。
   - 当前状态：编译期赋值检查已覆盖；经本机 Lua 5.4.8 对照，`debug.setlocal`、`debug.setupvalue`、`debug.upvaluejoin` 可以绕过 `<const>` 的源码级赋值限制，当前实现保留该行为。
@@ -233,8 +231,8 @@
   - 当前进展：Lua 层 `string.dump(f, strip)` 已进入 smoke，覆盖 full/stripped LuaJIT bytecode 写出、`mode="b"` 回读执行，以及 binary chunk 被 `mode="t"` 拒绝。
   - 当前进展：已将官方 Lua 5.4.8 dump 的加载失败固化为 smoke；兼容构建会明确拒绝官方 Lua 5.4 binary chunk，并保留 `mode="t"` 的 binary chunk 拒绝错误。
   - 当前进展：LuaJIT dump 回读时，带真实 upvalue 的函数会按 Lua 5.4 `load` 规则把第一个 upvalue 初始化为当前全局环境；带第 4 个 env 参数时会初始化为指定 env，且真实 upvalue 槽支持 table / number / false / nil 这类非 table 值。
-  - 当前进展：LuaJIT stripped dump 回读后的 debug upvalue 枚举已避免把无真实 upvalue 的 plain dump 误暴露为伪 `_ENV`，带真实 upvalue 的 stripped dump 也不再额外插入伪 `_ENV`。
-  - 已知差异：LuaJIT stripped dump 中使用全局名的函数仍通过兼容层伪 `_ENV` 表达环境，名称显示为 `_ENV`，而官方 Lua 5.4 stripped dump 的 upvalue 名称为 `(no name)`。
+  - 当前进展：LuaJIT stripped dump 回读后的 debug upvalue 枚举已避免把无真实 upvalue 的 plain dump 误暴露为 `_ENV`，带真实 upvalue 的 stripped dump 也不再额外插入伪 `_ENV`；使用全局名的 stripped dump 会保留真实首个 env upvalue，名称按 LuaJIT stripped 规则为空字符串。
+  - 已知差异：官方 Lua 5.4 stripped dump 的 upvalue 名称为 `(no name)`；LuaJIT stripped bytecode 继续用空字符串表示 stripped upvalue name。
   - 需要补测试：mode=`"b"`/`"t"` 的更多错误消息差异，以及更复杂嵌套 dump 的 `_ENV`/upvalue 表现。
   - 实现重点：如不支持官方 bytecode，应在文档中明确边界；如支持，需要单独的 reader/writer。
 
