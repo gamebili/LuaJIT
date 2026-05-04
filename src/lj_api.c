@@ -1129,11 +1129,13 @@ LUA_API void lua_toclose(lua_State *L, int idx)
   */
   if (!lj_close_check(L, o))
     lj_err_callermsg(L, "attempt to close non-closable value");
+  lj_close_mark(L, o);
 }
 
 LUA_API void lua_closeslot(lua_State *L, int idx)
 {
   TValue *o = index2adr_stack(L, idx);
+  lj_close_unmark(L, o);
   if (!lj_close_call(L, o, NULL, 1))
     lj_err_callermsg(L, "attempt to close non-closable value");
 }

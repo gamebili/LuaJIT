@@ -19,6 +19,7 @@
 #include "lj_meta.h"
 #include "lj_state.h"
 #include "lj_frame.h"
+#include "lj_close.h"
 #if LJ_HASFFI
 #include "lj_ctype.h"
 #endif
@@ -212,6 +213,9 @@ static TValue *cpluaopen(lua_State *L, lua_CFunction dummy, void *ud)
 static void close_state(lua_State *L)
 {
   global_State *g = G(L);
+#if LJ_54
+  lj_close_freeall(L);
+#endif
   lj_func_closeuv(L, tvref(L->stack));
   lj_gc_freeall(g);
   lj_assertG(gcref(g->gc.root) == obj2gco(L),
@@ -372,6 +376,7 @@ lua_State *lj_state_new(lua_State *L)
   L1->dummy_ffid = FF_C;
   L1->status = LUA_OK;
   L1->exdata = L->exdata;  /* Lua 5.4 copies extraspace to new threads. */
+  L1->closelist = NULL;
   L1->stacksize = 0;
   setmref(L1->stack, NULL);
   L1->cframe = NULL;
@@ -398,6 +403,9 @@ void LJ_FASTCALL lj_state_free(global_State *g, lua_State *L)
     lj_trace_abort(g);  /* For aa_uref soundness. */
     lj_assertG(gcref(L->openupval) == NULL, "stale open upvalues");
   }
+#if LJ_54
+  lj_close_freeall(L);
+#endif
   lj_mem_freevec(g, tvref(L->stack), L->stacksize, TValue);
   lj_mem_freet(g, L);
 }

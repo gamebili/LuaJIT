@@ -517,6 +517,86 @@ do
     ]]))())
   end
   do
+    assert(assert(load([[
+      local log = {}
+      local mt = {
+        __close = function(self, err)
+          log[#log + 1] = self.name..":"..tostring(err)
+        end,
+      }
+      local ok, err = pcall(function()
+        local a <close> = setmetatable({ name = "a" }, mt)
+        do
+          local b <close> = setmetatable({ name = "b" }, mt)
+          error("close error path", 0)
+        end
+      end)
+      assert(ok == false and err == "close error path")
+      assert(table.concat(log, ",") == "b:close error path,a:close error path")
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
+      local log = {}
+      local mt = {
+        __close = function(self, err)
+          log[#log + 1] = self.name..":"..tostring(err)
+        end,
+      }
+      local ok, err = xpcall(function()
+        local x <close> = setmetatable({ name = "x" }, mt)
+        error("xpcall close path", 0)
+      end, function(e)
+        log[#log + 1] = "handler:"..tostring(e)
+        return "handled:"..e
+      end)
+      assert(ok == false and err == "handled:xpcall close path")
+      assert(table.concat(log, ",") ==
+        "handler:xpcall close path,x:handled:xpcall close path")
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
+      local log = {}
+      local mt = {
+        __close = function(self, err)
+          log[#log + 1] = self.name..":"..tostring(err)
+          error("close replacement", 0)
+        end,
+      }
+      local ok, err = pcall(function()
+        local x <close> = setmetatable({ name = "x" }, mt)
+        error("body replacement", 0)
+      end)
+      assert(ok == false and err == "close replacement")
+      assert(table.concat(log, ",") == "x:body replacement")
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
+      local log = {}
+      local mt = {
+        __close = function(self, err)
+          log[#log + 1] = self.name..":"..tostring(err)
+        end,
+      }
+      local function iter(_, i)
+        if i == 0 then return 1 end
+        error("generic close path", 0)
+      end
+      local ok, err = pcall(function()
+        for _ in iter, nil, 0, setmetatable({ name = "state" }, mt) do
+        end
+      end)
+      assert(ok == false and err == "generic close path")
+      assert(table.concat(log, ",") == "state:generic close path")
+      return true
+    ]]))())
+  end
+  do
     local setlocal_const = assert(load([[
     return function()
       local x <const> = {}

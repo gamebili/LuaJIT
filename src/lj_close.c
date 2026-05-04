@@ -7,12 +7,19 @@
 #define LUA_CORE
 
 #include "lj_obj.h"
+#include "lj_gc.h"
 #include "lj_tab.h"
 #include "lj_str.h"
 #include "lj_state.h"
+#include "lj_err.h"
 #include "lj_close.h"
 
 #if LJ_54
+typedef struct CloseState {
+  struct CloseState *prev;
+  ptrdiff_t slot;
+} CloseState;
+
 int lj_close_isfalse(cTValue *o)
 {
   return tvisnil(o) || tvisfalse(o);
@@ -88,5 +95,122 @@ int lj_close_call(lua_State *L, TValue *slot, cTValue *err, int clear)
   if (clear)
     setnilV(slot);
   return 1;
+}
+
+static int close_pcall(lua_State *L, TValue *slot, cTValue *err, int clear)
+{
+  ptrdiff_t slotofs = savestack(L, slot);
+  ptrdiff_t errofs = 0;
+  int errstack = 0;
+  cTValue *mo;
+  TValue *top;
+  int status;
+  if (lj_close_isfalse(slot)) {
+    if (clear)
+      setnilV(slot);
+    return LUA_OK;
+  }
+  mo = lj_close_getmethod(L, slot);
+  if (!mo) {
+    setstrV(L, L->top, lj_str_newlit(L, "attempt to close non-closable value"));
+    L->top++;
+    return LUA_ERRRUN;
+  }
+  if (err != NULL)
+    errstack = close_stackvalue(L, err, &errofs);
+  lj_state_checkstack(L, 3);
+  slot = restorestack(L, slotofs);
+  if (errstack)
+    err = restorestack(L, errofs);
+  top = L->top;
+  copyTV(L, top, mo);
+  copyTV(L, top+1, slot);
+  if (err != NULL)
+    copyTV(L, top+2, err);
+  else
+    setnilV(top+2);
+  L->top = top+3;
+  status = lua_pcall(L, 2, 0, 0);
+  slot = restorestack(L, slotofs);
+  if (clear)
+    setnilV(slot);
+  return status;
+}
+
+static void close_freenode(lua_State *L, CloseState *cs)
+{
+  lj_mem_freet(G(L), cs);
+}
+
+void lj_close_unmark(lua_State *L, TValue *slot)
+{
+  ptrdiff_t slotofs = savestack(L, slot);
+  CloseState **pcs = (CloseState **)&L->closelist;
+  while (*pcs) {
+    CloseState *cs = *pcs;
+    if (cs->slot == slotofs) {
+      *pcs = cs->prev;
+      close_freenode(L, cs);
+      return;
+    }
+    pcs = &cs->prev;
+  }
+}
+
+void lj_close_mark(lua_State *L, TValue *slot)
+{
+  CloseState *cs;
+  if (lj_close_isfalse(slot))
+    return;
+  /* Stack slots are recycled. Drop a stale mark for the same slot before
+  ** installing the new lifetime record.
+  */
+  lj_close_unmark(L, slot);
+  cs = lj_mem_newt(L, sizeof(CloseState), CloseState);
+  cs->slot = savestack(L, slot);
+  cs->prev = (CloseState *)L->closelist;
+  L->closelist = cs;
+}
+
+static CloseState **close_findunwind(lua_State *L, ptrdiff_t levelofs)
+{
+  CloseState **pcs = (CloseState **)&L->closelist;
+  while (*pcs) {
+    if ((*pcs)->slot >= levelofs)
+      return pcs;
+    pcs = &(*pcs)->prev;
+  }
+  return NULL;
+}
+
+void lj_close_unwind(lua_State *L, TValue *level)
+{
+  ptrdiff_t levelofs = savestack(L, level);
+  CloseState **pcs;
+  while ((pcs = close_findunwind(L, levelofs)) != NULL) {
+    CloseState *cs = *pcs;
+    TValue *slot = restorestack(L, cs->slot);
+    cTValue *err = L->top > tvref(L->stack) ? L->top-1 : NULL;
+    *pcs = cs->prev;
+    close_freenode(L, cs);
+    /* Remove the lifetime record before calling __close. If __close throws,
+    ** the replacement error will unwind again and close any remaining outer
+    ** records with the new error object, matching Lua 5.4's error replacement
+    ** rule.
+    */
+    if (close_pcall(L, slot, err, 1) != LUA_OK)
+      continue;  /* New error object is now at stack top; close outer slots. */
+  }
+}
+
+void lj_close_freeall(lua_State *L)
+{
+  CloseState *cs = (CloseState *)L->closelist;
+  while (cs) {
+    CloseState *next = cs->prev;
+    close_freenode(L, cs);
+    cs = next;
+  }
+  L->closelist = NULL;
 }
 #endif

@@ -720,6 +720,7 @@ struct lua_State {
   void *cframe;		/* End of C stack frame chain. */
   MSize stacksize;	/* True stack size (incl. LJ_STACK_EXTRA). */
   void *exdata;		/* Pointer-sized Lua 5.4 extraspace compatibility. */
+  void *closelist;	/* Lua 5.4 active to-be-closed stack slots. */
   int32_t tailcall_ci;	/* Lua 5.4 tail-called frame offset, or 0. */
 };
 

@@ -435,6 +435,8 @@ static int lj_cf_jit__lua54_checkclose(lua_State *L)
 {
   cTValue *o = L->base;
   const char *name = luaL_checkstring(L, 2);
+  int32_t slotdelta = lj_lib_checkint(L, 3);
+  TValue *slot = L->base + slotdelta;
   if (o >= L->top || lj_close_isfalse(o))
     return 0;
   /* Keep the variable-specific Lua 5.4 declaration error here, but delegate
@@ -443,14 +445,21 @@ static int lj_cf_jit__lua54_checkclose(lua_State *L)
   */
   if (!lj_close_getmethod(L, o))
     return luaL_error(L, "variable '%s' got a non-closable value", name);
+  /* The parser passes a temporary copy as the helper argument. Track the real
+  ** local register by a stack-relative delta from that argument slot, so the
+  ** mark survives after the temporary call registers are recycled.
+  */
+  lj_close_mark(L, slot);
   return 0;
 }
 
 static int lj_cf_jit__lua54_closevalue(lua_State *L)
 {
-  TValue *o = L->base;
+  int32_t slotdelta = lj_lib_checkint(L, 2);
+  TValue *o = L->base + slotdelta;
   if (o >= L->top)
     return 0;
+  lj_close_unmark(L, o);
   if (!lj_close_call(L, o, NULL, 0))
     return luaL_error(L, "attempt to close non-closable value");
   return 0;

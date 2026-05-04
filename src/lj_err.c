@@ -16,6 +16,7 @@
 #include "lj_func.h"
 #include "lj_state.h"
 #include "lj_frame.h"
+#include "lj_close.h"
 #include "lj_ff.h"
 #include "lj_trace.h"
 #include "lj_vm.h"
@@ -100,6 +101,9 @@ LJ_DATADEF const char *lj_err_allmsg =
 /* Unwind Lua stack and move error message to new top. */
 LJ_NOINLINE static void unwindstack(lua_State *L, TValue *top)
 {
+#if LJ_54
+  lj_close_unwind(L, top);
+#endif
   lj_func_closeuv(L, top);
   if (top < L->top-1) {
     copyTV(L, top, L->top-1);

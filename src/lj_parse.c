@@ -702,13 +702,15 @@ static void bcemit_lua54_checkclose(FuncState *fs, BCReg slot, GCstr *name)
   bcreg_reserve(fs, 1);
   if (ls->fr2) bcreg_reserve(fs, 1);
   bcemit_lua54_jit_field(fs, base, "_lua54_checkclose", 17);
-  bcreg_reserve(fs, 2);
+  bcreg_reserve(fs, 3);
   argbase = (BCReg)(base + 1 + ls->fr2);
   bcemit_AD(fs, BC_MOV, argbase, slot);
   expr_init(&e, VKSTR, 0);
   e.u.sval = name;
   idx = const_str(fs, &e);
   bcemit_AD(fs, BC_KSTR, (BCReg)(argbase + 1), idx);
+  bcemit_AD(fs, BC_KSHORT, (BCReg)(argbase + 2),
+	    (BCReg)(uint16_t)((int32_t)slot - (int32_t)argbase));
   bcemit_ABC(fs, BC_CALL, base, 1, fs->freereg - base - ls->fr2);
   fs->freereg = base;
 }
@@ -725,9 +727,11 @@ static void bcemit_lua54_closevalue(FuncState *fs, BCReg slot)
   bcreg_reserve(fs, 1);
   if (ls->fr2) bcreg_reserve(fs, 1);
   bcemit_lua54_jit_field(fs, base, "_lua54_closevalue", 17);
-  bcreg_reserve(fs, 1);
+  bcreg_reserve(fs, 2);
   argbase = (BCReg)(base + 1 + ls->fr2);
   bcemit_AD(fs, BC_MOV, argbase, slot);
+  bcemit_AD(fs, BC_KSHORT, (BCReg)(argbase + 1),
+	    (BCReg)(uint16_t)((int32_t)slot - (int32_t)argbase));
   bcemit_ABC(fs, BC_CALL, base, 1, fs->freereg - base - ls->fr2);
   fs->freereg = base;
 }
