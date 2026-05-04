@@ -387,7 +387,11 @@ LUA_API int  (lua_status) (lua_State *L);
 #define LUA_GCGEN		10
 #define LUA_GCINC		11
 
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+LUA_API int (lua_gc) (lua_State *L, int what, ...);
+#else
 LUA_API int (lua_gc) (lua_State *L, int what, int data);
+#endif
 
 
 /*

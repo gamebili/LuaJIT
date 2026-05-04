@@ -1096,15 +1096,16 @@ static void test_warning_and_gc_api(lua_State *L)
   check(L, strcmp(warning_buf, "captured") == 0 && warning_tocont == 0,
 	"lua_warning callback");
 
-  (void)lua_gc(L, LUA_GCCOUNT, 0);
-  countb = lua_gc(L, LUA_GCCOUNTB, 0);
+  check(L, lua_gc(L, LUA_GCCOLLECT) == 0, "lua_gc vararg collect");
+  (void)lua_gc(L, LUA_GCCOUNT);
+  countb = lua_gc(L, LUA_GCCOUNTB);
   check(L, countb >= 0 && countb < 1024, "LUA_GCCOUNTB byte remainder");
 
-  oldmode = lua_gc(L, LUA_GCGEN, 0);
+  oldmode = lua_gc(L, LUA_GCGEN, 0, 0);
   check(L, oldmode == LUA_GCGEN || oldmode == LUA_GCINC, "LUA_GCGEN");
-  oldmode = lua_gc(L, LUA_GCINC, 0);
+  oldmode = lua_gc(L, LUA_GCINC, 0, 0, 0);
   check(L, oldmode == LUA_GCGEN, "LUA_GCINC previous mode");
-  oldmode = lua_gc(L, LUA_GCGEN, 0);
+  oldmode = lua_gc(L, LUA_GCGEN, 0, 0);
   check(L, oldmode == LUA_GCINC, "LUA_GCGEN previous mode");
 
   memset(&ar, 0, sizeof(ar));

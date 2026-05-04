@@ -138,7 +138,7 @@
   - 当前进展：`lua_stringtonumber()`、`lua_isnumber()`、`lua_tonumberx()`、`lua_tointegerx()` 和 `luaL_checknumber()` 已和 Lua 5.4 `tonumber()` 对齐，拒绝 `inf` / `nan` / `0b` 等 LuaJIT 扩展数字字符串。
   - 当前进展：Lua 5.4 兼容模式下 `lua_tointegerx()` 已对无整数表示的 number 返回失败状态，和 `lua_numbertointeger()` 的精确整数语义保持一致。
   - 当前进展：已补 `LUA_VERSION_MAJOR`、`LUA_VERSION_MINOR`、`LUA_VERSION_RELEASE`、`LUA_VERSION_RELEASE_NUM`、`LUA_NUMTYPES`、`LUA_NUMTAGS` 头文件宏；兼容构建当前与既有 `LUA_RELEASE "Lua 5.4.0"` 保持一致。
-  - 当前进展：已补 `lua_KContext`、`lua_KFunction`、`lua_WarnFunction`、`LUA_RIDX_MAINTHREAD`、`LUA_RIDX_GLOBALS`、`LUA_LOADED_TABLE`、`LUA_PRELOAD_TABLE`、`LUA_HOOKTAILCALL`、`LUA_GCGEN`、`LUA_GCINC`；registry 中会写入主线程和全局表；`lua_call` / `lua_pcall` / `lua_yield` 以及 `lua_callk` / `lua_pcallk` / `lua_yieldk` 已按外部 Lua 5.4 头文件宏表面暴露，但 `*k` 当前仍是不支持 continuation 的兼容映射。
+  - 当前进展：已补 `lua_KContext`、`lua_KFunction`、`lua_WarnFunction`、`LUA_RIDX_MAINTHREAD`、`LUA_RIDX_GLOBALS`、`LUA_LOADED_TABLE`、`LUA_PRELOAD_TABLE`、`LUA_HOOKTAILCALL`、`LUA_GCGEN`、`LUA_GCINC`；registry 中会写入主线程和全局表；`lua_gc()` 在兼容构建下已改为 Lua 5.4 变参签名；`lua_call` / `lua_pcall` / `lua_yield` 以及 `lua_callk` / `lua_pcallk` / `lua_yieldk` 已按外部 Lua 5.4 头文件宏表面暴露，但 `*k` 当前仍是不支持 continuation 的兼容映射。
   - 当前进展：已补 `LUA_COMPAT_APIINTCASTS` 下的 `lua_pushunsigned` / `lua_tounsignedx` / `lua_tounsigned` / `luaL_checkunsigned` / `luaL_optunsigned` 兼容宏，并用单独 C smoke 覆盖编译和基础运行。
   - 当前进展：Lua 5.4 外部兼容头已把 `lua_newuserdata()`、`lua_getuservalue()`、`lua_setuservalue()` 暴露为官方 slot 1 alias 宏，默认构建仍保留 LuaJIT 旧函数 ABI。
   - 当前进展：Lua 5.4 兼容头已把外部 `lua_resume(L, from, nargs, nresults)` 映射到 `lua_resume54()` 包装入口，内部仍保留 LuaJIT 旧 2 参数 ABI；包装入口会填写 yield/return 的结果数量。
@@ -157,7 +157,7 @@
   - 当前进展：Lua 5.4 外部兼容头已把 `lua_version(L)` 暴露为数值返回表面，内部仍保留 LuaJIT 旧指针 ABI。
   - 当前进展：Lua 5.4 兼容头已声明现有 `lua_copy()`，C API smoke 覆盖把一个栈槽复制到另一个栈槽。
   - 当前进展：已补 `lua_setcstacklimit()` C API shim，和 Lua 层 `debug.setcstacklimit()` 一样返回稳定兼容上限。
-  - 当前进展：`LUA_GCCOUNTB` 已进入 C API smoke，覆盖返回 0..1023 byte remainder 的基础契约。
+  - 当前进展：`LUA_GCCOUNTB` 已进入 C API smoke，覆盖返回 0..1023 byte remainder 的基础契约；兼容构建下 `lua_gc(L, what, ...)` 可用官方变参调用形态。
   - 当前进展：已补 lauxlib 常用 Lua 5.4 表面：`luaL_pushfail`、`luaL_len`、`luaL_getsubtable`、`luaL_requiref`、`luaL_tolstring`、`luaL_typeerror`、`luaL_argexpected`、`luaL_checkversion` 以及 buffer API；`luaL_checkversion_()` 现在会实际校验版本号和 numeric ABI 尺寸。
   - 已覆盖：新增 `test/lua54_capi_smoke.c` 和 `make smoketest-capi-lua54compat`，包含 `lua_isyieldable()` 主 C frame / resumed coroutine C frame 表面。
   - 当前进展：已补 `lua_closethread()` no-`<close>` 基础表面，当前等价于 `lua_resetthread()`，覆盖 yielded/fresh coroutine 返回 `LUA_OK`、清空栈并恢复 OK 状态。

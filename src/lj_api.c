@@ -9,6 +9,7 @@
 #define lj_api_c
 #define LUA_CORE
 
+#include <stdarg.h>
 #include <stdio.h>
 
 #include "lj_obj.h"
@@ -2030,10 +2031,33 @@ static MSize gc_param_lua54(int data)
 }
 #endif
 
+#if LJ_54
+LUA_API int lua_gc(lua_State *L, int what, ...)
+#else
 LUA_API int lua_gc(lua_State *L, int what, int data)
+#endif
 {
   global_State *g = G(L);
   int res = 0;
+#if LJ_54
+  int data = 0;
+  va_list argp;
+  va_start(argp, what);
+  /* Lua 5.4 exposes lua_gc() as a vararg API. The LuaJIT collector still
+  ** ignores GEN/INC tuning parameters, so only options that use the legacy
+  ** single integer argument need to consume one here.
+  */
+  switch (what) {
+  case LUA_GCSTEP:
+  case LUA_GCSETPAUSE:
+  case LUA_GCSETSTEPMUL:
+    data = va_arg(argp, int);
+    break;
+  default:
+    break;
+  }
+  va_end(argp);
+#endif
   switch (what) {
   case LUA_GCSTOP:
     g->gc.threshold = LJ_MAX_MEM;
