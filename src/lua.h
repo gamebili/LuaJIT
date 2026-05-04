@@ -590,7 +590,15 @@ LUA_API const char *lua_getlocal (lua_State *L, const lua_Debug *ar, int n);
 LUA_API const char *lua_setlocal (lua_State *L, const lua_Debug *ar, int n);
 LUA_API const char *lua_getupvalue (lua_State *L, int funcindex, int n);
 LUA_API const char *lua_setupvalue (lua_State *L, int funcindex, int n);
+#if LUAJIT_EXTERNAL_LUA54
+/* Lua 5.4 changed lua_sethook to void; keep LuaJIT's internal int ABI and
+** expose the official signature through an external compatibility wrapper.
+*/
+LUA_API void lua_sethook54 (lua_State *L, lua_Hook func, int mask, int count);
+#define lua_sethook	lua_sethook54
+#else
 LUA_API int lua_sethook (lua_State *L, lua_Hook func, int mask, int count);
+#endif
 LUA_API lua_Hook lua_gethook (lua_State *L);
 LUA_API int lua_gethookmask (lua_State *L);
 LUA_API int lua_gethookcount (lua_State *L);

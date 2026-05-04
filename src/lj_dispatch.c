@@ -339,6 +339,16 @@ LUA_API int lua_sethook(lua_State *L, lua_Hook func, int mask, int count)
   return 1;
 }
 
+#if LJ_54
+LUA_API void lua_sethook54(lua_State *L, lua_Hook func, int mask, int count)
+{
+  /* Official Lua 5.4 exposes lua_sethook as void.  The LuaJIT core keeps the
+  ** historical int-returning entry point, so external 5.4 headers call here.
+  */
+  (void)lua_sethook(L, func, mask, count);
+}
+#endif
+
 LUA_API lua_Hook lua_gethook(lua_State *L)
 {
   return G(L)->hookf;
