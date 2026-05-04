@@ -419,6 +419,34 @@ static void build_subroutines(BuildCtx *ctx)
   |  add RDd, 1				// RD = nresults+1
   |  jz ->vm_unwind_yield
   |  mov MULTRES, RDd
+#if LJ_54
+  |  mov L:RB, SAVE_L
+  |  cmp aword L:RB->closelist, 0
+  |  je >7
+  |  // Lua 5.4 closes C API to-be-closed slots before the C return hook and
+  |  // before return values are moved into the caller frame.
+  |  mov L:RB->base, BASE
+  |  lea TMPR, [BASE+RA]
+  |  mov CARG1, RD
+  |  shl CARG1, 3
+  |  sub CARG1, 8
+  |  add TMPR, CARG1
+  |  mov L:RB->top, TMPR
+  |  mov CARG2d, RDd
+  |  mov CARG1, L:RB
+  |  call extern lj_close_cframe
+  |  mov RDd, eax			// RD = nresults+1.
+  |  mov BASE, L:RB->base
+  |  mov PC, [BASE-8]			// __close may have called back into Lua.
+  |  mov MULTRES, RDd
+  |  mov RA, L:RB->top
+  |  sub RA, BASE
+  |  mov TMPR, RD
+  |  shl TMPR, 3
+  |  sub TMPR, 8
+  |  sub RA, TMPR			// RA = result offset.
+  |7:
+#endif
   |  test PC, FRAME_TYPE
   |  jnz >9
   |  test byte [DISPATCH+DISPATCH_GL(hookmask)], LUA_MASKRET

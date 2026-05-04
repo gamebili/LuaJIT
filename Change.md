@@ -10,6 +10,7 @@
 - 已补 Lua 5.4 `<close>` error unwind 桥接：声明时记录真实 Lua local 槽位，异常展开时按栈层级 LIFO 调用 `__close(value, err)`；`pcall` / `xpcall`、`__close` 自身抛错替换错误对象，以及 generic for 第 4 个 closing value 的错误展开已进入 smoke。
 - 已补 Lua 5.4 coroutine reset/close 的 `<close>` 路径：`coroutine.close`、`lua_closethread()` 和 `lua_resetthread()` 会关闭 suspended coroutine 中的 active close locals，yield 状态传 `nil` 错误对象；`__close` 抛错时返回失败和替换后的错误，再次 close 不会重复报错。
 - 已补 Lua 5.4 C API `lua_toclose` 弹栈和错误展开路径：`lua_settop` / `lua_pop` 弹出 marked slot 会先调用 `__close(value, nil)`；C 函数抛错展开时会把 body error 传给 `__close(value, err)`。
+- 已补 Lua 5.4 C API `lua_toclose` 正常 C 返回路径：x64/arm64 VM `returnc` 在 return hook 和搬移返回值前关闭 C frame 内 marked slot；`__close(value, nil)` 错误会替换为 C 返回错误，且 close slot 本身作为返回值时保留原值。
 - 已修复 Lua 5.4 compat 的 amalgamation 构建遗漏：`ljamalg.c` 现在包含 `lib_utf8.c`，避免 `luaopen_utf8` 在合并编译链接时缺失。
 - 已完成实验性 Lua 5.4 兼容模式的阶段性实现与测试。
 - 已通过 `make test` 验证默认构建和 Lua 5.4 兼容构建的 smoke 测试。
@@ -382,6 +383,7 @@
 - 覆盖 Lua 5.4 `<close>` 错误展开：`pcall` / `xpcall` 会把错误对象传给 `__close(value, err)`，`__close` 自身抛错会替换原错误，generic for 第 4 个 closing value 在 iterator 抛错时会自动关闭。
 - 覆盖 Lua 5.4 coroutine close/reset 的 `<close>` 路径：`coroutine.close` 和 `lua_closethread()` 会关闭 suspended coroutine 中的 active close locals，close 错误会按 Lua 5.4 返回失败和错误对象，且重入关闭同一个 running coroutine 会报错。
 - 覆盖 Lua 5.4 C API `lua_toclose` 的弹栈/错误路径：`lua_settop` / `lua_pop` 自动关闭 marked slot，C 函数错误展开时 `__close` 收到 body error。
+- 覆盖 Lua 5.4 C API `lua_toclose` 的正常 C 返回路径：C 函数 `return 0` 自动关闭 marked slot，close 错误会让 `lua_pcall` 返回错误，被关闭槽位作为返回值时仍返回原 table。
 - 覆盖 Lua 5.4 外部兼容头不会暴露 `LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` / `lua_strlen`，并覆盖 `lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 的 registry globals 路径。
 - 覆盖 Lua 5.4 外部兼容头暴露 `LUA_RIDX_LAST`，并确认其值等于 `LUA_RIDX_GLOBALS`。
 - 覆盖 Lua 5.4 外部兼容头暴露 `LUA_EXTRASPACE`，并确认其大小与当前 pointer-sized extraspace 实现一致。

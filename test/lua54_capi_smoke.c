@@ -445,6 +445,27 @@ static int mark_close_then_pop(lua_State *L)
   return 0;
 }
 
+static int mark_close_then_return(lua_State *L)
+{
+  push_closeable(L, record_close);
+  lua_toclose(L, -1);
+  return 0;
+}
+
+static int mark_close_then_return_self(lua_State *L)
+{
+  push_closeable(L, record_close);
+  lua_toclose(L, -1);
+  return 1;
+}
+
+static int mark_close_error_then_return(lua_State *L)
+{
+  push_closeable(L, record_close_error);
+  lua_toclose(L, -1);
+  return 0;
+}
+
 static int mark_close_then_error(lua_State *L)
 {
   push_closeable(L, record_close);
@@ -913,6 +934,35 @@ static void test_stack_and_number_api(lua_State *L)
 	"lua_settop closes toclose slot");
   check(L, close_call_count == 1 && close_nil_error_count == 1,
 	"lua_settop close uses nil error");
+
+  close_call_count = 0;
+  close_nil_error_count = 0;
+  lua_pushcfunction(L, mark_close_then_return);
+  check(L, lua_pcall(L, 0, 0, 0) == LUA_OK,
+	"C return closes toclose slot");
+  check(L, close_call_count == 1 && close_nil_error_count == 1,
+	"C return close uses nil error");
+
+  close_call_count = 0;
+  close_nil_error_count = 0;
+  lua_pushcfunction(L, mark_close_then_return_self);
+  check(L, lua_pcall(L, 0, 1, 0) == LUA_OK,
+	"C return keeps closed result slot");
+  check(L, lua_istable(L, -1), "C return keeps closed table result");
+  check(L, close_call_count == 1 && close_nil_error_count == 1,
+	"C return closes returned slot with nil error");
+  lua_pop(L, 1);
+
+  close_call_count = 0;
+  close_nil_error_count = 0;
+  lua_pushcfunction(L, mark_close_error_then_return);
+  check(L, lua_pcall(L, 0, 0, 0) == LUA_ERRRUN,
+	"C return close error status");
+  check(L, close_call_count == 1 && close_nil_error_count == 1,
+	"C return close error uses nil original error");
+  check(L, strstr(lua_tostring(L, -1), "capi close boom") != NULL,
+	"C return close error text");
+  lua_pop(L, 1);
 
   close_call_count = 0;
   close_body_error_count = 0;

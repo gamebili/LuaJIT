@@ -183,7 +183,7 @@ static CloseState **close_findunwind(lua_State *L, ptrdiff_t levelofs)
   return NULL;
 }
 
-static int close_unwind(lua_State *L, TValue *level, cTValue *err)
+static int close_unwind(lua_State *L, TValue *level, cTValue *err, int clear)
 {
   ptrdiff_t levelofs = savestack(L, level);
   CloseState **pcs;
@@ -201,7 +201,7 @@ static int close_unwind(lua_State *L, TValue *level, cTValue *err)
     ** rule.
     */
     {
-      int closestatus = close_pcall(L, slot, err, 1);
+      int closestatus = close_pcall(L, slot, err, clear);
       if (closestatus != LUA_OK) {
         status = closestatus;
         err = L->top > tvref(L->stack) ? L->top-1 : niltv(L);
@@ -214,7 +214,7 @@ static int close_unwind(lua_State *L, TValue *level, cTValue *err)
 int lj_close_unwind(lua_State *L, TValue *level)
 {
   cTValue *err = L->top > tvref(L->stack) ? L->top-1 : niltv(L);
-  return close_unwind(L, level, err);
+  return close_unwind(L, level, err, 1);
 }
 
 int lj_close_unwind_status(lua_State *L, TValue *level, int status)
@@ -222,7 +222,21 @@ int lj_close_unwind_status(lua_State *L, TValue *level, int status)
   cTValue *err = niltv(L);
   if (status != LUA_OK && status != LUA_YIELD && L->top > tvref(L->stack))
     err = L->top-1;
-  return close_unwind(L, level, err);
+  return close_unwind(L, level, err, 1);
+}
+
+uint32_t lj_close_cframe(lua_State *L, uint32_t nres1)
+{
+  if (L->closelist != NULL) {
+    /* Lua 5.4 closes C API to-be-closed slots before moving return values
+    ** down and before running the return hook. Do not clear the slots here:
+    ** an active slot may itself be one of the returned values.
+    */
+    int status = close_unwind(L, L->base, niltv(L), 0);
+    if (status != LUA_OK)
+      lua_error(L);
+  }
+  return nres1;
 }
 
 void lj_close_freeall(lua_State *L)
