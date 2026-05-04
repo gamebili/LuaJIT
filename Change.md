@@ -24,6 +24,7 @@
 - 已按官方 Lua 5.4.8 `lauxlib.h` 收紧外部宏入口表面：`luaL_argexpected`、`luaL_pushfail`、`luaL_loadfile`、`luaL_loadbuffer` 和 `luaL_prepbuffer` 在外部 5.4 头中只作为宏可调用，不再暴露可取地址的旧 LuaJIT 函数声明；默认构建和内部 ABI 保持不变。
 - 已按官方 Lua 5.4.8 `luaconf.h` 对齐 continuation/context 与 likely 宏表面：兼容头现在暴露 `LUA_KCONTEXT`、`luai_likely` 和 `luai_unlikely`，`lua_KContext` 由 `LUA_KCONTEXT` 派生；内部短名 `l_likely` / `l_unlikely` 仅在 `LUA_CORE` / `LUA_LIB` 下暴露。
 - 已按官方 Lua 5.4.8 `lualib.h` 收紧外部标准库头表面：单独包含 `lualib.h` 不再暴露 lauxlib-only 的 `LUA_GNAME` / `LUA_FILEHANDLE`，也不再暴露 LuaJIT 专有 `bit` / `jit` / `ffi` / `string.buffer` 库名和 open 函数；默认构建和内部 ABI 保持不变。
+- 已按官方 Lua 5.4.8 `lauxlib.h` / `lualib.h` 对齐 `lua_assert` 归属：`lauxlib.h` 负责兜底暴露 `lua_assert`，外部 5.4 的 `lualib.h` 单独包含时不再暴露该 lauxlib-only 宏。
 - 已继续按官方 Lua 5.4.8 `lua.h` 清理外部兼容头：`lua_open`、`lua_getregistry`、`lua_getgccount`、`lua_Chunkreader`、`lua_Chunkwriter` 和 `lua_setlevel` 不再对外暴露；默认构建 C smoke 覆盖旧兼容宏仍可用。
 - 已按官方 `testes/bwcoercion.lua` 修正 Lua 5.4 lowered operator helper 的 metamethod 返回栈：`__band` / `__idiv` 等路径只返回 metamethod 第一个结果，不再把原操作数漏成额外返回值。
 - 已按官方 `testes/locals.lua` 的 to-be-closed coroutine 用例推进 `<close>` yield 边界：普通块退出和 close-active `return` 路径不再在 C helper 内部调用 `__close`，而是由 parser 生成普通 Lua 调用，因此 `__close` 内 `coroutine.yield()` 后可恢复，并保留返回值数量与 `nil` 洞；error unwind / C return 等路径仍记录在 `TODO.md` 继续由 VM unwind continuation 接管。

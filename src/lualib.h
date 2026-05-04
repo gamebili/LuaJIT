@@ -60,8 +60,10 @@ LUALIB_API int luaopen_string_buffer(lua_State *L);
 
 LUALIB_API void luaL_openlibs(lua_State *L);
 
+#if !LUAJIT_EXTERNAL_LUA54
 #ifndef lua_assert
 #define lua_assert(x)	((void)0)
+#endif
 #endif
 
 #endif

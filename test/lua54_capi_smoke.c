@@ -74,6 +74,10 @@
 #error "Lua 5.4 lauxlib header must expose LUA_PRELOAD_TABLE"
 #endif
 
+#ifndef lua_assert
+#error "Lua 5.4 lauxlib header must expose lua_assert"
+#endif
+
 typedef char lua54_buffer_init_field[
   sizeof(((luaL_Buffer *)0)->init.b) == LUAL_BUFFERSIZE ? 1 : -1
 ];

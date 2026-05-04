@@ -46,6 +46,15 @@
 #endif
 #endif
 
+#ifndef lua_assert
+#if defined LUAI_ASSERT
+#include <assert.h>
+#define lua_assert(c)	assert(c)
+#else
+#define lua_assert(c)	((void)0)
+#endif
+#endif
+
 typedef struct luaL_Reg {
   const char *name;
   lua_CFunction func;

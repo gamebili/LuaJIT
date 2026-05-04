@@ -16,6 +16,10 @@
 #error "Lua 5.4 lualib.h must not expose lauxlib-only LUA_FILEHANDLE"
 #endif
 
+#ifdef lua_assert
+#error "Lua 5.4 lualib.h must not expose lauxlib-only lua_assert"
+#endif
+
 #ifdef LUA_BITLIBNAME
 #error "Lua 5.4 lualib.h must not expose LuaJIT bit library name"
 #endif
