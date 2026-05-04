@@ -15,6 +15,14 @@ typedef char lua54_pushglobaltable_must_return_void[
 ];
 #endif
 
+typedef char lua54_registryindex_formula[
+  LUA_REGISTRYINDEX == (-LUAI_MAXSTACK - 1000) ? 1 : -1
+];
+
+typedef char lua54_upvalueindex_formula[
+  lua_upvalueindex(1) == (LUA_REGISTRYINDEX - 1) ? 1 : -1
+];
+
 #ifdef LUA_LOADED_TABLE
 #error "Lua 5.4 lua.h must not expose lauxlib-only LUA_LOADED_TABLE"
 #endif

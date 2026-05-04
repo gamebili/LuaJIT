@@ -573,6 +573,9 @@ static int mark_close_then_error(lua_State *L)
 
 static int push_upvalue(lua_State *L)
 {
+  /* Lua 5.4 external headers use a registry-based upvalue pseudo-index; this
+  ** exercises the runtime normalization back to LuaJIT's internal upvalue ABI.
+  */
   lua_pushvalue(L, lua_upvalueindex(1));
   return 1;
 }
@@ -725,6 +728,10 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, strcmp(LUA_FILEHANDLE, "FILE*") == 0, "LUA_FILEHANDLE");
   check(L, LUAL_BUFFERSIZE == (int)(16 * sizeof(void *) * sizeof(lua_Number)),
 	"LUAL_BUFFERSIZE Lua 5.4 formula");
+  check(L, LUA_REGISTRYINDEX == (-LUAI_MAXSTACK - 1000),
+	"LUA_REGISTRYINDEX Lua 5.4 formula");
+  check(L, lua_upvalueindex(1) == (LUA_REGISTRYINDEX - 1),
+	"lua_upvalueindex Lua 5.4 formula");
   check(L, strcmp(LUA_LOADED_TABLE, "_LOADED") == 0, "LUA_LOADED_TABLE");
   check(L, strcmp(LUA_PRELOAD_TABLE, "_PRELOAD") == 0, "LUA_PRELOAD_TABLE");
   check(L, strcmp(LUA_VERSUFFIX, "_5_4") == 0, "LUA_VERSUFFIX");

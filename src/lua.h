@@ -55,16 +55,17 @@
 /*
 ** pseudo-indices
 */
+#if LUAJIT_EXTERNAL_LUA54
+#define LUA_REGISTRYINDEX	(-LUAI_MAXSTACK - 1000)
+/* External Lua 5.4 code passes the official pseudo-index range. The API
+** normalizes these values to LuaJIT's internal registry/upvalue slots.
+*/
+#define lua_upvalueindex(i)	(LUA_REGISTRYINDEX-(i))
+#else
 #define LUA_REGISTRYINDEX	(-10000)
-#if !LUAJIT_EXTERNAL_LUA54
 #define LUA_ENVIRONINDEX	(-10001)
 #define LUA_GLOBALSINDEX	(-10002)
 #define lua_upvalueindex(i)	(LUA_GLOBALSINDEX-(i))
-#else
-/* Keep external Lua 5.4 headers free of Lua 5.1-only pseudo-index names while
-** preserving LuaJIT's internal upvalue index values for ABI compatibility.
-*/
-#define lua_upvalueindex(i)	(-10002-(i))
 #endif
 
 #define LUA_RIDX_MAINTHREAD	1
