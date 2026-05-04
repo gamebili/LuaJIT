@@ -43,7 +43,12 @@ LUA_API const char lua_ident[] =
   lj_checkapi((idx) <= (L->top - L->base), "stack slot %d out of range", (idx))
 
 #if LJ_54
-#define LJ_54_REGISTRYINDEX	(-LUAI_MAXSTACK - 1000)
+#if LUAI_IS32INT
+#define LJ_54_REGISTRYINDEX	(-1000000 - 1000)
+#else
+#define LJ_54_REGISTRYINDEX	(-15000 - 1000)
+#endif
+#define LJ_54_LJ_REGISTRYINDEX	(-LUAI_MAXSTACK - 1000)
 #endif
 
 static TValue *index2adr(lua_State *L, int idx)
@@ -56,7 +61,7 @@ static TValue *index2adr(lua_State *L, int idx)
 		"bad stack slot %d", idx);
     return L->top + idx;
 #if LJ_54
-  } else if (idx == LJ_54_REGISTRYINDEX) {
+  } else if (idx == LJ_54_REGISTRYINDEX || idx == LJ_54_LJ_REGISTRYINDEX) {
     /* External Lua 5.4 headers use a different registry pseudo-index formula.
     ** Accept it here without changing LuaJIT's internal/default ABI values.
     */
@@ -66,6 +71,15 @@ static TValue *index2adr(lua_State *L, int idx)
     lj_checkapi(fn->c.gct == ~LJ_TFUNC && !isluafunc(fn),
 		"calling frame is not a C function");
     idx = LJ_54_REGISTRYINDEX - idx;
+    return idx <= fn->c.nupvalues ? &fn->c.upvalue[idx-1] : niltv(L);
+  } else if (idx < LJ_54_LJ_REGISTRYINDEX) {
+    GCfunc *fn = curr_func(L);
+    /* Accept modules compiled against earlier compat headers from this branch;
+    ** they used LuaJIT's internal LUAI_MAXSTACK in the official 5.4 formula.
+    */
+    lj_checkapi(fn->c.gct == ~LJ_TFUNC && !isluafunc(fn),
+		"calling frame is not a C function");
+    idx = LJ_54_LJ_REGISTRYINDEX - idx;
     return idx <= fn->c.nupvalues ? &fn->c.upvalue[idx-1] : niltv(L);
 #endif
   } else if (idx == LUA_GLOBALSINDEX) {

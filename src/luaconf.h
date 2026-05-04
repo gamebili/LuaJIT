@@ -9,6 +9,7 @@
 #ifndef WINVER
 #define WINVER 0x0501
 #endif
+#include <limits.h>
 #include <stddef.h>
 
 /* Default path for loading Lua and C modules with require(). */
@@ -127,7 +128,21 @@
 #define LUA_QS		LUA_QL("%s")
 
 /* Various tunables. */
+#define LUAI_IS32INT	((UINT_MAX >> 30) >= 3)
+#if defined(LUAJIT_ENABLE_LUA54COMPAT) && !defined(LUA_CORE) && \
+    !defined(LUA_LIB) && !defined(LUAJIT_INTERNAL_USE)
+/* Official Lua 5.4 exposes a larger API pseudo-index range through
+** LUAI_MAXSTACK. Keep LuaJIT's real VM stack limit internal, but make external
+** 5.4 headers compute the same registry/upvalue pseudo-index values as Lua.
+*/
+#if LUAI_IS32INT
+#define LUAI_MAXSTACK	1000000
+#else
+#define LUAI_MAXSTACK	15000
+#endif
+#else
 #define LUAI_MAXSTACK	65500	/* Max. # of stack slots for a thread (<64K). */
+#endif
 #define LUAI_MAXCSTACK	8000	/* Max. # of stack slots for a C func (<10K). */
 #define LUAI_GCPAUSE	200	/* Pause GC until memory is at 200%. */
 #define LUAI_GCMUL	200	/* Run GC at 200% of allocation speed. */

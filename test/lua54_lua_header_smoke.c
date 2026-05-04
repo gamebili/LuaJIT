@@ -15,6 +15,14 @@ typedef char lua54_pushglobaltable_must_return_void[
 ];
 #endif
 
+#ifndef LUAI_IS32INT
+#error "Lua 5.4 luaconf.h must expose LUAI_IS32INT"
+#endif
+
+typedef char lua54_luai_maxstack_formula[
+  LUAI_MAXSTACK == (LUAI_IS32INT ? 1000000 : 15000) ? 1 : -1
+];
+
 typedef char lua54_registryindex_formula[
   LUA_REGISTRYINDEX == (-LUAI_MAXSTACK - 1000) ? 1 : -1
 ];

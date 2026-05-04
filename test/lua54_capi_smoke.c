@@ -728,6 +728,8 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, strcmp(LUA_FILEHANDLE, "FILE*") == 0, "LUA_FILEHANDLE");
   check(L, LUAL_BUFFERSIZE == (int)(16 * sizeof(void *) * sizeof(lua_Number)),
 	"LUAL_BUFFERSIZE Lua 5.4 formula");
+  check(L, LUAI_MAXSTACK == (LUAI_IS32INT ? 1000000 : 15000),
+	"LUAI_MAXSTACK Lua 5.4 formula");
   check(L, LUA_REGISTRYINDEX == (-LUAI_MAXSTACK - 1000),
 	"LUA_REGISTRYINDEX Lua 5.4 formula");
   check(L, lua_upvalueindex(1) == (LUA_REGISTRYINDEX - 1),
