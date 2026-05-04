@@ -3,6 +3,7 @@
 ## 当前进展
 
 - 已按要求采用 `Change.md` 记录修改、新功能和进展；仓库中未创建 `Modify.md`。
+- 已调整后续实现策略：`TODO.md` 新增按底层依赖分批推进的实施规划，后续优先按 VM unwind/`<close>`、真实 `_ENV`、64 位整数/数值表示、debug frame metadata、平台/JIT、C API/标准库收尾这些批次推进，不再逐条零散清 TODO。
 - 已完成实验性 Lua 5.4 兼容模式的阶段性实现与测试。
 - 已通过 `make test` 验证默认构建和 Lua 5.4 兼容构建的 smoke 测试。
 - 已继续推进 Lua 5.4 语言层属性语法：`local x <const>` / `local x <close>` 已进入测试覆盖。

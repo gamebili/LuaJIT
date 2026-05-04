@@ -4,6 +4,44 @@
 覆盖范围，以及和本机 `lua5.4.8` 的行为探针对比。后续继续实现时仍按
 “先写用例，再补实现，再跑完整测试”的顺序推进。
 
+## 实施规划：按底层依赖成批推进
+
+后续不再按 TODO 条目逐个零散修补，而按下面的底层依赖分批推进。每一批
+先补稳定接口和回归用例，再把依赖该接口的多个 TODO 一起收口。
+
+1. **VM unwind / to-be-closed 批次**
+   - 目标：为 `<close>` 建立 VM 级关闭接口，而不是继续堆 parser helper。
+   - 覆盖：`return f()` 动态多返回、error unwind、`pcall`/`xpcall`、coroutine close、generic for closing value 错误展开、`lua_toclose` 自动随 C frame 退出关闭。
+   - 接口要求：需要能保存动态返回值数量、传递错误对象给 `__close(value, err)`，并在 `__close` 自身抛错时按 Lua 5.4 规则替换/传播错误。
+   - 验证面：Lua smoke + C API smoke + PC/Android ARM64；iOS/Emscripten 在平台批次补工具链后纳入。
+   - 接口草案：新增统一 runtime close 层，至少提供“声明时校验 closable”“按栈层级 LIFO close”“带错误对象 close”“return 动态结果保护后 close”四类入口；当前 `_lua54_checkclose` / `_lua54_closevalue` parser helper 后续只能作为临时桥接，不能继续扩成最终方案。
+   - 批量完成标准：同一批提交应同时覆盖普通 Lua return/error、generic-for closing value、coroutine reset/close 和 C API `lua_toclose` 自动关闭路径，避免每条控制流各写一套 close 调度。
+
+2. **真实 `_ENV` upvalue 批次**
+   - 目标：减少伪 `_ENV` 对 LuaJIT 函数环境的依赖，为隐式全局访问提供可被 debug API 操作的真实 upvalue 语义。
+   - 覆盖：`debug.setupvalue(load("return x"), 1, non_table)`、`debug.upvaluejoin`、dump/load 后 `_ENV` identity、stripped dump upvalue 名称差异。
+   - 接口要求：明确真实 `_ENV` upvalue 与旧 `fn->c.env` 的同步边界，保留默认构建 LuaJIT 5.1 ABI 不受影响。
+
+3. **64 位整数 / 数值表示批次**
+   - 目标：统一 `lua_Integer`、TValue 数字子类型、字符串扫描、格式化、算术、bitwise、numeric for 和 JIT recorder 的整数路径。
+   - 覆盖：`1 << 40`、`math.mininteger/maxinteger`、`math.type(1.0)`、`"1.0"+2`、`math.tointeger`、`math.ult`、`string.pack("j/i8/I8")`、C API integer 边界。
+   - 接口要求：先决定 dual-number / 64-bit integer 表示与 JIT IR 扩展策略，再批量改库函数；不要在单个库函数里继续做 32 位补丁。
+
+4. **debug frame metadata 批次**
+   - 目标：在 VM frame 层保留 Lua 5.4 hook/tailcall 所需元信息。
+   - 覆盖：真实 `istailcall`、C function return hook transfer、tail call transfer、Lua/C hook 的边界一致性。
+   - 接口要求：call/return hook 的 transfer 信息应来自统一 frame/dispatch 元数据，而不是每个 hook 特判。
+
+5. **平台和 JIT 批次**
+   - 目标：把 PC/Android/iOS/Emscripten 64 位构建矩阵变成常规验证门，并明确各平台 JIT/解释器策略。
+   - 覆盖：Windows PC x64、Android ARM64、iOS ARM64、Emscripten wasm/wasm64；JIT on/off 和 Lua 5.4 compat smoke。
+   - 接口要求：Emscripten 不能假设传统本机 JIT；需要单独 wasm/interpreter 后端或明确禁用 JIT 的构建路径。
+
+6. **C API / lauxlib / 标准库收尾批次**
+   - 目标：在上述底层接口稳定后，统一核对 ABI、头文件宏、错误文本和冷门边界。
+   - 覆盖：continuation API、allocator 缩小失败语义、旧 LuaJIT API 默认构建兼容、lauxlib 冷门宏组合、标准库逐字错误文本。
+   - 接口要求：新增外部 Lua 5.4 ABI wrapper 时必须保留内部旧 ABI，避免破坏 LuaJIT 自身和默认构建。
+
 ## P0：核心语义缺口
 
 - [ ] `<close>` 的运行期 `__close` 调度。
