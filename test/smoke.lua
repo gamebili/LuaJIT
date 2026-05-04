@@ -730,14 +730,28 @@ do
   end
   do
     local string_mt = debug.getmetatable("")
-    local old_band, old_idiv = string_mt.__band, string_mt.__idiv
-    string_mt.__band = function(a, b) return "band", a, b end
-    string_mt.__idiv = function(a, b) return "idiv", a, b end
-    local r1, r2 = assert(load([[return "7" & 3]]))()
-    assert(r1 == "band" and r2 == nil)
-    r1, r2 = assert(load([[return "x" // 3]]))()
-    assert(r1 == "idiv" and r2 == nil)
-    string_mt.__band, string_mt.__idiv = old_band, old_idiv
+    local names = { "band", "bor", "bxor", "bnot", "shl", "shr", "idiv" }
+    local old = {}
+    for _, name in ipairs(names) do
+      old[name] = string_mt["__"..name]
+      string_mt["__"..name] = function(a, b) return name, a, b end
+    end
+    local cases = {
+      { [[return "7" & 3]], "band" },
+      { [[return "x" | 3]], "bor" },
+      { [[return "x" ~ 3]], "bxor" },
+      { [[return ~"x"]], "bnot" },
+      { [[return "x" << 3]], "shl" },
+      { [[return "x" >> 3]], "shr" },
+      { [[return "x" // 3]], "idiv" },
+    }
+    for _, case in ipairs(cases) do
+      local r1, r2 = assert(load(case[1]))()
+      assert(r1 == case[2] and r2 == nil)
+    end
+    for _, name in ipairs(names) do
+      string_mt["__"..name] = old[name]
+    end
   end
   do
     local ok, err = pcall(assert(load([[return "x" // 1]])))

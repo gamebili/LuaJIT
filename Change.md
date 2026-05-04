@@ -391,7 +391,7 @@
 - 覆盖 Lua 5.4 C API `lua_toclose` / `lua_closeslot` 的 LIFO 顺序约束：重复标记同一槽、标记低于 active slot、nil 低于 active slot 都会报 `below or equal`，`lua_closeslot` 关闭非最后 marked slot 会报 `no variable to close`，按 LIFO 显式关闭两个槽位成功。
 - 覆盖 Lua 5.4.8 版本头文件常量和识别符：`LUA_VERSION_RELEASE`、`LUA_RELEASE`、`LUA_VERSION_RELEASE_NUM`、`LUA_COPYRIGHT`、`LUA_AUTHORS` 和 `lua_ident` 均按官方 5.4.8 暴露。
 - 覆盖 Lua 5.4 外部兼容头中的 `lua_sethook` 官方签名：纯 `lua.h` 编译烟测会断言其函数指针类型为 `void (*)(lua_State *, lua_Hook, int, int)`。
-- 覆盖 Lua 5.4 lowered bitwise/idiv helper 的 string metatable metamethod 返回值：`"7" & 3` 和 `"x" // 3` 在对应 metamethod 返回多值时只保留第一个结果。
+- 覆盖 Lua 5.4 lowered bitwise/idiv helper 的 string metatable metamethod 返回值：`&` / `|` / `~` / unary `~` / `<<` / `>>` / `//` 在对应 metamethod 返回多值时只保留第一个结果。
 - 覆盖 Lua 5.4 外部兼容头不会暴露 `LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` / `lua_strlen`，并覆盖 `lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 的 registry globals 路径。
 - 覆盖 Lua 5.4 外部兼容头暴露 `LUA_RIDX_LAST`，并确认其值等于 `LUA_RIDX_GLOBALS`。
 - 覆盖 Lua 5.4 外部兼容头暴露 `LUA_EXTRASPACE`，并确认其大小与当前 pointer-sized extraspace 实现一致。
