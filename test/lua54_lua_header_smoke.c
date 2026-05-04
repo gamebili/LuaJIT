@@ -19,6 +19,24 @@ typedef char lua54_pushglobaltable_must_return_void[
 #error "Lua 5.4 luaconf.h must expose LUAI_IS32INT"
 #endif
 
+#ifndef LUA_KCONTEXT
+#error "Lua 5.4 luaconf.h must expose LUA_KCONTEXT"
+#endif
+
+#ifndef luai_likely
+#error "Lua 5.4 luaconf.h must expose luai_likely"
+#endif
+
+#ifndef luai_unlikely
+#error "Lua 5.4 luaconf.h must expose luai_unlikely"
+#endif
+
+#if defined(__GNUC__) || defined(__clang__)
+typedef char lua54_kcontext_type[
+  __builtin_types_compatible_p(lua_KContext, LUA_KCONTEXT) ? 1 : -1
+];
+#endif
+
 typedef char lua54_luai_maxstack_formula[
   LUAI_MAXSTACK == (LUAI_IS32INT ? 1000000 : 15000) ? 1 : -1
 ];

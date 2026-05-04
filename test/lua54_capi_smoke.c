@@ -738,6 +738,8 @@ static void test_stack_and_number_api(lua_State *L)
 	"LUAL_BUFFERSIZE Lua 5.4 formula");
   check(L, LUAI_MAXSTACK == (LUAI_IS32INT ? 1000000 : 15000),
 	"LUAI_MAXSTACK Lua 5.4 formula");
+  check(L, luai_likely(1) && !luai_likely(0), "luai_likely");
+  check(L, luai_unlikely(1) && !luai_unlikely(0), "luai_unlikely");
   check(L, LUA_REGISTRYINDEX == (-LUAI_MAXSTACK - 1000),
 	"LUA_REGISTRYINDEX Lua 5.4 formula");
   check(L, lua_upvalueindex(1) == (LUA_REGISTRYINDEX - 1),

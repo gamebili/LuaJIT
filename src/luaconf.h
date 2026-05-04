@@ -187,6 +187,30 @@
 #define LUAI_MAXNUMBER2STR	32
 #define LUA_INTFRMLEN		"l"
 #define LUA_INTFRM_T		long
+#ifndef LUA_KCONTEXT
+#define LUA_KCONTEXT	ptrdiff_t
+#if !defined(LUA_USE_C89) && defined(__STDC_VERSION__) && \
+    __STDC_VERSION__ >= 199901L
+#include <stdint.h>
+#if defined(INTPTR_MAX)
+#undef LUA_KCONTEXT
+#define LUA_KCONTEXT	intptr_t
+#endif
+#endif
+#endif
+#if !defined(luai_likely)
+#if defined(__GNUC__) && !defined(LUA_NOBUILTIN)
+#define luai_likely(x)		(__builtin_expect(((x) != 0), 1))
+#define luai_unlikely(x)	(__builtin_expect(((x) != 0), 0))
+#else
+#define luai_likely(x)		(x)
+#define luai_unlikely(x)	(x)
+#endif
+#endif
+#if defined(LUA_CORE) || defined(LUA_LIB)
+#define l_likely(x)	luai_likely(x)
+#define l_unlikely(x)	luai_unlikely(x)
+#endif
 #ifdef LUAJIT_ENABLE_LUA54COMPAT
 /* Lua 5.4's luaL_Buffer embeds its initial storage in a max-aligned union.
 ** Keep the macro available so external lauxlib users see the official layout.

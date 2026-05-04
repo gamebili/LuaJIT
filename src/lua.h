@@ -89,7 +89,11 @@
 typedef struct lua_State lua_State;
 
 typedef int (*lua_CFunction) (lua_State *L);
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+typedef LUA_KCONTEXT lua_KContext;
+#else
 typedef ptrdiff_t lua_KContext;
+#endif
 typedef int (*lua_KFunction) (lua_State *L, int status, lua_KContext ctx);
 typedef void (*lua_WarnFunction) (void *ud, const char *msg, int tocont);
 
