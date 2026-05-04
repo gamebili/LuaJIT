@@ -328,6 +328,25 @@ static int push_upvalue(lua_State *L)
   return 1;
 }
 
+static int capi_tostring_meta(lua_State *L)
+{
+  (void)L;
+  lua_pushliteral(L, "meta tostring");
+  return 1;
+}
+
+static int checkoption_arg(lua_State *L)
+{
+  static const char *opts[] = { "alpha", "beta", "gamma", NULL };
+  lua_pushinteger(L, luaL_checkoption(L, 1, "beta", opts));
+  return 1;
+}
+
+static int laux_error_arg(lua_State *L)
+{
+  return luaL_error(L, "laux boom");
+}
+
 static const luaL_Reg capi_newlib[] = {
   { "answer", push_answer },
   { NULL, NULL }
@@ -908,7 +927,9 @@ static void test_lauxlib_api(lua_State *L)
   luaL_Buffer b;
   luaL_Stream stream;
   char *p;
+  const char *gs;
   int status;
+  int ref;
   int rtype;
   void *ud;
   CApiReaderCtx reader;
@@ -964,6 +985,27 @@ static void test_lauxlib_api(lua_State *L)
   check(L, lua_isnil(L, -1), "luaL_pushfail pushes nil");
   lua_pop(L, 1);
 
+  lua_pushcfunction(L, checkoption_arg);
+  status = lua_pcall(L, 0, 1, 0);
+  check(L, status == LUA_OK, "luaL_checkoption default status");
+  check_integer(L, -1, 1, "luaL_checkoption default index");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, checkoption_arg);
+  lua_pushliteral(L, "gamma");
+  status = lua_pcall(L, 1, 1, 0);
+  check(L, status == LUA_OK, "luaL_checkoption explicit status");
+  check_integer(L, -1, 2, "luaL_checkoption explicit index");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, checkoption_arg);
+  lua_pushliteral(L, "delta");
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_checkoption rejects option");
+  check(L, strstr(lua_tostring(L, -1), "invalid option") != NULL,
+	"luaL_checkoption error");
+  lua_pop(L, 1);
+
   check(L, luaL_intop(+, LUA_MAXINTEGER, 1) == LUA_MININTEGER,
 	"luaL_intop add wrap");
   check(L, luaL_intop(-, LUA_MININTEGER, 1) == LUA_MAXINTEGER,
@@ -982,6 +1024,29 @@ static void test_lauxlib_api(lua_State *L)
 
   check(L, luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE) == 1,
 	"LUA_LOADED_TABLE");
+  lua_pop(L, 1);
+
+  gs = luaL_gsub(L, "a-b-a", "-", "_");
+  check(L, gs != NULL && strcmp(gs, "a_b_a") == 0,
+	"luaL_gsub return value");
+  check_string(L, -1, "a_b_a", "luaL_gsub pushes result");
+  lua_pop(L, 1);
+
+  lua_newtable(L);
+  lua_pushliteral(L, "ref-value");
+  ref = luaL_ref(L, -2);
+  check(L, ref > 0, "luaL_ref positive ref");
+  lua_rawgeti(L, -1, ref);
+  check_string(L, -1, "ref-value", "luaL_ref stored value");
+  lua_pop(L, 1);
+  luaL_unref(L, -1, ref);
+  lua_rawgeti(L, -1, ref);
+  check(L, lua_isnil(L, -1), "luaL_unref clears ref");
+  lua_pop(L, 1);
+  lua_pushnil(L);
+  check(L, luaL_ref(L, -2) == LUA_REFNIL, "luaL_ref nil sentinel");
+  luaL_unref(L, -1, LUA_NOREF);
+  luaL_unref(L, -1, LUA_REFNIL);
   lua_pop(L, 1);
 
   luaL_requiref(L, "capi.mod", require_open, 1);
@@ -1041,6 +1106,40 @@ static void test_lauxlib_api(lua_State *L)
   check(L, luaL_testudata(L, -1, "capi.other") == NULL,
 	"luaL_testudata mismatch");
   check(L, luaL_checkudata(L, -1, "capi.ud") == ud, "luaL_checkudata match");
+  lua_pop(L, 1);
+
+  lua_newtable(L);
+  check(L, strcmp(luaL_typename(L, -1), "table") == 0,
+	"luaL_typename table");
+  lua_newtable(L);
+  lua_pushliteral(L, "CapiMeta");
+  lua_setfield(L, -2, "__name");
+  lua_pushcfunction(L, capi_tostring_meta);
+  lua_setfield(L, -2, "__tostring");
+  lua_setmetatable(L, -2);
+  check(L, luaL_getmetafield(L, -1, "__name") == 1,
+	"luaL_getmetafield returns field");
+  check_string(L, -1, "CapiMeta", "luaL_getmetafield value");
+  lua_pop(L, 1);
+  {
+    int top = lua_gettop(L);
+    check(L, luaL_getmetafield(L, -1, "__missing") == 0,
+	  "luaL_getmetafield missing");
+    check(L, lua_gettop(L) == top, "luaL_getmetafield missing stack");
+  }
+  check(L, luaL_callmeta(L, -1, "__tostring") == 1,
+	"luaL_callmeta calls metamethod");
+  check_string(L, -1, "meta tostring", "luaL_callmeta result");
+  lua_pop(L, 2);
+
+  luaL_where(L, 0);
+  check(L, lua_isstring(L, -1), "luaL_where pushes string");
+  lua_pop(L, 1);
+  lua_pushcfunction(L, laux_error_arg);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_error status");
+  check(L, strstr(lua_tostring(L, -1), "laux boom") != NULL,
+	"luaL_error message");
   lua_pop(L, 1);
 
   luaL_traceback(L, L, "trace-msg", 0);

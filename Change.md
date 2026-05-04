@@ -27,6 +27,7 @@
 - 已继续补 lauxlib C API smoke：`luaL_loadbufferx()` / `luaL_loadfilex()` 的 text 模式加载和 binary-only 模式拒绝 text chunk 已进入回归。
 - 已继续补 lauxlib C API smoke：覆盖 `luaL_fileresult()`、`luaL_execresult()`、`luaL_newlib()`、`luaL_setfuncs()`、registered metatable/userdata helper、`luaL_traceback()` 和 `luaL_dostring()`。
 - 已继续补 Lua 5.4 lauxlib 头文件宏：新增 `luaL_intop()`，按当前兼容层公开的 32 位整数范围做 unsigned wraparound，并进入 C API smoke。
+- 已继续扩展 Lua 5.4 lauxlib C API smoke：覆盖 `luaL_checkoption()`、`luaL_gsub()`、`luaL_ref()` / `luaL_unref()`、`luaL_getmetafield()`、`luaL_callmeta()`、`luaL_where()`、`luaL_error()` 和 `luaL_typename()`。
 - 已继续补 Lua 5.4 lauxlib 头文件宏：`LUA_GNAME` / `LUA_FILEHANDLE` 现在可由 `lauxlib.h` 单独暴露，`lualib.h` 保留保护式定义兼容旧包含顺序。
 - 已继续对齐 Lua 5.4 头文件归属：`LUA_LOADED_TABLE` / `LUA_PRELOAD_TABLE` 现在由 `lauxlib.h` 暴露；新增 `lua.h` 单独包含 smoke，防止外部 Lua 5.4 `lua.h` 泄露 lauxlib-only 宏。
 - 已继续补 Lua 5.4 `lualib.h` 头文件宏：新增 `LUA_VERSUFFIX`，并在 C API smoke 中确认值为 `"_5_4"`。
