@@ -15,7 +15,8 @@ LJ_FUNC int lj_close_check(lua_State *L, cTValue *o);
 LJ_FUNC int lj_close_call(lua_State *L, TValue *slot, cTValue *err, int clear);
 LJ_FUNC void lj_close_mark(lua_State *L, TValue *slot);
 LJ_FUNC void lj_close_unmark(lua_State *L, TValue *slot);
-LJ_FUNC void lj_close_unwind(lua_State *L, TValue *level);
+LJ_FUNC int lj_close_unwind(lua_State *L, TValue *level);
+LJ_FUNC int lj_close_unwind_status(lua_State *L, TValue *level, int status);
 LJ_FUNC void lj_close_freeall(lua_State *L);
 #endif
 

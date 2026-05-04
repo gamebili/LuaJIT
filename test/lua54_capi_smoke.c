@@ -408,6 +408,15 @@ static int record_close(lua_State *L)
   return 0;
 }
 
+static int record_close_error(lua_State *L)
+{
+  close_call_count++;
+  if (lua_gettop(L) == 2 && lua_isnil(L, 2))
+    close_nil_error_count++;
+  lua_pushliteral(L, "capi close boom");
+  return lua_error(L);
+}
+
 static int mark_nonclosable_slot(lua_State *L)
 {
   lua_pushinteger(L, 1);
@@ -899,6 +908,44 @@ static void test_stack_and_number_api(lua_State *L)
 	"lua_closethread yielded return");
   check(L, lua_status(co) == LUA_OK, "lua_closethread yielded status");
   check(L, lua_gettop(co) == 0, "lua_closethread yielded clears stack");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, record_close);
+  lua_setglobal(L, "capi_record_close");
+  co = lua_newthread(L);
+  close_call_count = 0;
+  close_nil_error_count = 0;
+  check(L, luaL_loadstring(co,
+	"local mt={__close=capi_record_close}; "
+	"local x <close> = setmetatable({}, mt); coroutine.yield('paused')") ==
+	LUA_OK, "lua_closethread tbc load");
+  check(L, lua_resume(co, L, 0, NULL) == LUA_YIELD,
+	"lua_closethread tbc yield");
+  check(L, lua_closethread(co, L) == LUA_OK,
+	"lua_closethread tbc return");
+  check(L, close_call_count == 1 && close_nil_error_count == 1,
+	"lua_closethread closes tbc with nil error");
+  check(L, lua_status(co) == LUA_OK, "lua_closethread tbc status");
+  check(L, lua_gettop(co) == 0, "lua_closethread tbc clears stack");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, record_close_error);
+  lua_setglobal(L, "capi_record_close_error");
+  co = lua_newthread(L);
+  close_call_count = 0;
+  close_nil_error_count = 0;
+  check(L, luaL_loadstring(co,
+	"local mt={__close=capi_record_close_error}; "
+	"local x <close> = setmetatable({}, mt); coroutine.yield('paused')") ==
+	LUA_OK, "lua_closethread tbc close-error load");
+  check(L, lua_resume(co, L, 0, NULL) == LUA_YIELD,
+	"lua_closethread tbc close-error yield");
+  check(L, lua_closethread(co, L) == LUA_ERRRUN,
+	"lua_closethread tbc close-error return");
+  check_string(co, 1, "capi close boom",
+	"lua_closethread tbc close-error object");
+  check(L, close_call_count == 1 && close_nil_error_count == 1,
+	"lua_closethread reports close error after nil close");
   lua_pop(L, 1);
 
   co = lua_newthread(L);

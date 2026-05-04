@@ -8,6 +8,7 @@
 - 已补 close-active 动态返回路径：`return f()` 和 `return fixed, ...` 会先保存动态返回值数量与 nil 洞，再按 LIFO 执行 `__close(value, nil)`，最后恢复原返回值；当前通过私有 pack/close/unpack 桥接实现，后续 VM unwind 接管时应替换该桥接。
 - 已下载官方 Lua 5.4.8 源码到 `D:\p4_gl2\pristine\tools\lua\lua-5.4.8-src\lua-5.4.8` 作为源码级对照；当前 `<close>` 异常展开按 `luaF_close` / `luaD_closeprotected` 的错误替换语义校准。
 - 已补 Lua 5.4 `<close>` error unwind 桥接：声明时记录真实 Lua local 槽位，异常展开时按栈层级 LIFO 调用 `__close(value, err)`；`pcall` / `xpcall`、`__close` 自身抛错替换错误对象，以及 generic for 第 4 个 closing value 的错误展开已进入 smoke。
+- 已补 Lua 5.4 coroutine reset/close 的 `<close>` 路径：`coroutine.close`、`lua_closethread()` 和 `lua_resetthread()` 会关闭 suspended coroutine 中的 active close locals，yield 状态传 `nil` 错误对象；`__close` 抛错时返回失败和替换后的错误，再次 close 不会重复报错。
 - 已修复 Lua 5.4 compat 的 amalgamation 构建遗漏：`ljamalg.c` 现在包含 `lib_utf8.c`，避免 `luaopen_utf8` 在合并编译链接时缺失。
 - 已完成实验性 Lua 5.4 兼容模式的阶段性实现与测试。
 - 已通过 `make test` 验证默认构建和 Lua 5.4 兼容构建的 smoke 测试。
@@ -54,7 +55,7 @@
 - 已继续补 Lua 5.4 `lauxlib.h` newlib 宏：外部兼容头中的 `luaL_newlib` 现在按官方先执行 `luaL_checkversion()`，默认 LuaJIT 5.1 宏保持不变。
 - 已继续补 Lua 5.4 C API smoke：`lua_isyieldable()` 已覆盖主 C frame 返回 false、通过 `lua_resume()` 进入 coroutine C frame 返回 true。
 - 已继续补 Lua 5.4 `lua.h` 兼容宏：新增 `LUA_NUMTAGS` 作为 `LUA_NUMTYPES` 别名，并进入 C API smoke。
-- 已继续补 Lua 5.4 C API 表面：新增 `lua_closethread()` no-`<close>` 基础实现，覆盖 yielded/fresh coroutine 关闭后返回 `LUA_OK`、清空栈并恢复 OK 状态。
+- 已继续补 Lua 5.4 C API 表面：新增 `lua_closethread()` / `lua_resetthread()` 基础实现，覆盖 yielded/fresh coroutine 关闭后返回 `LUA_OK`、清空栈并恢复 OK 状态；当前也会关闭 suspended coroutine 中的 active close locals。
 - 已继续扩展 Lua 5.4 C API smoke：覆盖 `lua_toclose()` 拒绝 non-closable 值、`lua_closeslot()` 关闭带 `__close` 的 table、false close value 跳过关闭且槽位被置为 `nil`。
 - 已继续扩展 Lua 5.4 C API smoke：覆盖 `lua_version` 作为官方 value-returning 函数指针调用并返回 `LUA_VERSION_NUM`。
 - 已继续补 Lua 5.4 deprecated intcast 兼容宏：在 `LUA_COMPAT_APIINTCASTS` 下暴露 `lua_pushunsigned` / `lua_tounsignedx` / `lua_tounsigned` / `luaL_checkunsigned` / `luaL_optunsigned`，并新增单独 C smoke。
@@ -378,6 +379,7 @@
 - 覆盖 Lua 5.4 `<close>` 前向 `goto`：跳出包含 close local 的块时关闭该变量；goto 后才声明的 close local 不会被错误关闭；跳到同一作用域内标签不会提前关闭。
 - 覆盖 Lua 5.4 generic for 第 4 个 closing value：循环自然结束和 `break` 都会调用 `__close(value, nil)`；第 4 个值为非 closable 时会按 `(for state)` 报错。
 - 覆盖 Lua 5.4 `<close>` 错误展开：`pcall` / `xpcall` 会把错误对象传给 `__close(value, err)`，`__close` 自身抛错会替换原错误，generic for 第 4 个 closing value 在 iterator 抛错时会自动关闭。
+- 覆盖 Lua 5.4 coroutine close/reset 的 `<close>` 路径：`coroutine.close` 和 `lua_closethread()` 会关闭 suspended coroutine 中的 active close locals，close 错误会按 Lua 5.4 返回失败和错误对象，且重入关闭同一个 running coroutine 会报错。
 - 覆盖 Lua 5.4 外部兼容头不会暴露 `LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` / `lua_strlen`，并覆盖 `lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 的 registry globals 路径。
 - 覆盖 Lua 5.4 外部兼容头暴露 `LUA_RIDX_LAST`，并确认其值等于 `LUA_RIDX_GLOBALS`。
 - 覆盖 Lua 5.4 外部兼容头暴露 `LUA_EXTRASPACE`，并确认其大小与当前 pointer-sized extraspace 实现一致。
@@ -457,7 +459,7 @@
 
 - `make test` 已通过。
 - 已用本机 `D:\p4_gl2\pristine\tools\lua\lua5.4.8\lua54.exe` 对比标准库可见 API；当前 Lua 5.4 兼容构建的 `_G` 主要标准库表项与 Lua 5.4.8 一致，额外保留 LuaJIT 自身 `jit` 扩展。
-- 已确认下一批主要未支持语言功能转为 `<close>` 的 coroutine/C API 自动关闭/yield 边界，以及 Lua 5.4 64 位整数完整语义；这些需要 VM/字节码层继续实现。
+- 已确认下一批主要未支持语言功能转为 `<close>` 的 C API 自动关闭/yield 边界，以及 Lua 5.4 64 位整数完整语义；这些需要 VM/字节码层继续实现。
 - 本机验证时需要先把 `D:\p4_gl2\pristine\ruby\Ruby33-x64\msys64\ucrt64\bin` 前置到 `PATH`，否则顶层 `make` 能启动但 `src/Makefile` 找不到 `gcc`。
 - CodeQL 检查未发现安全告警。
 - 自动代码审查提出的问题已处理：

@@ -183,14 +183,16 @@ static CloseState **close_findunwind(lua_State *L, ptrdiff_t levelofs)
   return NULL;
 }
 
-void lj_close_unwind(lua_State *L, TValue *level)
+static int close_unwind(lua_State *L, TValue *level, cTValue *err)
 {
   ptrdiff_t levelofs = savestack(L, level);
   CloseState **pcs;
+  int status = LUA_OK;
+  if (err == NULL)
+    err = niltv(L);
   while ((pcs = close_findunwind(L, levelofs)) != NULL) {
     CloseState *cs = *pcs;
     TValue *slot = restorestack(L, cs->slot);
-    cTValue *err = L->top > tvref(L->stack) ? L->top-1 : NULL;
     *pcs = cs->prev;
     close_freenode(L, cs);
     /* Remove the lifetime record before calling __close. If __close throws,
@@ -198,9 +200,29 @@ void lj_close_unwind(lua_State *L, TValue *level)
     ** records with the new error object, matching Lua 5.4's error replacement
     ** rule.
     */
-    if (close_pcall(L, slot, err, 1) != LUA_OK)
-      continue;  /* New error object is now at stack top; close outer slots. */
+    {
+      int closestatus = close_pcall(L, slot, err, 1);
+      if (closestatus != LUA_OK) {
+        status = closestatus;
+        err = L->top > tvref(L->stack) ? L->top-1 : niltv(L);
+      }
+    }
   }
+  return status;
+}
+
+int lj_close_unwind(lua_State *L, TValue *level)
+{
+  cTValue *err = L->top > tvref(L->stack) ? L->top-1 : niltv(L);
+  return close_unwind(L, level, err);
+}
+
+int lj_close_unwind_status(lua_State *L, TValue *level, int status)
+{
+  cTValue *err = niltv(L);
+  if (status != LUA_OK && status != LUA_YIELD && L->top > tvref(L->stack))
+    err = L->top-1;
+  return close_unwind(L, level, err);
 }
 
 void lj_close_freeall(lua_State *L)

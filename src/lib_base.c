@@ -1062,24 +1062,19 @@ static int lj_cf_coroutine_close(lua_State *L)
   if (co == L || co->cframe != NULL ||
       (co->status == LUA_OK && co->base > tvref(co->stack)+1+LJ_FR2))
     lj_err_callermsg(L, "cannot close a running coroutine");
-  if (co->status > LUA_YIELD) {
+  {
+    int status = lua_closethread(co, L);
+    if (status == LUA_OK) {
+      setboolV(L->top++, 1);
+      return 1;
+    }
     setboolV(L->top++, 0);
     if (co->top > co->base)
       copyTV(L, L->top++, co->top-1);
     else
       setnilV(L->top++);
-    co->status = LUA_OK;
-    co->top = co->base = tvref(co->stack) + 1 + LJ_FR2;
     return 2;
   }
-  /* No <close> variables are supported yet, but close open upvalues and make
-  ** the coroutine dead so Lua 5.4 callers can reliably cancel suspended work.
-  */
-  lj_func_closeuv(co, tvref(co->stack));
-  co->status = LUA_OK;
-  co->top = co->base = tvref(co->stack) + 1 + LJ_FR2;
-  setboolV(L->top++, 1);
-  return 1;
 }
 #endif
 

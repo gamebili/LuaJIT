@@ -1560,6 +1560,64 @@ do
     assert(closed == false)
     assert(type(err) == "string" and err:match("lua54 close error"))
   end
+  do
+    assert(assert(load([[
+      local log = {}
+      local mt = {
+        __close = function(self, err)
+          log[#log + 1] = self.name..":"..tostring(err)
+        end,
+      }
+      local co = coroutine.create(function()
+        local x <close> = setmetatable({ name = "x" }, mt)
+        coroutine.yield("paused")
+      end)
+      local ok, value = coroutine.resume(co)
+      assert(ok == true and value == "paused")
+      assert(coroutine.close(co) == true)
+      assert(table.concat(log, ",") == "x:nil")
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
+      local log = {}
+      local mt = {
+        __close = function(self, err)
+          log[#log + 1] = self.name..":"..tostring(err)
+          if self.name == "b" then error("close coroutine boom", 0) end
+        end,
+      }
+      local co = coroutine.create(function()
+        local a <close> = setmetatable({ name = "a" }, mt)
+        local b <close> = setmetatable({ name = "b" }, mt)
+        coroutine.yield("paused")
+      end)
+      assert(select(1, coroutine.resume(co)) == true)
+      local closed, err = coroutine.close(co)
+      assert(closed == false and err == "close coroutine boom")
+      assert(table.concat(log, ",") == "b:nil,a:close coroutine boom")
+      assert(coroutine.close(co) == true)
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
+      local co
+      co = coroutine.create(function()
+        local x <close> = setmetatable({}, {
+          __close = function()
+            local ok, err = pcall(coroutine.close, co)
+            assert(ok == false and err:match("running coroutine"))
+          end,
+        })
+        coroutine.yield("paused")
+      end)
+      assert(select(1, coroutine.resume(co)) == true)
+      assert(coroutine.close(co) == true)
+      return true
+    ]]))())
+  end
 end
 
 do

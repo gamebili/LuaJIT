@@ -2028,6 +2028,9 @@ LUA_API int lua_resume54(lua_State *L, lua_State *from, int nargs,
 
 LUA_API int lua_resetthread(lua_State *L)
 {
+#if LJ_54
+  return lua_closethread(L, NULL);
+#else
   /* Full Lua 5.4 reset closes to-be-closed variables. This compatibility path
   ** covers LuaJIT coroutines without <close> state by clearing frames, open
   ** upvalues and status back to a fresh suspended stack.
@@ -2037,16 +2040,37 @@ LUA_API int lua_resetthread(lua_State *L)
   L->cframe = NULL;
   L->base = L->top = tvref(L->stack) + 1 + LJ_FR2;
   return LUA_OK;
+#endif
 }
 
 #if LJ_54
 LUA_API int lua_closethread(lua_State *L, lua_State *from)
 {
+  TValue *base = tvref(L->stack) + 1 + LJ_FR2;
+  int status = L->status == LUA_YIELD ? LUA_OK : L->status;
+  int closestatus;
   (void)from;
-  /* Full lua_closethread() must close pending <close> slots. Until the VM has
-  ** that state, the no-<close> path is equivalent to lua_resetthread().
+  /* Lua 5.4 closes pending to-be-closed values while resetting a coroutine.
+  ** A yielded coroutine closes with nil error; an errored coroutine passes its
+  ** current error object, and a __close error replaces that object.
   */
-  return lua_resetthread(L);
+  L->status = LUA_OK;
+  L->cframe = NULL;
+  closestatus = lj_close_unwind_status(L, base, status);
+  if (closestatus != LUA_OK)
+    status = closestatus;
+  lj_func_closeuv(L, tvref(L->stack));
+  L->base = base;
+  if (status == LUA_OK) {
+    L->top = base;
+  } else {
+    if (L->top > base)
+      copyTV(L, base, L->top-1);
+    else
+      setnilV(base);
+    L->top = base+1;
+  }
+  return status;
 }
 #endif
 
