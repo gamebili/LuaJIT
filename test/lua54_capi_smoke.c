@@ -214,10 +214,53 @@ typedef void (*RawSetI54Sig)(lua_State *L, int idx, lua_Integer n);
 typedef int (*LuaOpenBaseSig)(lua_State *L);
 typedef int (*LuaOpenCoroutineSig)(lua_State *L);
 typedef lua_Number (*LuaVersionValueSig)(lua_State *L);
+typedef void (*LuaCallKSig)(lua_State *L, int nargs, int nresults,
+			    lua_KContext ctx, lua_KFunction k);
+typedef int (*LuaPCallKSig)(lua_State *L, int nargs, int nresults,
+			    int errfunc, lua_KContext ctx, lua_KFunction k);
+typedef int (*LuaYieldKSig)(lua_State *L, int nresults, lua_KContext ctx,
+			    lua_KFunction k);
+typedef lua_Unsigned (*LuaRawLenSig)(lua_State *L, int idx);
+typedef const char *(*LuaPushLStringSig)(lua_State *L, const char *s,
+					 size_t len);
+typedef const char *(*LuaPushStringSig)(lua_State *L, const char *s);
+typedef int (*LuaGetTableSig)(lua_State *L, int idx);
+typedef int (*LuaGetFieldSig)(lua_State *L, int idx, const char *k);
+typedef int (*LuaGetISig)(lua_State *L, int idx, lua_Integer n);
+typedef int (*LuaRawGetSig)(lua_State *L, int idx);
+typedef int (*LuaRawGetISig)(lua_State *L, int idx, lua_Integer n);
+typedef int (*LuaRawGetPSig)(lua_State *L, int idx, const void *p);
+typedef void (*LuaRawSetISig)(lua_State *L, int idx, lua_Integer n);
+typedef int (*LuaGetGlobalSig)(lua_State *L, const char *name);
+typedef void (*LuaSetGlobalSig)(lua_State *L, const char *name);
+typedef int (*LuaLoadSig)(lua_State *L, lua_Reader reader, void *data,
+			  const char *chunkname, const char *mode);
+typedef int (*LuaDumpSig)(lua_State *L, lua_Writer writer, void *data,
+			  int strip);
+typedef int (*LuaResumeSig)(lua_State *L, lua_State *from, int nargs,
+			    int *nresults);
 
 static LuaOpenBaseSig luaopen_base_sig = luaopen_base;
 static LuaOpenCoroutineSig luaopen_coroutine_sig = luaopen_coroutine;
 static LuaVersionValueSig lua_version_value_sig = lua_version;
+static LuaCallKSig lua_callk_sig = lua_callk;
+static LuaPCallKSig lua_pcallk_sig = lua_pcallk;
+static LuaYieldKSig lua_yieldk_sig = lua_yieldk;
+static LuaRawLenSig lua_rawlen_sig = lua_rawlen;
+static LuaPushLStringSig lua_pushlstring_sig = lua_pushlstring;
+static LuaPushStringSig lua_pushstring_sig = lua_pushstring;
+static LuaGetTableSig lua_gettable_sig = lua_gettable;
+static LuaGetFieldSig lua_getfield_sig = lua_getfield;
+static LuaGetISig lua_geti_sig = lua_geti;
+static LuaRawGetSig lua_rawget_sig = lua_rawget;
+static LuaRawGetISig lua_rawgeti_sig = lua_rawgeti;
+static LuaRawGetPSig lua_rawgetp_sig = lua_rawgetp;
+static LuaRawSetISig lua_rawseti_sig = lua_rawseti;
+static LuaGetGlobalSig lua_getglobal_sig = lua_getglobal;
+static LuaSetGlobalSig lua_setglobal_sig = lua_setglobal;
+static LuaLoadSig lua_load_sig = lua_load;
+static LuaDumpSig lua_dump_sig = lua_dump;
+static LuaResumeSig lua_resume_sig = lua_resume;
 
 static void check(lua_State *L, int cond, const char *msg)
 {
@@ -598,7 +641,7 @@ static int yield_two(lua_State *L)
 {
   lua_pushliteral(L, "y1");
   lua_pushliteral(L, "y2");
-  return lua_yield(L, 2);
+  return lua_yieldk_sig(L, 2, 0, NULL);
 }
 
 static int push_isyieldable(lua_State *L)
@@ -784,12 +827,12 @@ static void test_stack_and_number_api(lua_State *L)
   lua_pushglobaltable(L);
   check(L, lua_istable(L, -1), "lua_pushglobaltable registry path");
   lua_pushliteral(L, "ok");
-  lua_setglobal(L, "__capi_global");
-  lua_getglobal(L, "__capi_global");
+  lua_setglobal_sig(L, "__capi_global");
+  lua_getglobal_sig(L, "__capi_global");
   check_string(L, -1, "ok", "lua_getglobal after lua_setglobal");
   lua_pop(L, 1);
   lua_pushnil(L);
-  lua_setglobal(L, "__capi_global");
+  lua_setglobal_sig(L, "__capi_global");
   lua_pop(L, 1);
 
   check(L, LUA_EXTRASPACE == sizeof(void *), "LUA_EXTRASPACE");
@@ -806,8 +849,14 @@ static void test_stack_and_number_api(lua_State *L)
     (void)sizeof(lua_rawlen_returns_lua_Unsigned);
   }
 #endif
-  lua_pushliteral(L, "rawlen");
-  check(L, lua_rawlen(L, -1) == 6, "lua_rawlen lua_Unsigned result");
+  lua_pushlstring_sig(L, "rawlen\0hidden", 6);
+  check(L, lua_rawlen_sig(L, -1) == 6,
+	"lua_rawlen function pointer lua_Unsigned result");
+  lua_pop(L, 1);
+
+  check(L, lua_pushstring_sig(L, "pushstring") != NULL,
+	"lua_pushstring function pointer return");
+  check_string(L, -1, "pushstring", "lua_pushstring function pointer value");
   lua_pop(L, 1);
 
   check(L, lua_stringtonumber(L, "123") == 4, "lua_stringtonumber length");
@@ -955,8 +1004,19 @@ static void test_stack_and_number_api(lua_State *L)
   lua_pop(L, 1);
 
   lua_pushcfunction(L, push_answer);
+  lua_callk_sig(L, 0, 1, 0, NULL);
+  check_integer(L, -1, 42, "lua_callk function pointer");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, push_answer);
   check(L, lua_pcallk(L, 0, 1, 0, 0, NULL) == LUA_OK, "lua_pcallk macro");
   check_integer(L, -1, 42, "lua_pcallk result");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, push_answer);
+  check(L, lua_pcallk_sig(L, 0, 1, 0, 0, NULL) == LUA_OK,
+	"lua_pcallk function pointer");
+  check_integer(L, -1, 42, "lua_pcallk function pointer result");
   lua_pop(L, 1);
 
   lua_pushcfunction(L, raise_lua_error);
@@ -1164,8 +1224,8 @@ static void test_stack_and_number_api(lua_State *L)
   lua_xmove(L, co, 1);
   {
     int nres = -1;
-    check(L, lua_resume(co, L, 0, &nres) == LUA_YIELD,
-	  "lua_resume54 yield status");
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_YIELD,
+	  "lua_resume function pointer yield status");
     check(L, nres == 2 && lua_gettop(co) == 2,
 	  "lua_resume54 yield result count");
     check_string(co, 1, "y1", "lua_resume54 yield result #1");
@@ -1178,8 +1238,8 @@ static void test_stack_and_number_api(lua_State *L)
   lua_xmove(L, co, 1);
   {
     int nres = -1;
-    check(L, lua_resume(co, L, 0, &nres) == LUA_OK,
-	  "lua_resume54 return status");
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_OK,
+	  "lua_resume function pointer return status");
     check(L, nres == 2 && lua_gettop(co) == 2,
 	  "lua_resume54 return result count");
     check_string(co, 1, "r1", "lua_resume54 return result #1");
@@ -1192,11 +1252,11 @@ static void test_compare_len_arith(lua_State *L)
 {
   static const char pointer_key;
   int rtype;
-  RawGetI54Sig rawgeti_sig = lua_rawgeti54;
-  RawSetI54Sig rawseti_sig = lua_rawseti54;
+  RawGetI54Sig rawgeti_compat_sig = lua_rawgeti54;
+  RawSetI54Sig rawseti_compat_sig = lua_rawseti54;
 
-  (void)rawgeti_sig;
-  (void)rawseti_sig;
+  (void)rawgeti_compat_sig;
+  (void)rawseti_compat_sig;
 
   lua_pushinteger(L, 2);
   lua_pushinteger(L, 3);
@@ -1247,44 +1307,44 @@ static void test_compare_len_arith(lua_State *L)
   lua_pushliteral(L, "index-value");
   lua_seti(L, -2, 7);
   lua_pushliteral(L, "raw-value");
-  lua_rawseti(L, -2, 8);
+  lua_rawseti_sig(L, -2, 8);
   lua_pushliteral(L, "ptr-value");
   lua_rawsetp(L, -2, &pointer_key);
 
-  rtype = lua_getfield(L, -1, "field");
-  check(L, rtype == LUA_TSTRING, "lua_getfield return type");
+  rtype = lua_getfield_sig(L, -1, "field");
+  check(L, rtype == LUA_TSTRING, "lua_getfield function pointer return type");
   check_string(L, -1, "field-value", "lua_getfield return value");
   lua_pop(L, 1);
 
-  rtype = lua_geti(L, -1, 7);
-  check(L, rtype == LUA_TSTRING, "lua_geti return type");
+  rtype = lua_geti_sig(L, -1, 7);
+  check(L, rtype == LUA_TSTRING, "lua_geti function pointer return type");
   check_string(L, -1, "index-value", "lua_geti return value");
   lua_pop(L, 1);
 
   lua_pushliteral(L, "field");
-  rtype = lua_gettable(L, -2);
-  check(L, rtype == LUA_TSTRING, "lua_gettable return type");
+  rtype = lua_gettable_sig(L, -2);
+  check(L, rtype == LUA_TSTRING, "lua_gettable function pointer return type");
   check_string(L, -1, "field-value", "lua_gettable return value");
   lua_pop(L, 1);
 
   lua_pushinteger(L, 8);
-  rtype = lua_rawget(L, -2);
-  check(L, rtype == LUA_TSTRING, "lua_rawget return type");
+  rtype = lua_rawget_sig(L, -2);
+  check(L, rtype == LUA_TSTRING, "lua_rawget function pointer return type");
   check_string(L, -1, "raw-value", "lua_rawget return value");
   lua_pop(L, 1);
 
-  rtype = lua_rawgeti(L, -1, 8);
-  check(L, rtype == LUA_TSTRING, "lua_rawgeti return type");
+  rtype = lua_rawgeti_sig(L, -1, 8);
+  check(L, rtype == LUA_TSTRING, "lua_rawgeti function pointer return type");
   check_string(L, -1, "raw-value", "lua_rawgeti return value");
   lua_pop(L, 1);
 
-  rtype = lua_rawgetp(L, -1, &pointer_key);
-  check(L, rtype == LUA_TSTRING, "lua_rawgetp return type");
+  rtype = lua_rawgetp_sig(L, -1, &pointer_key);
+  check(L, rtype == LUA_TSTRING, "lua_rawgetp function pointer return type");
   check_string(L, -1, "ptr-value", "lua_rawgetp return value");
   lua_pop(L, 1);
 
-  rtype = lua_getglobal(L, "debug");
-  check(L, rtype == LUA_TTABLE, "lua_getglobal return type");
+  rtype = lua_getglobal_sig(L, "debug");
+  check(L, rtype == LUA_TTABLE, "lua_getglobal function pointer return type");
   lua_pop(L, 2);
 }
 
@@ -1680,16 +1740,17 @@ static void test_lauxlib_api(lua_State *L)
 
   reader.src = "return 64";
   reader.len = 9;
-  status = lua_load(L, capi_reader, &reader, "=capi-reader", "t");
-  check(L, status == LUA_OK, "lua_load text mode");
+  status = lua_load_sig(L, capi_reader, &reader, "=capi-reader", "t");
+  check(L, status == LUA_OK, "lua_load function pointer text mode");
   lua_call(L, 0, 1);
   check_integer(L, -1, 64, "lua_load loaded function");
   lua_pop(L, 1);
 
   reader.src = "return 64";
   reader.len = 9;
-  status = lua_load(L, capi_reader, &reader, "=capi-reader", "b");
-  check(L, status == LUA_ERRSYNTAX, "lua_load binary mode rejects text");
+  status = lua_load_sig(L, capi_reader, &reader, "=capi-reader", "b");
+  check(L, status == LUA_ERRSYNTAX,
+	"lua_load function pointer binary mode rejects text");
   check(L, strstr(lua_tostring(L, -1),
 		  "attempt to load a text chunk (mode is 'b')") != NULL,
 	"lua_load wrong mode error");
@@ -1709,9 +1770,11 @@ static void test_dump_api(lua_State *L)
   status = luaL_loadbufferx(L, src, strlen(src), "=dump-source", "t");
   check(L, status == LUA_OK, "lua_dump setup load");
   lua_call(L, 0, 1);
-  check(L, lua_dump(L, dump_writer, &full, 0) == 0, "lua_dump full");
+  check(L, lua_dump_sig(L, dump_writer, &full, 0) == 0,
+	"lua_dump function pointer full");
   check(L, full.len > 0, "lua_dump full length");
-  check(L, lua_dump(L, dump_writer, &stripped, 1) == 0, "lua_dump stripped");
+  check(L, lua_dump_sig(L, dump_writer, &stripped, 1) == 0,
+	"lua_dump function pointer stripped");
   check(L, stripped.len > 0 && stripped.len <= full.len,
 	"lua_dump stripped length");
   lua_pop(L, 1);

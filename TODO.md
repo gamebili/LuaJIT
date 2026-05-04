@@ -179,19 +179,19 @@
   - 当前进展：`lua_stringtonumber()`、`lua_isnumber()`、`lua_tonumberx()`、`lua_tointegerx()` 和 `luaL_checknumber()` 已和 Lua 5.4 `tonumber()` 对齐，拒绝 `inf` / `nan` / `0b` 等 LuaJIT 扩展数字字符串。
   - 当前进展：Lua 5.4 兼容模式下 `lua_tointegerx()` 已对无整数表示的 number 返回失败状态，和 `lua_numbertointeger()` 的精确整数语义保持一致。
   - 当前进展：已补 `LUA_VERSION_MAJOR`、`LUA_VERSION_MINOR`、`LUA_VERSION_RELEASE`、`LUA_VERSION_RELEASE_NUM`、`LUA_NUMTYPES`、`LUA_NUMTAGS` 头文件宏；兼容构建已按官方 Lua 5.4.8 暴露 `LUA_VERSION_RELEASE "8"`、`LUA_RELEASE "Lua 5.4.8"`、`LUA_VERSION_RELEASE_NUM 50408`、`LUA_COPYRIGHT`、`LUA_AUTHORS` 和外部 `lua_ident` 符号。
-  - 当前进展：已补 `lua_KContext`、`lua_KFunction`、`lua_WarnFunction`、`LUA_RIDX_MAINTHREAD`、`LUA_RIDX_GLOBALS`、`LUA_LOADED_TABLE`、`LUA_PRELOAD_TABLE`、`LUA_HOOKTAILCALL`、`LUA_GCGEN`、`LUA_GCINC`；Lua 5.4 外部兼容头已隐藏旧 `LUA_HOOKTAILRET`；registry 中会写入主线程和全局表；`lua_gc()` 在兼容构建下已改为 Lua 5.4 变参签名；`lua_sethook()` 已按官方 Lua 5.4 外部头暴露为 `void` 返回表面；`lua_call` / `lua_pcall` / `lua_yield` 以及 `lua_callk` / `lua_pcallk` / `lua_yieldk` 已按外部 Lua 5.4 头文件宏表面暴露，但 `*k` 当前仍是不支持 continuation 的兼容映射。
+  - 当前进展：已补 `lua_KContext`、`lua_KFunction`、`lua_WarnFunction`、`LUA_RIDX_MAINTHREAD`、`LUA_RIDX_GLOBALS`、`LUA_LOADED_TABLE`、`LUA_PRELOAD_TABLE`、`LUA_HOOKTAILCALL`、`LUA_GCGEN`、`LUA_GCINC`；Lua 5.4 外部兼容头已隐藏旧 `LUA_HOOKTAILRET`；registry 中会写入主线程和全局表；`lua_gc()` 在兼容构建下已改为 Lua 5.4 变参签名；`lua_sethook()` 已按官方 Lua 5.4 外部头暴露为 `void` 返回表面；`lua_callk` / `lua_pcallk` / `lua_yieldk` 已按官方 Lua 5.4 头文件暴露为可取函数指针的真实导出函数，`lua_call` / `lua_pcall` / `lua_yield` 继续作为官方宏映射到 `*k(..., 0, NULL)`；`*k` 当前仍只覆盖 NULL-continuation 路径。
   - 当前进展：已补 `LUA_COMPAT_APIINTCASTS` 下的 `lua_pushunsigned` / `lua_tounsignedx` / `lua_tounsigned` / `luaL_checkunsigned` / `luaL_optunsigned` 兼容宏，并用单独 C smoke 覆盖编译和基础运行。
   - 当前进展：Lua 5.4 外部兼容头已把 `lua_newuserdata()`、`lua_getuservalue()`、`lua_setuservalue()` 暴露为官方 slot 1 alias 宏，默认构建仍保留 LuaJIT 旧函数 ABI。
-  - 当前进展：Lua 5.4 兼容头已把外部 `lua_resume(L, from, nargs, nresults)` 映射到 `lua_resume54()` 包装入口，内部仍保留 LuaJIT 旧 2 参数 ABI；包装入口会填写 yield/return 的结果数量。
+  - 当前进展：Lua 5.4 兼容头已把外部 `lua_resume(L, from, nargs, nresults)` 映射到 `lua_resume54()` 包装入口，并支持按官方 `lua_resume` 名取函数指针；内部仍保留 LuaJIT 旧 2 参数 ABI，包装入口会填写 yield/return 的结果数量。
   - 当前进展：Lua 5.4 外部兼容头已隐藏 `LUA_ENVIRONINDEX`、`LUA_GLOBALSINDEX`、`lua_strlen`、`lua_open`、`lua_getregistry`、`lua_getgccount`、`lua_Chunkreader`、`lua_Chunkwriter`、`lua_setlevel` 以及旧 `lua_equal`、`lua_lessthan`、`lua_objlen`、`lua_cpcall`、`lua_getfenv`、`lua_setfenv` 声明；LuaJIT 内部和默认构建通过内部标记继续使用旧 ABI。
   - 当前进展：Lua 5.4 外部兼容头已隐藏旧 lauxlib 注册入口 `luaL_openlib` / `luaL_register` / `luaL_pushmodule`、旧 `luaL_typerror` 以及 LuaJIT helper `luaL_findtable`；默认构建仍通过 C API smoke 覆盖这些 LuaJIT/Lua 5.1 API。
   - 当前进展：外部兼容头下的 `lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 已改走 registry globals 表，不再依赖 `LUA_GLOBALSINDEX`；`lua_pushglobaltable()` 宏已按官方 Lua 5.4 暴露为 `void` 返回表面。
-  - 当前进展：外部兼容头下的 `lua_gettable()`、`lua_getfield()`、`lua_geti()`、`lua_rawget()`、`lua_rawgeti()`、`lua_rawgetp()` 已通过 `*54` 包装入口返回取到值的 Lua 类型，内部仍保留 LuaJIT 旧 `void` ABI。
-  - 当前进展：外部兼容头下的 `lua_rawgeti()` / `lua_rawseti()` 索引参数已通过 `*54` 包装入口暴露为 `lua_Integer`，内部仍转发到 LuaJIT 当前 32 位整数表槽路径。
-  - 当前进展：Lua 5.4 外部兼容头已把 `lua_load(L, reader, data, chunkname, mode)` 映射到现有 `lua_loadx()`，C API smoke 覆盖 text 模式加载和 binary-only 模式拒绝 text chunk。
-  - 当前进展：Lua 5.4 外部兼容头已把 `lua_dump(L, writer, data, strip)` 映射到 `lua_dump54()`；内部旧 3 参数 `lua_dump()` ABI 保持不变，`strip` 会转发到 LuaJIT bytecode writer。
+  - 当前进展：外部兼容头下的 `lua_gettable()`、`lua_getfield()`、`lua_geti()`、`lua_rawget()`、`lua_rawgeti()`、`lua_rawgetp()` 已通过 `*54` 包装入口返回取到值的 Lua 类型，并用官方函数名的源级别别名支持外部代码按 Lua 5.4 签名取函数指针；内部仍保留 LuaJIT 旧 `void` ABI。
+  - 当前进展：外部兼容头下的 `lua_rawgeti()` / `lua_rawseti()` 索引参数已通过 `*54` 包装入口暴露为 `lua_Integer`，并支持按官方函数名取函数指针；内部仍转发到 LuaJIT 当前 32 位整数表槽路径。
+  - 当前进展：Lua 5.4 外部兼容头已把 `lua_load(L, reader, data, chunkname, mode)` 映射到现有 `lua_loadx()`，并支持按官方 `lua_load` 名取函数指针；C API smoke 覆盖 text 模式加载和 binary-only 模式拒绝 text chunk。
+  - 当前进展：Lua 5.4 外部兼容头已把 `lua_dump(L, writer, data, strip)` 映射到 `lua_dump54()`，并支持按官方 `lua_dump` 名取函数指针；内部旧 3 参数 `lua_dump()` ABI 保持不变，`strip` 会转发到 LuaJIT bytecode writer。
   - 当前进展：Lua 5.4 外部兼容头已把 `lua_insert()` / `lua_remove()` / `lua_replace()` 暴露为官方宏，映射到 `lua_rotate()` / `lua_copy()`，默认构建仍保留 LuaJIT 旧函数 ABI。
-  - 当前进展：Lua 5.4 外部兼容头已通过 `lua_pushlstring54()` / `lua_pushstring54()` wrapper 暴露 `lua_pushlstring()` / `lua_pushstring()` 的官方返回值表面；默认构建仍保留 LuaJIT 5.1 的 `void` 头文件 ABI。
+  - 当前进展：Lua 5.4 外部兼容头已通过 `lua_pushlstring54()` / `lua_pushstring54()` wrapper 暴露 `lua_pushlstring()` / `lua_pushstring()` 的官方返回值表面，并支持按官方函数名取函数指针；默认构建仍保留 LuaJIT 5.1 的 `void` 头文件 ABI。
   - 当前进展：Lua 5.4 外部兼容头已把 `lua_tonumber()` / `lua_tointeger()` 暴露为官方宏，映射到 `lua_tonumberx(..., NULL)` / `lua_tointegerx(..., NULL)`；默认构建仍保留 LuaJIT 旧函数 ABI。
   - 当前进展：Lua 5.4 外部兼容头已把 `lua_getextraspace()` 暴露为宏，并映射到当前 pointer-sized `L->exdata` 兼容存储；`lua_newstate()` / `lua_getallocf()` / `lua_setallocf()` 自定义 allocator、`lua_atpanic()`、`lua_pushthread()`、`lua_checkstack()`、`lua_settop()`、`lua_pushvalue()`、`lua_concat()`、`lua_next()`、`lua_error()`、`lua_type()`、`lua_typename()`、`lua_rawequal()`、`lua_iscfunction()`、`lua_tocfunction()`、`lua_touserdata()`、`lua_topointer()`、`lua_toboolean()` 和 light/full userdata 判定表面已进入 C API smoke；默认构建仍保留 LuaJIT 旧函数 ABI。
   - 当前进展：Lua 5.4 外部兼容头已把 `lua_rawlen()` 暴露为 `lua_Unsigned` 返回值表面，内部和默认构建继续保留 LuaJIT 旧 `size_t` ABI；当前仍受兼容层 32 位 `lua_Unsigned` 限制，完整 64 位整数 ABI 归入整数语义大项。
@@ -202,7 +202,7 @@
   - 当前进展：已补 lauxlib 常用 Lua 5.4 表面：`luaL_pushfail`、`luaL_len`、`luaL_getsubtable`、`luaL_requiref`、`luaL_tolstring`、`luaL_typeerror`、`luaL_argexpected`、`luaL_checkversion` 以及 buffer API；`luaL_checkversion_()` 现在会实际校验版本号和 numeric ABI 尺寸。
   - 已覆盖：新增 `test/lua54_capi_smoke.c` 和 `make smoketest-capi-lua54compat`，包含 `lua_isyieldable()` 主 C frame / resumed coroutine C frame 表面。
   - 当前进展：已补 `lua_closethread()` / `lua_resetthread()` 的 `<close>` 基础表面，覆盖 yielded/fresh coroutine 返回 `LUA_OK`、清空栈并恢复 OK 状态，且会关闭 suspended coroutine 中的 active close locals；已补 `lua_toclose()` / `lua_closeslot()` C API 表面，覆盖 closable 校验、false/nil `lua_toclose` 跳过、`lua_closeslot` 只接受最后一个 active marked slot、显式 `__close(value, nil)` 后置空槽位、`lua_settop` / `lua_pop` 弹栈关闭、C 函数错误展开关闭，以及 C 函数正常返回自动关闭。
-  - 需要补 API：真实 continuation 版 `lua_yieldk` / `lua_callk` / `lua_pcallk`；当前只完成这些调用入口的头文件宏兼容表面。
+  - 需要补语义：真实 continuation 版 `lua_yieldk` / `lua_callk` / `lua_pcallk`；当前已完成这些调用入口的函数 ABI 和 NULL-continuation 路径，但 VM 还不会保存并恢复 Lua 5.4 C continuation。
   - 需要补常量/类型/宏：继续核对完整 ABI 细节。
   - 需要清理/兼容旧 API：默认构建保留 LuaJIT/Lua 5.1 API；Lua 5.4 外部兼容头已隐藏一批旧 5.1/LuaJIT 表面、旧 lauxlib 注册入口、`luaL_typerror` 和 `luaL_findtable`，并补了常见 getter/number 转换/字符串 push 返回值签名和栈操作宏表面，但仍需继续核对更多旧兼容宏和完整 ABI 细节。
   - 需要补内存分配语义：Lua 5.4 允许 allocator 在缩小内存块时失败；当前仍需核对 LuaJIT 分配器契约和错误处理。

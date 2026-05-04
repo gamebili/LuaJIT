@@ -1944,6 +1944,32 @@ LUA_API int lua_pcall(lua_State *L, int nargs, int nresults, int errfunc)
   return status;
 }
 
+#if LJ_54
+LUA_API void (lua_callk)(lua_State *L, int nargs, int nresults,
+			 lua_KContext ctx, lua_KFunction k)
+{
+  /* Lua 5.4 exposes the *k entry points as real exported functions. LuaJIT's
+  ** VM does not yet store a Lua 5.4 continuation in C frames, so this ABI shim
+  ** keeps the NULL-continuation path exact and leaves real continuation resume
+  ** semantics in the VM-level TODO batch.
+  */
+  (void)ctx;
+  (void)k;
+  lua_call(L, nargs, nresults);
+}
+
+LUA_API int (lua_pcallk)(lua_State *L, int nargs, int nresults, int errfunc,
+			 lua_KContext ctx, lua_KFunction k)
+{
+  /* See lua_callk(): this preserves the current non-continuation behavior while
+  ** matching Lua 5.4's exported function ABI for external modules.
+  */
+  (void)ctx;
+  (void)k;
+  return lua_pcall(L, nargs, nresults, errfunc);
+}
+#endif
+
 static TValue *cpcall(lua_State *L, lua_CFunction func, void *ud)
 {
   GCfunc *fn = lj_func_newC(L, 0, getcurrenv(L));
@@ -2032,6 +2058,19 @@ LUA_API int lua_yield(lua_State *L, int nresults)
   lj_err_msg(L, LJ_ERR_CYIELD);
   return 0;  /* unreachable */
 }
+
+#if LJ_54
+LUA_API int (lua_yieldk)(lua_State *L, int nresults, lua_KContext ctx,
+			 lua_KFunction k)
+{
+  /* Export Lua 5.4's yieldk ABI without pretending the VM can resume through a
+  ** stored C continuation yet; NULL-continuation yielding follows lua_yield().
+  */
+  (void)ctx;
+  (void)k;
+  return lua_yield(L, nresults);
+}
+#endif
 
 LUA_API int lua_resume(lua_State *L, int nargs)
 {

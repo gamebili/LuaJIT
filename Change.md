@@ -16,6 +16,8 @@
 - 已按官方 Lua 5.4.8 `lua.h` / `ldebug.c` 对齐 `lua_sethook` 外部签名：兼容构建的外部头现在把 `lua_sethook` 暴露为 `void` 返回表面，默认构建和 LuaJIT 内部继续保留旧 `int` ABI。
 - 已按官方 Lua 5.4.8 `lua.h` 对齐 `lua_pushglobaltable` 宏返回表面：外部兼容头现在显式返回 `void`，同时继续从 registry globals 表取全局表。
 - 已按官方 Lua 5.4.8 `lua.h` 对齐 debug hook 事件宏：外部兼容头只暴露 `LUA_HOOKTAILCALL`，不再暴露旧 LuaJIT/Lua 5.1 `LUA_HOOKTAILRET`。
+- 已按官方 Lua 5.4.8 `lua.h` 对齐 `lua_callk` / `lua_pcallk` / `lua_yieldk` 的外部 ABI：兼容构建现在暴露真实导出函数，外部 C 模块可以按官方签名取函数指针；当前 wrapper 覆盖 NULL-continuation 路径，真正 continuation 恢复语义仍留在 VM unwind 批次。
+- 已继续按官方 Lua 5.4.8 `lua.h` 对齐外部函数指针表面：`lua_rawlen`、`lua_pushlstring`、`lua_pushstring`、`lua_gettable`、`lua_getfield`、`lua_geti`、`lua_rawget`、`lua_rawgeti`、`lua_rawgetp`、`lua_rawseti`、`lua_getglobal`、`lua_setglobal`、`lua_load`、`lua_dump` 和 `lua_resume` 现在都可按官方函数名取指针，同时仍转发到内部 `*54` / `lua_loadx` 兼容入口以保留 LuaJIT 内部旧 ABI。
 - 已继续按官方 Lua 5.4.8 `lua.h` 清理外部兼容头：`lua_open`、`lua_getregistry`、`lua_getgccount`、`lua_Chunkreader`、`lua_Chunkwriter` 和 `lua_setlevel` 不再对外暴露；默认构建 C smoke 覆盖旧兼容宏仍可用。
 - 已按官方 `testes/bwcoercion.lua` 修正 Lua 5.4 lowered operator helper 的 metamethod 返回栈：`__band` / `__idiv` 等路径只返回 metamethod 第一个结果，不再把原操作数漏成额外返回值。
 - 已按官方 `testes/locals.lua` 的 to-be-closed coroutine 用例推进 `<close>` yield 边界：普通块退出和 close-active `return` 路径不再在 C helper 内部调用 `__close`，而是由 parser 生成普通 Lua 调用，因此 `__close` 内 `coroutine.yield()` 后可恢复，并保留返回值数量与 `nil` 洞；error unwind / C return 等路径仍记录在 `TODO.md` 继续由 VM unwind continuation 接管。
@@ -37,7 +39,7 @@
 - 已继续补齐 Lua 5.4 `utf8.char()` 扩展编码范围和 `string.pack()` 的 `j` / `T` 格式。
 - 已开始按 `TODO.md` 逐项清理剩余缺口；已完成 `__le`、`string.gmatch(init)`、`warn()` 数字参数、`math.randomseed()` 无参返回、`utf8` lax 模式，以及 `string.pack()` / `string.unpack()` / `string.packsize()` 的 alignment、`X`、`l` / `L` 格式；`//` 已补充字符串数字的算术转换路径；`debug.getinfo(..., "t")` 已支持最小 `istailcall=false` 表面。
 - 已先补 Lua 5.4 C API 烟测 `test/lua54_capi_smoke.c` 和 `make smoketest-capi-lua54compat`，覆盖 `lua_arith`、`lua_compare`、`lua_len`、`lua_rotate`、`lua_stringtonumber`、`lua_numbertointeger` 以及 `luaL_*` 常用兼容入口。
-- C API 烟测继续扩展到 registry 索引、`lua_getextraspace()`、`lua_callk()` / `lua_pcallk()` 宏、warning 回调和 `LUA_GCGEN` / `LUA_GCINC` 模式切换表面。
+- C API 烟测继续扩展到 registry 索引、`lua_getextraspace()`、官方 `lua.h` 真实函数的函数指针兼容表面、`lua_callk()` / `lua_pcallk()` / `lua_yieldk()` NULL-continuation 路径、warning 回调和 `LUA_GCGEN` / `LUA_GCINC` 模式切换表面。
 - C API 烟测继续扩展到状态 allocator 表面：`lua_newstate()` 可使用自定义 allocator，`lua_getallocf()` / `lua_setallocf()` 可读写 allocator 与 userdata。
 - C API 烟测继续扩展到状态/错误入口：`lua_atpanic()` 返回旧 panic handler，`lua_pushthread()` 区分主线程和 coroutine，`lua_error()` 可通过 `lua_pcall()` 捕获错误对象。
 - C API 烟测继续扩展到栈/表基础入口：`lua_checkstack()`、`lua_settop()`、`lua_pushvalue()`、`lua_concat()` 和 `lua_next()`。
@@ -92,7 +94,7 @@
 - 已继续补 Lua 5.4 number 转换宏表面：外部兼容头中的 `lua_tonumber()` / `lua_tointeger()` 现在按官方映射到 `lua_tonumberx(..., NULL)` / `lua_tointegerx(..., NULL)`，默认构建仍保留旧函数 ABI。
 - 已继续补 Lua 5.4 extraspace 宏表面：外部兼容头中的 `lua_getextraspace()` 现在作为宏映射到当前 pointer-sized `L->exdata` 兼容存储，默认构建仍保留旧函数 ABI。
 - 已继续补 Lua 5.4 `lua_rawlen()` 返回值表面：外部兼容头现在通过 `lua_rawlen54()` wrapper 暴露 `lua_Unsigned` 返回类型，内部和默认构建仍保留 LuaJIT 旧 `size_t` ABI。
-- 已继续补 Lua 5.4 调用入口宏表面：外部兼容头中的 `lua_call()` / `lua_pcall()` / `lua_yield()` 现在按官方映射到 `*k(..., 0, NULL)`；当前 `*k` 仍是不支持 continuation 的兼容映射。
+- 已继续补 Lua 5.4 调用入口表面：外部兼容头中的 `lua_call()` / `lua_pcall()` / `lua_yield()` 现在按官方映射到真实 `*k(..., 0, NULL)` 函数；当前 `*k` wrapper 仍不支持非 NULL continuation 恢复。
 - 已继续扩展 JIT smoke：开启 JIT 后的 `math.random(1, 4)` 区间路径已在热循环中验证返回整数区间值并产生 trace。
 - 已继续补 Lua 5.4 C API 表面：外部兼容头中的 `lua_load(L, reader, data, chunkname, mode)` 已映射到现有 `lua_loadx()`，并覆盖 text/binary mode 行为。
 - 已继续补 Lua 5.4 C API 表面：外部兼容头中的 `lua_dump(L, writer, data, strip)` 已映射到 `lua_dump54()`，并覆盖 full/stripped LuaJIT bytecode 写出和 binary mode 回读。
@@ -291,7 +293,7 @@
   - JIT 开启时，Lua 5.4 兼容模式下的 `math.random(1, 4)` 区间随机热循环已进入 smoke 回归，并在当前平台确认能产生 trace。
   - JIT 开启时，Lua 5.4 兼容模式下的 `tonumber()` 扫描器扩展数字拒绝路径已进入 smoke 回归，并在当前平台确认能产生 trace。
   - registry 初始化会写入 `LUA_RIDX_MAINTHREAD` 和 `LUA_RIDX_GLOBALS`；新线程会复制当前线程的 pointer-sized extraspace。
-  - `lua_callk()`、`lua_pcallk()`、`lua_yieldk()` 目前以宏映射到非 continuation 调用，提供编译兼容；真实 yield continuation 语义仍保留在 `TODO.md`。
+  - `lua_callk()`、`lua_pcallk()`、`lua_yieldk()` 已暴露为真实函数 ABI，当前 wrapper 覆盖非 continuation 调用；真实 yield continuation 语义仍保留在 `TODO.md`。
   - `lauxlib.h` / 辅助库新增 Lua 5.4 常用表面：`LUA_GNAME`、`LUA_FILEHANDLE`、`LUA_LOADED_TABLE`、`LUA_PRELOAD_TABLE`、`lua_writestring`、`lua_writeline`、`lua_writestringerror`、`luaL_pushfail()`、`luaL_len()`、`luaL_getsubtable()`、`luaL_requiref()`、`luaL_tolstring()`、`luaL_typeerror()`、`luaL_argexpected()`、`luaL_checkversion()`、`luaL_addgsub()`、`luaL_intop()` 和 buffer API。
   - Lua 5.4 兼容模式下 `luaL_prepbuffsize()` / `luaL_buffinitsize()` 会按请求尺寸增长 buffer，不再被旧 LuaJIT 固定 `LUAL_BUFFERSIZE` 缓冲区限制；默认构建仍保留旧 LuaJIT buffer 结构。
   - `luaL_loadbufferx()` / `luaL_loadfilex()` 的 `mode` 参数路径已通过 C API smoke 覆盖；text 模式可加载源码，binary-only 模式会拒绝 text chunk。
