@@ -69,9 +69,10 @@ LUALIB_API int (luaL_typerror) (lua_State *L, int narg, const char *tname);
 #endif
 LUALIB_API int (luaL_argerror) (lua_State *L, int numarg, const char *extramsg);
 LUALIB_API int (luaL_typeerror) (lua_State *L, int narg, const char *tname);
+#if !LUAJIT_EXTERNAL_LUA54
 LUALIB_API void (luaL_argexpected) (lua_State *L, int cond, int arg,
                                     const char *tname);
-#if LUAJIT_EXTERNAL_LUA54
+#else
 #define luaL_argexpected(L,cond,arg,tname) \
   ((void)((cond) || luaL_typeerror((L), (arg), (tname))))
 #endif
@@ -86,8 +87,9 @@ LUALIB_API lua_Integer (luaL_checkinteger) (lua_State *L, int numArg);
 LUALIB_API lua_Integer (luaL_optinteger) (lua_State *L, int nArg,
                                           lua_Integer def);
 LUALIB_API lua_Integer (luaL_len) (lua_State *L, int idx);
+#if !LUAJIT_EXTERNAL_LUA54
 LUALIB_API void (luaL_pushfail) (lua_State *L);
-#if LUAJIT_EXTERNAL_LUA54
+#else
 #define luaL_pushfail(L)	lua_pushnil(L)
 #endif
 LUALIB_API const char *(luaL_tolstring) (lua_State *L, int idx, size_t *len);
@@ -113,9 +115,11 @@ LUALIB_API int (luaL_checkoption) (lua_State *L, int narg, const char *def,
 LUALIB_API int (luaL_ref) (lua_State *L, int t);
 LUALIB_API void (luaL_unref) (lua_State *L, int t, int ref);
 
+#if !LUAJIT_EXTERNAL_LUA54
 LUALIB_API int (luaL_loadfile) (lua_State *L, const char *filename);
 LUALIB_API int (luaL_loadbuffer) (lua_State *L, const char *buff, size_t sz,
                                   const char *name);
+#endif
 LUALIB_API int (luaL_loadstring) (lua_State *L, const char *s);
 
 LUALIB_API lua_State *(luaL_newstate) (void);
@@ -283,8 +287,9 @@ LUALIB_API char *(luaL_buffinitsize) (lua_State *L, luaL_Buffer *B, size_t sz);
 #endif
 
 LUALIB_API void (luaL_buffinit) (lua_State *L, luaL_Buffer *B);
+#if !LUAJIT_EXTERNAL_LUA54
 LUALIB_API char *(luaL_prepbuffer) (luaL_Buffer *B);
-#if LUAJIT_EXTERNAL_LUA54
+#else
 #define luaL_prepbuffer(B)	luaL_prepbuffsize((B), LUAL_BUFFERSIZE)
 #endif
 LUALIB_API void (luaL_addlstring) (luaL_Buffer *B, const char *s, size_t l);
