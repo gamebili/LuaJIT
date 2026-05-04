@@ -64,7 +64,9 @@ LUALIB_API void (luaL_register) (lua_State *L, const char *libname,
 #endif
 LUALIB_API int (luaL_getmetafield) (lua_State *L, int obj, const char *e);
 LUALIB_API int (luaL_callmeta) (lua_State *L, int obj, const char *e);
+#if !LUAJIT_EXTERNAL_LUA54
 LUALIB_API int (luaL_typerror) (lua_State *L, int narg, const char *tname);
+#endif
 LUALIB_API int (luaL_argerror) (lua_State *L, int numarg, const char *extramsg);
 LUALIB_API int (luaL_typeerror) (lua_State *L, int narg, const char *tname);
 LUALIB_API void (luaL_argexpected) (lua_State *L, int cond, int arg,

@@ -143,7 +143,7 @@
   - 当前进展：Lua 5.4 外部兼容头已把 `lua_newuserdata()`、`lua_getuservalue()`、`lua_setuservalue()` 暴露为官方 slot 1 alias 宏，默认构建仍保留 LuaJIT 旧函数 ABI。
   - 当前进展：Lua 5.4 兼容头已把外部 `lua_resume(L, from, nargs, nresults)` 映射到 `lua_resume54()` 包装入口，内部仍保留 LuaJIT 旧 2 参数 ABI；包装入口会填写 yield/return 的结果数量。
   - 当前进展：Lua 5.4 外部兼容头已隐藏 `LUA_ENVIRONINDEX`、`LUA_GLOBALSINDEX`、`lua_strlen` 以及旧 `lua_equal`、`lua_lessthan`、`lua_objlen`、`lua_cpcall`、`lua_getfenv`、`lua_setfenv` 声明；LuaJIT 内部和命令行 frontend 通过内部标记继续使用旧 ABI。
-  - 当前进展：Lua 5.4 外部兼容头已隐藏旧 lauxlib 注册入口 `luaL_openlib` / `luaL_register` / `luaL_pushmodule`；默认构建仍通过 C API smoke 覆盖这些 LuaJIT/Lua 5.1 API。
+  - 当前进展：Lua 5.4 外部兼容头已隐藏旧 lauxlib 注册入口 `luaL_openlib` / `luaL_register` / `luaL_pushmodule` 以及旧 `luaL_typerror`；默认构建仍通过 C API smoke 覆盖这些 LuaJIT/Lua 5.1 API。
   - 当前进展：外部兼容头下的 `lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 已改走 registry globals 表，不再依赖 `LUA_GLOBALSINDEX`。
   - 当前进展：外部兼容头下的 `lua_gettable()`、`lua_getfield()`、`lua_geti()`、`lua_rawget()`、`lua_rawgeti()`、`lua_rawgetp()` 已通过 `*54` 包装入口返回取到值的 Lua 类型，内部仍保留 LuaJIT 旧 `void` ABI。
   - 当前进展：外部兼容头下的 `lua_rawgeti()` / `lua_rawseti()` 索引参数已通过 `*54` 包装入口暴露为 `lua_Integer`，内部仍转发到 LuaJIT 当前 32 位整数表槽路径。
@@ -163,7 +163,7 @@
   - 当前进展：已补 `lua_closethread()` no-`<close>` 基础表面，当前等价于 `lua_resetthread()`，覆盖 yielded/fresh coroutine 返回 `LUA_OK`、清空栈并恢复 OK 状态。
   - 需要补 API：`lua_toclose`、真实 continuation 版 `lua_yieldk` / `lua_callk` / `lua_pcallk`；当前只完成这些调用入口的头文件宏兼容表面，`lua_resetthread` / `lua_closethread` 的 `<close>` 关闭语义仍归入 `<close>` 运行期调度大项。
   - 需要补常量/类型/宏：继续核对完整 ABI 细节。
-  - 需要清理/兼容旧 API：默认构建保留 LuaJIT/Lua 5.1 API；Lua 5.4 外部兼容头已隐藏一批旧 5.1 表面、旧 lauxlib 注册入口，并补了常见 getter/number 转换/字符串 push 返回值签名和栈操作宏表面，但仍需继续核对更多旧兼容宏和完整 ABI 细节。
+  - 需要清理/兼容旧 API：默认构建保留 LuaJIT/Lua 5.1 API；Lua 5.4 外部兼容头已隐藏一批旧 5.1 表面、旧 lauxlib 注册入口和 `luaL_typerror`，并补了常见 getter/number 转换/字符串 push 返回值签名和栈操作宏表面，但仍需继续核对更多旧兼容宏和完整 ABI 细节。
   - 需要补内存分配语义：Lua 5.4 允许 allocator 在缩小内存块时失败；当前仍需核对 LuaJIT 分配器契约和错误处理。
   - 当前进展：已补默认构建 C API smoke，覆盖旧 LuaJIT 5.1 头文件宏和 ABI 入口仍可编译、链接、运行。
   - 需要补测试：更完整 ABI 兼容测试，以及更多旧 LuaJIT API 在默认构建下不受影响的覆盖。
@@ -177,10 +177,11 @@
   - 当前进展：`luaL_loadfilex` / `luaL_loadbufferx` 的 mode 不匹配错误文本已按 Lua 5.4 收紧，C API smoke 覆盖 `attempt to load a text chunk (mode is 'b')`。
   - 当前进展：外部兼容头中的 `luaL_loadfile()` / `luaL_loadbuffer()` 已按官方 Lua 5.4 暴露为映射到 `luaL_loadfilex(..., NULL)` / `luaL_loadbufferx(..., NULL)` 的宏。
   - 当前进展：外部兼容头中的 `luaL_newlib()` 已按 Lua 5.4 宏形态先执行 `luaL_checkversion()`，默认构建仍保留 LuaJIT 旧宏。
+  - 当前进展：外部兼容头已隐藏旧 `luaL_typerror`，改用 Lua 5.4 的 `luaL_typeerror`；默认构建继续保留并覆盖旧 `luaL_typerror`。
   - 当前进展：Lua 5.4 兼容模式下 `luaL_checkinteger()` / `luaL_optinteger()` 已拒绝无整数表示的 number，并进入 C API smoke。
   - 当前进展：C API smoke 已补充 `luaL_fileresult()`、`luaL_execresult()`、`luaL_newlib()`、`luaL_setfuncs()`、`luaL_newmetatable()` / `luaL_getmetatable()`、`luaL_setmetatable()`、`luaL_testudata()`、`luaL_checkudata()`、`luaL_traceback()` 和 `luaL_dostring()` 覆盖。
   - 已覆盖：最小 C 程序覆盖 buffer API、`luaL_prepbuffer` / `luaL_argexpected` / `luaL_pushfail` / `luaL_loadfile` / `luaL_loadbuffer` 宏可见性、`luaL_newlib` 版本检查宏形态、`luaL_prepbuffsize()` / `luaL_buffinitsize()` 大于 `LUAL_BUFFERSIZE` 的写入、`luaL_addgsub`、`luaL_tolstring`、`luaL_pushfail`、`luaL_getsubtable`、`luaL_requiref`、`luaL_loadbufferx`、`luaL_loadfilex`。
-  - 已覆盖：`luaL_checkinteger()` / `luaL_optinteger()` 的 fraction number 错误，`lua_tointegerx()` 的 fraction status，`luaL_intop()` 的 32 位公开整数范围 wraparound，`lauxlib.h` 单独暴露 `LUA_GNAME` / `LUA_FILEHANDLE` / `LUA_LOADED_TABLE` / `LUA_PRELOAD_TABLE` 以及输出宏，`lua.h` 单独包含时隐藏 loaded/preload 宏，以及上述常用 lauxlib 5.4 辅助入口的编译/链接/运行表面。
+  - 已覆盖：`luaL_checkinteger()` / `luaL_optinteger()` 的 fraction number 错误，`lua_tointegerx()` 的 fraction status，`luaL_intop()` 的 32 位公开整数范围 wraparound，`lauxlib.h` 单独暴露 `LUA_GNAME` / `LUA_FILEHANDLE` / `LUA_LOADED_TABLE` / `LUA_PRELOAD_TABLE` 以及输出宏，`lua.h` 单独包含时隐藏 loaded/preload 宏，外部 5.4 头隐藏旧 `luaL_typerror`，以及上述常用 lauxlib 5.4 辅助入口的编译/链接/运行表面。
   - 剩余：更冷门的 lauxlib 宏组合和错误文本仍可继续核对。
 
 - [ ] Lua 5.4 binary chunk / `string.dump` 兼容性。

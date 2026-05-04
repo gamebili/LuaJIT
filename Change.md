@@ -38,6 +38,7 @@
 - 已继续补 Lua 5.4 外部兼容头别名：`lua_newuserdata()`、`lua_getuservalue()`、`lua_setuservalue()` 现在作为官方 slot 1 alias 宏暴露，默认 LuaJIT 5.1 ABI 不变。
 - 已继续清理 Lua 5.4 外部兼容头：旧 `LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` 伪索引和一批 Lua 5.1 API 声明已从外部 5.4 表面隐藏，`lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 改走 registry globals 包装路径。
 - 已继续清理 Lua 5.4 外部 lauxlib 头：`luaL_openlib` / `luaL_register` / `luaL_pushmodule` 不再对外声明，并新增负向编译 gate；默认构建 C smoke 覆盖这些旧 API 仍可用。
+- 已继续清理 Lua 5.4 外部 lauxlib 头：旧 `luaL_typerror` 不再对外声明，新增负向编译 gate；默认构建 C smoke 覆盖旧 API 仍可用。
 - 已继续补 C API GC 常量覆盖：`LUA_GCCOUNTB` 已进入 smoke，验证 byte remainder 在 `0..1023` 范围内。
 - 已继续补 Lua 5.4 getter 返回值签名：外部兼容头中的 `lua_gettable()` / `lua_getfield()` / `lua_geti()` / `lua_rawget()` / `lua_rawgeti()` / `lua_rawgetp()` 现在通过包装入口返回取到值的 Lua 类型。
 - 已继续补 Lua 5.4 raw integer API 签名：外部兼容头中的 `lua_rawgeti()` / `lua_rawseti()` 索引参数现在通过 `*54` 包装入口暴露为 `lua_Integer`。
@@ -340,6 +341,7 @@
 - 覆盖 `lua_stringtonumber()`、`lua_isnumber()`、`lua_tonumberx()`、`lua_tointegerx()` 和 `luaL_checknumber()` 拒绝 `inf` / `nan` / `0b` 扫描器扩展字符串。
 - 覆盖默认构建 C API smoke：`LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` / `lua_strlen` 仍可见，`lua_objlen()` / `lua_getfenv()` 仍可编译、链接、运行。
 - 覆盖 Lua 5.4 外部兼容头的负向编译 gate：`luaL_openlib` / `luaL_register` / `luaL_pushmodule` 不应可编译；默认构建 smoke 覆盖这三个旧 lauxlib API 仍可用。
+- 覆盖 Lua 5.4 外部兼容头的负向编译 gate：旧 `luaL_typerror` 不应可编译；默认构建 smoke 覆盖该旧 API 仍可用并保持旧错误文本。
 - 覆盖 Lua 5.4 外部兼容头中 `lua_gettable()`、`lua_getfield()`、`lua_geti()`、`lua_rawget()`、`lua_rawgeti()`、`lua_rawgetp()` 的返回类型签名和运行时返回值。
 - 覆盖 Lua 5.4 外部兼容头中 `lua_rawgeti54()` / `lua_rawseti54()` 的 `lua_Integer` 索引签名。
 - 覆盖 Lua 5.4 外部兼容头中 `lua_insert()` / `lua_remove()` / `lua_replace()` 的宏可见性和基础栈行为。

@@ -3,6 +3,7 @@
 */
 
 #include <stdio.h>
+#include <string.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -39,6 +40,11 @@ static int capi51_answer(lua_State *L)
 {
   lua_pushinteger(L, 51);
   return 1;
+}
+
+static int capi51_typerror(lua_State *L)
+{
+  return luaL_typerror(L, 1, "number");
 }
 
 static const luaL_Reg capi51_reg[] = {
@@ -79,6 +85,14 @@ int main(void)
 
   luaL_pushmodule(L, "capi51.push", 1);
   check(L, lua_istable(L, -1), "luaL_pushmodule default API");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_typerror);
+  lua_pushliteral(L, "bad");
+  check(L, lua_pcall(L, 1, 0, 0) == LUA_ERRRUN,
+	"luaL_typerror default API status");
+  check(L, strstr(lua_tostring(L, -1), "number expected") != NULL,
+	"luaL_typerror default API message");
   lua_pop(L, 1);
 
   lua_close(L);
