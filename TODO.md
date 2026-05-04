@@ -199,9 +199,9 @@
 
 - [ ] Android / iOS / PC / Emscripten 64 位构建矩阵。
   - 当前状态：当前环境已反复覆盖 Windows PC 64 位默认构建和 `LUAJIT_ENABLE_LUA54COMPAT` 构建，并通过 `make test`。
-  - 当前进展：已新增 `tools/lua54_platform_matrix.ps1`，可一键在当前 Windows/MSYS2 环境构建并运行 PC x64 default 与 Lua 5.4 compat smoke；检测到 Android NDK 时会实际构建 Android ARM64 Lua 5.4 compat 静态 artifact，并用 `llvm-readelf` 确认 AArch64；检测到在线 Android 设备时会自动 push `luajit` 和 `test/smoke.lua` 到 `/data/local/tmp` 并运行 Lua 5.4 smoke，当前无在线设备时明确 `SKIP`；iOS/Emscripten 目标先做工具链探测并输出明确 `SKIP` 原因。
+  - 当前进展：已新增 `tools/lua54_platform_matrix.ps1`，可一键在当前 Windows/MSYS2 环境构建并运行 PC x64 default 与 Lua 5.4 compat smoke；检测到 Android NDK 时会实际构建 Android ARM64 Lua 5.4 compat 静态 artifact，并用 `llvm-readelf` 确认 AArch64；检测到在线 Android 设备时会自动 push `luajit` 和 `test/smoke.lua` 到 `/data/local/tmp` 并运行 Lua 5.4 smoke；当前已在 Android 设备 `R5CN30J05BT` 取得 `test/smoke.lua lua54compat` PASS；iOS/Emscripten 目标先做工具链探测并输出明确 `SKIP` 原因。
   - 当前进展：Android ARM64 交叉编译暴露的 `floor` 隐式声明警告已通过补 `<math.h>` 清理。
-  - 已知缺口：Android ARM64 设备/模拟器 smoke 入口已接入脚本，但当前机器没有在线设备，尚未取得真实设备 PASS 证据；iOS ARM64、Emscripten wasm/wasm64 仍未完成实际跨平台编译命令、artifact 检查和目标运行 smoke；Emscripten 还缺 interpreter/wasm 可行路径。
+  - 已知缺口：Android ARM64 artifact 构建和在线设备 smoke 已取得 PASS；iOS ARM64、Emscripten wasm/wasm64 仍未完成实际跨平台编译命令、artifact 检查和目标运行 smoke；Emscripten 还缺 interpreter/wasm 可行路径。
   - 需要补测试/脚本：继续按实际工具链补 iOS SDK ARM64、Emscripten 的构建入口；Android 继续补设备/模拟器 smoke；每个目标至少验证编译完成、`LUAJIT_ENABLE_LUA54COMPAT` 可打开、目标可运行时执行 smoke，不可直接运行时产出可检查 artifact。
   - 实现重点：Emscripten 通常不能使用传统本机 JIT，需要明确解释器/wasm 可行路径；Android/iOS 需要分别确认 JIT 权限、mcode 分配和平台 ABI。
 
@@ -223,7 +223,7 @@
   - 当前进展：string / utf8 库的常见整数参数已按 Lua 5.4 收紧，覆盖 `string.byte`、`char`、`sub`、`rep`、`find`、`match`、`gmatch`、`gsub`、`pack`、`unpack` 以及 `utf8.char`、`codepoint`、`len`、`offset`，都会拒绝无整数表示的 number。
   - 当前进展：`string.char()` 的越界错误文本已收紧为 Lua 5.4 风格的 `value out of range`。
   - 当前进展：`utf8.char()` 对整数可表示但超出 0..0x7fffffff 扩展码点范围的输入，也已按 Lua 5.4 报 `value out of range`。
-  - 当前进展：`string.format()` 的整数格式转换错误已带 `string.format` 函数名，不再在内部格式化 helper 中显示为 `?`。
+  - 当前进展：`string.format()` 的整数格式转换错误、整数格式的 number 类型错误以及 `%q` 无 Lua 字面量形式的错误，均已带 `string.format` 函数名，不再在内部格式化 helper 中显示为 `?`。
   - 当前进展：`load()` / `loadfile()` 底层 mode 不匹配错误文本已按 Lua 5.4 收紧，会说明被拒绝的是 text 还是 binary chunk，并回显传入 mode。
   - 当前进展：`package.searchpath()` / `package.searchers` 返回的错误片段已按 Lua 5.4 去掉前导换行缩进，`require()` 组装最终 module-not-found 错误时再补 `\n\t`。
   - 当前进展：`os.rename()` 失败时已按 Lua 5.4 返回原始系统错误文本，不再把源文件名拼进错误字符串；`os.remove()` 仍保留文件名前缀。

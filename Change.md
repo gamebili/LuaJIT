@@ -77,6 +77,8 @@
 - 已继续补 Lua 5.4 standalone 环境变量优先级：兼容构建会优先读取 `LUA_INIT_5_4`、`LUA_PATH_5_4`、`LUA_CPATH_5_4`，再回退旧变量名。
 - 已继续补 Lua 层 binary chunk smoke：`string.dump(f, strip)` 已覆盖 full/stripped 写出、`mode="b"` 回读执行，以及 binary chunk 被 text-only mode 拒绝。
 - 已继续补 Lua 5.4 `load(..., env)` 的真实 upvalue 初始化语义：LuaJIT dumped chunk 回读时，带真实首个 upvalue 的函数现在会保留第 4 个 env 参数的原始值，覆盖 table / number / false / nil；未传 env 时仍默认初始化为当前全局环境。
+- 已继续收紧 Lua 5.4 `string.format()` 错误表面：整数格式遇到非 number 类型、以及 `%q` 遇到 table / 带 `__tostring` 的 table 时，错误函数名现在保持为 `string.format`，不再从内部格式化 helper 泄露为 `?`。
+- 已修正 Lua 5.4 `string.pack("lL")` smoke 的跨平台 ABI 假设：native `long` 在 Windows x64 为 4 字节、Android ARM64 为 8 字节，测试现在按目标 ABI 校验；Android ARM64 设备 `R5CN30J05BT` 已通过 `test/smoke.lua lua54compat`。
 - 已继续收紧 Lua 5.4 GC 公开表面：兼容构建中 `collectgarbage("setstepmul", n)` 的初始旧值现在对齐 Lua 5.4 的 `100`。
 - 已继续收紧严格 Lua 5.4 语法表面：`L` / `LL` / `UL` / `ULL` / `uLL`、`0b...` 和 imaginary `i` 数字字面量扩展都已进入拒绝用例。
 - 已继续补 Lua 5.4 头文件/辅助库表面：新增 `LUA_VERSION_MAJOR` / `LUA_VERSION_MINOR` / `LUA_VERSION_RELEASE` / `LUA_VERSION_RELEASE_NUM` / `LUA_NUMTYPES` 宏，以及 `luaL_addgsub()`。

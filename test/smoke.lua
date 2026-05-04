@@ -791,6 +791,9 @@ do
   assert(ok == false and err:match("string%.format") ~= nil and
          err:match("integer representation") ~= nil)
   assert(string.format("%d", 12.0) == "12")
+  ok, err = pcall(string.format, "%d", true)
+  assert(ok == false and err:match("string%.format") ~= nil and
+         err:match("number expected") ~= nil)
   assert(string.format("%q", nil) == "nil")
   assert(string.format("%q", true) == "true")
   assert(string.format("%q", 1) == "1")
@@ -799,9 +802,13 @@ do
   assert(string.format("%q", 0 / 0) == "(0/0)")
   assert(string.format("%q", math.huge) == "1e9999")
   assert(string.format("%q", -math.huge) == "-1e9999")
-  assert(select(1, pcall(string.format, "%q", {})) == false)
-  assert(select(1, pcall(string.format, "%q",
-    setmetatable({}, { __tostring = function() return "x" end }))) == false)
+  ok, err = pcall(string.format, "%q", {})
+  assert(ok == false and err:match("string%.format") ~= nil and
+         err:match("literal form") ~= nil)
+  ok, err = pcall(string.format, "%q",
+    setmetatable({}, { __tostring = function() return "x" end }))
+  assert(ok == false and err:match("string%.format") ~= nil and
+         err:match("literal form") ~= nil)
   assert(select(1, pcall(string.format, "%c", 65.5)) == false)
   assert(string.format("%c", "65") == "A")
   assert(string.format("%p", nil) == "(null)")
@@ -1142,10 +1149,13 @@ do
     local a, pos = string.unpack("!8bXi8", string.pack("!8bXi8", 1))
     assert(a == 1 and pos == 9)
   end
-  assert(string.packsize("lL") == 8)
+  local long_pair_size = string.packsize("lL")
+  -- Native long follows the target C ABI: Windows x64 is LLP64 (4-byte long),
+  -- while Android/iOS/Linux 64-bit are LP64 (8-byte long).
+  assert(long_pair_size == 8 or long_pair_size == 16)
   do
     local a, b, pos = string.unpack("<lL", string.pack("<lL", -2, 5))
-    assert(a == -2 and b == 5 and pos == 9)
+    assert(a == -2 and b == 5 and pos == long_pair_size + 1)
   end
   assert(bytes(string.pack("x b", 7)) == "0,7")
   assert(string.unpack("x b", "\0\7") == 7)

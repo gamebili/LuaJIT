@@ -17,6 +17,7 @@
 #include "lj_meta.h"
 #include "lj_state.h"
 #include "lj_char.h"
+#include "lj_strscan.h"
 #include "lj_strfmt.h"
 #if LJ_HASFFI
 #include "lj_ctype.h"
@@ -373,6 +374,39 @@ static void strfmt_argerror_named54(lua_State *L, int arg, const char *msg)
     "bad argument #%d to 'string.format' (%s)", arg, msg));
 }
 
+static void strfmt_argtype_named54(lua_State *L, int arg, const char *xname)
+{
+  cTValue *o = L->base + arg-1;
+  MSize len;
+  const char *tname = o < L->top ? lj_meta_objtypename(L, o, &len) : "no value";
+  UNUSED(len);
+  /* string.format() formats values through this shared helper; the generic
+  ** library checker cannot recover the public function name from here.
+  */
+  lj_err_callermsg(L, lua_pushfstring(L,
+    "bad argument #%d to 'string.format' (%s expected, got %s)",
+    arg, xname, tname));
+}
+
+static lua_Number strfmt_checknum_named54(lua_State *L, int arg)
+{
+  TValue tmp;
+  cTValue *o = L->base + arg-1;
+  if (o >= L->top)
+    strfmt_argtype_named54(L, arg, "number");
+  if (tvisstr(o)) {
+    if (!lj_strscan_number(strV(o), &tmp))
+      strfmt_argtype_named54(L, arg, "number");
+    o = &tmp;
+  }
+  if (tvisint(o))
+    return (lua_Number)intV(o);
+  if (tvisnum(o))
+    return numV(o);
+  strfmt_argtype_named54(L, arg, "number");
+  return 0;  /* unreachable */
+}
+
 static int strfmt_numisinf(lua_Number n)
 {
   return n != 0 && n == n * 0.5;
@@ -407,7 +441,7 @@ static int strfmt_putqnum_lua54(SBuf *sb, lua_Number n)
 
 static lua_Number strfmt_checkintegernum(lua_State *L, int arg)
 {
-  lua_Number n = lj_lib_checknum(L, arg);
+  lua_Number n = strfmt_checknum_named54(L, arg);
   int64_t k = lj_num2i64(n);
   /* Lua 5.4 refuses integer formats for numbers without an integer value. */
   if ((lua_Number)k != n)
@@ -480,7 +514,11 @@ int lj_strfmt_putarg(lua_State *L, SBuf *sb, int arg, int retry)
 #endif
 	break;
       case STRFMT_NUM:
+#if LJ_54
+	lj_strfmt_putfnum(sb, sf, strfmt_checknum_named54(L, arg));
+#else
 	lj_strfmt_putfnum(sb, sf, lj_lib_checknum(L, arg));
+#endif
 	break;
       case STRFMT_STR: {
 	MSize len;
@@ -499,7 +537,7 @@ int lj_strfmt_putarg(lua_State *L, SBuf *sb, int arg, int retry)
 #else
 	  if (!tvisstr(o))
 #endif
-	    luaL_argerror(L, arg, "value has no literal form");
+	    strfmt_argerror_named54(L, arg, "value has no literal form");
 	}
 #endif
 	if (LJ_UNLIKELY(!tvisstr(o) && !tvisbuf(o)) && retry >= 0 &&
