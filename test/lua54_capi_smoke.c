@@ -173,6 +173,8 @@ static int hook_vararg_call_ftransfer = -1;
 static int hook_vararg_call_ntransfer = -1;
 static int hook_vararg_ret_ftransfer = -1;
 static int hook_vararg_ret_ntransfer = -1;
+static int hook_c_call_ftransfer = -1;
+static int hook_c_call_ntransfer = -1;
 
 static void header_output_macros_compile_only(void)
 {
@@ -243,7 +245,7 @@ static int panic_b(lua_State *L)
 
 static void capi_transfer_hook(lua_State *L, lua_Debug *ar)
 {
-  if (!lua_getinfo(L, "ur", ar))
+  if (!lua_getinfo(L, "nruS", ar))
     return;
   if (ar->nparams == 2 && !ar->isvararg) {
     if (ar->event == LUA_HOOKCALL) {
@@ -262,6 +264,10 @@ static void capi_transfer_hook(lua_State *L, lua_Debug *ar)
       hook_vararg_ret_ftransfer = ar->ftransfer;
       hook_vararg_ret_ntransfer = ar->ntransfer;
     }
+  } else if (ar->event == LUA_HOOKCALL && ar->what != NULL &&
+	     strcmp(ar->what, "C") == 0 && hook_c_call_ftransfer < 0) {
+    hook_c_call_ftransfer = ar->ftransfer;
+    hook_c_call_ntransfer = ar->ntransfer;
   }
 }
 
@@ -355,6 +361,15 @@ static int checkversion_bad_sizes(lua_State *L)
 static int push_answer(lua_State *L)
 {
   lua_pushinteger(L, 42);
+  return 1;
+}
+
+static int capi_transfer_cfunc(lua_State *L)
+{
+  check_integer(L, 1, 1, "capi transfer C arg 1");
+  check_integer(L, 2, 2, "capi transfer C arg 2");
+  check_integer(L, 3, 3, "capi transfer C arg 3");
+  lua_pushinteger(L, 6);
   return 1;
 }
 
@@ -1519,6 +1534,18 @@ static void test_warning_and_gc_api(lua_State *L)
   check(L, hook_vararg_ret_ftransfer == 2 &&
 	hook_vararg_ret_ntransfer == 3,
 	"lua_getinfo vararg return hook transfer fields");
+
+  lua_pushcfunction(L, capi_transfer_cfunc);
+  lua_setglobal(L, "capi_transfer_cfunc");
+  hook_c_call_ftransfer = hook_c_call_ntransfer = -1;
+  lua_sethook(L, capi_transfer_hook, LUA_MASKCALL, 0);
+  status = luaL_dostring(L, "return capi_transfer_cfunc(1, 2, 3)");
+  lua_sethook(L, NULL, 0, 0);
+  check(L, status == LUA_OK, "lua_getinfo C hook transfer setup");
+  check_integer(L, -1, 6, "lua_getinfo C hook transfer result");
+  lua_pop(L, 1);
+  check(L, hook_c_call_ftransfer == 1 && hook_c_call_ntransfer == 3,
+	"lua_getinfo C call hook transfer fields");
 }
 
 int main(void)

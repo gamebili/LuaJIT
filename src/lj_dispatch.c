@@ -526,6 +526,13 @@ ASMFunction LJ_FASTCALL lj_dispatch_call(lua_State *L, const BCIns *pc)
     uint16_t nparams = 0;
     if (isluafunc(fn))
       nparams = funcproto(fn)->numparams;
+    else {
+      ptrdiff_t nargs = L->top - L->base;
+      /* C functions are vararg in debug metadata; Lua 5.4 still reports the
+      ** actual argument range transferred by this concrete call.
+      */
+      nparams = nargs > 65535 ? 65535u : (uint16_t)nargs;
+    }
     for (i = 0; i < missing; i++)  /* Add missing parameters. */
       setnilV(L->top++);
     callhook(L, LUA_HOOKCALL, -1, nparams ? 1 : 0, nparams);

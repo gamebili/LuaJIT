@@ -1124,6 +1124,20 @@ do
     assert(seen[1] == "call:1:1")
     assert(seen[2] == "return:2:3")
   end
+  do
+    local seen = {}
+    local function hook(ev)
+      local info = debug.getinfo(2, "rS")
+      if info.what == "C" then
+        seen[#seen+1] = ev..":"..info.ftransfer..":"..info.ntransfer
+      end
+    end
+    debug.sethook(hook, "c")
+    local v = math.max(1, 2, 3)
+    debug.sethook()
+    assert(v == 3)
+    assert(seen[1] == "call:1:3")
+  end
 end
 
 do
