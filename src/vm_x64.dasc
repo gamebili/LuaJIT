@@ -3199,6 +3199,15 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
       |
       |  // Different tables or userdatas. Need to check __eq metamethod.
       |  // Field metatable must be at same offset for GCtab and GCudata!
+#if LJ_54
+      |  cleartp TAB:RA
+      if (vk) {
+	|  xor RBd, RBd			// ne = 0
+      } else {
+	|  mov RBd, 1			// ne = 1
+      }
+      |  jmp ->vmeta_equal		// Lua 5.4 checks either side's __eq.
+#else
       |  cleartp TAB:RA
       |  mov TAB:RB, TAB:RA->metatable
       |  test TAB:RB, TAB:RB
@@ -3211,6 +3220,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
 	|  mov RBd, 1			// ne = 1
       }
       |  jmp ->vmeta_equal		// Handle __eq metamethod.
+#endif
     } else {
       |.if FFI
       |3:

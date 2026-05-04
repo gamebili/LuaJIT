@@ -400,14 +400,20 @@ TValue *lj_meta_equal(lua_State *L, GCobj *o1, GCobj *o2, int ne)
 {
   /* Field metatable must be at same offset for GCtab and GCudata! */
   cTValue *mo = lj_meta_fast(L, tabref(o1->gch.metatable), MM_eq);
+  TValue *top;
+  uint32_t it;
+#if LJ_54
+  if (mo == NULL)
+    mo = lj_meta_fast(L, tabref(o2->gch.metatable), MM_eq);
   if (mo) {
-    TValue *top;
-    uint32_t it;
+#else
+  if (mo) {
     if (tabref(o1->gch.metatable) != tabref(o2->gch.metatable)) {
       cTValue *mo2 = lj_meta_fast(L, tabref(o2->gch.metatable), MM_eq);
       if (mo2 == NULL || !lj_obj_equal(mo, mo2))
 	return (TValue *)(intptr_t)ne;
     }
+#endif
     top = curr_top(L);
     setcont(top++, ne ? lj_cont_condf : lj_cont_condt);
     if (LJ_FR2) setnilV(top++);

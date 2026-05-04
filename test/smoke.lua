@@ -910,6 +910,32 @@ do
     assert((with_le <= with_le) == true)
   end
   do
+    local log = {}
+    local left_mt = {
+      __eq = function(a, b)
+        log[#log + 1] = "left:"..(a.tag or "?")..":"..(b.tag or "?")
+        return true
+      end,
+    }
+    local right_mt = {
+      __eq = function(a, b)
+        log[#log + 1] = "right:"..(a.tag or "?")..":"..(b.tag or "?")
+        return false
+      end,
+    }
+    local left = setmetatable({ tag = "left" }, left_mt)
+    local right = setmetatable({ tag = "right" }, right_mt)
+    local raw = { tag = "raw" }
+    -- Lua 5.4 uses the first operand's __eq if present, otherwise the
+    -- second operand's one. Lua 5.1/LuaJIT required the same __eq on both.
+    assert((left == raw) == true)
+    assert((raw == left) == true)
+    assert((left == right) == true)
+    assert((right == left) == false)
+    assert(table.concat(log, ",") ==
+      "left:left:raw,left:raw:left,left:left:right,right:right:left")
+  end
+  do
     local lhs = setmetatable({}, {
       __idiv = function(a, b) return { "idiv", a, b } end,
       __band = function(a, b) return { "band", a, b } end,
@@ -2209,6 +2235,16 @@ do
       end
       return sum
     end
+    local function eq_meta_loop(n)
+      local mt = { __eq = function(a, b) return a.v == b.v end }
+      local a = setmetatable({ v = 1 }, mt)
+      local b = { v = 1 }
+      local c = 0
+      for i = 1, n do
+        if a == b and b == a then c = c + 1 end
+      end
+      return c
+    end
     jit.flush()
     jit.on()
     jitopt.start("hotloop=1")
@@ -2245,6 +2281,11 @@ do
     before = trace_highwater()
     assert(generic_for_close_loop(80) == 3240)
     assert(generic_for_close_loop(80) == 3240)
+    assert(trace_highwater() > before)
+    jit.flush()
+    before = trace_highwater()
+    assert(eq_meta_loop(80) == 80)
+    assert(eq_meta_loop(80) == 80)
     assert(trace_highwater() > before)
     jit.flush()
     jitopt.start("hotloop=56")

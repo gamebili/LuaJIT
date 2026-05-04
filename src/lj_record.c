@@ -1231,6 +1231,18 @@ static void rec_mm_equal(jit_State *J, RecordIndex *ix, int op)
 {
   ix->tab = ix->val;
   copyTV(J->L, &ix->tabv, &ix->valv);
+#if LJ_54
+  if (!lj_record_mm_lookup(J, ix, MM_eq)) {  /* Try 1st operand first. */
+    ix->tab = ix->key;
+    copyTV(J->L, &ix->tabv, &ix->keyv);
+    if (!lj_record_mm_lookup(J, ix, MM_eq))
+      return;
+  }
+  /* Lua 5.4 accepts either side's __eq and uses the left side first, so the
+  ** recorder must not require both operands to expose the same metamethod.
+  */
+  rec_mm_callcomp(J, ix, op);
+#else
   if (lj_record_mm_lookup(J, ix, MM_eq)) {  /* Lookup mm on 1st operand. */
     cTValue *bv;
     TRef mo1 = ix->mobj;
@@ -1253,6 +1265,7 @@ static void rec_mm_equal(jit_State *J, RecordIndex *ix, int op)
     }
     rec_mm_callcomp(J, ix, op);
   }
+#endif
 }
 
 /* Record call to ordered comparison metamethods (for arbitrary objects). */

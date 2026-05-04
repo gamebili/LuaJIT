@@ -2585,6 +2585,15 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     }
     |  // Different tables or userdatas. Need to check __eq metamethod.
     |  // Field metatable must be at same offset for GCtab and GCudata!
+#if LJ_54
+    |  and TAB:CARG2, CARG1, #LJ_GCVMASK
+    if (vk) {
+      |  mov CARG4, #0			// ne = 0
+    } else {
+      |  mov CARG4, #1			// ne = 1.
+    }
+    |  b ->vmeta_equal			// Lua 5.4 checks either side's __eq.
+#else
     |  and TAB:CARG2, CARG1, #LJ_GCVMASK
     |  ldr TAB:TMP2, TAB:CARG2->metatable
     if (vk) {
@@ -2599,6 +2608,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
       |  tbnz TMP1w, #MM_eq, ->BC_ISEQV_Z	// 'no __eq' flag set: done.
     }
     |  b ->vmeta_equal
+#endif
     break;
 
   case BC_ISEQS: case BC_ISNES:

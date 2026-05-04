@@ -91,6 +91,11 @@
   - 当前状态：只定义 `__lt` 的 table 做 `a <= b` 时不再走旧 Lua 5.1 风格的 `not (b < a)` 模拟路径，缺少 `__le` 会直接报错。
   - 已覆盖：只定义 `__lt`、只定义 `__le`、二者都定义、左右元表差异和基础错误路径。
 
+- [x] `__eq` 元方法按 Lua 5.4 接受单侧定义。
+  - 当前状态：table/userdata 的 `==` / `~=` 在对象不同且任一侧有 `__eq` 时，会按官方 Lua 5.4.8 `lvm.c` 的顺序先查左操作数，左侧没有再查右操作数；不再要求两侧 metatable 暴露同一个 `__eq` 函数。
+  - 已覆盖：左侧元方法、右侧 fallback、左右两侧 `__eq` 不同函数时的左侧优先、`~=` 反向结果，以及开启 JIT 后的热循环 recorder 路径。
+  - 官方验证：`testes/events.lua` 中 `Set{...} == rawSet{...}` 和 `rawSet{...} == Set{...}` 已通过；`testC` userdata 块仍因当前未启用官方 testC harness 跳过。
+
 - [x] `string.pack` / `string.unpack` / `string.packsize` 的完整格式布局。
   - 当前状态：已覆盖基础整数、浮点、字符串、`j`、`T`、`l` / `L`、`X` 和 `!n` 最大对齐，`packsize`、`pack`、`unpack` 三者共用当前位置对齐规则。
   - 已覆盖：`X`、`!n` 最大对齐、padding 字节、`unpack` 位置推进、混合 endian 与 alignment、非法格式基础错误。
