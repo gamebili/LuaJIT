@@ -400,6 +400,51 @@ do
   end
   do
     assert(assert(load([[
+      local function func2close(f)
+        return setmetatable({}, { __close = f })
+      end
+      local trace = {}
+      local co = coroutine.wrap(function()
+        do
+          local x <close> = func2close(function(_, err)
+            assert(err == nil)
+            trace[#trace + 1] = "x1"
+            coroutine.yield("x")
+            trace[#trace + 1] = "x2"
+          end)
+          trace[#trace + 1] = "body"
+        end
+        return "done"
+      end)
+      assert(co() == "x")
+      assert(co() == "done")
+      assert(table.concat(trace, ",") == "body,x1,x2")
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
+      local function func2close(f)
+        return setmetatable({}, { __close = f })
+      end
+      local closed
+      local co = coroutine.wrap(function()
+        local x <close> = func2close(function(self, err)
+          assert(err == nil)
+          closed = self
+          coroutine.yield("closing")
+        end)
+        return "head", x, nil, "tail"
+      end)
+      assert(co() == "closing")
+      local out = table.pack(co())
+      assert(out.n == 4 and out[1] == "head" and out[2] == closed and
+             out[3] == nil and out[4] == "tail")
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
       local log = {}
       local mt = {
         __close = function(self, err)

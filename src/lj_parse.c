@@ -720,8 +720,10 @@ static void bcemit_lua54_closevalue(FuncState *fs, BCReg slot)
   LexState *ls = fs->ls;
   BCReg base = fs->freereg;
   BCReg argbase;
-  /* Normal fall-through block exit can be lowered to a helper call without
-  ** changing VM frame unwinding yet. Other exits remain in TODO.md.
+  /* The C helper only prepares the close method call and unmarks the slot.
+  ** The parser emits the actual __close(value, nil) as a normal Lua call so a
+  ** closing metamethod can yield and resume across this frame, matching Lua
+  ** 5.4's yieldable close path.
   */
   bcemit_AD(fs, BC_GGET, base, const_lit(fs, "jit", 3));
   bcreg_reserve(fs, 1);
@@ -732,6 +734,9 @@ static void bcemit_lua54_closevalue(FuncState *fs, BCReg slot)
   bcemit_AD(fs, BC_MOV, argbase, slot);
   bcemit_AD(fs, BC_KSHORT, (BCReg)(argbase + 1),
 	    (BCReg)(uint16_t)((int32_t)slot - (int32_t)argbase));
+  bcemit_ABC(fs, BC_CALL, base, (BCReg)(4 + ls->fr2),
+	     fs->freereg - base - ls->fr2);
+  fs->freereg = (BCReg)(base + 3 + ls->fr2);
   bcemit_ABC(fs, BC_CALL, base, 1, fs->freereg - base - ls->fr2);
   fs->freereg = base;
 }

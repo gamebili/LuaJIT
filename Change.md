@@ -18,6 +18,7 @@
 - 已按官方 Lua 5.4.8 `lua.h` 对齐 debug hook 事件宏：外部兼容头只暴露 `LUA_HOOKTAILCALL`，不再暴露旧 LuaJIT/Lua 5.1 `LUA_HOOKTAILRET`。
 - 已继续按官方 Lua 5.4.8 `lua.h` 清理外部兼容头：`lua_open`、`lua_getregistry`、`lua_getgccount`、`lua_Chunkreader`、`lua_Chunkwriter` 和 `lua_setlevel` 不再对外暴露；默认构建 C smoke 覆盖旧兼容宏仍可用。
 - 已按官方 `testes/bwcoercion.lua` 修正 Lua 5.4 lowered operator helper 的 metamethod 返回栈：`__band` / `__idiv` 等路径只返回 metamethod 第一个结果，不再把原操作数漏成额外返回值。
+- 已按官方 `testes/locals.lua` 的 to-be-closed coroutine 用例推进 `<close>` yield 边界：普通块退出和 close-active `return` 路径不再在 C helper 内部调用 `__close`，而是由 parser 生成普通 Lua 调用，因此 `__close` 内 `coroutine.yield()` 后可恢复，并保留返回值数量与 `nil` 洞；error unwind / C return 等路径仍记录在 `TODO.md` 继续由 VM unwind continuation 接管。
 - 已修复 Lua 5.4 compat 的 amalgamation 构建遗漏：`ljamalg.c` 现在包含 `lib_utf8.c`，避免 `luaopen_utf8` 在合并编译链接时缺失。
 - 已完成实验性 Lua 5.4 兼容模式的阶段性实现与测试。
 - 已通过 `make test` 验证默认构建和 Lua 5.4 兼容构建的 smoke 测试。
