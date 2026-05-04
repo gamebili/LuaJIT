@@ -200,6 +200,7 @@
 - 已继续收紧普通算术的字符串失败路径：Lua 5.4 兼容模式下 `"x" + 1`、`1 + "x"`、`"x" * true` 和 `-"x"` 会报具体操作名和左右操作数类型，不再只报 LuaJIT 泛化的 `perform arithmetic on string value`。
 - 已继续补齐字符串算术元方法优先级：Lua 5.4 兼容模式下字符串 metatable 显式提供 `__add` / `__mul` / `__unm` 时，会优先于 `"1"` 这类字符串数字转换执行。
 - 已继续扩展 JIT smoke：开启 JIT 后的字符串 `__add` 元方法优先级会在热循环中验证结果并确认产生 trace。
+- 已继续扩展 JIT smoke：真实 `_ENV` upvalue 经 `debug.setupvalue` 替换为自定义 table 后，隐式全局访问可以在热循环中执行并产生 trace。
 
 ## 修改内容
 

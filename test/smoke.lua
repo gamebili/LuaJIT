@@ -2024,6 +2024,16 @@ do
         return sum
       end
     ]]))()
+    local env_trace_loop = assert(load([[
+      return function(n)
+        local sum = 0
+        for i = 1, n do
+          sum = sum + x
+        end
+        return sum
+      end
+    ]]))()
+    assert(debug.setupvalue(env_trace_loop, 1, { x = 7 }) == "_ENV")
     local function random_loop(n)
       math.randomseed(123, 456)
       local sum = 0
@@ -2067,6 +2077,11 @@ do
     local before = trace_highwater()
     assert(lua54_loop(80) == 1840)
     assert(lua54_loop(80) == 1840)
+    assert(trace_highwater() > before)
+    jit.flush()
+    before = trace_highwater()
+    assert(env_trace_loop(80) == 560)
+    assert(env_trace_loop(80) == 560)
     assert(trace_highwater() > before)
     jit.flush()
     before = trace_highwater()
