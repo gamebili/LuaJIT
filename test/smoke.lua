@@ -324,6 +324,32 @@ do
   end
   assert(assert(load("local x <close> = false; return x"))() == false)
   do
+    assert(assert(load([[
+      local log = {}
+      local mt = {
+        __close = function(self, err)
+          assert(err == nil)
+          log[#log + 1] = self.name
+        end,
+      }
+      do
+        local a <close> = setmetatable({ name = "a" }, mt)
+        local b <close> = setmetatable({ name = "b" }, mt)
+        assert(a.name == "a" and b.name == "b")
+      end
+      assert(table.concat(log, ",") == "b,a")
+
+      local n = 0
+      do
+        local x <close> = false
+        local y <close> = nil
+        assert(x == false and y == nil)
+      end
+      assert(n == 0)
+      return true
+    ]]))())
+  end
+  do
     local setlocal_const = assert(load([[
     return function()
       local x <const> = {}

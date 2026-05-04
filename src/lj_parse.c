@@ -711,6 +711,25 @@ static void bcemit_lua54_checkclose(FuncState *fs, BCReg slot, GCstr *name)
   bcemit_ABC(fs, BC_CALL, base, 1, fs->freereg - base - ls->fr2);
   fs->freereg = base;
 }
+
+static void bcemit_lua54_closevalue(FuncState *fs, BCReg slot)
+{
+  LexState *ls = fs->ls;
+  BCReg base = fs->freereg;
+  BCReg argbase;
+  /* Normal fall-through block exit can be lowered to a helper call without
+  ** changing VM frame unwinding yet. Other exits remain in TODO.md.
+  */
+  bcemit_AD(fs, BC_GGET, base, const_lit(fs, "jit", 3));
+  bcreg_reserve(fs, 1);
+  if (ls->fr2) bcreg_reserve(fs, 1);
+  bcemit_lua54_jit_field(fs, base, "_lua54_closevalue", 17);
+  bcreg_reserve(fs, 1);
+  argbase = (BCReg)(base + 1 + ls->fr2);
+  bcemit_AD(fs, BC_MOV, argbase, slot);
+  bcemit_ABC(fs, BC_CALL, base, 1, fs->freereg - base - ls->fr2);
+  fs->freereg = base;
+}
 #endif
 
 /* Partially discharge expression to a value. */
@@ -1470,7 +1489,18 @@ static void fscope_end(FuncState *fs)
 {
   FuncScope *bl = fs->bl;
   LexState *ls = fs->ls;
+#if LJ_54
+  BCReg closevar;
+#endif
   fs->bl = bl->prev;
+#if LJ_54
+  fs->freereg = fs->nactvar;
+  for (closevar = fs->nactvar; closevar > bl->nactvar; ) {
+    VarInfo *v = &var_get(ls, fs, --closevar);
+    if (v->info & VSTACK_VAR_CLOSE)
+      bcemit_lua54_closevalue(fs, closevar);
+  }
+#endif
   var_remove(ls, bl->nactvar);
   fs->freereg = fs->nactvar;
   lj_assertFS(bl->nactvar == fs->nactvar, "bad regalloc");
