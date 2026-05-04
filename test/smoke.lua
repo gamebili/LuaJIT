@@ -378,6 +378,35 @@ do
           log[#log + 1] = self.name
         end,
       }
+      local function values()
+        log[#log + 1] = "values"
+        return "a", nil, "c"
+      end
+      local function f()
+        local x <close> = setmetatable({ name = "x" }, mt)
+        return values()
+      end
+      local function g(...)
+        local y <close> = setmetatable({ name = "y" }, mt)
+        return "head", ...
+      end
+      local n, a, b, c = select("#", f()), f()
+      assert(n == 3 and a == "a" and b == nil and c == "c")
+      local vn, va, vb, vc = select("#", g(nil, "tail")), g(nil, "tail")
+      assert(vn == 3 and va == "head" and vb == nil and vc == "tail")
+      assert(table.concat(log, ",") == "values,x,values,x,y,y")
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
+      local log = {}
+      local mt = {
+        __close = function(self, err)
+          assert(err == nil)
+          log[#log + 1] = self.name
+        end,
+      }
       while true do
         local a <close> = setmetatable({ name = "a" }, mt)
         do

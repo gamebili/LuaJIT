@@ -731,6 +731,48 @@ static void bcemit_lua54_closevalue(FuncState *fs, BCReg slot)
   bcemit_ABC(fs, BC_CALL, base, 1, fs->freereg - base - ls->fr2);
   fs->freereg = base;
 }
+
+static void bcemit_lua54_returnpack_begin(FuncState *fs, BCReg base)
+{
+  LexState *ls = fs->ls;
+  /* Close-active returns need the values to survive close handler calls.
+  ** Pack them through a private helper for now; the VM unwind batch can later
+  ** replace only this bridge without changing parser-visible close ordering.
+  */
+  bcemit_AD(fs, BC_GGET, base, const_lit(fs, "jit", 3));
+  bcreg_reserve(fs, 1);
+  if (ls->fr2) bcreg_reserve(fs, 1);
+  bcemit_lua54_jit_field(fs, base, "_lua54_packreturn", 17);
+}
+
+static void bcemit_lua54_returnpack_end(FuncState *fs, BCReg base, ExpDesc *e)
+{
+  LexState *ls = fs->ls;
+  if (e->k == VCALL) {
+    setbc_b(bcptr(fs, e), 0);
+    bcemit_ABC(fs, BC_CALLM, base, 2, e->u.s.aux - base - 1 - ls->fr2);
+  } else {
+    expr_tonextreg(fs, e);
+    bcemit_ABC(fs, BC_CALL, base, 2, fs->freereg - base - ls->fr2);
+  }
+  fs->freereg = base+1;
+}
+
+static BCIns bcemit_lua54_returnunpack(FuncState *fs, BCReg base)
+{
+  LexState *ls = fs->ls;
+  BCReg argbase;
+  bcreg_reserve(fs, 1);
+  if (ls->fr2) bcreg_reserve(fs, 1);
+  argbase = (BCReg)(base + 1 + ls->fr2);
+  bcreg_reserve(fs, 1);
+  bcemit_AD(fs, BC_MOV, argbase, base);
+  bcemit_AD(fs, BC_GGET, base, const_lit(fs, "jit", 3));
+  bcemit_lua54_jit_field(fs, base, "_lua54_unpackreturn", 19);
+  bcemit_ABC(fs, BC_CALL, base, 0, fs->freereg - base - ls->fr2);
+  fs->freereg = base+1;
+  return BCINS_AD(BC_RETM, base, 0);
+}
 #endif
 
 /* Partially discharge expression to a value. */
@@ -2662,39 +2704,52 @@ static void parse_return(LexState *ls)
     ins = BCINS_AD(BC_RET0, 0, 1);
   } else {  /* Return with one or more values. */
     ExpDesc e;  /* Receives the _last_ expression in the list. */
-    BCReg nret = expr_list(ls, &e);
-    if (nret == 1) {  /* Return one result. */
-      if (e.k == VCALL) {  /* Check for tail call. */
+#if LJ_54
+    if (fscope_hascloseactive(fs, 0)) {
+      BCReg base = fs->freereg;
+      bcemit_lua54_returnpack_begin(fs, base);
+      expr_list(ls, &e);
+      bcemit_lua54_returnpack_end(fs, base, &e);
+      fscope_closeactive(fs, 0);
+      ins = bcemit_lua54_returnunpack(fs, base);
+      closefixed = 0;
+    } else
+#endif
+    {
+      BCReg nret = expr_list(ls, &e);
+      if (nret == 1) {  /* Return one result. */
+	if (e.k == VCALL) {  /* Check for tail call. */
 #ifdef LUAJIT_DISABLE_TAILCALL
-	goto notailcall;
-#else
-	BCIns *ip = bcptr(fs, &e);
-	/* It doesn't pay off to add BC_VARGT just for 'return ...'. */
-	if (bc_op(*ip) == BC_VARG) goto notailcall;
-#if LJ_54
-	if (fscope_hascloseactive(fs, 0))
 	  goto notailcall;
-#endif
-	fs->pc--;
-	ins = BCINS_AD(bc_op(*ip)-BC_CALL+BC_CALLT, bc_a(*ip), bc_c(*ip));
+#else
+	  BCIns *ip = bcptr(fs, &e);
+	  /* It doesn't pay off to add BC_VARGT just for 'return ...'. */
+	  if (bc_op(*ip) == BC_VARG) goto notailcall;
 #if LJ_54
-	closefixed = 0;
+	  if (fscope_hascloseactive(fs, 0))
+	    goto notailcall;
 #endif
-#endif
-      } else {  /* Can return the result from any register. */
-	ins = BCINS_AD(BC_RET1, expr_toanyreg(fs, &e), 2);
-      }
-    } else {
-      if (e.k == VCALL) {  /* Append all results from a call. */
-      notailcall:
-	setbc_b(bcptr(fs, &e), 0);
-	ins = BCINS_AD(BC_RETM, fs->nactvar, e.u.s.aux - fs->nactvar);
+	  fs->pc--;
+	  ins = BCINS_AD(bc_op(*ip)-BC_CALL+BC_CALLT, bc_a(*ip), bc_c(*ip));
 #if LJ_54
-	closefixed = 0;
+	  closefixed = 0;
 #endif
+#endif
+	} else {  /* Can return the result from any register. */
+	  ins = BCINS_AD(BC_RET1, expr_toanyreg(fs, &e), 2);
+	}
       } else {
-	expr_tonextreg(fs, &e);  /* Force contiguous registers. */
-	ins = BCINS_AD(BC_RET, fs->nactvar, nret+1);
+	if (e.k == VCALL) {  /* Append all results from a call. */
+	notailcall:
+	  setbc_b(bcptr(fs, &e), 0);
+	  ins = BCINS_AD(BC_RETM, fs->nactvar, e.u.s.aux - fs->nactvar);
+#if LJ_54
+	  closefixed = 0;
+#endif
+	} else {
+	  expr_tonextreg(fs, &e);  /* Force contiguous registers. */
+	  ins = BCINS_AD(BC_RET, fs->nactvar, nret+1);
+	}
       }
     }
   }

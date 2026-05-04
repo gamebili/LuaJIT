@@ -6,6 +6,7 @@
 #define lib_jit_c
 #define LUA_LIB
 
+#include <limits.h>
 #include <math.h>
 
 #include "lua.h"
@@ -22,6 +23,7 @@
 #include "lj_strscan.h"
 #include "lj_tab.h"
 #include "lj_state.h"
+#include "lj_close.h"
 #include "lj_bc.h"
 #if LJ_HASFFI
 #include "lj_ctype.h"
@@ -433,38 +435,60 @@ static int lj_cf_jit__lua54_checkclose(lua_State *L)
 {
   cTValue *o = L->base;
   const char *name = luaL_checkstring(L, 2);
-  if (o >= L->top || tvisnil(o) || tvisfalse(o))
+  if (o >= L->top || lj_close_isfalse(o))
     return 0;
-  /* Full scope-exit __close dispatch still belongs in the VM. This helper
-  ** implements the Lua 5.4 declaration-time rule first, so non-false values
-  ** cannot be marked to-be-closed unless a __close metamethod is visible.
+  /* Keep the variable-specific Lua 5.4 declaration error here, but delegate
+  ** the actual closable test to the shared runtime helper used by C API and
+  ** the later VM unwind implementation.
   */
-  if (!lua54_getmetafield(L, o, lj_str_newlit(L, "__close")))
+  if (!lj_close_getmethod(L, o))
     return luaL_error(L, "variable '%s' got a non-closable value", name);
   return 0;
 }
 
 static int lj_cf_jit__lua54_closevalue(lua_State *L)
 {
-  cTValue *o = L->base;
-  cTValue *mo;
-  TValue *top;
-  if (o >= L->top || tvisnil(o) || tvisfalse(o))
+  TValue *o = L->base;
+  if (o >= L->top)
     return 0;
-  mo = lua54_getmetafield(L, o, lj_str_newlit(L, "__close"));
-  if (!mo)
+  if (!lj_close_call(L, o, NULL, 0))
     return luaL_error(L, "attempt to close non-closable value");
-  /* This helper is the fall-through slice of <close>: normal block exit calls
-  ** __close(value, nil). Non-local exits still need VM unwinding support.
-  */
-  lj_state_checkstack(L, 3);
-  top = L->top;
-  copyTV(L, top, mo);
-  copyTV(L, top+1, o);
-  setnilV(top+2);
-  L->top = top+3;
-  lua_call(L, 2, 0);
   return 0;
+}
+
+static int lj_cf_jit__lua54_packreturn(lua_State *L)
+{
+  int n = lua_gettop(L);
+  int i;
+  lua_createtable(L, n, 1);
+  for (i = 1; i <= n; i++) {
+    lua_pushvalue(L, i);
+    lua_rawseti(L, -2, i);
+  }
+  lua_pushinteger(L, n);
+  lua_setfield(L, -2, "n");
+  return 1;
+}
+
+static int lj_cf_jit__lua54_unpackreturn(lua_State *L)
+{
+  lua_Integer n64;
+  int n, i;
+  luaL_checktype(L, 1, LUA_TTABLE);
+  lua_getfield(L, 1, "n");
+  n64 = luaL_checkinteger(L, -1);
+  lua_pop(L, 1);
+  if (n64 < 0 || n64 > INT_MAX)
+    return luaL_error(L, "too many return values");
+  n = (int)n64;
+  /* Dynamic return values are packed while close handlers run. Unpacking
+  ** through this private helper preserves nil holes and gives the later VM
+  ** return-close path a single bridge point to replace.
+  */
+  luaL_checkstack(L, n, "too many return values");
+  for (i = 1; i <= n; i++)
+    lua_rawgeti(L, 1, i);
+  return n;
 }
 #endif
 
@@ -1094,6 +1118,10 @@ LUALIB_API int luaopen_jit(lua_State *L)
   lua_setfield(L, -2, "_lua54_checkclose");
   lua_pushcfunction(L, lj_cf_jit__lua54_closevalue);
   lua_setfield(L, -2, "_lua54_closevalue");
+  lua_pushcfunction(L, lj_cf_jit__lua54_packreturn);
+  lua_setfield(L, -2, "_lua54_packreturn");
+  lua_pushcfunction(L, lj_cf_jit__lua54_unpackreturn);
+  lua_setfield(L, -2, "_lua54_unpackreturn");
   lua_pop(L, 1);
 #endif
 #if LJ_HASPROFILE

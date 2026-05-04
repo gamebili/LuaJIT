@@ -4,6 +4,9 @@
 
 - 已按要求采用 `Change.md` 记录修改、新功能和进展；仓库中未创建 `Modify.md`。
 - 已调整后续实现策略：`TODO.md` 新增按底层依赖分批推进的实施规划，后续优先按 VM unwind/`<close>`、真实 `_ENV`、64 位整数/数值表示、debug frame metadata、平台/JIT、C API/标准库收尾这些批次推进，不再逐条零散清 TODO。
+- 已启动 VM unwind/`<close>` 批次的接口化实现：新增 `src/lj_close.c` / `src/lj_close.h`，统一 `__close` 查找、closable 校验和 `__close(value, err)` 调用入口，并让 `jit._lua54_checkclose`、`jit._lua54_closevalue`、`lua_toclose()`、`lua_closeslot()` 复用同一层。
+- 已补 close-active 动态返回路径：`return f()` 和 `return fixed, ...` 会先保存动态返回值数量与 nil 洞，再按 LIFO 执行 `__close(value, nil)`，最后恢复原返回值；当前通过私有 pack/close/unpack 桥接实现，后续 VM unwind 接管时应替换该桥接。
+- 已修复 Lua 5.4 compat 的 amalgamation 构建遗漏：`ljamalg.c` 现在包含 `lib_utf8.c`，避免 `luaopen_utf8` 在合并编译链接时缺失。
 - 已完成实验性 Lua 5.4 兼容模式的阶段性实现与测试。
 - 已通过 `make test` 验证默认构建和 Lua 5.4 兼容构建的 smoke 测试。
 - 已继续推进 Lua 5.4 语言层属性语法：`local x <const>` / `local x <close>` 已进入测试覆盖。
@@ -21,7 +24,7 @@
 - 已继续补 Lua 5.4 `<close>` 声明点语义：`local x <close>` 现在会在运行期校验非 `nil`/`false` 值必须有 `__close`，非 closable 值按官方报 `variable 'x' got a non-closable value`；完整作用域退出调度仍保留在 `TODO.md`。
 - 已继续补 Lua 5.4 C API `<close>` 显式关闭表面：新增 `lua_toclose()` closable 校验和 `lua_closeslot()` 显式 `__close(value, nil)` 调用，关闭后会把槽位置为 `nil`；自动随作用域退出关闭仍保留在 `TODO.md`。
 - 已继续补 Lua 5.4 `<close>` 普通块退出调度：自然执行到 `end` 时会按 LIFO 调用待关闭局部变量的 `__close(value, nil)`；`return` / `break` / `goto` / error unwinding 仍记录在 `TODO.md`。
-- 已继续补 Lua 5.4 `<close>` 固定返回值路径：`return "x", n` 这类已知返回个数会先求值返回表达式，再按 LIFO 调用 `__close(value, nil)`，最后返回已求值结果；动态多返回 `return f()` 仍记录在 `TODO.md`。
+- 已继续补 Lua 5.4 `<close>` 返回路径：`return "x", n` 这类已知返回个数，以及 `return f()` / `return fixed, ...` 这类动态多返回路径，都会先求值返回表达式，再按 LIFO 调用 `__close(value, nil)`，最后返回已求值结果；动态路径当前仍是 parser/helper 桥接，后续需要由 VM unwind 接口替换。
 - 已继续补 Lua 5.4 `<close>` `break` 路径：退出最近循环前会关闭循环体和嵌套块中仍处于活动状态的 close locals，按 LIFO 调用 `__close(value, nil)`。
 - 已继续补 Lua 5.4 `<close>` 已知向后 `goto` 路径：跳回当前或外层已出现的可见标签前，会按目标标签活动局部变量层级关闭被跳出的 close locals；前向/未解析 `goto` 仍记录在 `TODO.md`。
 - 已继续补 Lua 5.4 `<close>` 前向 `goto` 路径：当 pending goto 在作用域结束时确认要跳出该作用域，会生成 goto 专用 close 跳板，只关闭 goto 发生时已经活跃的 close locals；同一作用域内的前向标签不会提前关闭。

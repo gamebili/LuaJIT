@@ -15,6 +15,7 @@
    - 接口要求：需要能保存动态返回值数量、传递错误对象给 `__close(value, err)`，并在 `__close` 自身抛错时按 Lua 5.4 规则替换/传播错误。
    - 验证面：Lua smoke + C API smoke + PC/Android ARM64；iOS/Emscripten 在平台批次补工具链后纳入。
    - 接口草案：新增统一 runtime close 层，至少提供“声明时校验 closable”“按栈层级 LIFO close”“带错误对象 close”“return 动态结果保护后 close”四类入口；当前 `_lua54_checkclose` / `_lua54_closevalue` parser helper 后续只能作为临时桥接，不能继续扩成最终方案。
+   - 当前进展：已新增 `lj_close` runtime helper，先统一声明校验、`__close` 查找和 `__close(value, err)` 调用入口；close-active `return f()` / `return fixed, ...` 已用私有 pack/close/unpack 桥接保存动态返回值和 nil 洞，后续 VM unwind 接管时应替换该桥接而不是继续扩 parser helper。
    - 批量完成标准：同一批提交应同时覆盖普通 Lua return/error、generic-for closing value、coroutine reset/close 和 C API `lua_toclose` 自动关闭路径，避免每条控制流各写一套 close 调度。
 
 2. **真实 `_ENV` upvalue 批次**
@@ -46,9 +47,9 @@
 
 - [ ] `<close>` 的运行期 `__close` 调度。
   - 当前状态：已接受 `local x <close>` 语法并记录属性，声明点会按 Lua 5.4 校验非 `nil`/`false` 值必须带 `__close`；普通块自然执行到 `end`、固定返回值 `return`、`break` 退出循环、已知向后 `goto`、前向 `goto` 跳出 close local 作用域以及 generic for 第 4 个 closing value 的普通退出路径时会按 LIFO 调用 `__close(value, nil)`。
-  - 当前进展：`io.lines(filename)` 已按 Lua 5.4 返回第 4 个 closing value，迭代器仍会在 EOF 时主动关闭文件；`local x <close> = 1` 已按 Lua 5.4 在运行期报 `variable 'x' got a non-closable value`，`nil` / `false` 声明会跳过校验，带 `__close` 的值可声明；C API 已补 `lua_toclose()` 的 closable 校验和 `lua_closeslot()` 的显式 `__close(value, nil)` 调用并置空槽位；普通 fall-through block exit、固定返回值 `return`、`break`、已知向后 `goto`、前向 `goto` 离开作用域和 generic for 自然结束/`break` 退出已通过 parser helper 调度 close locals；动态多返回 `return f()`、error 展开、generic for 错误展开和 VM 级 `<close>` 调度仍未完成。
-  - 需要补测试：动态多返回 `return f()`、错误展开、`pcall`/`xpcall`、协程关闭、`__close` 接收错误对象、`__close` 自身抛错、generic for 的 closing value 在错误展开时自动关闭。
-  - 实现重点：普通 fall-through、固定返回值 return、break、goto 和 generic for 普通控制流退出已先走 parser helper；完整实现仍需要 VM/字节码/栈帧层支持动态多返回、错误展开等非本地退出时的关闭流程，不能只在解析器层处理。
+  - 当前进展：`io.lines(filename)` 已按 Lua 5.4 返回第 4 个 closing value，迭代器仍会在 EOF 时主动关闭文件；`local x <close> = 1` 已按 Lua 5.4 在运行期报 `variable 'x' got a non-closable value`，`nil` / `false` 声明会跳过校验，带 `__close` 的值可声明；C API 已补 `lua_toclose()` 的 closable 校验和 `lua_closeslot()` 的显式 `__close(value, nil)` 调用并置空槽位；普通 fall-through block exit、固定返回值 `return`、`break`、已知向后 `goto`、前向 `goto` 离开作用域和 generic for 自然结束/`break` 退出已通过 parser helper 调度 close locals；动态多返回 `return f()` / `return fixed, ...` 已用临时 pack/close/unpack 桥接保持返回值数量和 nil 洞；error 展开、generic for 错误展开和 VM 级 `<close>` 调度仍未完成。
+  - 需要补测试：错误展开、`pcall`/`xpcall`、协程关闭、`__close` 接收错误对象、`__close` 自身抛错、generic for 的 closing value 在错误展开时自动关闭。
+  - 实现重点：普通 fall-through、固定返回值 return、动态多返回 return、break、goto 和 generic for 普通控制流退出已先走 parser/helper 桥接；完整实现仍需要 VM/字节码/栈帧层支持错误展开等非本地退出时的关闭流程，并最终替换动态 return 的 pack/unpack 临时桥。
 
 - [ ] `_ENV` 的完整 upvalue 语义。
   - 当前状态：显式 `local _ENV = ...` 和 `load(..., env)` 的基础访问已可用，但隐式全局访问没有暴露为名为 `_ENV` 的第一个 upvalue。

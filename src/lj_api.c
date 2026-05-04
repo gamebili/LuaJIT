@@ -23,6 +23,7 @@
 #include "lj_udata.h"
 #include "lj_meta.h"
 #include "lj_state.h"
+#include "lj_close.h"
 #include "lj_bc.h"
 #include "lj_frame.h"
 #include "lj_trace.h"
@@ -1117,47 +1118,24 @@ static cTValue *api_getmetafield(lua_State *L, cTValue *o, const char *mmname)
 }
 
 #if LJ_54
-static int api_isclosefalse(cTValue *o)
-{
-  return tvisnil(o) || tvisfalse(o);
-}
-
 LUA_API void lua_toclose(lua_State *L, int idx)
 {
   TValue *o = index2adr_stack(L, idx);
-  if (api_isclosefalse(o))
+  if (lj_close_isfalse(o))
     return;
   /* Full to-be-closed lifetime tracking needs VM stack-slot metadata. This
   ** entry point already enforces Lua 5.4's closable-value rule so embedders
   ** get the same validation before using lua_closeslot() for explicit close.
   */
-  if (!api_getmetafield(L, o, "__close"))
+  if (!lj_close_check(L, o))
     lj_err_callermsg(L, "attempt to close non-closable value");
 }
 
 LUA_API void lua_closeslot(lua_State *L, int idx)
 {
   TValue *o = index2adr_stack(L, idx);
-  ptrdiff_t oofs = savestack(L, o);
-  cTValue *mo;
-  TValue *top;
-  if (api_isclosefalse(o)) {
-    setnilV(o);
-    return;
-  }
-  mo = api_getmetafield(L, o, "__close");
-  if (!mo)
+  if (!lj_close_call(L, o, NULL, 1))
     lj_err_callermsg(L, "attempt to close non-closable value");
-  lj_state_checkstack(L, 3);
-  o = restorestack(L, oofs);
-  top = L->top;
-  copyTV(L, top, mo);
-  copyTV(L, top+1, o);
-  setnilV(top+2);
-  L->top = top+3;
-  lua_call(L, 2, 0);
-  o = restorestack(L, oofs);
-  setnilV(o);
 }
 #endif
 
