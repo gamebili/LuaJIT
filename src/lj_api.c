@@ -1146,11 +1146,13 @@ static cTValue *api_getmetafield(lua_State *L, cTValue *o, const char *mmname)
 LUA_API void lua_toclose(lua_State *L, int idx)
 {
   TValue *o = index2adr_stack(L, idx);
+  if (!lj_close_canmark(L, o))
+    lj_err_callermsg(L, "given index below or equal a marked one");
   if (lj_close_isfalse(o))
     return;
-  /* Full to-be-closed lifetime tracking needs VM stack-slot metadata. This
-  ** entry point already enforces Lua 5.4's closable-value rule so embedders
-  ** get the same validation before using lua_closeslot() for explicit close.
+  /* Lua 5.4 only allows marking slots above the current active close slot.
+  ** Enforce that before the false/nil fast path: ignored false values still
+  ** cannot be used to bypass the stack-order contract.
   */
   if (!lj_close_check(L, o))
     lj_err_callermsg(L, "attempt to close non-closable value");
@@ -1160,6 +1162,8 @@ LUA_API void lua_toclose(lua_State *L, int idx)
 LUA_API void lua_closeslot(lua_State *L, int idx)
 {
   TValue *o = index2adr_stack(L, idx);
+  if (!lj_close_islast(L, o))
+    lj_err_callermsg(L, "no variable to close at given level");
   lj_close_unmark(L, o);
   if (!lj_close_call(L, o, NULL, 1))
     lj_err_callermsg(L, "attempt to close non-closable value");

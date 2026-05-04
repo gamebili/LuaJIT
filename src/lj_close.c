@@ -157,6 +157,18 @@ void lj_close_unmark(lua_State *L, TValue *slot)
   }
 }
 
+int lj_close_canmark(lua_State *L, TValue *slot)
+{
+  CloseState *cs = (CloseState *)L->closelist;
+  return cs == NULL || cs->slot < savestack(L, slot);
+}
+
+int lj_close_islast(lua_State *L, TValue *slot)
+{
+  CloseState *cs = (CloseState *)L->closelist;
+  return cs != NULL && cs->slot == savestack(L, slot);
+}
+
 void lj_close_mark(lua_State *L, TValue *slot)
 {
   CloseState *cs;

@@ -11,6 +11,7 @@
 - 已补 Lua 5.4 coroutine reset/close 的 `<close>` 路径：`coroutine.close`、`lua_closethread()` 和 `lua_resetthread()` 会关闭 suspended coroutine 中的 active close locals，yield 状态传 `nil` 错误对象；`__close` 抛错时返回失败和替换后的错误，再次 close 不会重复报错。
 - 已补 Lua 5.4 C API `lua_toclose` 弹栈和错误展开路径：`lua_settop` / `lua_pop` 弹出 marked slot 会先调用 `__close(value, nil)`；C 函数抛错展开时会把 body error 传给 `__close(value, err)`。
 - 已补 Lua 5.4 C API `lua_toclose` 正常 C 返回路径：x64/arm64 VM `returnc` 在 return hook 和搬移返回值前关闭 C frame 内 marked slot；`__close(value, nil)` 错误会替换为 C 返回错误，且 close slot 本身作为返回值时保留原值。
+- 已按 Lua 5.4.8 `lapi.c` 对齐 `lua_toclose` / `lua_closeslot` 的栈顺序约束：`lua_toclose()` 只能标记高于当前 active close slot 的槽位，`lua_closeslot()` 只能关闭最后一个仍 active 的 marked slot；false/nil 被忽略后也不能绕过顺序检查。
 - 已修复 Lua 5.4 compat 的 amalgamation 构建遗漏：`ljamalg.c` 现在包含 `lib_utf8.c`，避免 `luaopen_utf8` 在合并编译链接时缺失。
 - 已完成实验性 Lua 5.4 兼容模式的阶段性实现与测试。
 - 已通过 `make test` 验证默认构建和 Lua 5.4 兼容构建的 smoke 测试。
@@ -27,7 +28,7 @@
 - C API 烟测继续扩展到栈/表基础入口：`lua_checkstack()`、`lua_settop()`、`lua_pushvalue()`、`lua_concat()` 和 `lua_next()`。
 - C API 烟测继续扩展到类型/取值基础入口：`lua_type()`、`lua_typename()`、`lua_rawequal()`、`lua_iscfunction()`、`lua_tocfunction()`、`lua_touserdata()`、`lua_topointer()`、`lua_toboolean()` 以及 light/full userdata 判定。
 - 已继续补 Lua 5.4 `<close>` 声明点语义：`local x <close>` 现在会在运行期校验非 `nil`/`false` 值必须有 `__close`，非 closable 值按官方报 `variable 'x' got a non-closable value`；完整作用域退出调度仍保留在 `TODO.md`。
-- 已继续补 Lua 5.4 C API `<close>` 显式关闭表面：新增 `lua_toclose()` closable 校验和 `lua_closeslot()` 显式 `__close(value, nil)` 调用，关闭后会把槽位置为 `nil`；自动随作用域退出关闭仍保留在 `TODO.md`。
+- 已继续补 Lua 5.4 C API `<close>` 显式关闭表面：新增 `lua_toclose()` closable 校验和 `lua_closeslot()` 显式 `__close(value, nil)` 调用，关闭后会把槽位置为 `nil`；`lua_toclose()` 的 false/nil 值会被忽略，因此不能再用 `lua_closeslot()` 关闭；自动随作用域退出关闭仍保留在 `TODO.md`。
 - 已继续补 Lua 5.4 `<close>` 普通块退出调度：自然执行到 `end` 时会按 LIFO 调用待关闭局部变量的 `__close(value, nil)`；`return` / `break` / `goto` 和 error unwind 已进入后续桥接实现。
 - 已继续补 Lua 5.4 `<close>` 返回路径：`return "x", n` 这类已知返回个数，以及 `return f()` / `return fixed, ...` 这类动态多返回路径，都会先求值返回表达式，再按 LIFO 调用 `__close(value, nil)`，最后返回已求值结果；动态路径当前仍是 parser/helper 桥接，后续需要由 VM unwind 接口替换。
 - 已继续补 Lua 5.4 `<close>` `break` 路径：退出最近循环前会关闭循环体和嵌套块中仍处于活动状态的 close locals，按 LIFO 调用 `__close(value, nil)`。
@@ -58,7 +59,7 @@
 - 已继续补 Lua 5.4 C API smoke：`lua_isyieldable()` 已覆盖主 C frame 返回 false、通过 `lua_resume()` 进入 coroutine C frame 返回 true。
 - 已继续补 Lua 5.4 `lua.h` 兼容宏：新增 `LUA_NUMTAGS` 作为 `LUA_NUMTYPES` 别名，并进入 C API smoke。
 - 已继续补 Lua 5.4 C API 表面：新增 `lua_closethread()` / `lua_resetthread()` 基础实现，覆盖 yielded/fresh coroutine 关闭后返回 `LUA_OK`、清空栈并恢复 OK 状态；当前也会关闭 suspended coroutine 中的 active close locals。
-- 已继续扩展 Lua 5.4 C API smoke：覆盖 `lua_toclose()` 拒绝 non-closable 值、`lua_closeslot()` 关闭带 `__close` 的 table、false close value 跳过关闭且槽位被置为 `nil`。
+- 已继续扩展 Lua 5.4 C API smoke：覆盖 `lua_toclose()` 拒绝 non-closable 值、`lua_closeslot()` 关闭带 `__close` 的 table，以及 false close value 被 `lua_toclose()` 忽略后不能被 `lua_closeslot()` 关闭。
 - 已继续扩展 Lua 5.4 C API smoke：覆盖 `lua_version` 作为官方 value-returning 函数指针调用并返回 `LUA_VERSION_NUM`。
 - 已继续补 Lua 5.4 deprecated intcast 兼容宏：在 `LUA_COMPAT_APIINTCASTS` 下暴露 `lua_pushunsigned` / `lua_tounsignedx` / `lua_tounsigned` / `luaL_checkunsigned` / `luaL_optunsigned`，并新增单独 C smoke。
 - 已继续补 Lua 5.4 外部兼容头别名：`lua_newuserdata()`、`lua_getuservalue()`、`lua_setuservalue()` 现在作为官方 slot 1 alias 宏暴露，默认 LuaJIT 5.1 ABI 不变。
@@ -372,7 +373,7 @@
 - 覆盖当前 JIT 可用平台下，Lua 5.4 兼容热循环中的 `tonumber()` 会拒绝 LuaJIT 扫描器扩展数字字符串并产生 trace。
 - 覆盖 Lua 5.4 C API 形态的 `lua_resume(L, from, nargs, nresults)`：yield 两个值和 return 两个值时都会填入正确结果数量。
 - 覆盖 Lua 5.4 C API `lua_closethread()` 在无 `<close>` 状态下关闭 yielded/fresh coroutine：返回 `LUA_OK`、状态恢复 OK 且栈被清空。
-- 覆盖 Lua 5.4 C API `lua_toclose()` / `lua_closeslot()` 的显式关闭表面：non-closable 校验、`__close(value, nil)` 调用、关闭后槽位为 `nil`，以及 false close value 跳过 `__close`。
+- 覆盖 Lua 5.4 C API `lua_toclose()` / `lua_closeslot()` 的显式关闭表面：non-closable 校验、`__close(value, nil)` 调用、关闭后槽位为 `nil`，以及 false close value 被忽略后不能再 `lua_closeslot()`。
 - 覆盖 Lua 5.4 C API `lua_version` 的 value-returning 函数指针签名，确认外部兼容头不再只依赖函数式宏解引用旧指针 ABI。
 - 覆盖 Lua 5.4 `<close>` 普通块自然退出：多个待关闭局部变量按 LIFO 调用 `__close(value, nil)`，false/nil close value 不触发 `__close`。
 - 覆盖 Lua 5.4 `<close>` 固定返回值退出：返回表达式先求值，随后按 LIFO 关闭 close locals，再返回原结果。
@@ -384,6 +385,7 @@
 - 覆盖 Lua 5.4 coroutine close/reset 的 `<close>` 路径：`coroutine.close` 和 `lua_closethread()` 会关闭 suspended coroutine 中的 active close locals，close 错误会按 Lua 5.4 返回失败和错误对象，且重入关闭同一个 running coroutine 会报错。
 - 覆盖 Lua 5.4 C API `lua_toclose` 的弹栈/错误路径：`lua_settop` / `lua_pop` 自动关闭 marked slot，C 函数错误展开时 `__close` 收到 body error。
 - 覆盖 Lua 5.4 C API `lua_toclose` 的正常 C 返回路径：C 函数 `return 0` 自动关闭 marked slot，close 错误会让 `lua_pcall` 返回错误，被关闭槽位作为返回值时仍返回原 table。
+- 覆盖 Lua 5.4 C API `lua_toclose` / `lua_closeslot` 的 LIFO 顺序约束：重复标记同一槽、标记低于 active slot、nil 低于 active slot 都会报 `below or equal`，`lua_closeslot` 关闭非最后 marked slot 会报 `no variable to close`，按 LIFO 显式关闭两个槽位成功。
 - 覆盖 Lua 5.4 外部兼容头不会暴露 `LUA_GLOBALSINDEX` / `LUA_ENVIRONINDEX` / `lua_strlen`，并覆盖 `lua_pushglobaltable()` / `lua_getglobal()` / `lua_setglobal()` 的 registry globals 路径。
 - 覆盖 Lua 5.4 外部兼容头暴露 `LUA_RIDX_LAST`，并确认其值等于 `LUA_RIDX_GLOBALS`。
 - 覆盖 Lua 5.4 外部兼容头暴露 `LUA_EXTRASPACE`，并确认其大小与当前 pointer-sized extraspace 实现一致。

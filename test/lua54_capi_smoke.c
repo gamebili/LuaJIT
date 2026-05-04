@@ -437,11 +437,66 @@ static int mark_nonclosable_slot(lua_State *L)
   return 0;
 }
 
+static int mark_false_then_closeslot(lua_State *L)
+{
+  lua_pushboolean(L, 0);
+  lua_toclose(L, -1);
+  lua_closeslot(L, -1);
+  return 0;
+}
+
 static int mark_close_then_pop(lua_State *L)
 {
   push_closeable(L, record_close);
   lua_toclose(L, -1);
   lua_settop(L, 0);
+  return 0;
+}
+
+static int mark_close_twice_same_slot(lua_State *L)
+{
+  push_closeable(L, record_close);
+  lua_toclose(L, -1);
+  lua_toclose(L, -1);
+  return 0;
+}
+
+static int mark_close_below_active_slot(lua_State *L)
+{
+  push_closeable(L, record_close);
+  push_closeable(L, record_close);
+  lua_toclose(L, -1);
+  lua_toclose(L, -2);
+  return 0;
+}
+
+static int mark_nil_below_active_slot(lua_State *L)
+{
+  lua_pushnil(L);
+  push_closeable(L, record_close);
+  lua_toclose(L, -1);
+  lua_toclose(L, -2);
+  return 0;
+}
+
+static int closeslot_not_last(lua_State *L)
+{
+  push_closeable(L, record_close);
+  lua_toclose(L, -1);
+  push_closeable(L, record_close);
+  lua_toclose(L, -1);
+  lua_closeslot(L, -2);
+  return 0;
+}
+
+static int closeslot_lifo(lua_State *L)
+{
+  push_closeable(L, record_close);
+  lua_toclose(L, -1);
+  push_closeable(L, record_close);
+  lua_toclose(L, -1);
+  lua_closeslot(L, -1);
+  lua_closeslot(L, -2);
   return 0;
 }
 
@@ -913,11 +968,11 @@ static void test_stack_and_number_api(lua_State *L)
 	"lua_closeslot calls __close with nil error");
   lua_pop(L, 1);
 
-  lua_pushboolean(L, 0);
-  lua_toclose(L, -1);
-  lua_closeslot(L, -1);
-  check(L, lua_isnil(L, -1), "lua_closeslot nils false slot");
-  check(L, close_call_count == 1, "lua_closeslot skips false close");
+  lua_pushcfunction(L, mark_false_then_closeslot);
+  check(L, lua_pcall(L, 0, 0, 0) == LUA_ERRRUN,
+	"lua_closeslot rejects ignored false slot");
+  check(L, strstr(lua_tostring(L, -1), "no variable to close") != NULL,
+	"lua_closeslot ignored false error text");
   lua_pop(L, 1);
 
   lua_pushcfunction(L, mark_nonclosable_slot);
@@ -926,6 +981,42 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, strstr(lua_tostring(L, -1), "non-closable") != NULL,
 	"lua_toclose non-closable error text");
   lua_pop(L, 1);
+
+  lua_pushcfunction(L, mark_close_twice_same_slot);
+  check(L, lua_pcall(L, 0, 0, 0) == LUA_ERRRUN,
+	"lua_toclose rejects same marked slot");
+  check(L, strstr(lua_tostring(L, -1), "below or equal") != NULL,
+	"lua_toclose same slot error text");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, mark_close_below_active_slot);
+  check(L, lua_pcall(L, 0, 0, 0) == LUA_ERRRUN,
+	"lua_toclose rejects below active slot");
+  check(L, strstr(lua_tostring(L, -1), "below or equal") != NULL,
+	"lua_toclose below active error text");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, mark_nil_below_active_slot);
+  check(L, lua_pcall(L, 0, 0, 0) == LUA_ERRRUN,
+	"lua_toclose rejects nil below active slot");
+  check(L, strstr(lua_tostring(L, -1), "below or equal") != NULL,
+	"lua_toclose nil below active error text");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, closeslot_not_last);
+  check(L, lua_pcall(L, 0, 0, 0) == LUA_ERRRUN,
+	"lua_closeslot rejects non-last slot");
+  check(L, strstr(lua_tostring(L, -1), "no variable to close") != NULL,
+	"lua_closeslot non-last error text");
+  lua_pop(L, 1);
+
+  close_call_count = 0;
+  close_nil_error_count = 0;
+  lua_pushcfunction(L, closeslot_lifo);
+  check(L, lua_pcall(L, 0, 0, 0) == LUA_OK,
+	"lua_closeslot accepts last slots in LIFO order");
+  check(L, close_call_count == 2 && close_nil_error_count == 2,
+	"lua_closeslot LIFO closes both slots");
 
   close_call_count = 0;
   close_nil_error_count = 0;
