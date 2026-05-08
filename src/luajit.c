@@ -14,7 +14,9 @@
 /* The command-line frontend is built with the public headers but still uses a
 ** few LuaJIT/Lua 5.1 compatibility helpers internally.
 */
+#ifndef LUAJIT_INTERNAL_USE
 #define LUAJIT_INTERNAL_USE
+#endif
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -79,8 +81,27 @@ static void laction(int i)
 }
 #endif
 
-static void print_usage(void)
+static void print_usage(const char *badoption)
 {
+#if LJ_54
+  if (badoption != NULL) {
+    /* Lua 5.4 reports the concrete bad option before the usage block; several
+    ** standalone tests match this summary instead of the full usage text.
+    */
+    if (progname) { fputs(progname, stderr); fputc(':', stderr); fputc(' ', stderr); }
+    if (badoption[1] == 'e' || badoption[1] == 'l') {
+      fputc('\'', stderr);
+      fputs(badoption, stderr);
+      fputs("' needs argument\n", stderr);
+    } else {
+      fputs("unrecognized option '", stderr);
+      fputs(badoption, stderr);
+      fputs("'\n", stderr);
+    }
+  }
+#else
+  (void)badoption;
+#endif
   fputs("usage: ", stderr);
   fputs(progname, stderr);
   fputs(" [options]... [script [args]...].\n"
@@ -112,7 +133,11 @@ static int report(lua_State *L, int status)
 {
   if (status && !lua_isnil(L, -1)) {
     const char *msg = lua_tostring(L, -1);
+#if LJ_54
+    if (msg == NULL) msg = "(error message not a string)";
+#else
     if (msg == NULL) msg = "(error object is not a string)";
+#endif
     l_message(msg);
     lua_pop(L, 1);
   }
@@ -121,6 +146,20 @@ static int report(lua_State *L, int status)
 
 static int traceback(lua_State *L)
 {
+#if LJ_54
+  const char *msg = lua_tostring(L, 1);
+  if (msg == NULL) {
+    /* Lua 5.4 standalone reports the concrete non-string error object type.
+    ** A string result from __tostring is already the complete message.
+    */
+    if (luaL_callmeta(L, 1, "__tostring") && lua_isstring(L, -1))
+      return 1;
+    msg = lua_pushfstring(L, "(error object is a %s value)",
+			  luaL_typename(L, 1));
+  }
+  luaL_traceback(L, L, msg, 1);
+  return 1;
+#else
   if (!lua_isstring(L, 1)) { /* Non-string error object? Try metamethod. */
     if (lua_isnoneornil(L, 1) ||
 	!luaL_callmeta(L, 1, "__tostring") ||
@@ -130,6 +169,7 @@ static int traceback(lua_State *L)
   }
   luaL_traceback(L, L, lua_tostring(L, 1), 1);
   return 1;
+#endif
 }
 
 static int docall(lua_State *L, int narg, int clear)
@@ -153,7 +193,14 @@ static int docall(lua_State *L, int narg, int clear)
 
 static void print_version(void)
 {
+#if LJ_54
+  /* Lua 5.4 standalone prints LUA_COPYRIGHT, which already embeds the
+  ** release string. Keep the LuaJIT banner for the default 5.1 frontend.
+  */
+  fputs(LUA_COPYRIGHT "\n", stdout);
+#else
   fputs(LUAJIT_VERSION " -- " LUAJIT_COPYRIGHT ". " LUAJIT_URL "\n", stdout);
+#endif
 }
 
 #if !LJ_54
@@ -204,41 +251,62 @@ static int dostring(lua_State *L, const char *s, const char *name)
 static int dolibrary(lua_State *L, const char *name)
 {
 #if LJ_54
+  int top = lua_gettop(L);
   const char *eq = strchr(name, '=');
-  if (eq != NULL) {
-    int top = lua_gettop(L);
-    int status;
-    /* Lua 5.4 standalone accepts -l g=mod and stores require(mod) in _G[g].
-    ** Keep this frontend-only so normal require() and default LuaJIT stay
-    ** unchanged.
-    */
-    lua_getglobal(L, "require");
-    lua_pushstring(L, eq+1);
-    status = docall(L, 1, 0);
-    if (status)
-      return report(L, status);
-    lua_pushlstring(L, name, (size_t)(eq - name));
-    name = lua_tostring(L, -1);
-    lua_pushvalue(L, top+1);
-    lua_setglobal(L, name);
-    lua_settop(L, top);
-    return LUA_OK;
-  }
-#endif
+  const char *modname = eq ? eq + 1 : name;
+  const char *suffix = eq ? NULL : strchr(name, *LUA_IGMARK);
+  size_t globlen = eq ? (size_t)(eq - name) :
+		 (suffix ? (size_t)(suffix - name) : strlen(name));
+  int status;
+  /* Lua 5.4 standalone defines "-l mod" as "_G.mod = require(mod)".
+  ** The optional "-l g=mod" form only changes the global target, while a
+  ** version suffix such as "-v2" is ignored for the global name. Keep this
+  ** behavior in the frontend so normal require() and default LuaJIT stay
+  ** unchanged.
+  */
+  lua_getglobal(L, "require");
+  lua_pushstring(L, modname);
+  status = docall(L, 1, 0);
+  if (status)
+    return report(L, status);
+  lua_pushlstring(L, name, globlen);
+  name = lua_tostring(L, -1);
+  lua_pushvalue(L, top+1);
+  lua_setglobal(L, name);
+  lua_settop(L, top);
+  return LUA_OK;
+#else
   lua_getglobal(L, "require");
   lua_pushstring(L, name);
   return report(L, docall(L, 1, 1));
+#endif
 }
 
 static void write_prompt(lua_State *L, int firstline)
 {
   const char *p;
+#if LJ_54
+  int top = lua_gettop(L);
+  lua_getfield(L, LUA_GLOBALSINDEX, firstline ? "_PROMPT" : "_PROMPT2");
+  if (lua_isnil(L, -1)) {
+    p = firstline ? LUA_PROMPT : LUA_PROMPT2;
+  } else {
+    /* Lua 5.4 applies tostring to custom prompts, so table/userdata prompts
+    ** can provide __tostring without falling back to the default prompt.
+    */
+    p = luaL_tolstring(L, -1, NULL);
+  }
+  fputs(p, stdout);
+  fflush(stdout);
+  lua_settop(L, top);  /* remove prompt value and possible tostring result */
+#else
   lua_getfield(L, LUA_GLOBALSINDEX, firstline ? "_PROMPT" : "_PROMPT2");
   p = lua_tostring(L, -1);
   if (p == NULL) p = firstline ? LUA_PROMPT : LUA_PROMPT2;
   fputs(p, stdout);
   fflush(stdout);
   lua_pop(L, 1);  /* remove global */
+#endif
 }
 
 static int incomplete(lua_State *L, int status)
@@ -246,11 +314,21 @@ static int incomplete(lua_State *L, int status)
   if (status == LUA_ERRSYNTAX) {
     size_t lmsg;
     const char *msg = lua_tolstring(L, -1, &lmsg);
+#if LJ_54
+    const char eofmark[] = "<eof>";
+    const size_t leof = sizeof(eofmark) - 1;
+    /* Lua 5.4 multiline() keeps the incomplete error on the stack until the
+    ** continuation line is pushed, then removes that exact error slot.
+    */
+    if (lmsg >= leof && strcmp(msg + lmsg - leof, eofmark) == 0)
+      return 1;
+#else
     const char *tp = msg + lmsg - (sizeof(LUA_QL("<eof>")) - 1);
     if (strstr(msg, LUA_QL("<eof>")) == tp) {
       lua_pop(L, 1);
       return 1;
     }
+#endif
   }
   return 0;  /* else... */
 }
@@ -278,6 +356,29 @@ static int loadline(lua_State *L)
   lua_settop(L, 0);
   if (!pushline(L, 1))
     return -1;  /* no input */
+#if LJ_54
+  {
+    const char *line = lua_tostring(L, -1);
+    const char *retline = lua_pushfstring(L, "return %s;", line);
+    status = luaL_loadbuffer(L, retline, strlen(retline), "=stdin");
+    if (status == LUA_OK) {
+      lua_remove(L, -2);  /* Remove the temporary "return ..." line. */
+    } else {
+      lua_pop(L, 2);  /* Remove load error and temporary line. */
+      for (;;) {  /* Try the original line as a statement, adding continuations. */
+	size_t len;
+	line = lua_tolstring(L, 1, &len);
+	status = luaL_loadbuffer(L, line, len, "=stdin");
+	if (!incomplete(L, status) || !pushline(L, 0))
+	  break;
+	lua_remove(L, -2);  /* Remove incomplete-line error before appending. */
+	lua_pushliteral(L, "\n");
+	lua_insert(L, -2);
+	lua_concat(L, 3);
+      }
+    }
+  }
+#else
   for (;;) {  /* repeat until gets a complete line */
     status = luaL_loadbuffer(L, lua_tostring(L, 1), lua_strlen(L, 1), "=stdin");
     if (!incomplete(L, status)) break;  /* cannot try to add lines? */
@@ -287,6 +388,7 @@ static int loadline(lua_State *L)
     lua_insert(L, -2);  /* ...between the two lines */
     lua_concat(L, 3);  /* join them */
   }
+#endif
   lua_remove(L, 1);  /* remove line */
   return status;
 }
@@ -333,7 +435,14 @@ static int handle_script(lua_State *L, char **argx)
       lua_remove(L, -narg);
       narg--;
     } else {
+#if LJ_54
+      /* Lua 5.4 treats a clobbered global 'arg' as a standalone error before
+      ** running the script, because script arguments are read from that table.
+      */
+      status = luaL_error(L, "'arg' is not a table");
+#else
       lua_pop(L, 1);
+#endif
     }
     status = docall(L, narg, 0);
   }
@@ -437,7 +546,9 @@ static int dobytecode(lua_State *L, char **argv)
 }
 
 /* check that argument has no extra characters at the end */
-#define notail(x)	{if ((x)[2] != '\0') return -1;}
+#define badarg(x) \
+  do { if (badopt != NULL) *badopt = (x); return -1; } while (0)
+#define notail(x)	{if ((x)[2] != '\0') badarg((x));}
 
 #define FLAGS_INTERACTIVE	1
 #define FLAGS_VERSION		2
@@ -446,9 +557,10 @@ static int dobytecode(lua_State *L, char **argv)
 #define FLAGS_NOENV		16
 #define FLAGS_WARNING		32
 
-static int collectargs(char **argv, int *flags)
+static int collectargs(char **argv, int *flags, const char **badopt)
 {
   int i;
+  if (badopt != NULL) *badopt = NULL;
   for (i = 1; argv[i] != NULL; i++) {
     if (argv[i][0] != '-')  /* Not an option? */
       return i;
@@ -474,15 +586,23 @@ static int collectargs(char **argv, int *flags)
       *flags |= FLAGS_OPTION;
       if (argv[i][2] == '\0') {
 	i++;
-	if (argv[i] == NULL) return -1;
+	if (argv[i] == NULL) badarg(argv[i-1]);
+#if LJ_54
+	/* In Lua 5.4, a separated -e/-l argument cannot be another option;
+	** report the original option as missing its argument instead.
+	*/
+	if ((argv[i-1][1] == 'e' || argv[i-1][1] == 'l') && argv[i][0] == '-')
+	  badarg(argv[i-1]);
+#endif
       }
       break;
     case 'O': break;  /* LuaJIT extension */
     case 'b':  /* LuaJIT extension */
-      if (*flags) return -1;
+      if (*flags) badarg(argv[i]);
       *flags |= FLAGS_EXEC;
       return i+1;
     case 'E':
+      notail(argv[i]);
       *flags |= FLAGS_NOENV;
       break;
 #if LJ_54
@@ -491,7 +611,7 @@ static int collectargs(char **argv, int *flags)
       *flags |= FLAGS_WARNING;
       break;
 #endif
-    default: return -1;  /* invalid option */
+    default: badarg(argv[i]);  /* invalid option */
     }
   }
   return i;
@@ -520,6 +640,14 @@ static int runargs(lua_State *L, char **argv, int argn)
 	return 1;
       break;
       }
+#if LJ_54
+    case 'W':
+      /* Lua 5.4 treats -W as an ordered option, so chunks before it still
+      ** run with warnings disabled and chunks after it see warnings enabled.
+      */
+      lua_warning(L, "@on", 0);
+      break;
+#endif
     case 'j': {  /* LuaJIT extension. */
       const char *cmd = argv[i] + 2;
       if (*cmd == '\0') cmd = argv[++i];
@@ -575,14 +703,15 @@ static int pmain(lua_State *L)
 {
   struct Smain *s = &smain;
   char **argv = s->argv;
+  const char *badoption = NULL;
   int argn;
   int flags = 0;
   globalL = L;
   LUAJIT_VERSION_SYM();  /* Linker-enforced version check. */
 
-  argn = collectargs(argv, &flags);
+  argn = collectargs(argv, &flags, &badoption);
   if (argn < 0) {  /* Invalid args? */
-    print_usage();
+    print_usage(badoption);
     s->status = 1;
     return 0;
   }
@@ -609,13 +738,6 @@ static int pmain(lua_State *L)
   if (!(flags & FLAGS_NOENV)) {
     s->status = handle_luainit(L);
     if (s->status != LUA_OK) return 0;
-  }
-
-  if ((flags & FLAGS_WARNING)) {
-    /* Lua 5.4 standalone -W enables warning output before executing
-    ** command-line chunks or scripts.
-    */
-    lua_warning(L, "@on", 0);
   }
 
   if ((flags & FLAGS_VERSION)) print_version();

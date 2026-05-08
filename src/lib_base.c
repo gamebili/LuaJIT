@@ -46,11 +46,14 @@
 #define LJLIB_MODULE_base
 
 #if LJ_54
+static const char *base_callname54(lua_State *L, const char *fname);
+
 static void base_argerror_named54(lua_State *L, int narg, const char *fname,
 				  const char *msg)
 {
+  const char *callname = base_callname54(L, fname);
   lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #%d to '%s' (%s)",
-				      narg, fname, msg));
+				      narg, callname, msg));
 }
 
 static const char *base_argtypename54(lua_State *L, int narg)
@@ -71,6 +74,21 @@ static void base_argtype_named54(lua_State *L, int narg, const char *fname,
   base_argerror_named54(L, narg, fname,
     lj_strfmt_pushf(L, "%s expected, got %s", xname,
 		    base_argtypename54(L, narg)));
+}
+
+static const char *base_callname54(lua_State *L, const char *fname)
+{
+  /* Base-library argument errors share the Lua 5.4 call-name rule: direct
+  ** pcall(cfunc, ...) keeps the public fallback, while real callsites and
+  ** local/upvalue aliases report the source-level name.
+  */
+  return lj_debug_callname54(L, fname, NULL);
+}
+
+static void base_argtype_callname54(lua_State *L, int narg, const char *fname,
+				    const char *xname)
+{
+  base_argtype_named54(L, narg, base_callname54(L, fname), xname);
 }
 
 static void base_checkany_named54(lua_State *L, int narg, const char *fname)
@@ -98,6 +116,16 @@ static GCstr *base_checkstr_named54(lua_State *L, int narg, const char *fname)
       return s;
     }
   }
+  base_argtype_named54(L, narg, fname, "string");
+  return NULL;  /* unreachable */
+}
+
+static GCstr *base_checkstr_exact_named54(lua_State *L, int narg,
+					  const char *fname)
+{
+  TValue *o = L->base + narg-1;
+  if (o < L->top && tvisstr(o))
+    return strV(o);
   base_argtype_named54(L, narg, fname, "string");
   return NULL;  /* unreachable */
 }
@@ -167,6 +195,14 @@ static int32_t base_checkint_named54(lua_State *L, int narg,
 			  "number has no integer representation");
   }
   return (int32_t)k;
+}
+
+static void base_checkoptint_named54(lua_State *L, int narg,
+				     const char *fname)
+{
+  cTValue *o = L->base + narg-1;
+  if (o < L->top && !tvisnil(o))
+    (void)base_checkint_named54(L, narg, fname);
 }
 #endif
 
@@ -264,7 +300,9 @@ static int lj_cf_next54(lua_State *L)
     /* _ENV is an internal compatibility binding, not an official global key. */
     lua_pop(L, 1);
   }
-  return 0;
+  /* Official Lua 5.4 returns a single nil when iteration is exhausted. */
+  lua_pushnil(L);
+  return 1;
 }
 #endif
 
@@ -330,6 +368,8 @@ LJLIB_ASM(ipairs)		LJLIB_REC(xpairs 1)
 }
 
 #if LJ_54
+#define LUA54_IPAIRS_AUX_REGKEY	"_LUA54_IPAIRS_AUX"
+
 static int lj_cf_ipairs_aux54(lua_State *L)
 {
   lua_Integer i = luaL_checkinteger(L, 2);
@@ -342,17 +382,17 @@ static int lj_cf_ipairs_aux54(lua_State *L)
   /* Lua 5.4 ipairs uses normal indexed access, so __index can provide values. */
   lua_gettable(L, 1);
   if (lua_isnil(L, -1))
-    return 0;
+    return 1;
   return 2;
 }
 
 static int lj_cf_ipairs54(lua_State *L)
 {
   base_checkany_named54(L, 1, "ipairs");
-  /* Lua 5.4 exposes one stable ipairs auxiliary function; keep it as an
-  ** upvalue so repeated ipairs{} calls compare equal like the official VM.
+  /* Lua 5.4 exposes one stable ipairs auxiliary function, but it is not a
+  ** visible debug upvalue of ipairs(). Keep the stable function in the registry.
   */
-  lua_pushvalue(L, lua_upvalueindex(1));
+  lua_getfield(L, LUA_REGISTRYINDEX, LUA54_IPAIRS_AUX_REGKEY);
   lua_pushvalue(L, 1);
   lua_pushinteger(L, 0);
   return 3;
@@ -363,21 +403,34 @@ static int lj_cf_ipairs54(lua_State *L)
 LJLIB_CF(warn)
 {
   int32_t i, n = (int32_t)(L->top - L->base);
+#if LJ_54
+  if (n == 0)
+    base_argtype_named54(L, 1, "warn", "string");
+  for (i = 0; i < n; i++) {
+    /* Lua 5.4 validates every argument before composing a warning. If a later
+    ** argument errors, emitting earlier pieces would leave the default warning
+    ** writer in continuation mode and corrupt the next warning line.  Use the
+    ** base-library checker so direct pcall(warn, ...) reports 'warn', not '?'.
+    */
+    base_checkstr_named54(L, (int)i+1, "warn");
+  }
+#else
   if (n == 0)
     lj_err_argt(L, 1, LUA_TSTRING);
   for (i = 0; i < n; i++) {
-    GCstr *s = lj_lib_checkstr(L, (int)i+1);
-    const char *str;
-    str = strdata(s);
-    if (i == 0 && s->len > 0 && str[0] == '@') {
-      if (s->len == 3 && memcmp(str, "@on", 3) == 0)
-	G(L)->warn_on = 1;
-      else if (s->len == 4 && memcmp(str, "@off", 4) == 0)
-	G(L)->warn_on = 0;
-      return 0;
-    }
-    /* Route Lua warn() through lua_warning() so the default output prefix and
-    ** user-installed C warning callbacks share one implementation.
+    /* Lua 5.4 validates every argument before composing a warning. If a later
+    ** argument errors, emitting earlier pieces would leave the default warning
+    ** writer in continuation mode and corrupt the next warning line.
+    */
+    lj_lib_checkstr(L, (int)i+1);
+  }
+#endif
+  for (i = 0; i < n; i++) {
+    GCstr *s = strV(L->base + i);
+    const char *str = strdata(s);
+    /* Route every part through lua_warning().  Lua 5.4 treats @on/@off as
+    ** control messages only in the warning function, and only when the part is
+    ** not continued; user-installed callbacks must see those strings verbatim.
     */
     lua_warning(L, str, i != n-1);
   }
@@ -395,7 +448,13 @@ LJLIB_ASM(setmetatable)		LJLIB_REC(.)
   GCtab *t = base_checktab_named54(L, 1, "setmetatable");
   GCtab *mt;
   TValue *mo = L->base+1;
-  if (mo >= L->top || tvisnil(mo)) {
+  if (mo >= L->top) {
+    /* Lua 5.4 distinguishes an omitted metatable from an explicit nil:
+    ** setmetatable(t) is an argument error, setmetatable(t, nil) clears it.
+    */
+    base_argtype_named54(L, 2, "setmetatable", "nil or table");
+    mt = NULL;  /* unreachable */
+  } else if (tvisnil(mo)) {
     mt = NULL;
   } else if (tvistab(mo)) {
     mt = tabV(mo);
@@ -421,11 +480,7 @@ LJLIB_ASM(setmetatable)		LJLIB_REC(.)
       cTValue *gc = lj_tab_getstr(mt, mmname_str(g, MM_gc));
       if (gc && !tvisnil(gc)) {
 	t->flags54 |= LJ_TAB_HAS_GC;
-	/* A newly armed table finalizer should become observable through normal
-	** allocation-driven GC, as in Lua 5.4's repeat-until-finalized tests.
-	*/
-	if (g->gc.threshold != LJ_MAX_MEM && g->gc.threshold > g->gc.total)
-	  g->gc.threshold = g->gc.total;
+	lj_gc_arm_table_finalizer(g);
 #if LJ_HASJIT
 	/* LuaJIT traces do not run table finalizers until the trace exits. Keep
 	** the function that armed __gc interpreted so allocation-driven finalizer
@@ -628,12 +683,16 @@ LJLIB_ASM(tonumber)		LJLIB_REC(.)
   /* The explicit base is an integer parameter in Lua 5.4; do not silently
   ** truncate fractions before the range check.
   */
-  int32_t base = (L->base+1 < L->top && !tvisnil(L->base+1)) ?
-		 base_checkint_named54(L, 2, "tonumber") : 10;
+  int hasbase = (L->base+1 < L->top && !tvisnil(L->base+1));
+  int32_t base = hasbase ? base_checkint_named54(L, 2, "tonumber") : 10;
 #else
   int32_t base = lj_lib_optint(L, 2, 10);
 #endif
+#if LJ_54
+  if (!hasbase) {
+#else
   if (base == 10) {
+#endif
     TValue *o = lj_lib_checkany(L, 1);
     if (lj_strscan_numberobj(o)) {
       copyTV(L, L->base-1-LJ_FR2, o);
@@ -659,12 +718,56 @@ LJLIB_ASM(tonumber)		LJLIB_REC(.)
     }
 #endif
   } else {
+#if LJ_54
+    GCstr *s;
+    const char *p, *pe;
+    uint32_t u = 0;
+#else
     const char *p = strdata(lj_lib_checkstr(L, 1));
     char *ep;
+#endif
     unsigned int neg = 0;
+#if !LJ_54
     unsigned long ul;
+#endif
+#if LJ_54
+    if (base < 2 || base > 36)
+      base_argerror_named54(L, 2, "tonumber", "base out of range");
+#else
     if (base < 2 || base > 36)
       lj_err_arg(L, 2, LJ_ERR_BASERNG);
+#endif
+#if LJ_54
+    /* With an explicit base, Lua 5.4 requires the first argument to be an
+    ** actual string and scans the full Lua string length, so embedded NUL
+    ** bytes are invalid trailing data instead of C string terminators.
+    */
+    s = base_checkstr_exact_named54(L, 1, "tonumber");
+    p = strdata(s);
+    pe = p + s->len;
+    while (p < pe && lj_char_isspace((unsigned char)(*p))) p++;
+    if (p < pe && *p == '-') { p++; neg = 1; }
+    else if (p < pe && *p == '+') { p++; }
+    if (p < pe && lj_char_isalnum((unsigned char)(*p))) {
+      do {
+	uint32_t digit = lj_char_isdigit((unsigned char)*p) ?
+			 (uint32_t)(*p - '0') :
+			 (uint32_t)((*p | 0x20) - 'a' + 10);
+	if (digit >= (uint32_t)base)
+	  goto badbase;
+	/* Lua 5.4's base conversion accumulates in lua_Unsigned.  Match the
+	** current 32 bit public integer surface by letting uint32_t wrap here.
+	*/
+	u = u * (uint32_t)base + digit;
+	p++;
+      } while (p < pe && lj_char_isalnum((unsigned char)(*p)));
+      while (p < pe && lj_char_isspace((unsigned char)(*p))) p++;
+      if (p == pe) {
+	setintV(L->base-1-LJ_FR2, neg ? (int32_t)(~u+1u) : (int32_t)u);
+	return FFH_RES(1);
+      }
+    }
+#else
     while (lj_char_isspace((unsigned char)(*p))) p++;
     if (*p == '-') { p++; neg = 1; } else if (*p == '+') { p++; }
     if (lj_char_isalnum((unsigned char)(*p))) {
@@ -689,6 +792,7 @@ LJLIB_ASM(tonumber)		LJLIB_REC(.)
 	}
       }
     }
+#endif
   }
 badbase:
   setnilV(L->base-1-LJ_FR2);
@@ -826,7 +930,6 @@ LJLIB_CF(loadfile)
 
 static const char *reader_func(lua_State *L, void *ud, size_t *size)
 {
-  UNUSED(ud);
   luaL_checkstack(L, 2, "too many nested functions");
   copyTV(L, L->top++, L->base);
   lua_call(L, 0, 1);  /* Call user-supplied function. */
@@ -838,6 +941,16 @@ static const char *reader_func(lua_State *L, void *ud, size_t *size)
     copyTV(L, L->base+4, L->top);  /* Anchor string in reserved stack slot. */
     return lua_tolstring(L, 5, size);
   } else {
+#if LJ_54
+    if (ud != NULL && tvisstr(L->base+5)) {
+      /* lua_loadx() calls this reader outside the original Lua frame. Keep the
+      ** caller location captured by load() so reader type errors match Lua 5.4.
+      */
+      lua_pushstring(L, err2msg(LJ_ERR_RDRSTR));
+      lua_concat(L, 2);
+      lua_error(L);
+    }
+#endif
     lj_err_caller(L, LJ_ERR_RDRSTR);
     return NULL;
   }
@@ -877,9 +990,18 @@ LJLIB_CF(load)
 #else
     lj_lib_checkfunc(L, 1);
 #endif
+#if LJ_54
+    lua_settop(L, 6);  /* Slots 5/6 anchor reader data and caller location. */
+    luaL_where(L, 1);
+    copyTV(L, L->base+5, L->top-1);
+    L->top--;
+    status = lua_loadx(L, reader_func, (void *)L, name ? strdata(name) : "=(load)",
+		       mode ? strdata(mode) : NULL);
+#else
     lua_settop(L, 5);  /* Reserve a slot for the string from the reader. */
     status = lua_loadx(L, reader_func, NULL, name ? strdata(name) : "=(load)",
 		       mode ? strdata(mode) : NULL);
+#endif
   }
   return load_aux(L, status, 4, hasenv);
 }
@@ -904,6 +1026,41 @@ LJLIB_CF(dofile)
   return (int)(L->top - L->base) - 1;
 }
 
+#if LJ_54
+static GCstr *base_optstr_dofile_load54(lua_State *L)
+{
+  TValue *o = L->base;
+  if (o >= L->top || tvisnil(o))
+    return NULL;
+  if (tvisstr(o))
+    return strV(o);
+  if (tvisnumber(o)) {
+    GCstr *s = lj_strfmt_number(L, o);
+    setstrV(L, o, s);
+    return s;
+  }
+  /* dofile() is a Lua wrapper around this C loader to preserve yieldability.
+  ** Skip that wrapper so argument errors point at the user's call site.
+  */
+  luaL_where(L, 2);
+  lua_pushfstring(L, "bad argument #1 to 'dofile' (string expected, got %s)",
+		  base_argtypename54(L, 1));
+  lua_concat(L, 2);
+  lua_error(L);
+  return NULL;  /* unreachable */
+}
+
+static int lj_cf_dofile_load54(lua_State *L)
+{
+  GCstr *fname = base_optstr_dofile_load54(L);
+  setnilV(L->top);
+  L->top = L->base+1;
+  if (luaL_loadfile(L, fname ? strdata(fname) : NULL) != LUA_OK)
+    lua_error(L);
+  return 1;
+}
+#endif
+
 /* -- Base library: GC control -------------------------------------------- */
 
 LJLIB_CF(gcinfo)
@@ -922,11 +1079,27 @@ LJLIB_CF(collectgarbage)
     const char *optstr = strdata(s);
     if ((s->len == 12 && memcmp(optstr, "generational", 12) == 0) ||
 	(s->len == 11 && memcmp(optstr, "incremental", 11) == 0)) {
+      int isgen = (s->len == 12);
       const char *old = G(L)->gc_mode54 ? "generational" : "incremental";
+      /* The collector implementation is still LuaJIT's, but Lua 5.4 exposes
+      ** optional integer tuning arguments for these modes. Validate them before
+      ** the shim returns so bad hot-path calls and __gc reentry match 5.4.
+      */
+      base_checkoptint_named54(L, 2, "collectgarbage");
+      base_checkoptint_named54(L, 3, "collectgarbage");
+      if (!isgen)
+	base_checkoptint_named54(L, 4, "collectgarbage");
+      if (G(L)->hookmask & HOOK_GC) {
+	/* Lua 5.4 makes collectgarbage non-reentrant from __gc callbacks, but
+	** still validates the option before returning nil.
+	*/
+	setnilV(L->top++);
+	return 1;
+      }
       /* LuaJIT does not implement Lua 5.4's generational collector, but the
       ** option is accepted so 5.4 code can switch modes without hard failure.
       */
-      G(L)->gc_mode54 = (uint8_t)(s->len == 12);
+      G(L)->gc_mode54 = (uint8_t)isgen;
       lua_pushstring(L, old);
       return 1;
     }
@@ -936,12 +1109,30 @@ LJLIB_CF(collectgarbage)
   opt = base_checkopt_named54(L, 1, LUA_GCCOLLECT,  /* ORDER LUA_GC* */
     "\4stop\7restart\7collect\5count\1\377\4step\10setpause\12setstepmul\1\377\11isrunning",
     "collectgarbage");
-  data = (L->base+1 < L->top && !tvisnil(L->base+1)) ?
-	 base_checkint_named54(L, 2, "collectgarbage") : 0;
+  /* Lua 5.4 ignores extra arguments for no-parameter GC commands such as
+  ** "count", "collect", "stop", "restart" and "isrunning". Only commands
+  ** that define a numeric tuning argument validate argument #2 here.
+  */
+  if (opt == LUA_GCSTEP || opt == LUA_GCSETPAUSE ||
+      opt == LUA_GCSETSTEPMUL) {
+    data = (L->base+1 < L->top && !tvisnil(L->base+1)) ?
+	   base_checkint_named54(L, 2, "collectgarbage") : 0;
+  } else {
+    data = 0;
+  }
 #else
   opt = lj_lib_checkopt(L, 1, LUA_GCCOLLECT,  /* ORDER LUA_GC* */
     "\4stop\7restart\7collect\5count\1\377\4step\10setpause\12setstepmul\1\377\11isrunning");
   data = lj_lib_optint(L, 2, 0);
+#endif
+#if LJ_54
+  if (G(L)->hookmask & HOOK_GC) {
+    /* Finalizers run with the collector protected against reentry. Match
+    ** Lua 5.4 by returning nil after all argument validation has completed.
+    */
+    setnilV(L->top++);
+    return 1;
+  }
 #endif
   if (opt == LUA_GCCOUNT) {
     setnumV(L->top, (lua_Number)G(L)->gc.total/1024.0);
@@ -985,10 +1176,25 @@ LJLIB_CF(newproxy)
   return 1;
 }
 
+#if !LJ_54
 LJLIB_PUSH("tostring")
+#endif
 LJLIB_CF(print)
 {
   ptrdiff_t i, nargs = L->top - L->base;
+#if LJ_54
+  for (i = 0; i < nargs; i++) {
+    size_t size;
+    /* Lua 5.4 print() uses the protected internal tostring conversion, not the
+    ** mutable global "tostring"; rebinding the global must not affect output.
+    */
+    const char *str = luaL_tolstring(L, (int)i+1, &size);
+    if (i)
+      putchar('\t');
+    fwrite(str, 1, size, stdout);
+    L->top--;
+  }
+#else
   cTValue *tv = lj_tab_getstr(tabref(L->env), strV(lj_lib_upvalue(L, 1)));
   int shortcut;
   if (tv && !tvisnil(tv)) {
@@ -1021,6 +1227,7 @@ LJLIB_CF(print)
       putchar('\t');
     fwrite(str, 1, size, stdout);
   }
+#endif
   putchar('\n');
   return 0;
 }
@@ -1040,7 +1247,7 @@ LJLIB_CF(coroutine_status)
   lua_State *co;
   if (!(L->top > L->base && tvisthread(L->base))) {
 #if LJ_54
-    base_argtype_named54(L, 1, "coroutine.status", "thread");
+    base_argtype_callname54(L, 1, "coroutine.status", "thread");
 #else
     lj_err_arg(L, 1, LJ_ERR_NOCORO);
 #endif
@@ -1075,7 +1282,7 @@ LJLIB_CF(coroutine_isyieldable)
   if (L->base < L->top) {
     lua_State *co;
     if (!tvisthread(L->base))
-      base_argtype_named54(L, 1, "coroutine.isyieldable", "thread");
+      base_argtype_callname54(L, 1, "coroutine.isyieldable", "thread");
     co = threadV(L->base);
     /* Lua 5.4's optional thread argument asks about that coroutine, not the
     ** currently executing C frame. Suspended/dead non-main coroutines have no
@@ -1095,7 +1302,7 @@ LJLIB_CF(coroutine_create)
   lua_State *L1;
   if (!(L->base < L->top && tvisfunc(L->base))) {
 #if LJ_54
-    base_argtype_named54(L, 1, "coroutine.create", "function");
+    base_argtype_callname54(L, 1, "coroutine.create", "function");
 #else
     lj_err_argt(L, 1, LUA_TFUNCTION);
 #endif
@@ -1106,17 +1313,30 @@ LJLIB_CF(coroutine_create)
 }
 
 #if LJ_54
+static int lua54_close_depth = 0;
+
 static int lj_cf_coroutine_close(lua_State *L)
 {
   lua_State *co;
   if (!(L->top > L->base && tvisthread(L->base)))
     base_argtype_named54(L, 1, "coroutine.close", "thread");
   co = threadV(L->base);
-  if (co == L || co->cframe != NULL ||
-      (co->status == LUA_OK && co->base > tvref(co->stack)+1+LJ_FR2))
+  if (co == L)
     lj_err_callermsg(L, "cannot close a running coroutine");
+  if (co->cframe != NULL ||
+      (co->status == LUA_OK && co->base > tvref(co->stack)+1+LJ_FR2))
+    lj_err_callermsg(L, "cannot close a normal coroutine");
   {
-    int status = lua_closethread(co, L);
+    int status;
+    if (lua54_close_depth >= 180)
+      lj_err_callermsg(L, "C stack overflow");
+    /* Chained __close handlers can recursively close older coroutines. Cap the
+    ** library recursion before the native C stack is exhausted, matching Lua
+    ** 5.4's observable C-stack overflow surface.
+    */
+    lua54_close_depth++;
+    status = lua_closethread(co, L);
+    lua54_close_depth--;
     if (status == LUA_OK) {
       setboolV(L->top++, 1);
       return 1;
@@ -1126,8 +1346,58 @@ static int lj_cf_coroutine_close(lua_State *L)
       copyTV(L, L->top++, co->top-1);
     else
       setnilV(L->top++);
+    /* lua_closethread() keeps the error object on the coroutine stack for the
+    ** C API. coroutine.close moves that object to the caller in Lua 5.4, so
+    ** clear the coroutine stack afterwards to make status() report "dead".
+    */
+    co->top = co->base;
     return 2;
   }
+}
+
+static int lua54_wrap_depth = 0;
+
+static int lj_cf_coroutine_wrap_aux54(lua_State *L)
+{
+  lua_State *co = lua_tothread(L, lua_upvalueindex(1));
+  int nargs = (int)(L->top - L->base);
+  int nres = 0;
+  int status;
+  if (lua54_wrap_depth >= 180)
+    lj_err_callermsg(L, "C stack overflow");
+  if (!lua_checkstack(co, nargs))
+    lj_err_mem(L);
+  lua_xmove(L, co, nargs);
+  lua54_wrap_depth++;
+  status = lua_resume54(co, L, nargs, &nres);
+  lua54_wrap_depth--;
+  if (status == LUA_OK || status == LUA_YIELD) {
+    if (!lua_checkstack(L, nres))
+      lj_err_mem(L);
+    lua_xmove(co, L, nres);
+    return nres;
+  }
+  /* Lua 5.4's coroutine.wrap closes a coroutine that died with an error before
+  ** rethrowing. This runs pending <close> variables and lets their errors
+  ** replace the original coroutine error, matching lcorolib.c:luaB_auxwrap.
+  */
+  if (co->status != LUA_OK && co->status != LUA_YIELD)
+    status = lua_closethread(co, L);
+  if (co->top > co->base)
+    lua_xmove(co, L, 1);
+  else
+    setnilV(L->top++);
+  return lua_error(L);  /* propagate the coroutine or close error object */
+}
+
+static int lj_cf_coroutine_wrap54(lua_State *L)
+{
+  if (!(L->base < L->top && tvisfunc(L->base)))
+    base_argtype_callname54(L, 1, "coroutine.wrap", "function");
+  lua_newthread(L);
+  setfuncV(L, threadV(L->top-1)->top++, funcV(L->base));
+  lua_pushcclosure(L, lj_cf_coroutine_wrap_aux54, 1);
+  return 1;
 }
 #endif
 
@@ -1145,7 +1415,18 @@ static int ffh_resume(lua_State *L, lua_State *co, int wrap)
 {
   if (co->cframe != NULL || co->status > LUA_YIELD ||
       (co->status == LUA_OK && co->top == co->base)) {
+#if LJ_54
+    /* Lua 5.4 reports a currently running coroutine as non-suspended for
+    ** resume/wrap. coroutine.close keeps its separate "running" diagnostic.
+    ** Prefer the dead diagnostic once status is terminal, even if a failed
+    ** close path left a stale cframe marker behind.
+    */
+    ErrMsg em = (co->status > LUA_YIELD ||
+		 (co->status == LUA_OK && co->top == co->base)) ?
+		LJ_ERR_CODEAD : LJ_ERR_COSUSP;
+#else
     ErrMsg em = co->cframe ? LJ_ERR_CORUN : LJ_ERR_CODEAD;
+#endif
     if (wrap) lj_err_caller(L, em);
     setboolV(L->base-1-LJ_FR2, 0);
     setstrV(L, L->base-LJ_FR2, lj_err_str(L, em));
@@ -1200,7 +1481,7 @@ LJLIB_CF(coroutine_wrap)
   GCfunc *fn;
 #if LJ_54
   if (!(L->base < L->top && tvisfunc(L->base)))
-    base_argtype_named54(L, 1, "coroutine.wrap", "function");
+    base_argtype_callname54(L, 1, "coroutine.wrap", "function");
   lua_newthread(L);
   setfuncV(L, threadV(L->top-1)->top++, funcV(L->base));
 #else
@@ -1218,6 +1499,29 @@ static void setpc_wrap_aux(lua_State *L, GCfunc *fn)
 {
   setmref(fn->c.pc, &L2GG(L)->bcff[lj_lib_init_coroutine[1]+2]);
 }
+
+#if LJ_54
+static int lj_cf_coroutine_argerror54(lua_State *L)
+{
+  const char *fallback = luaL_checkstring(L, 1);
+  int nargs = luaL_checkint(L, 2);
+  const char *got = nargs == 0 ? "no value" : base_argtypename54(L, 3);
+  const char *name = fallback;
+  lua_Debug ar;
+  /* resume()/close() keep a Lua wrapper for recursion caps and close-error
+  ** bookkeeping. This private helper skips that wrapper frame so argument
+  ** errors still point at the user's call site or local alias.
+  */
+  if (lua_getstack(L, 2, &ar) && lua_getinfo(L, "n", &ar) &&
+      ar.name && ar.name[0] != '\0')
+    name = ar.name;
+  luaL_where(L, 3);
+  lua_pushfstring(L, "bad argument #1 to '%s' (thread expected, got %s)",
+		  name, got);
+  lua_concat(L, 2);
+  return lua_error(L);
+}
+#endif
 
 /* ------------------------------------------------------------------------ */
 
@@ -1253,11 +1557,66 @@ LUALIB_API int luaopen_coroutine(lua_State *L)
   */
   lua_pushcfunction(L, lj_cf_coroutine_close);
   lua_setfield(L, -2, "close");
+  lua_pushcfunction(L, lj_cf_coroutine_wrap54);
+  lua_setfield(L, -2, "wrap");
+  lua_pushcfunction(L, lj_cf_coroutine_argerror54);
+  lua_setfield(L, -2, "_lua54_argerror");
+  /* Keep the VM fast-function resume path for the actual coroutine transfer.
+  ** The Lua wrapper caps recursive resume chains before Windows reaches a
+  ** native guard page and remembers dead-coroutine errors for close().
+  */
+  luaL_loadstring(L,
+    "local argerror = coroutine._lua54_argerror\n"
+    "coroutine._lua54_argerror = nil\n"
+    "local resume = coroutine.resume\n"
+    "local close = coroutine.close\n"
+    "local status = coroutine.status\n"
+    "local select = select\n"
+    "local type = type\n"
+    "local resume_errors = setmetatable({}, { __mode = 'k' })\n"
+    "local depth = 0\n"
+    "local function checkthread(name, nargs, co)\n"
+    "  if type(co) ~= 'thread' then argerror(name, nargs, co) end\n"
+    "end\n"
+    "local function finish(co, ok, ...)\n"
+    "  depth = depth - 1\n"
+    "  if ok == false and status(co) == 'dead' then resume_errors[co] = (...) end\n"
+    "  return ok, ...\n"
+    "end\n"
+    "function coroutine.resume(...)\n"
+    "  local nargs = select('#', ...)\n"
+    "  local co = ...\n"
+    "  checkthread('coroutine.resume', nargs, co)\n"
+    "  if depth >= 180 then return false, 'C stack overflow' end\n"
+    "  depth = depth + 1\n"
+    "  return finish(co, resume(co, select(2, ...)))\n"
+    "end\n"
+    "function coroutine.close(...)\n"
+    "  local nargs = select('#', ...)\n"
+    "  local co = ...\n"
+    "  checkthread('coroutine.close', nargs, co)\n"
+    "  local ok, err = close(co)\n"
+    "  if ok ~= false then\n"
+    "    resume_errors[co] = nil\n"
+    "    return ok\n"
+    "  end\n"
+    "  if resume_errors[co] ~= nil then\n"
+    "    err = resume_errors[co]\n"
+    "  end\n"
+    "  resume_errors[co] = nil\n"
+    "  -- Lua 5.4 returns one value on successful close, but two on error.\n"
+    "  return ok, err\n"
+    "end\n");
+  lua_call(L, 0, 0);
 #endif
   return 1;
 }
 
+#if LJ_54
+int luaopen_base_luajit(lua_State *L)
+#else
 LUALIB_API int luaopen_base(lua_State *L)
+#endif
 {
   /* NOBARRIER: Table and value are the same. */
   GCtab *env = tabref(L->env);
@@ -1283,6 +1642,32 @@ LUALIB_API int luaopen_base(lua_State *L)
   lua_setglobal(L, "type");
   lua_pushcfunction(L, lj_cf_getmetatable54);
   lua_setglobal(L, "getmetatable");
+  lua_getglobal(L, "xpcall");
+  /* Internal close dispatch must call the real xpcall without exposing this
+  ** Lua compatibility wrapper to debug line hooks.
+  */
+  lua_pushvalue(L, -1);
+  lua_setfield(L, LUA_REGISTRYINDEX, "_LUA54_RAW_XPCALL");
+  if (luaL_loadstring(L,
+    "local raw_xpcall = ...\n"
+    "local type = type\n"
+    "local select = select\n"
+    "return function(...)\n"
+    "  local nargs = select('#', ...)\n"
+    "  local f = select(1, ...)\n"
+    "  local msgh = select(2, ...)\n"
+    "  if nargs < 2 then\n"
+    "    return raw_xpcall(f)\n"
+    "  end\n"
+    "  if type(msgh) ~= 'function' or f ~= msgh then\n"
+    "    return raw_xpcall(f, msgh, select(3, ...))\n"
+    "  end\n"
+    "  return false, 'error in error handling'\n"
+    "end\n") != LUA_OK)
+    lua_error(L);
+  lua_insert(L, -2);
+  lua_call(L, 1, 1);
+  lua_setglobal(L, "xpcall");
   lua_pushcfunction(L, lj_cf_next54);
   lua_setglobal(L, "next");
   lua_getglobal(L, "pairs");
@@ -1295,8 +1680,20 @@ LUALIB_API int luaopen_base(lua_State *L)
   lua_pushcfunction(L, lj_cf_rawget54);
   lua_setglobal(L, "rawget");
   lua_pushcfunction(L, lj_cf_ipairs_aux54);
-  lua_pushcclosure(L, lj_cf_ipairs54, 1);
+  lua_setfield(L, LUA_REGISTRYINDEX, LUA54_IPAIRS_AUX_REGKEY);
+  lua_pushcfunction(L, lj_cf_ipairs54);
   lua_setglobal(L, "ipairs");
+  lua_pushcfunction(L, lj_cf_dofile_load54);
+  if (luaL_loadstring(L,
+    "local load = ...\n"
+    "return function(filename)\n"
+    "  local f = load(filename)\n"
+    "  return f()\n"
+    "end\n") != LUA_OK)
+    lua_error(L);
+  lua_insert(L, -2);
+  lua_call(L, 1, 1);
+  lua_setglobal(L, "dofile");
 #else
   setnilV(lj_tab_setstr(L, env, lj_str_newlit(L, "warn")));
 #endif
@@ -1305,12 +1702,12 @@ LUALIB_API int luaopen_base(lua_State *L)
 }
 
 #if LJ_54
-LUALIB_API int luaopen_base54(lua_State *L)
+LUALIB_API int luaopen_base(lua_State *L)
 {
-  int n = luaopen_base(L);
+  int n = luaopen_base_luajit(L);
   /* LuaJIT's internal/legacy luaopen_base() returns base plus coroutine.
-  ** External Lua 5.4 headers route luaopen_base to this wrapper so callers
-  ** see the standard single base-library result without changing old ABI users.
+  ** Lua 5.4 external callers see the official single base-library result,
+  ** while luaL_openlibs can still use the internal entry when needed.
   */
   while (n-- > 1)
     lua_pop(L, 1);

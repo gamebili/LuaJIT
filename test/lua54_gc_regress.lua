@@ -1,0 +1,157 @@
+local function bounded_table_finalizer(limit)
+  local u
+  local keep
+  local done = false
+  u = setmetatable({}, { __gc = function() done = true end })
+  keep = {34}
+  local n = 0
+  repeat
+    n = n + 1
+    u = {}
+  until done or n > limit
+  assert(done and keep[1] == 34,
+    "table finalizer did not run in bounded allocation loop")
+  return u
+end
+
+local function bounded_nested_table_finalizer(limit)
+  local u
+  local done = false
+  u = { setmetatable({}, { __gc = function() done = true end }) }
+  local keep = {34}
+  local n = 0
+  repeat
+    n = n + 1
+    u = {{}}
+  until done or n > limit
+  assert(done and keep[1] == 34,
+    "nested table finalizer did not run in bounded allocation loop")
+  return u
+end
+
+-- This mirrors the official gc.lua weak/ephemeron setup before it calls GC().
+-- The collector must stay responsive after these full collections; otherwise
+-- the first allocation-triggered table finalizer can be postponed indefinitely.
+collectgarbage("collect")
+
+local lim = 15
+local a = setmetatable({}, { __mode = "k" })
+for i = 1, lim do a[{}] = i end
+for i = 1, lim do a[i] = i end
+for i = 1, lim do local s = string.rep("@", i); a[s] = s.."#" end
+collectgarbage("collect")
+
+a = setmetatable({}, { __mode = "v" })
+a[1] = string.rep("b", 21)
+collectgarbage("collect")
+assert(a[1])
+a[1] = nil
+for i = 1, lim do a[i] = {} end
+for i = 1, lim do a[i.."x"] = {} end
+for i = 1, lim do local t = {}; a[t] = t end
+for i = 1, lim do a[i+lim] = i.."x" end
+collectgarbage("collect")
+
+a = setmetatable({}, { __mode = "kv" })
+local x, y, z = {}, {}, {}
+a[1], a[2], a[3] = x, y, z
+a[string.rep("$", 11)] = string.rep("$", 11)
+for i = 4, lim do a[i] = {} end
+for i = 1, lim do a[{}] = i end
+for i = 1, lim do local t = {}; a[t] = t end
+collectgarbage("collect")
+x, y, z = nil, nil, nil
+collectgarbage("collect")
+
+local mt = { __mode = "k" }
+a = {{10}, {20}, {30}, {40}}
+setmetatable(a, mt)
+x = nil
+for i = 1, 100 do
+  local n = {}
+  a[n] = { k = { x } }
+  x = n
+end
+
+bounded_table_finalizer(50000)
+bounded_nested_table_finalizer(50000)
+assert(a ~= nil and x ~= nil)
+
+collectgarbage("collect")
+collectgarbage("collect")
+local mem = collectgarbage("count")
+local weak = setmetatable({}, { __mode = "kv" })
+weak[string.rep("a", 2^22)] = 25
+weak[string.rep("b", 2^22)] = {}
+weak[{}] = 14
+assert(collectgarbage("count") > mem + 2^13)
+collectgarbage("collect")
+collectgarbage("collect")
+assert(collectgarbage("count") >= mem + 2^12 and
+       collectgarbage("count") < mem + 2^13)
+-- Weak long-string cleanup can need an extra sweep in this LuaJIT bridge after
+-- a fresh compat rebuild; wait for the weak table to reach the semantic fixed
+-- point instead of depending on an exact two-collection schedule.
+for _ = 1, 8 do
+  local first, _, extra = next(weak)
+  if first == nil then break end
+  extra = next(weak, first)
+  if extra == nil then break end
+  collectgarbage("collect")
+end
+local key, value = next(weak)
+assert(key == string.rep("a", 2^22) and value == 25)
+assert(next(weak, key) == nil)
+weak[key] = nil
+key = nil
+for _ = 1, 8 do
+  collectgarbage("collect")
+  if next(weak) == nil then break end
+end
+assert(next(weak) == nil)
+assert(weak[string.rep("b", 100)] == nil)
+
+do
+  local opts = {
+    false, "collect", "step", "count", "isrunning", "stop", "restart",
+    "setpause", "setstepmul", "incremental", "generational",
+  }
+  for _, opt in ipairs(opts) do
+    local ok, res = false, "notrun"
+    do
+      local t = setmetatable({}, { __gc = function()
+        if opt == false then
+          ok, res = pcall(collectgarbage)
+        elseif opt == "setpause" or opt == "setstepmul" then
+          ok, res = pcall(collectgarbage, opt, 200)
+        else
+          ok, res = pcall(collectgarbage, opt)
+        end
+      end })
+      t = nil
+    end
+    collectgarbage("collect")
+    assert(ok and res == nil, "collectgarbage is reentrant inside __gc")
+  end
+
+  local ok, err
+  do
+    local t = setmetatable({}, { __gc = function()
+      ok, err = pcall(collectgarbage, "invalid")
+    end })
+    t = nil
+  end
+  collectgarbage("collect")
+  assert(ok == false and tostring(err):find("invalid option", 1, true),
+    "collectgarbage must still validate options inside __gc")
+  do
+    local t = setmetatable({}, { __gc = function()
+      ok, err = pcall(collectgarbage, "incremental", 200, 300, 12.5)
+    end })
+    t = nil
+  end
+  collectgarbage("collect")
+  assert(ok == false and tostring(err):find("bad argument #4", 1, true),
+    "collectgarbage mode options must still validate inside __gc")
+  assert(collectgarbage("isrunning"))
+end

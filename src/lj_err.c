@@ -99,10 +99,17 @@ LJ_DATADEF const char *lj_err_allmsg =
 /* -- Internal frame unwinding -------------------------------------------- */
 
 /* Unwind Lua stack and move error message to new top. */
-LJ_NOINLINE static void unwindstack(lua_State *L, TValue *top)
+LJ_NOINLINE static void unwindstack(lua_State *L, TValue *top, int close_tbc)
 {
 #if LJ_54
-  lj_close_unwind(L, top);
+  /* Most protected errors have no pending to-be-closed slots. Avoid calling
+  ** into close-unwind during the Windows coroutine unwind path unless there is
+  ** actual close state to process.
+  */
+  if (close_tbc && L->closelist != NULL)
+    lj_close_unwind(L, top);
+  if (!close_tbc)
+    return;
 #endif
   lj_func_closeuv(L, top);
   if (top < L->top-1) {
@@ -125,7 +132,7 @@ static void *err_unwind(lua_State *L, void *stopcf, int errcode)
 	if (errcode) {
 	  L->base = frame+1;
 	  L->cframe = cframe_prev(cf);
-	  unwindstack(L, top);
+	  unwindstack(L, top, 1);
 	}
 	return cf;
       }
@@ -143,7 +150,7 @@ static void *err_unwind(lua_State *L, void *stopcf, int errcode)
       if (errcode) {
 	L->base = frame_prevd(frame) + 1;
 	L->cframe = cframe_prev(cf);
-	unwindstack(L, frame - LJ_FR2);
+	unwindstack(L, frame - LJ_FR2, 1);
       } else if (cf != stopcf) {
 	cf = cframe_prev(cf);
 	frame = frame_prevd(frame);
@@ -168,7 +175,7 @@ static void *err_unwind(lua_State *L, void *stopcf, int errcode)
       if (errcode) {
 	L->base = frame_prevd(frame) + 1;
 	L->cframe = cframe_prev(cf);
-	unwindstack(L, frame - LJ_FR2);
+	unwindstack(L, frame - LJ_FR2, 1);
       }
       return cf;
     case FRAME_CONT:  /* Continuation frame. */
@@ -192,7 +199,18 @@ static void *err_unwind(lua_State *L, void *stopcf, int errcode)
 	  hook_leave(g);
 	L->base = frame_prevd(frame) + 1;
 	L->cframe = cf;
-	unwindstack(L, L->base);
+#if LJ_54
+	/* A coroutine resume frame is yieldable and reaches a VM landing pad after
+	** OS unwinding. Delay close handling only when the protected pcall range
+	** actually owns pending Lua 5.4 close slots. Outer close slots must not
+	** make an inner pcall(__close) use the delayed landing path.
+	*/
+	L->close_defer = (uint8_t)(cframe_canyield(cf) &&
+	  L->closelist != NULL && lj_close_hasunwind(L, frame+1));
+	unwindstack(L, L->base, !L->close_defer);
+#else
+	unwindstack(L, L->base, 1);
+#endif
       }
       return (void *)((intptr_t)cf | CFRAME_UNWIND_FF);
     }
@@ -201,7 +219,7 @@ static void *err_unwind(lua_State *L, void *stopcf, int errcode)
   if (errcode) {
     L->base = tvref(L->stack)+1+LJ_FR2;
     L->cframe = NULL;
-    unwindstack(L, L->base);
+    unwindstack(L, L->base, 1);
     if (G(L)->panic)
       G(L)->panic(L);
     exit(EXIT_FAILURE);
@@ -966,8 +984,19 @@ LJ_NOINLINE void lj_err_lex(lua_State *L, GCstr *src, const char *tok,
   lj_debug_shortname(buff, src, line);
   msg = lj_strfmt_pushvf(L, err2msg(em), argp);
   msg = lj_strfmt_pushf(L, "%s:%d: %s", buff, line, msg);
-  if (tok)
+  if (tok) {
+#if LJ_54
+    if ((tok[0] == '<' && ((tok[1] >= 'A' && tok[1] <= 'Z') ||
+			    (tok[1] >= 'a' && tok[1] <= 'z'))) ||
+	(memcmp(tok, "char(", 5) == 0)) {
+      /* Lua 5.4 leaves pseudo tokens such as <eof> and char(10)
+      ** unquoted in syntax diagnostics, while real source tokens stay quoted.
+      */
+      lj_strfmt_pushf(L, "%s near %s", msg, tok);
+    } else
+#endif
     lj_strfmt_pushf(L, err2msg(LJ_ERR_XNEAR), msg, tok);
+  }
   lj_err_throw(L, LUA_ERRSYNTAX);
 }
 
@@ -984,7 +1013,11 @@ LJ_NOINLINE void lj_err_optype(lua_State *L, cTValue *o, ErrMsg opm)
     const char *oname = NULL;
     const char *kind = lj_debug_slotname(pt, pc, (BCReg)(o-L->base), &oname);
     if (kind)
+#if LJ_54
+      err_msgv(L, LJ_ERR_BADOPRT, opname, tname, kind, oname);
+#else
       err_msgv(L, LJ_ERR_BADOPRT, opname, kind, oname, tname);
+#endif
   }
   err_msgv(L, LJ_ERR_BADOPRV, opname, tname);
 }
@@ -1173,10 +1206,24 @@ LUALIB_API int luaL_error(lua_State *L, const char *fmt, ...)
 {
   const char *msg;
   va_list argp;
+#if LJ_54
+  /* Official luaL_error() prefixes through luaL_where(), which suppresses
+  ** stripped chunk locations with currentline == -1. VM runtime errors still
+  ** use lj_debug_addloc() directly and keep their "?:-1:" diagnostics.
+  */
+  luaL_where(L, 1);
+  va_start(argp, fmt);
+  msg = lj_strfmt_pushvf(L, fmt, argp);
+  va_end(argp);
+  UNUSED(msg);
+  lua_concat(L, 2);
+  return lua_error(L);
+#else
   va_start(argp, fmt);
   msg = lj_strfmt_pushvf(L, fmt, argp);
   va_end(argp);
   lj_err_callermsg(L, msg);
   return 0;  /* unreachable */
+#endif
 }
 

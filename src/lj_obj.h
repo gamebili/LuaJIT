@@ -312,6 +312,8 @@ typedef struct GCstr {
   MSize len;		/* Size of string. */
 } GCstr;
 
+#define LJ_STR_MAXSHORT	40	/* Lua 5.4 short-string interning limit. */
+#define strislong(s)	(LJ_54 && (s)->len > LJ_STR_MAXSHORT)
 #define strref(r)	(&gcref((r))->str)
 #define strdata(s)	((const char *)((s)+1))
 #define strdatawr(s)	((char *)((s)+1))
@@ -602,11 +604,17 @@ typedef struct GCState {
   GCSize threshold;	/* Memory threshold. */
   uint8_t currentwhite;	/* Current white color. */
   uint8_t state;	/* GC state. */
+#if LJ_54
+  uint8_t fin_check;	/* Keep GC responsive after arming table __gc. */
+  uint8_t closing;	/* State close is already running finalizers. */
+#else
   uint8_t unused0;
+  uint8_t unused1;
+#endif
 #if LJ_64
   uint8_t lightudnum;	/* Number of lightuserdata segments - 1. */
 #else
-  uint8_t unused1;
+  uint8_t unused2;
 #endif
   MSize sweepstr;	/* Sweep position in string table. */
   GCRef root;		/* List of all collectable objects. */
@@ -649,6 +657,7 @@ typedef struct global_State {
   uint8_t vmevmask;	/* VM event mask. */
   uint8_t warn_on;	/* Warning state for Lua 5.4 warn(). */
   uint8_t warn_cont;	/* Warning output is continuing without a newline. */
+  uint8_t warn_disabled; /* lua_setwarnf(NULL) disables lua_warning() entirely. */
   uint8_t gc_mode54;	/* Reported GC mode for Lua 5.4 collectgarbage(). */
   lua_WarnFunction warnf;  /* Optional Lua 5.4 C warning callback. */
   void *warnud;
@@ -719,6 +728,10 @@ struct lua_State {
   GCHeader;
   uint8_t dummy_ffid;	/* Fake FF_C for curr_funcisL() on dummy frames. */
   uint8_t status;	/* Thread status. */
+#if LJ_54
+  uint8_t close_defer;	/* Current fast pcall landing must close TBC slots. */
+  uint8_t close_pcall;	/* Hide compiler-internal close pcall in debug stack. */
+#endif
   MRef glref;		/* Link to global state. */
   GCRef gclist;		/* GC chain. */
   TValue *base;		/* Base of currently executing function. */
@@ -733,6 +746,14 @@ struct lua_State {
   void *closelist;	/* Lua 5.4 active to-be-closed stack slots. */
   int32_t tailcall_ci;	/* Lua 5.4 tail-called frame offset, or 0. */
   int32_t tailcall_ci2;	/* Secondary Lua 5.4 tail-call marker. */
+#if LJ_54
+  lua_KContext capi_yield_ctx;  /* Saved lua_yieldk() context until resume. */
+  lua_KFunction capi_yield_k;  /* Saved lua_yieldk() continuation callback. */
+  int32_t capi_yield_nresults;  /* Saved lua_callk/lua_pcallk result count. */
+  int32_t close_cframe_nres1;  /* Saved C return count while __close yields. */
+  uint8_t capi_yield_kind;  /* Saved Lua 5.4 C continuation dispatch kind. */
+  uint8_t capi_cont_yieldable;  /* lua_yieldk() continuation may re-yield. */
+#endif
 };
 
 #define G(L)			(mref(L->glref, global_State))

@@ -11,6 +11,28 @@
 #endif
 #include <limits.h>
 #include <stddef.h>
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+#include <stdint.h>
+/* Mirror Lua 5.4's public Windows platform feature macros for external
+** compatibility code. LuaJIT still keeps its own platform internals, but
+** C modules that test official luaconf.h switches should see the same shape.
+*/
+#if !defined(LUA_USE_C89) && defined(_WIN32) && !defined(_WIN32_WCE)
+#define LUA_USE_WINDOWS
+#endif
+#if defined(LUA_USE_WINDOWS)
+#define LUA_DL_DLL
+#define LUA_USE_C89
+#endif
+#else
+#endif
+
+#if defined(LUAJIT_ENABLE_LUA54COMPAT) && !defined(LUA_CORE) && \
+    !defined(LUA_LIB) && !defined(LUAJIT_INTERNAL_USE)
+#define LJ_LUA54_EXTERNAL_HEADER 1
+#else
+#define LJ_LUA54_EXTERNAL_HEADER 0
+#endif
 
 /* Default path for loading Lua and C modules with require(). */
 #if defined(_WIN32)
@@ -98,39 +120,50 @@
 #endif
 #endif
 
-/* Environment variable names for path overrides and initialization code. */
-#define LUA_PATH	"LUA_PATH"
-#define LUA_CPATH	"LUA_CPATH"
-#define LUA_INIT	"LUA_INIT"
-#ifdef LUAJIT_ENABLE_LUA54COMPAT
-/* Lua 5.4 checks versioned environment variables before the generic names. */
-#define LUA_PATH_5_4	"LUA_PATH_5_4"
-#define LUA_CPATH_5_4	"LUA_CPATH_5_4"
-#define LUA_INIT_5_4	"LUA_INIT_5_4"
-#endif
-
 /* Special file system characters. */
 #if defined(_WIN32)
 #define LUA_DIRSEP	"\\"
 #else
 #define LUA_DIRSEP	"/"
 #endif
-#define LUA_PATHSEP	";"
+#define LUA_PATH_SEP	";"
 #define LUA_PATH_MARK	"?"
-#define LUA_EXECDIR	"!"
+#define LUA_EXEC_DIR	"!"
 #define LUA_IGMARK	"-"
-#define LUA_PATH_CONFIG \
-  LUA_DIRSEP "\n" LUA_PATHSEP "\n" LUA_PATH_MARK "\n" \
-  LUA_EXECDIR "\n" LUA_IGMARK "\n"
+#if !LJ_LUA54_EXTERNAL_HEADER
+/* LuaJIT internals and the default 5.1-compatible public header still use
+** the historical names. External Lua 5.4 modules should see the official
+** LUA_PATH_SEP/LUA_EXEC_DIR spelling and not these implementation details.
+*/
+#define LUA_PATHSEP	LUA_PATH_SEP
+#define LUA_EXECDIR	LUA_EXEC_DIR
+
+/* Environment variable names for path overrides and initialization code. */
+#define LUA_PATH	"LUA_PATH"
+#define LUA_CPATH	"LUA_CPATH"
+#define LUA_INIT	"LUA_INIT"
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+/* Lua 5.4 standalone checks versioned environment variables before the
+** generic names, but these names are private to the standalone/package code.
+*/
+#define LUA_PATH_5_4	"LUA_PATH_5_4"
+#define LUA_CPATH_5_4	"LUA_CPATH_5_4"
+#define LUA_INIT_5_4	"LUA_INIT_5_4"
+#endif
+#endif
 
 /* Quoting in error messages. */
+#if !LJ_LUA54_EXTERNAL_HEADER
+#define LUA_PATH_CONFIG \
+  LUA_DIRSEP "\n" LUA_PATH_SEP "\n" LUA_PATH_MARK "\n" \
+  LUA_EXEC_DIR "\n" LUA_IGMARK "\n"
 #define LUA_QL(x)	"'" x "'"
 #define LUA_QS		LUA_QL("%s")
+#endif
 
 /* Various tunables. */
 #define LUAI_IS32INT	((UINT_MAX >> 30) >= 3)
-#if defined(LUAJIT_ENABLE_LUA54COMPAT) && !defined(LUA_CORE) && \
-    !defined(LUA_LIB) && !defined(LUAJIT_INTERNAL_USE)
+#if LJ_LUA54_EXTERNAL_HEADER
 /* Official Lua 5.4 exposes a larger API pseudo-index range through
 ** LUAI_MAXSTACK. Keep LuaJIT's real VM stack limit internal, but make external
 ** 5.4 headers compute the same registry/upvalue pseudo-index values as Lua.
@@ -143,10 +176,12 @@
 #else
 #define LUAI_MAXSTACK	65500	/* Max. # of stack slots for a thread (<64K). */
 #endif
+#if !LJ_LUA54_EXTERNAL_HEADER
 #define LUAI_MAXCSTACK	8000	/* Max. # of stack slots for a C func (<10K). */
 #define LUAI_GCPAUSE	200	/* Pause GC until memory is at 200%. */
 #define LUAI_GCMUL	200	/* Run GC at 200% of allocation speed. */
 #define LUA_MAXCAPTURES	32	/* Max. pattern captures. */
+#endif
 #define LUA_EXTRASPACE	(sizeof(void *))
 
 /* Configuration for the frontend (the luajit executable). */
@@ -158,6 +193,29 @@
 #endif
 
 /* Note: changing the following defines breaks the Lua 5.1 ABI. */
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+/* Lua 5.4 exposes numeric configuration macros from luaconf.h. Keep the
+** actual LuaJIT ABI below (lua_Integer is still ptrdiff_t here), but provide
+** the official option names so external modules can compile shared config
+** checks against the compatibility headers.
+*/
+#define LUA_INT_INT		1
+#define LUA_INT_LONG		2
+#define LUA_INT_LONGLONG	3
+#define LUA_FLOAT_FLOAT		1
+#define LUA_FLOAT_DOUBLE	2
+#define LUA_FLOAT_LONGDOUBLE	3
+#define LUA_INT_DEFAULT		LUA_INT_LONGLONG
+#define LUA_FLOAT_DEFAULT	LUA_FLOAT_DOUBLE
+#define LUA_32BITS		0
+#if defined(LUA_USE_C89) && !defined(LUA_USE_WINDOWS)
+#define LUA_C89_NUMBERS		1
+#else
+#define LUA_C89_NUMBERS		0
+#endif
+#define LUA_INT_TYPE		LUA_INT_DEFAULT
+#define LUA_FLOAT_TYPE		LUA_FLOAT_DEFAULT
+#endif
 #define LUA_INTEGER	ptrdiff_t
 #define LUA_IDSIZE	60	/* Size of lua_Debug.short_src. */
 /*
@@ -178,15 +236,88 @@
 /* The following defines are here only for compatibility with luaconf.h
 ** from the standard Lua distribution. They must not be changed for LuaJIT.
 */
+#if !LJ_LUA54_EXTERNAL_HEADER
 #define LUA_NUMBER_DOUBLE
+#endif
 #define LUA_NUMBER		double
 #define LUAI_UACNUMBER		double
+#if !LJ_LUA54_EXTERNAL_HEADER
 #define LUA_NUMBER_SCAN		"%lf"
+#endif
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+#define LUA_NUMBER_FRMLEN	""
+#endif
 #define LUA_NUMBER_FMT		"%.14g"
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+/* These helpers mirror Lua 5.4's public luaconf.h macro surface. LuaJIT's
+** runtime keeps its own scanner/formatter internals; the macros are for
+** external C modules that include the compatibility headers.
+*/
+#if !defined(LUA_USE_C89)
+#define l_sprintf(s, sz, f, i)	snprintf((s), (sz), (f), (i))
+#else
+#define l_sprintf(s, sz, f, i)	((void)(sz), sprintf((s), (f), (i)))
+#endif
+#define l_mathop(op)		op
+#define l_floor(x)		(l_mathop(floor)(x))
+#define l_floatatt(n)		(DBL_##n)
+#define lua_str2number(s, p)	strtod((s), (p))
+#if !defined(LUA_USE_C89)
+#define lua_strx2number(s, p)	lua_str2number((s), (p))
+#define lua_number2strx(L, b, sz, f, n) \
+  ((void)(L), l_sprintf((b), (sz), (f), (LUAI_UACNUMBER)(n)))
+#endif
+#if defined(LUA_USE_C89) || (defined(HUGE_VAL) && !defined(HUGE_VALF))
+/* Match Lua 5.4's C89 fallback macro shape. On Windows the public 5.4
+** header defines LUA_USE_C89 together with LUA_USE_WINDOWS, so embedders that
+** stringify or reuse these luaconf helpers should see the official fallback.
+*/
+#undef l_mathop
+#undef lua_str2number
+#define l_mathop(op)		(lua_Number)op
+#define lua_str2number(s, p)	((lua_Number)strtod((s), (p)))
+#endif
+#define lua_pointer2str(buff, sz, p)	l_sprintf((buff), (sz), "%p", (p))
+/* Lua 5.4 makes the output-buffer size an explicit macro argument. Keep
+** sprintf internally for LuaJIT's supported C environments, but expose the
+** official three-argument header shape to external compatibility code.
+*/
+#define lua_number2str(s, sz, n) \
+  l_sprintf((s), (sz), LUA_NUMBER_FMT, (LUAI_UACNUMBER)(n))
+#else
 #define lua_number2str(s, n)	sprintf((s), LUA_NUMBER_FMT, (n))
+#endif
+#if !LJ_LUA54_EXTERNAL_HEADER
 #define LUAI_MAXNUMBER2STR	32
+#endif
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+/* Current compatibility mode still exposes a 32 bit integer surface; the full
+** 64 bit Lua 5.4 integer ABI remains tracked in TODO.md.
+*/
+#define LUA_INTEGER_FRMLEN	"t"
+#define LUA_INTEGER_FMT		"%" LUA_INTEGER_FRMLEN "d"
+#define LUAI_UACINT		lua_Integer
+#define lua_integer2str(s, sz, n) \
+  l_sprintf((s), (sz), LUA_INTEGER_FMT, (LUAI_UACINT)(n))
+/* Use the unsigned pointer-sized type as the public counterpart to
+** LuaJIT's ptrdiff_t lua_Integer. The VM still stores integer TValues in the
+** current 32 bit dual-number slot; this only prevents external 5.4 headers
+** from advertising a narrower lua_Unsigned ABI than lua_Integer.
+*/
+#define LUA_UNSIGNED		uintptr_t
+#define LUA_MAXUNSIGNED		((LUA_UNSIGNED)~(LUA_UNSIGNED)0)
+#else
+#define LUA_UNSIGNED		unsigned int
+#endif
+#if !LJ_LUA54_EXTERNAL_HEADER
 #define LUA_INTFRMLEN		"l"
 #define LUA_INTFRM_T		long
+#endif
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+#if !defined(lua_getlocaledecpoint)
+#define lua_getlocaledecpoint()		(localeconv()->decimal_point[0])
+#endif
+#endif
 #ifndef LUA_KCONTEXT
 #define LUA_KCONTEXT	ptrdiff_t
 #if !defined(LUA_USE_C89) && defined(__STDC_VERSION__) && \
@@ -232,7 +363,13 @@
 #endif
 
 #define LUALIB_API	LUA_API
-#define LUAMOD_API	LUALIB_API
+#define LUAMOD_API	LUA_API
+
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+#define LUAI_FUNC	extern
+#define LUAI_DDEC(dec)	LUAI_FUNC dec
+#define LUAI_DDEF
+#endif
 
 /* Compatibility support for assertions. */
 #if defined(LUA_USE_ASSERT) || defined(LUA_USE_APICHECK)
@@ -243,8 +380,9 @@
 #endif
 #ifdef LUA_USE_APICHECK
 #define luai_apicheck(L, o)	{ (void)L; assert(o); }
-#else
+#elif !LJ_LUA54_EXTERNAL_HEADER
 #define luai_apicheck(L, o)	{ (void)L; }
 #endif
 
+#undef LJ_LUA54_EXTERNAL_HEADER
 #endif

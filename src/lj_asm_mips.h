@@ -193,7 +193,7 @@ static Reg asm_fuseahuref(ASMState *as, IRRef ref, int32_t *ofsp, RegSet allow)
     } else if (ir->o == IR_UREFC) {
       if (irref_isk(ir->op1)) {
 	GCfunc *fn = ir_kfunc(IR(ir->op1));
-	intptr_t ofs = (intptr_t)&gcref(fn->l.uvptr[(ir->op2 >> 8)])->uv.tv;
+	intptr_t ofs = (intptr_t)&gcref(fn->l.uvptr[IRUREF_UPVALUE(ir->op2)])->uv.tv;
 	intptr_t jgl = (intptr_t)J2G(as->J);
 	if ((uintptr_t)(ofs-jgl) < 65536) {
 	  *ofsp = ofs-jgl-32768;
@@ -1196,7 +1196,7 @@ static void asm_uref(ASMState *as, IRIns *ir)
   int guarded = (irt_t(ir->t) & (IRT_GUARD|IRT_TYPE)) == (IRT_GUARD|IRT_PGC);
   if (irref_isk(ir->op1) && !guarded) {
     GCfunc *fn = ir_kfunc(IR(ir->op1));
-    MRef *v = &gcref(fn->l.uvptr[(ir->op2 >> 8)])->uv.v;
+    MRef *v = &gcref(fn->l.uvptr[IRUREF_UPVALUE(ir->op2)])->uv.v;
     emit_lsptr(as, MIPSI_AL, dest, v, RSET_GPR);
   } else {
     if (guarded)
@@ -1209,12 +1209,12 @@ static void asm_uref(ASMState *as, IRIns *ir)
       emit_tsi(as, MIPSI_LBU, RID_TMP, dest, (int32_t)offsetof(GCupval, closed));
     if (irref_isk(ir->op1)) {
       GCfunc *fn = ir_kfunc(IR(ir->op1));
-      GCobj *o = gcref(fn->l.uvptr[(ir->op2 >> 8)]);
+      GCobj *o = gcref(fn->l.uvptr[IRUREF_UPVALUE(ir->op2)]);
       emit_loada(as, dest, o);
     } else {
       emit_tsi(as, MIPSI_AL, dest, ra_alloc1(as, ir->op1, RSET_GPR),
 	       (int32_t)offsetof(GCfuncL, uvptr) +
-	       (int32_t)sizeof(MRef) * (int32_t)(ir->op2 >> 8));
+	       (int32_t)sizeof(MRef) * (int32_t)IRUREF_UPVALUE(ir->op2));
     }
   }
 }

@@ -61,6 +61,20 @@ LJ_FUNC int LJ_FASTCALL lj_gc_step_jit(global_State *g, MSize steps);
 #endif
 LJ_FUNC void lj_gc_fullgc(lua_State *L);
 
+#if LJ_54
+#define LJ_GC_FIN_CHECK_CYCLES	32
+static LJ_AINLINE void lj_gc_arm_table_finalizer(global_State *g)
+{
+  /* A just-armed table __gc can survive the first triggered cycle because the
+  ** source slot is overwritten after allocation. Keep a few following cycles
+  ** allocation-driven without changing stopped-GC semantics.
+  */
+  g->gc.fin_check = LJ_GC_FIN_CHECK_CYCLES;
+  if (g->gc.threshold != LJ_MAX_MEM && g->gc.threshold > g->gc.total)
+    g->gc.threshold = g->gc.total;
+}
+#endif
+
 /* GC check: drive collector forward if the GC threshold has been reached. */
 #define lj_gc_check(L) \
   { if (LJ_UNLIKELY(G(L)->gc.total >= G(L)->gc.threshold)) \
@@ -110,6 +124,8 @@ static LJ_AINLINE void lj_gc_barrierback(global_State *g, GCtab *t)
 
 /* Allocator. */
 LJ_FUNC void *lj_mem_realloc(lua_State *L, void *p, GCSize osz, GCSize nsz);
+LJ_FUNC void *lj_mem_realloc_noerr(lua_State *L, void *p,
+				   GCSize osz, GCSize nsz);
 LJ_FUNC void * LJ_FASTCALL lj_mem_newgco(lua_State *L, GCSize size);
 LJ_FUNC void *lj_mem_grow(lua_State *L, void *p,
 			  MSize *szp, MSize lim, MSize esz);

@@ -111,6 +111,9 @@ LJ_ASMF void lj_cont_nop(void);  /* Do nothing, just continue execution. */
 LJ_ASMF void lj_cont_condt(void);  /* Branch if result is true. */
 LJ_ASMF void lj_cont_condf(void);  /* Branch if result is false. */
 LJ_ASMF void lj_cont_hook(void);  /* Continue from hook yield. */
+#if LJ_54
+LJ_ASMF void lj_cont_close(void);  /* Continue Lua 5.4 close unwind. */
+#endif
 LJ_ASMF void lj_cont_stitch(void);  /* Trace stitching. */
 
 /* Start of the ASM code. */

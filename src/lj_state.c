@@ -38,6 +38,11 @@
 #define LJ_STACK_MAX	LUAI_MAXSTACK	/* Max. stack size. */
 #define LJ_STACK_START	(2*LJ_STACK_MIN)	/* Starting stack size. */
 #define LJ_STACK_MAXEX	(LJ_STACK_MAX + 1 + LJ_STACK_EXTRA)
+#if LJ_54
+#define LJ_STACK_ERR_EXTRA	(4 * LUA_MINSTACK)
+#else
+#define LJ_STACK_ERR_EXTRA	(2 * LUA_MINSTACK)
+#endif
 
 /* Explanation of LJ_STACK_EXTRA:
 **
@@ -55,7 +60,7 @@
 */
 
 /* Resize stack slots and adjust pointers in state. */
-static void resizestack(lua_State *L, MSize n)
+static int resizestack_aux(lua_State *L, MSize n, int canfail)
 {
   TValue *st, *oldst = tvref(L->stack);
   ptrdiff_t delta;
@@ -64,9 +69,14 @@ static void resizestack(lua_State *L, MSize n)
   GCobj *up;
   lj_assertL((MSize)(tvref(L->maxstack)-oldst) == L->stacksize-LJ_STACK_EXTRA-1,
 	     "inconsistent stack size");
-  st = (TValue *)lj_mem_realloc(L, tvref(L->stack),
+  st = (TValue *)(canfail ? lj_mem_realloc_noerr(L, tvref(L->stack),
 				(MSize)(oldsize*sizeof(TValue)),
-				(MSize)(realsize*sizeof(TValue)));
+				(MSize)(realsize*sizeof(TValue))) :
+			    lj_mem_realloc(L, tvref(L->stack),
+				(MSize)(oldsize*sizeof(TValue)),
+				(MSize)(realsize*sizeof(TValue))));
+  if (st == NULL)
+    return 0;
   setmref(L->stack, st);
   delta = (char *)st - (char *)oldst;
   setmref(L->maxstack, st + n);
@@ -79,6 +89,17 @@ static void resizestack(lua_State *L, MSize n)
   L->top = (TValue *)((char *)L->top + delta);
   for (up = gcref(L->openupval); up != NULL; up = gcnext(up))
     setmref(gco2uv(up)->v, (TValue *)((char *)uvval(gco2uv(up)) + delta));
+  return 1;
+}
+
+static void resizestack(lua_State *L, MSize n)
+{
+  (void)resizestack_aux(L, n, 0);
+}
+
+static int resizestack_noerr(lua_State *L, MSize n)
+{
+  return resizestack_aux(L, n, 1);
 }
 
 /* Relimit stack after error, in case the limit was overdrawn. */
@@ -97,7 +118,7 @@ void lj_state_shrinkstack(lua_State *L, MSize used)
       2*(LJ_STACK_START+LJ_STACK_EXTRA) < L->stacksize &&
       /* Don't shrink stack of live trace. */
       (tvref(G(L)->jit_base) == NULL || obj2gco(L) != gcref(G(L)->cur_L)))
-    resizestack(L, L->stacksize >> 1);
+    (void)resizestack_noerr(L, L->stacksize >> 1);
 }
 
 /* Try to grow stack. */
@@ -131,17 +152,18 @@ void LJ_FASTCALL lj_state_growstack(lua_State *L, MSize need)
       ** will need some stack space to run in. We give it a stack size beyond
       ** the normal limit in order to do so, then rely on lj_state_relimitstack
       ** calls during unwinding to bring us back to a convential stack size.
-      ** The + 1 is space for the error message, and 2 * LUA_MINSTACK is for
-      ** the lj_state_checkstack() call in lj_err_run().
+      ** The + 1 is space for the error message. Lua 5.4 traceback handlers
+      ** need more headroom after deep Lua recursion, otherwise xpcall can only
+      ** report the raw "stack overflow" string without frame lines.
       */
-      resizestack(L, LJ_STACK_MAX + 1 + 2 * LUA_MINSTACK);
+      resizestack(L, LJ_STACK_MAX + 1 + LJ_STACK_ERR_EXTRA);
       lj_err_stkov(L);  /* May invoke an error handler. */
     } else {
       /* If we're here, then the stack overflow error handler is requesting
       ** to grow the stack even further. We have no choice but to abort the
       ** error handler.
       */
-      GCstr *em = lj_err_str(L, LJ_ERR_STKOV);  /* Might OOM. */
+      GCstr *em = lj_err_str(L, LJ_ERR_ERRERR);  /* Might OOM. */
       setstrV(L, L->top++, em);  /* There is always space to push an error. */
       lj_err_throw(L, LUA_ERRERR);  /* Does not invoke an error handler. */
     }
@@ -343,17 +365,62 @@ LUA_API void lua_close(lua_State *L)
   global_State *g = G(L);
   int i;
   L = mainthread(g);  /* Only the main thread can be closed. */
+#if LJ_54
+  if (g->gc.closing) {
+    /* A finalizer may call os.exit(..., true) while state closing is already
+    ** running. Finish the current finalizer queue before the process exits,
+    ** but don't separate newly allocated __gc objects into this close pass.
+    */
+    for (i = 0;;) {
+      hook_enter(g);
+      L->status = LUA_OK;
+      L->base = L->top = tvref(L->stack) + 1 + LJ_FR2;
+      L->cframe = NULL;
+      if (lj_vm_cpcall(L, NULL, NULL, cpfinalize) == LUA_OK || ++i >= 10)
+	break;
+    }
+    return;
+  }
+  g->gc.closing = 1;
+#endif
 #if LJ_HASPROFILE
   luaJIT_profile_stop(L);
 #endif
-  setgcrefnull(g->cur_L);
+  /* Lua 5.4's lua_close() closes active to-be-closed variables on the main
+  ** stack before finalizers run. os.exit(..., true) relies on this because it
+  ** calls lua_close() directly from inside the still-active main chunk.
+  */
+#if LJ_54
   lj_func_closeuv(L, tvref(L->stack));
+  if (L->closelist != NULL) {
+    TValue *level = tvref(L->stack) + 1 + LJ_FR2;
+    L->status = LUA_OK;
+    (void)lj_close_unwind_status(L, level, LUA_OK);
+  }
+#else
+  lj_func_closeuv(L, tvref(L->stack));
+#endif
+  setgcrefnull(g->cur_L);
   lj_gc_separateudata(g, 1);  /* Separate udata which have GC metamethods. */
 #if LJ_HASJIT
   G2J(g)->flags &= ~JIT_F_ON;
   G2J(g)->state = LJ_TRACE_IDLE;
   lj_dispatch_update(g);
 #endif
+#if LJ_54
+  /* Lua 5.4 closes only the finalizers that were pending when state closing
+  ** started. A __gc callback may allocate another __gc-bearing object, but it
+  ** must not be finalized during this same lua_close() pass.
+  */
+  for (i = 0;;) {
+    hook_enter(g);
+    L->status = LUA_OK;
+    L->base = L->top = tvref(L->stack) + 1 + LJ_FR2;
+    L->cframe = NULL;
+    if (lj_vm_cpcall(L, NULL, NULL, cpfinalize) == LUA_OK || ++i >= 10)
+      break;
+  }
+#else
   for (i = 0;;) {
     hook_enter(g);
     L->status = LUA_OK;
@@ -366,6 +433,7 @@ LUA_API void lua_close(lua_State *L)
 	break;
     }
   }
+#endif
   close_state(L);
 }
 
@@ -375,6 +443,16 @@ lua_State *lj_state_new(lua_State *L)
   L1->gct = ~LJ_TTHREAD;
   L1->dummy_ffid = FF_C;
   L1->status = LUA_OK;
+#if LJ_54
+  L1->close_defer = 0;
+  L1->close_pcall = 0;
+  L1->capi_yield_ctx = 0;
+  L1->capi_yield_k = NULL;
+  L1->capi_yield_nresults = 0;
+  L1->close_cframe_nres1 = 0;
+  L1->capi_yield_kind = 0;
+  L1->capi_cont_yieldable = 0;
+#endif
   L1->exdata = L->exdata;  /* Lua 5.4 copies extraspace to new threads. */
   L1->closelist = NULL;
   L1->stacksize = 0;

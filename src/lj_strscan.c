@@ -4,6 +4,7 @@
 */
 
 #include <math.h>
+#include <locale.h>
 
 #define lj_strscan_c
 #define LUA_CORE
@@ -72,6 +73,18 @@
 
 #define casecmp(c, k)	(((c) | 0x20) == k)
 
+static int strscan_isdp(uint32_t c)
+{
+  if (c == '.') return 1;
+#if LJ_54
+  if (c == ',') {
+    const char *dp = localeconv()->decimal_point;
+    return dp && dp[0] == ',' && dp[1] == '\0';
+  }
+#endif
+  return 0;
+}
+
 #if LJ_54
 int lj_strscan_rejectnum54(const char *sp, MSize len)
 {
@@ -98,6 +111,35 @@ int lj_strscan_rejectnum54(const char *sp, MSize len)
   /* LuaJIT accepts binary integer strings as an extension; Lua 5.4 does not. */
   return e - p >= 2 && p[0] == '0' && casecmp(p[1], 'b');
 }
+
+int lj_strscan_tobaseint54(GCstr *str, int32_t base, int32_t *ip)
+{
+  const char *p = strdata(str);
+  const char *pe = p + str->len;
+  uint32_t u = 0;
+  int neg = 0;
+  while (p < pe && lj_char_isspace((unsigned char)(*p))) p++;
+  if (p < pe && *p == '-') { p++; neg = 1; }
+  else if (p < pe && *p == '+') { p++; }
+  if (p < pe && lj_char_isalnum((unsigned char)(*p))) {
+    do {
+      uint32_t digit = lj_char_isdigit((unsigned char)*p) ?
+		       (uint32_t)(*p - '0') :
+		       (uint32_t)((*p | 0x20) - 'a' + 10);
+      if (digit >= (uint32_t)base)
+	return 0;
+      u = u * (uint32_t)base + digit;
+      p++;
+    } while (p < pe && lj_char_isalnum((unsigned char)(*p)));
+    while (p < pe && lj_char_isspace((unsigned char)(*p))) p++;
+    if (p == pe) {
+      *ip = neg ? (int32_t)(~u + 1u) : (int32_t)u;
+      return 1;
+    }
+  }
+  return 0;
+}
+
 #endif
 
 /* Final conversion to double. */
@@ -135,19 +177,40 @@ static StrScanFmt strscan_hex(const uint8_t *p, TValue *o,
 			      int32_t ex2, int32_t neg, uint32_t dig)
 {
   uint64_t x = 0;
+#if LJ_54 && LJ_DUALNUM
+  const uint8_t *ps = p;
+  int32_t ex2orig = ex2;
+#endif
   uint32_t i;
 
   /* Scan hex digits. */
   for (i = dig > 16 ? 16 : dig ; i; i--, p++) {
-    uint32_t d = (*p != '.' ? *p : *++p); if (d > '9') d += 9;
+    uint32_t d = (!strscan_isdp(*p) ? *p : *++p); if (d > '9') d += 9;
     x = (x << 4) + (d & 15);
   }
 
   /* Summarize rounding-effect of excess digits. */
   for (i = 16; i < dig; i++, p++)
-    x |= ((*p != '.' ? *p : *++p) != '0'), ex2 += 4;
+    x |= ((!strscan_isdp(*p) ? *p : *++p) != '0'), ex2 += 4;
 
   /* Format-specific handling. */
+#if LJ_54 && LJ_DUALNUM
+  if (fmt == STRSCAN_INT && (opt & STRSCAN_OPT_TOINT) &&
+      !(opt & (STRSCAN_OPT_TONUM|STRSCAN_OPT_C)) && ex2orig == 0) {
+    uint32_t w = 0;
+    const uint8_t *q = ps;
+    /* Lua integer hex numerals wrap on overflow.  This compat build exposes a
+    ** 32 bit integer range today, so parse integer-looking hex input modulo
+    ** 2^32 instead of falling back to a float for overflow-only cases.
+    */
+    for (i = dig; i; i--, q++) {
+      uint32_t d = *q; if (d > '9') d += 9;
+      w = (w << 4) + (d & 15);
+    }
+    o->i = neg ? (int32_t)(~w+1u) : (int32_t)w;
+    return STRSCAN_INT;
+  }
+#endif
   switch (fmt) {
   case STRSCAN_INT:
     if (!(opt & STRSCAN_OPT_TONUM) && x < 0x80000000u+neg &&
@@ -222,19 +285,19 @@ static StrScanFmt strscan_dec(const uint8_t *p, TValue *o,
     }
     /* Scan unaligned leading digit. */
     if (((ex10^i) & 1))
-      *xip++ = ((*p != '.' ? *p : *++p) & 15), i--, p++;
+      *xip++ = ((!strscan_isdp(*p) ? *p : *++p) & 15), i--, p++;
     /* Scan aligned double-digits. */
     for ( ; i > 1; i -= 2) {
-      uint32_t d = 10 * ((*p != '.' ? *p : *++p) & 15); p++;
-      *xip++ = d + ((*p != '.' ? *p : *++p) & 15); p++;
+      uint32_t d = 10 * ((!strscan_isdp(*p) ? *p : *++p) & 15); p++;
+      *xip++ = d + ((!strscan_isdp(*p) ? *p : *++p) & 15); p++;
     }
     /* Scan and realign trailing digit. */
-    if (i) *xip++ = 10 * ((*p != '.' ? *p : *++p) & 15), ex10--, dig++, p++;
+    if (i) *xip++ = 10 * ((!strscan_isdp(*p) ? *p : *++p) & 15), ex10--, dig++, p++;
 
     /* Summarize rounding-effect of excess digits. */
     if (dig > STRSCAN_MAXDIG) {
       do {
-	if ((*p != '.' ? *p : *++p) != '0') { xip[-1] |= 1; break; }
+	if ((!strscan_isdp(*p) ? *p : *++p) != '0') { xip[-1] |= 1; break; }
 	p++;
       } while (--dig > STRSCAN_MAXDIG);
       dig = STRSCAN_MAXDIG;
@@ -448,7 +511,7 @@ StrScanFmt lj_strscan_scan(const uint8_t *p, MSize len, TValue *o,
       for ( ; ; p++) {
 	if (*p == '0') {
 	  hasdig = 1;
-	} else if (*p == '.') {
+	} else if (strscan_isdp(*p)) {
 	  if (dp) return STRSCAN_ERROR;
 	  dp = p;
 	} else {
@@ -462,7 +525,7 @@ StrScanFmt lj_strscan_scan(const uint8_t *p, MSize len, TValue *o,
       if (LJ_LIKELY(lj_char_isa(*p, cmask))) {
 	x = x * 10 + (*p & 15);  /* For fast path below. */
 	dig++;
-      } else if (*p == '.') {
+      } else if (strscan_isdp(*p)) {
 	if (dp) return STRSCAN_ERROR;
 	dp = p;
       } else {
@@ -577,6 +640,127 @@ int LJ_FASTCALL lj_strscan_num(GCstr *str, TValue *o)
 				   STRSCAN_OPT_TONUM);
   lj_assertX(fmt == STRSCAN_ERROR || fmt == STRSCAN_NUM, "bad scan format");
   return (fmt != STRSCAN_ERROR);
+}
+
+int LJ_FASTCALL lj_strscan_numtype54(GCstr *str)
+{
+#if LJ_54
+  TValue o;
+  StrScanFmt fmt;
+  if (lj_strscan_rejectnum54(strdata(str), str->len))
+    return 3;  /* LuaJIT-only numeric extension rejected by Lua 5.4. */
+  fmt = lj_strscan_scan((const uint8_t *)strdata(str), str->len, &o,
+			STRSCAN_OPT_TOINT);
+  return fmt == STRSCAN_INT ? 1 : fmt == STRSCAN_NUM ? 2 : 0;
+#else
+  UNUSED(str);
+  return 0;
+#endif
+}
+
+int LJ_FASTCALL lj_strscan_numtype54s(GCstr *str)
+{
+  return lj_strscan_numtype54(str);
+}
+
+int32_t LJ_FASTCALL lj_strscan_toint54(GCstr *str)
+{
+#if LJ_54
+  TValue o;
+  int ok = lj_strscan_number(str, &o);
+  lj_assertX(ok && tvisint(&o), "bad integer string guard");
+  if (!ok || !tvisint(&o))
+    return 0;
+  return intV(&o);
+#else
+  UNUSED(str);
+  return 0;
+#endif
+}
+
+lua_Number LJ_FASTCALL lj_strscan_tonum54s(GCstr *str)
+{
+#if LJ_54
+  TValue o;
+  int ok = lj_strscan_number(str, &o);
+  lj_assertX(ok && tvisnumber(&o), "bad numeric string guard");
+  if (!ok)
+    return 0;
+  return tvisint(&o) ? (lua_Number)intV(&o) : numV(&o);
+#else
+  UNUSED(str);
+  return 0;
+#endif
+}
+
+static int strscan_tocheckint54(GCstr *str, int32_t *ip)
+{
+#if LJ_54
+  TValue o;
+  lua_Number n;
+  int64_t k;
+  if (!lj_strscan_number(str, &o))
+    return 0;
+  if (tvisint(&o)) {
+    *ip = intV(&o);
+    return 1;
+  }
+  if (!tvisnum(&o))
+    return 0;
+  n = numV(&o);
+  if (!(n >= (double)LUA_MININTEGER && n <= (double)LUA_MAXINTEGER))
+    return 0;
+  k = lj_num2i64(n);
+  if ((lua_Number)k != n)
+    return 0;
+  *ip = (int32_t)k;
+  return 1;
+#else
+  UNUSED(str); UNUSED(ip);
+  return 0;
+#endif
+}
+
+int LJ_FASTCALL lj_strscan_tocheckintok54(GCstr *str)
+{
+  int32_t i;
+  return strscan_tocheckint54(str, &i);
+}
+
+int32_t LJ_FASTCALL lj_strscan_tocheckint54(GCstr *str)
+{
+  int32_t i = 0;
+  int ok = strscan_tocheckint54(str, &i);
+  lj_assertX(ok, "bad string-to-integer guard");
+  if (!ok)
+    return 0;
+  return i;
+}
+
+int lj_strscan_tobaseintok54(GCstr *str, int32_t base)
+{
+#if LJ_54
+  int32_t i;
+  return lj_strscan_tobaseint54(str, base, &i);
+#else
+  UNUSED(str); UNUSED(base);
+  return 0;
+#endif
+}
+
+int32_t lj_strscan_tobaseintvalue54(GCstr *str, int32_t base)
+{
+#if LJ_54
+  int32_t i = 0;
+  int ok = lj_strscan_tobaseint54(str, base, &i);
+  lj_assertX(ok, "bad explicit-base integer string guard");
+  if (!ok)
+    return 0;
+  return i;
+#else
+  UNUSED(str); UNUSED(base);
+  return 0;
+#endif
 }
 
 #if LJ_DUALNUM

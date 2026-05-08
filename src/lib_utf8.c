@@ -16,6 +16,7 @@
 #include "lj_obj.h"
 #include "lj_err.h"
 #include "lj_meta.h"
+#include "lj_debug.h"
 #include "lj_str.h"
 #include "lj_strscan.h"
 #include "lj_strfmt.h"
@@ -25,6 +26,9 @@
 static void utf8_argerror_named(lua_State *L, int narg, const char *fname,
 				const char *msg)
 {
+#if LJ_54
+  fname = lj_debug_callname54(L, fname, "utf8");
+#endif
   lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #%d to '%s' (%s)",
 				      narg, fname, msg));
 }

@@ -206,7 +206,7 @@ static Reg asm_fuseahuref(ASMState *as, IRRef ref, int32_t *ofsp, RegSet allow,
     } else if (ir->o == IR_UREFC) {
       if (irref_isk(ir->op1)) {
 	GCfunc *fn = ir_kfunc(IR(ir->op1));
-	int32_t ofs = i32ptr(&gcref(fn->l.uvptr[(ir->op2 >> 8)])->uv.tv);
+	int32_t ofs = i32ptr(&gcref(fn->l.uvptr[IRUREF_UPVALUE(ir->op2)])->uv.tv);
 	*ofsp = (ofs & 255);  /* Mask out less bits to allow LDRD. */
 	return ra_allock(as, (ofs & ~255), allow);
       }
@@ -996,7 +996,7 @@ static void asm_uref(ASMState *as, IRIns *ir)
   int guarded = (irt_t(ir->t) & (IRT_GUARD|IRT_TYPE)) == (IRT_GUARD|IRT_PGC);
   if (irref_isk(ir->op1) && !guarded) {
     GCfunc *fn = ir_kfunc(IR(ir->op1));
-    MRef *v = &gcref(fn->l.uvptr[(ir->op2 >> 8)])->uv.v;
+    MRef *v = &gcref(fn->l.uvptr[IRUREF_UPVALUE(ir->op2)])->uv.v;
     emit_lsptr(as, ARMI_LDR, dest, v);
   } else {
     if (guarded) {
@@ -1013,11 +1013,12 @@ static void asm_uref(ASMState *as, IRIns *ir)
 	       (int32_t)offsetof(GCupval, closed));
     if (irref_isk(ir->op1)) {
       GCfunc *fn = ir_kfunc(IR(ir->op1));
-      int32_t k = (int32_t)gcrefu(fn->l.uvptr[(ir->op2 >> 8)]);
+      int32_t k = (int32_t)gcrefu(fn->l.uvptr[IRUREF_UPVALUE(ir->op2)]);
       emit_loadi(as, dest, k);
     } else {
       emit_lso(as, ARMI_LDR, dest, ra_alloc1(as, ir->op1, RSET_GPR),
-	       (int32_t)offsetof(GCfuncL, uvptr) + 4*(int32_t)(ir->op2 >> 8));
+	       (int32_t)offsetof(GCfuncL, uvptr) +
+	       4*(int32_t)IRUREF_UPVALUE(ir->op2));
     }
   }
 }

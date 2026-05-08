@@ -10,6 +10,8 @@ int lua54_reject_lualib_extra(lua_State *L)
 {
 #if defined(LUA54_REJECT_BIT)
   return luaopen_bit(L);
+#elif defined(LUA54_REJECT_BASE54)
+  return luaopen_base54(L);
 #elif defined(LUA54_REJECT_JIT)
   return luaopen_jit(L);
 #elif defined(LUA54_REJECT_FFI)

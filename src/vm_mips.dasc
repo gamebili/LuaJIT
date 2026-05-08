@@ -387,11 +387,43 @@ static void build_subroutines(BuildCtx *ctx)
   |
   |->vm_returnc:
   |   addiu RD, RD, 8			// RD = (nresults+1)*8.
-  |  andi TMP0, PC, FRAME_TYPE
   |   beqz RD, ->vm_unwind_c_eh
   |.   li CRET1, LUA_YIELD
+  |  move MULTRES, RD
+#if LJ_54
+  |  lw TMP1, L->closelist
+  |  beqz TMP1, ->vm_returnc_closed
+  |.  nop
+  |  // Lua 5.4 closes C API to-be-closed slots before relocating C results.
+  |  // Keep the original result window in place while yieldable __close
+  |  // methods resume through LJ_CONT_CLOSE_CFRAME.
+  |  sw BASE, L->base
+  |  addu TMP1, RA, RD
+  |  addiu TMP1, TMP1, -8
+  |  sw TMP1, L->top
+  |  srl CARG2, RD, 3		// CARG2 = nresults+1.
+  |  load_got lj_close_prepare_cframe_pcall
+  |  call_intern lj_close_prepare_cframe_pcall
+  |.  move CARG1, L
+  |  move RA, CRET1
+  |  lw BASE, L->base
+  |  lw PC, FRAME_PC(BASE)		// __close may have called back into Lua.
+  |  lw DISPATCH, L->glref
+  |  addiu DISPATCH, DISPATCH, GG_G2DISP
+  |  bnez RA, ->vm_call_close
+  |.  nop
+  |  lw RD, L->close_cframe_nres1
+  |  sw r0, L->close_cframe_nres1
+  |  sll RD, RD, 3
+  |  move MULTRES, RD
+  |  lw RA, L->top
+  |  subu RA, RA, RD
+  |  addiu RA, RA, 8		// RA = result pointer.
+#endif
+  |->vm_returnc_closed:
+  |  andi TMP0, PC, FRAME_TYPE
   |  beqz TMP0, ->BC_RET_Z		// Handle regular return to Lua.
-  |.  move MULTRES, RD
+  |.  nop
   |
   |->vm_return:
   |  // BASE = base, RA = resultptr, RD/MULTRES = (nresults+1)*8, PC = return
@@ -491,17 +523,68 @@ static void build_subroutines(BuildCtx *ctx)
   |  lw BASE, L->base
   |   lw DISPATCH, L->glref		// Setup pointer to dispatch table.
   |     .FPU mtc1 TMP3, TOBIT
-  |  li TMP1, LJ_TFALSE
   |    li_vmstate INTERP
   |  lw PC, FRAME_PC(BASE)		// Fetch PC of previous frame.
   |     .FPU cvt.d.s TOBIT, TOBIT
-  |  addiu RA, BASE, -8			// Results start at BASE-8.
   |   addiu DISPATCH, DISPATCH, GG_G2DISP
-  |  sw TMP1, HI(RA)			// Prepend false to error message.
   |    st_vmstate
+#if LJ_54
+  |  lw TMP1, L->closelist
+  |  beqz TMP1, ->vm_unwind_ff_closed
+  |.  nop
+  |  lbu TMP1, L->close_defer
+  |  beqz TMP1, ->vm_unwind_ff_closed
+  |.  nop
+  |  sb r0, L->close_defer
+  |  andi TMP1, PC, FRAME_TYPE
+  |  xori AT, TMP1, FRAME_CONT
+  |  beqz AT, ->vm_unwind_ff_closed
+  |.  nop
+  |  bnez TMP1, >9
+  |.  nop
+  |  // Lua callers can resume error-unwind __close through LJ_CONT_CLOSE.
+  |  move KBASE, PC
+  |  load_got lj_close_prepare_pcall
+  |  call_intern lj_close_prepare_pcall
+  |.  move CARG1, L
+  |  move RA, CRET1
+  |  lw BASE, L->base
+  |  move PC, KBASE
+  |  lw DISPATCH, L->glref
+  |  addiu DISPATCH, DISPATCH, GG_G2DISP
+  |  bnez RA, ->vm_call_close
+  |.  nop
+  |  b ->vm_unwind_ff_closed
+  |.  nop
+  |9:
+  |  // Non-Lua callers keep the protected but non-yieldable close bridge.
+  |  move KBASE, PC
+  |  load_got lj_close_unwind_pcall
+  |  call_intern lj_close_unwind_pcall
+  |.  move CARG1, L
+  |  lw BASE, L->base
+  |  move PC, KBASE
+  |  lw DISPATCH, L->glref
+  |  addiu DISPATCH, DISPATCH, GG_G2DISP
+#endif
+  |->vm_unwind_ff_closed:
+  |  addiu RA, BASE, -8			// Results start at BASE-8.
+  |  li TMP1, LJ_TFALSE
+  |  sw TMP1, HI(RA)			// Prepend false to error message.
   |  b ->vm_returnc
   |.  li RD, 16				// 2 results: false + error message.
   |
+#if LJ_54
+  |->vm_call_close:
+  |  sw PC, -16+HI(RA)		// [cont|PC]
+  |  subu PC, RA, BASE
+  |  addiu PC, PC, FRAME_CONT
+  |  lw LFUNC:RB, FRAME_FUNC(RA)
+  |  move BASE, RA
+  |  b ->vm_call_dispatch_f
+  |.  li NARGS8:RC, 24		// pcall(__close, value, err).
+  |
+#endif
   |->vm_unwind_stub:			// Jump to exit stub from unwinder.
   |  jr CARG1
   |.  move ra, CARG2
@@ -669,10 +752,18 @@ static void build_subroutines(BuildCtx *ctx)
   |   move RB, BASE
   |   move BASE, TMP2			// Restore caller BASE.
   |    lw LFUNC:TMP1, FRAME_FUNC(TMP2)
+  |     lw PC, -16+HI(RB)		// Restore PC from [cont|PC].
+#if LJ_54
+  |  li AT, LJ_CONT_CLOSE
+  |  beq TMP0, AT, ->cont_close
+  |.  nop
+  |  li AT, LJ_CONT_CLOSE_CFRAME
+  |  beq TMP0, AT, ->cont_close_cframe
+  |.  nop
+#endif
   |.if FFI
   |  sltiu AT, TMP0, 2
   |.endif
-  |     lw PC, -16+HI(RB)		// Restore PC from [cont|PC].
   |   addu TMP2, RA, RD
   |.if FFI
   |  bnez AT, >1
@@ -867,6 +958,54 @@ static void build_subroutines(BuildCtx *ctx)
   |->cont_nop:
   |  ins_next
   |
+#if LJ_54
+  |->cont_close:			// BASE = base, RA = resultptr, RB = close call base.
+  |  move CARG2, RB
+  |  move CARG3, RA
+  |  srl CARG4, RD, 3
+  |  sw BASE, L->base
+  |  move KBASE, PC
+  |  load_got lj_close_continue_pcall
+  |  call_intern lj_close_continue_pcall
+  |.  move CARG1, L
+  |  move RA, CRET1
+  |  li RD, 16			// false + error, before vm_returnc adds 8.
+  |  lw BASE, L->base
+  |  move PC, KBASE
+  |  lw DISPATCH, L->glref
+  |  addiu DISPATCH, DISPATCH, GG_G2DISP
+  |  bnez RA, ->vm_call_close
+  |.  nop
+  |  b ->vm_unwind_ff_closed
+  |.  nop
+  |
+  |->cont_close_cframe:		// BASE = base, RA = resultptr, RB = close call base.
+  |  move CARG2, RB
+  |  move CARG3, RA
+  |  srl CARG4, RD, 3
+  |  sw BASE, L->base
+  |  move KBASE, PC
+  |  load_got lj_close_continue_cframe_pcall
+  |  call_intern lj_close_continue_cframe_pcall
+  |.  move CARG1, L
+  |  move RA, CRET1
+  |  lw BASE, L->base
+  |  move PC, KBASE
+  |  lw DISPATCH, L->glref
+  |  addiu DISPATCH, DISPATCH, GG_G2DISP
+  |  bnez RA, ->vm_call_close
+  |.  nop
+  |  lw RD, L->close_cframe_nres1
+  |  sw r0, L->close_cframe_nres1
+  |  sll RD, RD, 3
+  |  move MULTRES, RD
+  |  lw RA, L->top
+  |  subu RA, RA, RD
+  |  addiu RA, RA, 8		// RA = result pointer.
+  |  b ->vm_returnc_closed
+  |.  nop
+  |
+#endif
   |->cont_ra:				// RA = resultptr
   |  lbu TMP1, -4+OFS_RA(PC)
   |   lw SFRETHI, HI(RA)
@@ -917,6 +1056,20 @@ static void build_subroutines(BuildCtx *ctx)
   |  b <3
   |.  nop
   |.endif
+  |
+  |->vmeta_equal_lstr:
+#if LJ_54
+  |  load_got lj_meta_equal_lstr
+  |  move CARG2, INS
+  |  addiu PC, PC, -4
+  |   sw BASE, L->base
+  |   sw PC, SAVE_PC
+  |  call_intern lj_meta_equal_lstr	// (lua_State *L, BCIns op)
+  |.  move CARG1, L
+  |  // Returns 0/1.
+  |  b <3
+  |.  nop
+#endif
   |
   |->vmeta_istype:
   |  load_got lj_meta_istype
@@ -995,7 +1148,8 @@ static void build_subroutines(BuildCtx *ctx)
   |  call_intern lj_meta_call	// (lua_State *L, TValue *func, TValue *top)
   |.  move CARG1, L
   |  lw LFUNC:RB, FRAME_FUNC(BASE)	// Guaranteed to be a function here.
-  |   addiu NARGS8:RC, MULTRES, 8	// Got one more argument now.
+  |   sll CRET1, CRET1, 3		// Account for __call chain args.
+  |  addu NARGS8:RC, MULTRES, CRET1
   |  ins_call
   |
   |->vmeta_callt:			// Resolve __call for BC_CALLT.
@@ -1010,8 +1164,9 @@ static void build_subroutines(BuildCtx *ctx)
   |.  move CARG1, L
   |  lw TMP1, FRAME_PC(BASE)
   |   lw LFUNC:RB, FRAME_FUNC(RA)	// Guaranteed to be a function here.
+  |  sll CRET1, CRET1, 3			// Account for __call chain args.
   |  b ->BC_CALLT_Z
-  |.  addiu NARGS8:RC, MULTRES, 8	// Got one more argument now.
+  |.  addu NARGS8:RC, MULTRES, CRET1
   |
   |//-- Argument coercion for 'for' statement ------------------------------
   |
@@ -1528,7 +1683,9 @@ static void build_subroutines(BuildCtx *ctx)
   |   li TMP1, LJ_TFALSE
   |  lw SFRETHI, HI(TMP3)
   |   lw SFRETLO, LO(TMP3)
+#if !LJ_54
   |   sw TMP3, L:RA->top		// Remove error from coroutine stack.
+#endif
   |    li RD, (2+1)*8
   |   sw TMP1, -8+HI(BASE)		// Prepend false to results.
   |    addiu RA, BASE, -8
@@ -1576,9 +1733,14 @@ static void build_subroutines(BuildCtx *ctx)
   |  subu SFARG1LO, TMP1, TMP0
   |  bgez SFARG1LO, ->fff_restv
   |.  nop
+#if LJ_54
+  |  b ->fff_restv
+  |.  nop
+#else
   |  lui SFARG1HI, 0x41e0		// 2^31 as a double.
   |  b ->fff_restv
   |.  li SFARG1LO, 0
+#endif
   |1:
   |  sltiu AT, SFARG1HI, LJ_TISNUM
   |  beqz AT, ->fff_fallback
@@ -3268,6 +3430,14 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |.if FFI
     |  beq SFARG2HI, TMP3, ->vmeta_equal_cd
     |.endif
+#if LJ_54
+    |  li TMP1, LJ_TSTR
+    |  bne SFARG1HI, TMP1, >9
+    |.  nop
+    |  beq SFARG2HI, TMP1, ->vmeta_equal_lstr
+    |.  nop
+    |9:
+#endif
     |.  xor TMP3, SFARG1LO, SFARG2LO		// Same tv?
     |  xor SFARG2HI, SFARG2HI, SFARG1HI		// Same type?
     |  sltiu TMP0, SFARG1HI, LJ_TISTABUD+1	// Table or userdata?
@@ -3313,6 +3483,10 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |.endif
     |.  lw STR:TMP1, -4(RD)		// KBASE-4-str_const*4
     |  addiu TMP0, TMP0, -LJ_TSTR
+#if LJ_54
+    |  beqz TMP0, ->vmeta_equal_lstr	// Lua 5.4 long strings are not interned.
+    |.  nop
+#endif
     |   decode_RD4b TMP2
     |  xor TMP1, STR:TMP1, STR:TMP3
     |  or TMP0, TMP0, TMP1
@@ -3571,10 +3745,14 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |   addu RA, BASE, RA
     |  bne SFARG1HI, TISNUM, >2
     |.  lw SFARG1LO, LO(RB)
-    |  beqz SFARG1LO, >3
-    |.  lui TMP1, 0x8000
-    |  beq SFARG1LO, TMP1, ->vmeta_unm	// Meta handler deals with -2^31.
-    |.  negu SFARG1LO, SFARG1LO
+  |  beqz SFARG1LO, >3
+|.  lui TMP1, 0x8000
+#if !LJ_54
+  |  beq SFARG1LO, TMP1, ->vmeta_unm	// Meta handler deals with -2^31.
+|.  negu SFARG1LO, SFARG1LO
+#else
+  |  negu SFARG1LO, SFARG1LO
+#endif
     |1:
     |  ins_next1
     |  sw SFARG1HI, HI(RA)
@@ -4224,6 +4402,12 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  li AT, LJ_TSTR
     |  bne TMP2, AT, ->vmeta_tgetv
     |.  nop
+#if LJ_54
+    |  lw TMP0, STR:RC->len
+    |  sltiu AT, TMP0, LJ_STR_MAXSHORT+1
+    |  beqz AT, ->vmeta_tgetv		// Long strings are not interned; use byte-key lookup.
+    |.  nop
+#endif
     |  b ->BC_TGETS_Z			// String key?
     |.  nop
     break;
@@ -4243,6 +4427,12 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |.  addu RA, BASE, RA
     |->BC_TGETS_Z:
     |  // TAB:RB = GCtab *, STR:RC = GCstr *, RA = dst*8
+#if LJ_54
+    |  lw TMP0, STR:RC->len
+    |  sltiu AT, TMP0, LJ_STR_MAXSHORT+1
+    |  beqz AT, ->vmeta_tgets		// Long string constants need byte-key lookup.
+    |.  nop
+#endif
     |  lw TMP0, TAB:RB->hmask
     |  lw TMP1, STR:RC->sid
     |  lw NODE:TMP2, TAB:RB->node
@@ -4395,6 +4585,12 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  li AT, LJ_TSTR
     |  bne TMP2, AT, ->vmeta_tsetv
     |.  nop
+#if LJ_54
+    |  lw TMP0, STR:RC->len
+    |  sltiu AT, TMP0, LJ_STR_MAXSHORT+1
+    |  beqz AT, ->vmeta_tsetv		// Long strings are not interned; use byte-key lookup.
+    |.  nop
+#endif
     |  b ->BC_TSETS_Z			// String key?
     |.  nop
     |
@@ -4417,6 +4613,12 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |.  addu RA, BASE, RA
     |->BC_TSETS_Z:
     |  // TAB:RB = GCtab *, STR:RC = GCstr *, RA = BASE+src*8
+#if LJ_54
+    |  lw TMP0, STR:RC->len
+    |  sltiu AT, TMP0, LJ_STR_MAXSHORT+1
+    |  beqz AT, ->vmeta_tsets		// Long string constants need byte-key lookup.
+    |.  nop
+#endif
     |  lw TMP0, TAB:RB->hmask
     |  lw TMP1, STR:RC->sid
     |  lw NODE:TMP2, TAB:RB->node

@@ -7,6 +7,7 @@
 #define LUA_CORE
 
 #include "lj_obj.h"
+#include "lj_str.h"
 
 /* Object type names. */
 LJ_DATADEF const char *const lj_obj_typename[] = {  /* ORDER LUA_T */
@@ -25,6 +26,14 @@ int LJ_FASTCALL lj_obj_equal(cTValue *o1, cTValue *o2)
   if (itype(o1) == itype(o2)) {
     if (tvispri(o1))
       return 1;
+    if (tvisstr(o1)) {
+      GCstr *s1 = strV(o1);
+      GCstr *s2 = strV(o2);
+      /* Lua 5.4 keeps long strings as separate objects, so raw string
+      ** equality cannot rely only on pointer identity in compatibility mode.
+      */
+      return lj_str_equal(s1, s2);
+    }
     if (!tvisnum(o1))
       return gcrefeq(o1->gcr, o2->gcr);
   } else if (!tvisnumber(o1) || !tvisnumber(o2)) {

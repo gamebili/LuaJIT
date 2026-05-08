@@ -620,11 +620,38 @@ SBuf *lj_strfmt_putfnum(SBuf *sb, SFormat sf, lua_Number n)
 
 /* -- Conversions to strings ---------------------------------------------- */
 
+#if LJ_54
+static MSize strfmt_lua54_floatlen(char *buf, MSize len)
+{
+  MSize i = 0;
+  if (len == 0)
+    return len;
+  if (buf[0] == '-') {
+    if (len == 1)
+      return len;
+    i = 1;
+  }
+  for (; i < len; i++)
+    if (buf[i] < '0' || buf[i] > '9')
+      return len;
+  if (len + 2 <= STRFMT_MAXBUF_NUM) {
+    /* Lua 5.4 preserves the float subtype in raw number-to-string
+    ** conversions: an integral float is printed as "1.0", not "1".
+    */
+    buf[len++] = '.';
+    buf[len++] = '0';
+  }
+  return len;
+}
+#endif
+
 /* Convert number to string. */
 GCstr * LJ_FASTCALL lj_strfmt_num(lua_State *L, cTValue *o)
 {
   char buf[STRFMT_MAXBUF_NUM];
   MSize len = (MSize)(lj_strfmt_wfnum(NULL, STRFMT_G14, o->n, buf) - buf);
+#if LJ_54
+  len = strfmt_lua54_floatlen(buf, len);
+#endif
   return lj_str_new(L, buf, len);
 }
-

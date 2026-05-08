@@ -376,7 +376,9 @@ void emit_lib(BuildCtx *ctx)
     regfunc = REGFUNC_OK;
     while (fgets(buf, sizeof(buf), fp) != NULL) {
       char *p;
-      /* Simplistic pre-processor. Only handles top-level #if/#endif. */
+      /* Keep this lightweight scanner in sync with VM feature guards, otherwise
+      ** default builds may scan disabled Lua 5.4-only labels.
+      */
       if (buf[0] == '#' && buf[1] == 'i' && buf[2] == 'f') {
 	int ok = 1;
 	size_t len = strlen(buf);
@@ -388,6 +390,8 @@ void emit_lib(BuildCtx *ctx)
 	}
 	if (!strcmp(buf, "#if LJ_52"))
 	  ok = LJ_52;
+	else if (!strcmp(buf, "#if LJ_54"))
+	  ok = LJ_54;
 	else if (!strcmp(buf, "#if LJ_HASJIT"))
 	  ok = LJ_HASJIT;
 	else if (!strcmp(buf, "#if LJ_HASFFI"))

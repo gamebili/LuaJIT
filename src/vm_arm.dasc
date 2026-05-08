@@ -274,6 +274,36 @@ static void build_subroutines(BuildCtx *ctx)
   |  mov CRET1, #LUA_YIELD
   |  beq ->vm_unwind_c_eh
   |  str RC, SAVE_MULTRES
+#if LJ_54
+  |  ldr CARG1, L->closelist
+  |  cmp CARG1, #0
+  |  beq ->vm_returnc_closed
+  |  // Lua 5.4 closes C API to-be-closed slots before relocating C results.
+  |  // ARM uses the same pcall continuation bridge as x64/ARM64 so __close
+  |  // can yield and resume without losing the original return window.
+  |  str BASE, L->base
+  |  add CARG3, RA, RC
+  |  sub CARG3, CARG3, #8
+  |  str CARG3, L->top
+  |  lsr CARG2, RC, #3		// CARG2 = nresults+1.
+  |  mov CARG1, L
+  |  bl extern lj_close_prepare_cframe_pcall
+  |  movs RA, CRET1
+  |  ldr BASE, L->base
+  |  ldr PC, [BASE, FRAME_PC]
+  |  ldr DISPATCH, L->glref
+  |  add DISPATCH, DISPATCH, #GG_G2DISP
+  |  bne ->vm_call_close
+  |  ldr RC, L->close_cframe_nres1
+  |  mov CARG1, #0
+  |  str CARG1, L->close_cframe_nres1
+  |  lsl RC, RC, #3
+  |  str RC, SAVE_MULTRES
+  |  ldr RA, L->top
+  |  sub RA, RA, RC
+  |  add RA, RA, #8		// RA = result pointer.
+#endif
+  |->vm_returnc_closed:
   |  ands CARG1, PC, #FRAME_TYPE
   |  beq ->BC_RET_Z			// Handle regular return to Lua.
   |
@@ -364,15 +394,65 @@ static void build_subroutines(BuildCtx *ctx)
   |   lsl MASKR8, MASKR8, #3		// MASKR8 = 255*8.
   |  ldr BASE, L->base
   |   ldr DISPATCH, L->glref		// Setup pointer to dispatch table.
-  |    mvn CARG1, #~LJ_TFALSE
   |  sub RA, BASE, #8			// Results start at BASE-8.
   |  ldr PC, [BASE, FRAME_PC]		// Fetch PC of previous frame.
   |   add DISPATCH, DISPATCH, #GG_G2DISP
   |   mv_vmstate CARG2, INTERP
-  |    str CARG1, [BASE, #-4]		// Prepend false to error message.
   |   st_vmstate CARG2
+#if LJ_54
+  |  ldr CARG2, L->closelist
+  |  cmp CARG2, #0
+  |  beq >8
+  |  ldrb CARG2, L->close_defer
+  |  cmp CARG2, #0
+  |  beq >8
+  |  mov CARG2, #0
+  |  strb CARG2, L->close_defer
+  |  and CARG2, PC, #FRAME_TYPE
+  |  cmp CARG2, #FRAME_CONT
+  |  beq >8
+  |  cmp CARG2, #0
+  |  bne >9
+  |  // Lua callers can resume error-unwind __close through LJ_CONT_CLOSE.
+  |  mov KBASE, PC
+  |  mov CARG1, L
+  |  bl extern lj_close_prepare_pcall
+  |  movs RA, CRET1
+  |  mov RC, #16			// false + error, before vm_returnc adds 8.
+  |  ldr BASE, L->base
+  |  mov PC, KBASE
+  |  ldr DISPATCH, L->glref
+  |  add DISPATCH, DISPATCH, #GG_G2DISP
+  |  bne ->vm_call_close
+  |  b >8
+  |9:
+  |  // Non-Lua callers keep the older non-yieldable close bridge.
+  |  mov KBASE, PC
+  |  mov CARG1, L
+  |  bl extern lj_close_unwind_pcall
+  |  mov RC, #16
+  |  ldr BASE, L->base
+  |  mov PC, KBASE
+  |  ldr DISPATCH, L->glref
+  |  add DISPATCH, DISPATCH, #GG_G2DISP
+  |8:
+#endif
+  |->vm_unwind_ff_closed:
+  |  mvn CARG1, #~LJ_TFALSE
+  |  str CARG1, [BASE, #-4]		// Prepend false to error message.
   |  b ->vm_returnc
   |
+#if LJ_54
+  |->vm_call_close:
+  |  str PC, [RA, #-12]		// [cont|PC]
+  |  sub PC, RA, BASE
+  |  add PC, PC, #FRAME_CONT
+  |  ldr LFUNC:CARG3, [RA, FRAME_FUNC]
+  |  mov NARGS8:RC, #24		// pcall(__close, value, err).
+  |  str RA, L->base
+  |  b ->vm_call_dispatch_f
+  |
+#endif
   |->vm_unwind_ext:			// Complete external unwind.
 #if !LJ_NO_UNWIND
   |  push {r0, r1, r2, lr}
@@ -535,6 +615,12 @@ static void build_subroutines(BuildCtx *ctx)
   |    ldr CARG1, [BASE, #-16]		// Get continuation.
   |   mov CARG4, BASE
   |   mov BASE, RB			// Restore caller BASE.
+#if LJ_54
+  |    cmp CARG1, #LJ_CONT_CLOSE
+  |    beq ->cont_close
+  |    cmp CARG1, #LJ_CONT_CLOSE_CFRAME
+  |    beq ->cont_close_cframe
+#endif
   |.if FFI
   |    cmp CARG1, #1
   |.endif
@@ -727,9 +813,48 @@ static void build_subroutines(BuildCtx *ctx)
   |   add PC, PC, #4
   |  add RB, PC, RB, lsl #2
   |  subhs PC, RB, #0x20000
-  |->cont_nop:
+|->cont_nop:
   |  ins_next
   |
+#if LJ_54
+  |->cont_close:			// BASE = base, RA = resultptr, CARG4 = close call base.
+  |  mov CARG2, CARG4
+  |  mov CARG3, RA
+  |  lsr CARG4, RC, #3
+  |  str BASE, L->base
+  |  mov CARG1, L
+  |  bl extern lj_close_continue_pcall
+  |  movs RA, CRET1
+  |  mov RC, #16			// false + error, before vm_returnc adds 8.
+  |  ldr BASE, L->base
+  |  ldr DISPATCH, L->glref
+  |  add DISPATCH, DISPATCH, #GG_G2DISP
+  |  bne ->vm_call_close
+  |  b ->vm_unwind_ff_closed
+  |
+  |->cont_close_cframe:		// BASE = base, RA = resultptr, CARG4 = close call base.
+  |  mov CARG2, CARG4
+  |  mov CARG3, RA
+  |  lsr CARG4, RC, #3
+  |  str BASE, L->base
+  |  mov CARG1, L
+  |  bl extern lj_close_continue_cframe_pcall
+  |  movs RA, CRET1
+  |  ldr BASE, L->base
+  |  ldr DISPATCH, L->glref
+  |  add DISPATCH, DISPATCH, #GG_G2DISP
+  |  bne ->vm_call_close
+  |  ldr RC, L->close_cframe_nres1
+  |  mov CARG1, #0
+  |  str CARG1, L->close_cframe_nres1
+  |  lsl RC, RC, #3
+  |  str RC, SAVE_MULTRES
+  |  ldr RA, L->top
+  |  sub RA, RA, RC
+  |  add RA, RA, #8		// RA = result pointer.
+  |  b ->vm_returnc_closed
+  |
+#endif
   |->cont_ra:				// RA = resultptr
   |  ldr INS, [PC, #-4]
   |   ldrd CARG12, [RA]
@@ -769,6 +894,18 @@ static void build_subroutines(BuildCtx *ctx)
   |  // Returns 0/1 or TValue * (metamethod).
   |  b <3
   |.endif
+  |
+  |->vmeta_equal_lstr:
+#if LJ_54
+  |  sub PC, PC, #4
+  |   str BASE, L->base
+  |   mov CARG1, L
+  |   mov CARG2, INS
+  |  str PC, SAVE_PC
+  |  bl extern lj_meta_equal_lstr		// (lua_State *L, BCIns op)
+  |  // Returns 0/1.
+  |  b <3
+#endif
   |
   |->vmeta_istype:
   |  sub PC, PC, #4
@@ -862,7 +999,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  bl extern lj_meta_call	// (lua_State *L, TValue *func, TValue *top)
   |  .IOS mov BASE, RA
   |  ldr LFUNC:CARG3, [BASE, FRAME_FUNC]  // Guaranteed to be a function here.
-  |   add NARGS8:RC, NARGS8:RC, #8	// Got one more argument now.
+  |   add NARGS8:RC, NARGS8:RC, CRET1, lsl #3	// Account for __call chain args.
   |  ins_call
   |
   |->vmeta_callt:			// Resolve __call for BC_CALLT.
@@ -876,7 +1013,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  .IOS ldr BASE, L->base
   |  ldr LFUNC:CARG3, [RA, FRAME_FUNC]  // Guaranteed to be a function here.
   |   ldr PC, [BASE, FRAME_PC]
-  |    add NARGS8:RC, NARGS8:RC, #8	// Got one more argument now.
+  |    add NARGS8:RC, NARGS8:RC, CRET1, lsl #3	// Account for __call chain args.
   |  b ->BC_CALLT2_Z
   |
   |//-- Argument coercion for 'for' statement ------------------------------
@@ -1324,7 +1461,9 @@ static void build_subroutines(BuildCtx *ctx)
   |  ldrd CARG12, [CARG4, #-8]!
   |   mvn CARG3, #~LJ_TFALSE
   |    mov RC, #(2+1)*8
+#if !LJ_54
   |  str CARG4, L:RA->top		// Remove error from coroutine stack.
+#endif
   |  strd CARG12, [BASE]		// Copy error message.
   |  b <7
   |.else
@@ -1437,7 +1576,9 @@ static void build_subroutines(BuildCtx *ctx)
   |  bne ->fff_restv
   |  cmp CARG1, #0
   |  rsbslt CARG1, CARG1, #0
+#if !LJ_54
   |  ldrdvs CARG12, <9
+#endif
   |  // Fallthrough.
   |
   |->fff_restv:
@@ -2879,10 +3020,18 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
       |2:  // Different.
       |  ins_next
       |3:
+#if LJ_54
+      |  checktp CARG2, LJ_TSTR
+      |  beq ->vmeta_equal_lstr		// Long strings need bytewise equality.
+#endif
       |  checktp CARG2, LJ_TISTABUD
       |  bhi <2				// Different objects and not table/ud?
     } else {
       |  beq >1				// Same GCobjs or pvalues?
+#if LJ_54
+      |  checktp CARG2, LJ_TSTR
+      |  beq ->vmeta_equal_lstr		// Long strings need bytewise equality.
+#endif
       |  checktp CARG2, LJ_TISTABUD
       |  bhi >2				// Different objects and not table/ud?
     }
@@ -2926,6 +3075,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |.else
     |  cmpeq CARG1, CARG3
     |.endif
+#if LJ_54
+    |  bne ->vmeta_equal_lstr		// Lua 5.4 long strings are not interned.
+#endif
     if (vk) {
       |  subeq PC, RB, #0x20000
       |1:
@@ -3128,10 +3280,12 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  checktp CARG2, LJ_TISNUM
     |  bhi ->vmeta_unm
     |  eorne CARG2, CARG2, #0x80000000
-    |  bne >5
-    |  rsbs CARG1, CARG1, #0
-    |  ldrdeq CARG12, >8
-    |  ldrdvs CARG12, >9
+  |  bne >5
+  |  rsbs CARG1, CARG1, #0
+  |  ldrdeq CARG12, >8
+#if !LJ_54
+  |  ldrdvs CARG12, >9
+#endif
     |5:
     |  strd CARG12, [BASE, RA]
     |   ins_next3
@@ -3688,8 +3842,16 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |9:
     |  checktp CARG4, LJ_TSTR		// String key?
     |   moveq STR:RC, CARG3
+#if LJ_54
+    |  bne ->vmeta_tgetv
+    |  ldr CARG2, STR:RC->len
+    |  cmp CARG2, #LJ_STR_MAXSHORT
+    |  bhi ->vmeta_tgetv		// Long strings are not interned; use byte-key lookup.
+    |  b ->BC_TGETS_Z
+#else
     |  beq ->BC_TGETS_Z
     |  b ->vmeta_tgetv
+#endif
     break;
   case BC_TGETS:
     |  decode_RB8 RB, INS
@@ -3701,6 +3863,11 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  checktab CARG2, ->vmeta_tgets1
     |->BC_TGETS_Z:
     |  // (TAB:RB =) TAB:CARG1 = GCtab *, STR:RC = GCstr *, RA = dst*8
+#if LJ_54
+    |  ldr CARG4, STR:RC->len
+    |  cmp CARG4, #LJ_STR_MAXSHORT
+    |  bhi ->vmeta_tgets		// Long string constants need byte-key lookup.
+#endif
     |  ldr CARG3, TAB:CARG1->hmask
     |   ldr CARG4, STR:RC->sid
     |    ldr NODE:INS, TAB:CARG1->node
@@ -3835,8 +4002,16 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |9:
     |  checktp CARG4, LJ_TSTR		// String key?
     |   moveq STR:RC, CARG3
+#if LJ_54
+    |  bne ->vmeta_tsetv
+    |  ldr CARG2, STR:RC->len
+    |  cmp CARG2, #LJ_STR_MAXSHORT
+    |  bhi ->vmeta_tsetv		// Long strings are not interned; use byte-key lookup.
+    |  b ->BC_TSETS_Z
+#else
     |  beq ->BC_TSETS_Z
     |  b ->vmeta_tsetv
+#endif
     break;
   case BC_TSETS:
     |  decode_RB8 RB, INS
@@ -3848,6 +4023,11 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  checktab CARG2, ->vmeta_tsets1
     |->BC_TSETS_Z:
     |  // (TAB:RB =) TAB:CARG1 = GCtab *, STR:RC = GCstr *, RA = dst*8
+#if LJ_54
+    |  ldr CARG4, STR:RC->len
+    |  cmp CARG4, #LJ_STR_MAXSHORT
+    |  bhi ->vmeta_tsets		// Long string constants need byte-key lookup.
+#endif
     |  ldr CARG3, TAB:CARG1->hmask
     |   ldr CARG4, STR:RC->sid
     |    ldr NODE:INS, TAB:CARG1->node

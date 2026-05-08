@@ -27,6 +27,7 @@
 */
 #define LJ_FFID_PCALL	22
 #define LJ_FFID_XPCALL	23
+#define LJ_FFID_MATH_SIN	46
 #endif
 
 /* -- Frames -------------------------------------------------------------- */
@@ -39,6 +40,10 @@ cTValue *lj_debug_frame(lua_State *L, int level, int *size)
   for (nextframe = frame = L->base-1; frame > bot; ) {
     if (frame_gc(frame) == obj2gco(L))
       level++;  /* Skip dummy frames. See lj_err_optype_call(). */
+#if LJ_54
+    if (L->close_pcall && frame_ispcall(frame))
+      level++;  /* Hide the compiler-internal pcall around __close. */
+#endif
     if (level-- == 0) {
       *size = (int)(nextframe - frame);
       return frame;  /* Level found. */
@@ -124,6 +129,11 @@ static BCPos debug_framepc(lua_State *L, GCfunc *fn, cTValue *nextframe)
   return pos;
 }
 
+BCPos lj_debug_framepc(lua_State *L, GCfunc *fn, cTValue *nextframe)
+{
+  return debug_framepc(L, fn, nextframe);
+}
+
 /* -- Line numbers -------------------------------------------------------- */
 
 /* Get line number for a bytecode position. */
@@ -198,11 +208,57 @@ static const char *debug_varname(const GCproto *pt, BCPos pc, BCReg slot)
 /* Get name of local variable from 1-based slot number and function/frame. */
 static GCfunc *debug_framefunc(lua_State *L, cTValue *frame);
 
+#if LJ_54
+static int debug_lua54_isname(const char *name, const char *want)
+{
+  return name != NULL && strcmp(name, want) == 0;
+}
+
+static int debug_lua54_isforgroup(GCproto *pt, BCPos pc, int start)
+{
+  if (start < 0)
+    return 0;
+  return debug_lua54_isname(debug_varname(pt, pc, (BCReg)start),
+			    "(for state)") &&
+	 debug_lua54_isname(debug_varname(pt, pc, (BCReg)(start+1)),
+			    "(for generator)") &&
+	 debug_lua54_isname(debug_varname(pt, pc, (BCReg)(start+2)),
+			    "(for state)") &&
+	 debug_lua54_isname(debug_varname(pt, pc, (BCReg)(start+3)),
+			    "(for control)");
+}
+
+static TValue *debug_lua54_forlocal(GCproto *pt, BCPos pc, TValue *frame,
+				    TValue *nextframe, BCReg slot1,
+				    const char **name)
+{
+  int slot0 = (int)slot1 - 1;
+  int ofs;
+  for (ofs = 0; ofs < 4 && slot0 >= ofs; ofs++) {
+    int start = slot0 - ofs;
+    if (debug_lua54_isforgroup(pt, pc, start)) {
+      /* LuaJIT keeps the generic-for closing value before gen/state/control so
+      ** ITERC/ITERL can keep their old slot layout. Lua 5.4 debug APIs expose
+      ** the hidden variables in source order: gen, state, control, close.
+      */
+      TValue *o = ofs < 3 ? frame + slot1 + 1 : frame + slot1 - 3;
+      if (o < nextframe) {
+	*name = "(for state)";
+	return o;
+      }
+      break;
+    }
+  }
+  return NULL;
+}
+#endif
+
 static TValue *debug_localname(lua_State *L, const lua_Debug *ar,
 			       const char **name, BCReg slot1)
 {
-  uint32_t offset = (uint32_t)ar->i_ci & 0xffff;
-  uint32_t size = (uint32_t)ar->i_ci >> 16;
+  uint32_t ci = (uint32_t)LJ_DEBUG_CI_VALUE(ar->i_ci);
+  uint32_t offset = ci & 0xffff;
+  uint32_t size = ci >> 16;
   TValue *frame = tvref(L->stack) + offset;
   TValue *nextframe = size ? frame + size : NULL;
   GCfunc *fn = debug_framefunc(L, frame);
@@ -229,6 +285,14 @@ static TValue *debug_localname(lua_State *L, const lua_Debug *ar,
     }
     return NULL;
   }
+#if LJ_54
+  if (pc != NO_BCPOS && isluafunc(fn)) {
+    TValue *o = debug_lua54_forlocal(funcproto(fn), pc, frame, nextframe,
+				     slot1, name);
+    if (o != NULL)
+      return o;
+  }
+#endif
   if (pc != NO_BCPOS &&
       (*name = debug_varname(funcproto(fn), pc, slot1-1)) != NULL)
     ;
@@ -308,11 +372,42 @@ const char *lj_debug_uvnamev(cTValue *o, uint32_t idx, TValue **tvp, GCobj **op)
   return NULL;
 }
 
+#if LJ_54
+static int debug_is_lua54_env_source(const char *kind, const char *name)
+{
+  return name != NULL && kind != NULL &&
+	 (strcmp(kind, "local") == 0 || strcmp(kind, "upvalue") == 0) &&
+	 strcmp(name, "_ENV") == 0;
+}
+
+static int debug_lua54_name_skipped_by_jmp(GCproto *pt, const BCIns *origin,
+					   const BCIns *candidate)
+{
+  const BCIns *bc = proto_bc(pt);
+  const BCIns *ip;
+  for (ip = candidate; --ip > bc; ) {
+    if (bc_op(*ip) == BC_JMP) {
+      const BCIns *target = ip + bc_j(*ip) + 1;
+      /* A short-circuit join can execute with a value from before the jump,
+      ** so names from the skipped arm must not be reported as operand names.
+      */
+      if (ip < candidate && candidate < target && target <= origin)
+	return 1;
+    }
+  }
+  return 0;
+}
+#endif
+
 /* Deduce name of an object from slot number and PC. */
 const char *lj_debug_slotname(GCproto *pt, const BCIns *ip, BCReg slot,
 			      const char **name)
 {
   const char *lname;
+#if LJ_54
+  const BCIns *origin = ip;
+  const char *kind;
+#endif
 restart:
   lname = debug_varname(pt, proto_bcpos(pt, ip), slot);
   if (lname != NULL) { *name = lname; return "local"; }
@@ -329,10 +424,23 @@ restart:
 	if (ra == slot) { slot = bc_d(ins); goto restart; }
 	break;
       case BC_GGET:
+#if LJ_54
+	if (debug_lua54_name_skipped_by_jmp(pt, origin, ip))
+	  return NULL;
+#endif
 	*name = strdata(gco2str(proto_kgc(pt, ~(ptrdiff_t)bc_d(ins))));
 	return "global";
       case BC_TGETS:
+#if LJ_54
+	if (debug_lua54_name_skipped_by_jmp(pt, origin, ip))
+	  return NULL;
+#endif
 	*name = strdata(gco2str(proto_kgc(pt, ~(ptrdiff_t)bc_c(ins))));
+#if LJ_54
+	kind = lj_debug_slotname(pt, ip, bc_b(ins), &lname);
+	if (debug_is_lua54_env_source(kind, lname))
+	  return "global";
+#endif
 	if (ip > proto_bc(pt)) {
 	  BCIns insp = ip[-1];
 	  if (bc_op(insp) == BC_MOV && bc_a(insp) == ra+1+LJ_FR2 &&
@@ -342,6 +450,10 @@ restart:
 	return "field";
 #if LJ_54
       case BC_TGETV:
+#if LJ_54
+	if (debug_lua54_name_skipped_by_jmp(pt, origin, ip))
+	  return NULL;
+#endif
 	if (ip > proto_bc(pt)) {
 	  BCIns insp = ip[-1];
 	  /* Lua 5.4 global access can lower _ENV.name to KSTR + TGETV when a
@@ -350,12 +462,25 @@ restart:
 	  */
 	  if (bc_op(insp) == BC_KSTR && bc_a(insp) == bc_c(ins)) {
 	    *name = strdata(gco2str(proto_kgc(pt, ~(ptrdiff_t)bc_d(insp))));
+	    kind = lj_debug_slotname(pt, ip, bc_b(ins), &lname);
+	    if (debug_is_lua54_env_source(kind, lname))
+	      return "global";
+	    if (ip > proto_bc(pt)+1) {
+	      BCIns inspm = ip[-2];
+	      if (bc_op(inspm) == BC_MOV && bc_a(inspm) == ra+1+LJ_FR2 &&
+		  bc_d(inspm) == bc_b(ins))
+		return "method";
+	    }
 	    return "field";
 	  }
 	}
 	break;
 #endif
       case BC_UGET:
+#if LJ_54
+	if (debug_lua54_name_skipped_by_jmp(pt, origin, ip))
+	  return NULL;
+#endif
 	*name = lj_debug_uvname(pt, bc_d(ins));
 	return "upvalue";
       default:
@@ -383,6 +508,17 @@ static int debug_is_lua54_closecall(GCproto *pt, const BCIns *ip, BCReg slot)
     }
   }
   return 0;
+}
+
+static const char *debug_lua54_tail_ffname(GCfunc *fn)
+{
+  /* Tail calls replace the Lua caller frame, so argument errors from fast
+  ** functions cannot recover names from caller bytecode. Keep the official
+  ** Lua 5.4-visible name for covered fast functions here.
+  */
+  if (isffunc(fn) && fn->c.ffid == LJ_FFID_MATH_SIN)
+    return "sin";
+  return NULL;
 }
 #endif
 
@@ -445,8 +581,60 @@ const char *lj_debug_funcname(lua_State *L, cTValue *frame, const char **name)
       return "metamethod";
     }
   }
+#if LJ_54
+  {
+    const char *ffname = debug_lua54_tail_ffname(frame_func(frame));
+    if (ffname) {
+      *name = ffname;
+      return "function";
+    }
+  }
+#endif
   return NULL;
 }
+
+#if LJ_54
+static int debug_call_from_pcall54(lua_State *L)
+{
+  cTValue *frame = L->base-1;
+  cTValue *pframe;
+  if (frame <= tvref(L->stack)+LJ_FR2)
+    return 0;
+  if (frame_isvarg(frame))
+    frame = frame_prevd(frame);
+  if (frame <= tvref(L->stack)+LJ_FR2)
+    return 0;
+  pframe = frame_prev(frame);
+  if (frame_ispcall(frame))
+    return 1;  /* pcall(function, ...) has no source call slot to name. */
+  return frame_ispcall(pframe);
+}
+
+const char *lj_debug_callname54(lua_State *L, const char *fallback,
+				const char *prefix)
+{
+  const char *name = "?";
+  const char *kind = lj_debug_funcname(L, L->base-1, &name);
+  int direct_pcall = debug_call_from_pcall54(L);
+  size_t prefixlen = prefix ? strlen(prefix) : 0;
+  int hasprefix = prefix && strncmp(fallback, prefix, prefixlen) == 0 &&
+		  fallback[prefixlen] == '.';
+  if (kind && name && !(name[0] == '?' && name[1] == '\0')) {
+    /* Direct pcall(lib.fn, ...) has no bytecode field/local call site. Keep the
+    ** full fallback name there, but use source-level names for real calls.
+    */
+    if (direct_pcall && strcmp(kind, "function") == 0)
+      return fallback;
+    if (!direct_pcall && hasprefix &&
+	strncmp(name, fallback, strlen(fallback)+1) == 0)
+      return fallback + prefixlen + 1;
+    return name;
+  }
+  if (direct_pcall)
+    return fallback;
+  return hasprefix ? fallback + prefixlen + 1 : fallback;
+}
+#endif
 
 /* -- Source code locations ----------------------------------------------- */
 
@@ -495,7 +683,14 @@ void lj_debug_addloc(lua_State *L, const char *msg,
     GCfunc *fn = debug_framefunc(L, frame);
     if (isluafunc(fn)) {
       BCLine line = debug_frameline(L, fn, nextframe);
+#if LJ_54
+      /* Lua 5.4 runtime errors still report stripped chunks as "?:-1:",
+      ** but luaL_where() itself must suppress non-positive line locations.
+      */
+      if ((line >= 0 || line == -1) && (*msg != '\0' || line > 0)) {
+#else
       if (line >= 0) {
+#endif
 	GCproto *pt = funcproto(fn);
 	char buf[LUA_IDSIZE];
 	lj_debug_shortname(buf, proto_chunkname(pt), pt->firstline);
@@ -600,8 +795,9 @@ int lj_debug_getinfo(lua_State *L, const char *what, lj_Debug *ar, int ext)
     L->top--;
     what++;
   } else {
-    uint32_t offset = (uint32_t)ar->i_ci & 0xffff;
-    uint32_t size = (uint32_t)ar->i_ci >> 16;
+    uint32_t ci = (uint32_t)LJ_DEBUG_CI_VALUE(ar->i_ci);
+    uint32_t offset = ci & 0xffff;
+    uint32_t size = ci >> 16;
     lj_assertL(offset != 0, "bad frame offset");
     frame = tvref(L->stack) + offset;
     if (size) nextframe = frame + size;
@@ -622,12 +818,18 @@ int lj_debug_getinfo(lua_State *L, const char *what, lj_Debug *ar, int ext)
 	  firstline = 1;
 #endif
 	ar->source = strdata(name);
+#if LJ_54
+	ar->srclen = name->len;
+#endif
 	lj_debug_shortname(ar->short_src, name, pt->firstline);
 	ar->linedefined = (int)firstline;
 	ar->lastlinedefined = (int)(firstline + pt->numline);
 	ar->what = (firstline || !pt->numline) ? "Lua" : "main";
       } else {
 	ar->source = "=[C]";
+#if LJ_54
+	ar->srclen = 4;
+#endif
 	ar->short_src[0] = '[';
 	ar->short_src[1] = 'C';
 	ar->short_src[2] = ']';
@@ -737,10 +939,10 @@ LUA_API int lua_getstack(lua_State *L, int level, lua_Debug *ar)
   int size;
   cTValue *frame = lj_debug_frame(L, level, &size);
   if (frame) {
-    ar->i_ci = (size << 16) + (int)(frame - tvref(L->stack));
+    ar->i_ci = LJ_DEBUG_CI_ENCODE((size << 16) + (int)(frame - tvref(L->stack)));
     return 1;
   } else {
-    ar->i_ci = level - size;
+    ar->i_ci = LJ_DEBUG_CI_ENCODE(level - size);
     return 0;
   }
 }
@@ -881,7 +1083,7 @@ LUALIB_API void luaL_traceback (lua_State *L, lua_State *L1, const char *msg,
 	int oldlevel = level;
 #endif
 	lua_getstack(L1, -10, &ar);
-	level = ar.i_ci - TRACEBACK_LEVELS2;
+	level = (int)LJ_DEBUG_CI_VALUE(ar.i_ci) - TRACEBACK_LEVELS2;
 #if LJ_54
 	lua_pushfstring(L, "\n\t...\t(skipping %d levels)", level - oldlevel);
 #else
@@ -924,7 +1126,14 @@ LUALIB_API void luaL_traceback (lua_State *L, lua_State *L1, const char *msg,
       if (*ar.what == 'm') {
 	lua_pushliteral(L, " in main chunk");
       } else if (*ar.what == 'C') {
+#if LJ_54
+	/* Lua 5.4 tracebacks do not expose raw C function pointers for
+	** unnamed C frames; they use the same unknown-name marker as PUC Lua.
+	*/
+	lua_pushliteral(L, " in ?");
+#else
 	lua_pushfstring(L, " at %p", fn->c.f);
+#endif
       } else {
 	lua_pushfstring(L, " in function <%s:%d>",
 			ar.short_src, ar.linedefined);

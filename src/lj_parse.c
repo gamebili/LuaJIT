@@ -30,6 +30,11 @@
 
 #if LJ_54
 #define LUA54_KNUM_BOX	0x80
+#define LUA54_NOTAIL_GLOBAL_MAX	64
+#define LUA54_NOTAIL_TABLE_FIELD_MAX	64
+#define LUA54_NOTAIL_TABLE_ALIAS_MAX	256
+#define LUA54_NOTAIL_GLOBAL_TABLE_ALIAS_MAX	64
+#define LUA54_NOTAIL_TABLE_FIELD_ALIAS_MAX	64
 #endif
 
 /* -- Parser structures and definitions ----------------------------------- */
@@ -118,6 +123,29 @@ typedef struct FuncScope {
 typedef uint16_t VarIndex;
 #define LJ_MAX_VSTACK		(65536 - LJ_MAX_UPVAL)
 
+#if LJ_54
+typedef struct Lua54NotailTableField {
+  VarIndex table;		/* Source variable holding the table. */
+  GCstr *field;			/* Field assigned from a no-tail helper. */
+} Lua54NotailTableField;
+
+typedef struct Lua54TableAlias {
+  VarIndex alias;		/* Variable currently aliasing a table source. */
+  VarIndex source;		/* Canonical source variable for the table. */
+} Lua54TableAlias;
+
+typedef struct Lua54GlobalTableAlias {
+  GCstr *name;			/* Global name currently aliasing a table. */
+  VarIndex source;		/* Canonical source variable for the table. */
+} Lua54GlobalTableAlias;
+
+typedef struct Lua54TableFieldAlias {
+  VarIndex table;		/* Source variable holding the outer table. */
+  GCstr *field;			/* Field currently aliasing another table. */
+  VarIndex source;		/* Canonical source variable for that table. */
+} Lua54TableFieldAlias;
+#endif
+
 /* Variable/goto/label info. */
 #define VSTACK_VAR_RW		0x01	/* R/W variable. */
 #define VSTACK_GOTO		0x02	/* Pending goto. */
@@ -125,7 +153,9 @@ typedef uint16_t VarIndex;
 #define VSTACK_VAR_CONST	0x08	/* Lua 5.4 const local. */
 #define VSTACK_VAR_CLOSE	0x10	/* Lua 5.4 to-be-closed local. */
 #define VSTACK_GOTO_CLOSE	0x20	/* Lua 5.4 goto close helpers done. */
-#define VSTACK_VAR_ATTRMASK	(VSTACK_VAR_CONST|VSTACK_VAR_CLOSE)
+#define VSTACK_VAR_NOTAILCALL	0x40	/* Local aliases whose callsite name matters. */
+#define VSTACK_VAR_TABLE	0x80	/* Local known to hold a table source. */
+#define VSTACK_VAR_ATTRMASK	(VSTACK_VAR_CONST|VSTACK_VAR_CLOSE|VSTACK_VAR_NOTAILCALL|VSTACK_VAR_TABLE)
 
 /* Per-function state. */
 typedef struct FuncState {
@@ -150,6 +180,17 @@ typedef struct FuncState {
   uint8_t nuv;			/* Number of upvalues */
 #if LJ_54
   uint8_t lua54env;		/* Implicit Lua 5.4 _ENV upvalue is present. */
+  uint8_t uvnotail[LJ_MAX_UPVAL];	/* Upvalue aliases needing callsite names. */
+  uint8_t ngnotail;		/* Number of tracked global no-tail aliases. */
+  uint8_t ntfnotail;		/* Number of tracked table-field aliases. */
+  uint8_t ngtalias;		/* Number of tracked global table aliases. */
+  uint8_t ntfalias;		/* Number of tracked table-field table aliases. */
+  uint16_t ntalias;		/* Number of tracked table variable aliases. */
+  GCstr *gnotail[LUA54_NOTAIL_GLOBAL_MAX];	/* Global aliases needing names. */
+  Lua54NotailTableField tfnotail[LUA54_NOTAIL_TABLE_FIELD_MAX];
+  Lua54TableAlias talias[LUA54_NOTAIL_TABLE_ALIAS_MAX];
+  Lua54GlobalTableAlias gtalias[LUA54_NOTAIL_GLOBAL_TABLE_ALIAS_MAX];
+  Lua54TableFieldAlias tfalias[LUA54_NOTAIL_TABLE_FIELD_ALIAS_MAX];
   VarIndex lua54envvidx;	/* Variable-stack entry for implicit _ENV name. */
 #endif
   VarIndex varmap[LJ_MAX_LOCVAR];  /* Map from register to variable idx. */
@@ -192,15 +233,30 @@ LJ_NORET LJ_NOINLINE static void err_syntax(LexState *ls, ErrMsg em)
 
 LJ_NORET LJ_NOINLINE static void err_token(LexState *ls, LexToken tok)
 {
+#if LJ_54
+  if (tok == TK_name) {
+    /* Lua 5.4's token2str leaves <name> unquoted for "expected" errors,
+    ** while symbols stay quoted by their token text.
+    */
+    lj_lex_error(ls, ls->tok, LJ_ERR_XNAME);
+  }
+#endif
   lj_lex_error(ls, ls->tok, LJ_ERR_XTOKEN, lj_lex_token2str(ls, tok));
 }
 
 LJ_NORET static void err_limit(FuncState *fs, uint32_t limit, const char *what)
 {
+#if LJ_54
+  if (fs->linedefined == 0)
+    lj_lex_error(fs->ls, 0, LJ_ERR_XLIMM, what, limit);
+  else
+    lj_lex_error(fs->ls, 0, LJ_ERR_XLIMF, fs->linedefined, what, limit);
+#else
   if (fs->linedefined == 0)
     lj_lex_error(fs->ls, 0, LJ_ERR_XLIMM, limit, what);
   else
     lj_lex_error(fs->ls, 0, LJ_ERR_XLIMF, fs->linedefined, limit, what);
+#endif
 }
 
 #define checklimit(fs, v, l, m)		if ((v) >= (l)) err_limit(fs, l, m)
@@ -289,7 +345,7 @@ GCstr *lj_parse_keepstr(LexState *ls, const char *str, size_t len)
 {
   /* NOBARRIER: the key is new or kept alive. */
   lua_State *L = ls->L;
-  GCstr *s = lj_str_new(L, str, len);
+  GCstr *s = lj_str_new_intern(L, str, len);
   TValue *tv = lj_tab_setstr(L, ls->fs->kt, s);
   if (tvisnil(tv)) setboolV(tv, 1);
   lj_gc_check(L);
@@ -659,6 +715,13 @@ static BCReg expr_toanyreg(FuncState *fs, ExpDesc *e)
 }
 
 #if LJ_54
+/* Lua 5.4 keeps source frames for selected tail-position library calls because
+** their C-side errors should point at the user callsite. Dynamic arguments can
+** insert nested calls between the callee fetch and final CALL, so use a bounded
+** scan that is larger than the old adjacent-call-only window.
+*/
+#define LUA54_NOTAIL_SCAN_LIMIT	32
+
 static void bcemit_lua54_jit_field(FuncState *fs, BCReg base,
 				   const char *field, size_t len)
 {
@@ -675,6 +738,1011 @@ static void bcemit_lua54_jit_field(FuncState *fs, BCReg base,
     bcemit_ABC(fs, BC_TGETV, base, base, key);
     fs->freereg--;
   }
+}
+
+static GCstr *bcemit_lua54_const_str_by_slot(FuncState *fs, BCReg slot)
+{
+  GCtab *kt = fs->kt;
+  Node *node = noderef(kt->node);
+  MSize i;
+  for (i = 0; i <= kt->hmask; i++) {
+    Node *n = &node[i];
+    if (tvhaskslot(&n->val) && tvkslot(&n->val) == slot &&
+	tvisstr(&n->key))
+      return strV(&n->key);
+  }
+  return NULL;
+}
+
+static int bcemit_lua54_streq(GCstr *s, const char *lit, MSize len)
+{
+  return s && s->len == len && memcmp(strdata(s), lit, len) == 0;
+}
+
+static int lua54_global_notailcall(FuncState *fs, GCstr *name)
+{
+  FuncState *cur;
+  MSize i;
+  for (cur = fs; cur != NULL; cur = cur->prev)
+    for (i = 0; i < cur->ngnotail; i++)
+      if (cur->gnotail[i] == name)
+	return 1;
+  return 0;
+}
+
+static void lua54_mark_global_notailcall_one(FuncState *fs, GCstr *name, int on)
+{
+  MSize i;
+  for (i = 0; i < fs->ngnotail; i++) {
+    if (fs->gnotail[i] == name) {
+      if (!on)
+	fs->gnotail[i] = fs->gnotail[--fs->ngnotail];
+      return;
+    }
+  }
+  if (on && fs->ngnotail < LUA54_NOTAIL_GLOBAL_MAX)
+    fs->gnotail[fs->ngnotail++] = name;
+}
+
+static void lua54_mark_global_notailcall(FuncState *fs, GCstr *name, int on)
+{
+  FuncState *cur;
+  /* A helper alias may be assigned inside a setup function and used by a
+  ** sibling function compiled later in the same chunk. Mirror the static mark
+  ** to outer parser states so those later functions can keep Lua 5.4 callsite
+  ** names without disabling unrelated global tail calls.
+  */
+  for (cur = fs; cur != NULL; cur = cur->prev)
+    lua54_mark_global_notailcall_one(cur, name, on);
+}
+
+static int lua54_func_has_local_source(FuncState *fs, VarIndex table)
+{
+  BCReg i;
+  for (i = 0; i < fs->nactvar; i++)
+    if (fs->varmap[i] == table)
+      return 1;
+  return 0;
+}
+
+static int lua54_is_known_table_source(FuncState *fs, VarIndex table);
+static int bcemit_lua54_is_env_upvalue_fetch(FuncState *fs, BCReg base,
+					     BCPos pc);
+static int lua54_reg_is_env_or_global_table(FuncState *fs, BCReg reg,
+					    BCPos pc);
+
+static VarIndex lua54_resolve_table_alias(FuncState *fs, VarIndex table)
+{
+  MSize depth;
+  if (table >= LJ_MAX_VSTACK)
+    return table;
+  for (depth = 0; depth < LUA54_NOTAIL_TABLE_ALIAS_MAX; depth++) {
+    FuncState *cur;
+    VarIndex source = table;
+    MSize i;
+    for (cur = fs; cur != NULL; cur = cur->prev) {
+      for (i = 0; i < cur->ntalias; i++) {
+	if (cur->talias[i].alias == table) {
+	  source = cur->talias[i].source;
+	  goto found;
+	}
+      }
+    }
+  found:
+    if (source == table || source >= LJ_MAX_VSTACK)
+      return table;
+    table = source;
+  }
+  return table;
+}
+
+static VarIndex lua54_global_table_alias(FuncState *fs, GCstr *name)
+{
+  FuncState *cur;
+  MSize i;
+  if (name == NULL)
+    return LJ_MAX_VSTACK;
+  for (cur = fs; cur != NULL; cur = cur->prev)
+    for (i = 0; i < cur->ngtalias; i++)
+      if (cur->gtalias[i].name == name)
+	return lua54_resolve_table_alias(fs, cur->gtalias[i].source);
+  return LJ_MAX_VSTACK;
+}
+
+static void lua54_mark_global_table_alias_one(FuncState *fs, GCstr *name,
+					      VarIndex source, int on)
+{
+  MSize i;
+  for (i = 0; i < fs->ngtalias; i++) {
+    if (fs->gtalias[i].name == name) {
+      if (on) {
+	fs->gtalias[i].source = source;
+      } else {
+	fs->gtalias[i] = fs->gtalias[--fs->ngtalias];
+      }
+      return;
+    }
+  }
+  if (on && fs->ngtalias < LUA54_NOTAIL_GLOBAL_TABLE_ALIAS_MAX) {
+    fs->gtalias[fs->ngtalias].name = name;
+    fs->gtalias[fs->ngtalias].source = source;
+    fs->ngtalias++;
+  }
+}
+
+static void lua54_mark_global_table_alias(FuncState *fs, GCstr *name,
+					  VarIndex source)
+{
+  FuncState *cur;
+  int on;
+  if (name == NULL)
+    return;
+  source = lua54_resolve_table_alias(fs, source);
+  on = source < LJ_MAX_VSTACK && lua54_is_known_table_source(fs, source);
+  /* Keep the alias visible to sibling functions compiled later in the same
+  ** chunk, but only for globals whose table source is statically known.
+  */
+  for (cur = fs; cur != NULL; cur = cur->prev)
+    lua54_mark_global_table_alias_one(cur, name, source, on);
+}
+
+static VarIndex lua54_table_field_alias(FuncState *fs, VarIndex table,
+					GCstr *field)
+{
+  FuncState *cur;
+  MSize i;
+  if (table >= LJ_MAX_VSTACK || field == NULL)
+    return LJ_MAX_VSTACK;
+  table = lua54_resolve_table_alias(fs, table);
+  for (cur = fs; cur != NULL; cur = cur->prev)
+    for (i = 0; i < cur->ntfalias; i++)
+      if (cur->tfalias[i].table == table &&
+	  cur->tfalias[i].field == field)
+	return lua54_resolve_table_alias(fs, cur->tfalias[i].source);
+  return LJ_MAX_VSTACK;
+}
+
+static void lua54_mark_table_field_alias_one(FuncState *fs, VarIndex table,
+					     GCstr *field, VarIndex source,
+					     int on)
+{
+  MSize i;
+  for (i = 0; i < fs->ntfalias; i++) {
+    if (fs->tfalias[i].table == table && fs->tfalias[i].field == field) {
+      if (on) {
+	fs->tfalias[i].source = source;
+      } else {
+	fs->tfalias[i] = fs->tfalias[--fs->ntfalias];
+      }
+      return;
+    }
+  }
+  if (on && fs->ntfalias < LUA54_NOTAIL_TABLE_FIELD_ALIAS_MAX) {
+    fs->tfalias[fs->ntfalias].table = table;
+    fs->tfalias[fs->ntfalias].field = field;
+    fs->tfalias[fs->ntfalias].source = source;
+    fs->ntfalias++;
+  }
+}
+
+static void lua54_mark_table_field_alias(FuncState *fs, VarIndex table,
+					 GCstr *field, VarIndex source)
+{
+  FuncState *cur;
+  int owner = 0;
+  int on;
+  if (table >= LJ_MAX_VSTACK || field == NULL)
+    return;
+  table = lua54_resolve_table_alias(fs, table);
+  source = lua54_resolve_table_alias(fs, source);
+  on = source < LJ_MAX_VSTACK &&
+       lua54_is_known_table_source(fs, table) &&
+       lua54_is_known_table_source(fs, source);
+  /* Track `holder.alias = t` only when both sides are statically known table
+  ** sources. A later write of a non-table value to the same field clears the
+  ** alias, so dynamic table field rebindings do not poison callsite metadata.
+  */
+  for (cur = fs; cur != NULL; cur = cur->prev) {
+    if (!owner) {
+      if (!lua54_func_has_local_source(cur, table))
+	continue;
+      owner = 1;
+    }
+    lua54_mark_table_field_alias_one(cur, table, field, source, on);
+  }
+}
+
+static void lua54_mark_pending_table_field_alias(FuncState *fs, VarIndex table,
+						 GCstr *field,
+						 VarIndex source)
+{
+  int on;
+  if (table >= LJ_MAX_VSTACK || field == NULL)
+    return;
+  table = lua54_resolve_table_alias(fs, table);
+  source = lua54_resolve_table_alias(fs, source);
+  on = source < LJ_MAX_VSTACK &&
+       lua54_is_known_table_source(fs, table) &&
+       lua54_is_known_table_source(fs, source);
+  lua54_mark_table_field_alias_one(fs, table, field, source, on);
+}
+
+static void lua54_mark_table_alias_one(FuncState *fs, VarIndex alias,
+				       VarIndex source)
+{
+  MSize i;
+  for (i = 0; i < fs->ntalias; i++) {
+    if (fs->talias[i].alias == alias) {
+      fs->talias[i].source = source;
+      return;
+    }
+  }
+  if (fs->ntalias < LUA54_NOTAIL_TABLE_ALIAS_MAX) {
+    fs->talias[fs->ntalias].alias = alias;
+    fs->talias[fs->ntalias].source = source;
+    fs->ntalias++;
+  }
+}
+
+static void lua54_mark_table_alias(FuncState *fs, VarIndex alias,
+				   VarIndex source)
+{
+  FuncState *cur;
+  int owner = 0;
+  source = lua54_resolve_table_alias(fs, source);
+  if (alias >= LJ_MAX_VSTACK || source >= LJ_MAX_VSTACK || alias == source)
+    return;
+  if (!lua54_is_known_table_source(fs, source))
+    return;
+  for (cur = fs; cur != NULL; cur = cur->prev) {
+    if (!owner) {
+      if (!lua54_func_has_local_source(cur, alias))
+	continue;
+      owner = 1;
+    }
+    lua54_mark_table_alias_one(cur, alias, source);
+  }
+}
+
+static void lua54_mark_pending_table_alias(FuncState *fs, VarIndex alias,
+					   VarIndex source)
+{
+  source = lua54_resolve_table_alias(fs, source);
+  if (alias >= LJ_MAX_VSTACK || source >= LJ_MAX_VSTACK || alias == source)
+    return;
+  if (!lua54_is_known_table_source(fs, source))
+    return;
+  lua54_mark_table_alias_one(fs, alias, source);
+}
+
+static void lua54_clear_table_alias_one(FuncState *fs, VarIndex table)
+{
+  MSize i = 0;
+  while (i < fs->ntalias) {
+    if (fs->talias[i].alias == table || fs->talias[i].source == table) {
+      fs->talias[i] = fs->talias[--fs->ntalias];
+    } else {
+      i++;
+    }
+  }
+}
+
+static void lua54_clear_table_alias(FuncState *fs, VarIndex table)
+{
+  FuncState *cur;
+  int owner = 0;
+  if (table >= LJ_MAX_VSTACK)
+    return;
+  for (cur = fs; cur != NULL; cur = cur->prev) {
+    if (!owner) {
+      if (!lua54_func_has_local_source(cur, table))
+	continue;
+      owner = 1;
+    }
+    lua54_clear_table_alias_one(cur, table);
+  }
+}
+
+static void lua54_clear_table_field_alias_one(FuncState *fs, VarIndex table)
+{
+  MSize i = 0;
+  while (i < fs->ntfalias) {
+    if (fs->tfalias[i].table == table || fs->tfalias[i].source == table) {
+      fs->tfalias[i] = fs->tfalias[--fs->ntfalias];
+    } else {
+      i++;
+    }
+  }
+}
+
+static void lua54_clear_table_field_alias(FuncState *fs, VarIndex table)
+{
+  FuncState *cur;
+  int owner = 0;
+  if (table >= LJ_MAX_VSTACK)
+    return;
+  for (cur = fs; cur != NULL; cur = cur->prev) {
+    if (!owner) {
+      if (!lua54_func_has_local_source(cur, table))
+	continue;
+      owner = 1;
+    }
+    lua54_clear_table_field_alias_one(cur, table);
+  }
+}
+
+static int lua54_table_notailcall(FuncState *fs, VarIndex table, GCstr *field)
+{
+  FuncState *cur;
+  MSize i;
+  if (table >= LJ_MAX_VSTACK || field == NULL)
+    return 0;
+  table = lua54_resolve_table_alias(fs, table);
+  for (cur = fs; cur != NULL; cur = cur->prev)
+    for (i = 0; i < cur->ntfnotail; i++)
+      if (cur->tfnotail[i].table == table &&
+	  cur->tfnotail[i].field == field)
+	return 1;
+  return 0;
+}
+
+static int lua54_table_has_notail_fields(FuncState *fs, VarIndex table)
+{
+  FuncState *cur;
+  MSize i;
+  table = lua54_resolve_table_alias(fs, table);
+  if (table >= LJ_MAX_VSTACK)
+    return 0;
+  for (cur = fs; cur != NULL; cur = cur->prev)
+    for (i = 0; i < cur->ntfnotail; i++)
+      if (cur->tfnotail[i].table == table)
+	return 1;
+  return 0;
+}
+
+static void lua54_mark_table_source(FuncState *fs, VarIndex table)
+{
+  if (table < fs->ls->vtop)
+    fs->ls->vstack[table].info |= VSTACK_VAR_TABLE;
+}
+
+static int lua54_is_known_table_source(FuncState *fs, VarIndex table)
+{
+  table = lua54_resolve_table_alias(fs, table);
+  return table < fs->ls->vtop &&
+	 ((fs->ls->vstack[table].info & VSTACK_VAR_TABLE) != 0 ||
+	  lua54_table_has_notail_fields(fs, table));
+}
+
+static void lua54_mark_table_notailcall_one(FuncState *fs, VarIndex table,
+					    GCstr *field, int on)
+{
+  MSize i;
+  for (i = 0; i < fs->ntfnotail; i++) {
+    if (fs->tfnotail[i].table == table && fs->tfnotail[i].field == field) {
+      if (!on)
+	fs->tfnotail[i] = fs->tfnotail[--fs->ntfnotail];
+      return;
+    }
+  }
+  if (on && fs->ntfnotail < LUA54_NOTAIL_TABLE_FIELD_MAX) {
+    fs->tfnotail[fs->ntfnotail].table = table;
+    fs->tfnotail[fs->ntfnotail].field = field;
+    fs->ntfnotail++;
+  }
+}
+
+static void lua54_mark_table_notailcall(FuncState *fs, VarIndex table,
+					GCstr *field, int on)
+{
+  FuncState *cur;
+  int owner = 0;
+  if (table >= LJ_MAX_VSTACK || field == NULL)
+    return;
+  table = lua54_resolve_table_alias(fs, table);
+  if (on)
+    lua54_mark_table_source(fs, table);
+  for (cur = fs; cur != NULL; cur = cur->prev) {
+    if (!owner) {
+      if (!lua54_func_has_local_source(cur, table))
+	continue;
+      owner = 1;
+    }
+    lua54_mark_table_notailcall_one(cur, table, field, on);
+  }
+}
+
+static void lua54_clear_table_notailcall_one(FuncState *fs, VarIndex table)
+{
+  MSize i = 0;
+  while (i < fs->ntfnotail) {
+    if (fs->tfnotail[i].table == table) {
+      fs->tfnotail[i] = fs->tfnotail[--fs->ntfnotail];
+    } else {
+      i++;
+    }
+  }
+}
+
+static void lua54_clear_table_notailcall(FuncState *fs, VarIndex table)
+{
+  FuncState *cur;
+  int owner = 0;
+  if (table >= LJ_MAX_VSTACK)
+    return;
+  for (cur = fs; cur != NULL; cur = cur->prev) {
+    if (!owner) {
+      if (!lua54_func_has_local_source(cur, table))
+	continue;
+      owner = 1;
+    }
+    lua54_clear_table_notailcall_one(cur, table);
+  }
+}
+
+static VarIndex lua54_reg_table_source(FuncState *fs, BCReg reg, BCPos pc)
+{
+  if (reg < fs->nactvar)
+    return fs->varmap[reg];
+  if (fs->pc == 0)
+    return LJ_MAX_VSTACK;
+  if (pc >= fs->pc)
+    pc = fs->pc - 1;
+  for (;;) {
+    BCIns ins = fs->bcbase[pc].ins;
+    BCOp op = bc_op(ins);
+    if (bc_a(ins) != reg)
+      goto next;
+    switch (op) {
+    case BC_UGET:
+      {
+	BCReg uv = bc_d(ins);
+	if (uv < fs->nuv)
+	  return fs->uvmap[uv];
+	break;
+      }
+    case BC_MOV:
+      return lua54_reg_table_source(fs, bc_d(ins), pc);
+    case BC_TGETS:
+      {
+	GCstr *field = bcemit_lua54_const_str_by_slot(fs, bc_c(ins));
+	if (lua54_reg_is_env_or_global_table(fs, bc_b(ins), pc))
+	  return lua54_global_table_alias(fs, field);
+	if (pc > 0) {
+	  VarIndex table = lua54_reg_table_source(fs, bc_b(ins), pc - 1);
+	  return lua54_table_field_alias(fs, table, field);
+	}
+	break;
+      }
+    case BC_TGETV:
+      if (pc > 0) {
+	BCIns key = fs->bcbase[pc - 1].ins;
+	if (bc_op(key) == BC_KSTR && bc_a(key) == bc_c(ins) &&
+	    lua54_reg_is_env_or_global_table(fs, bc_b(ins), pc - 1)) {
+	  GCstr *field = bcemit_lua54_const_str_by_slot(fs, bc_d(key));
+	  return lua54_global_table_alias(fs, field);
+	}
+	if (bc_op(key) == BC_KSTR && bc_a(key) == bc_c(ins)) {
+	  GCstr *field = bcemit_lua54_const_str_by_slot(fs, bc_d(key));
+	  VarIndex table = lua54_reg_table_source(fs, bc_b(ins), pc - 1);
+	  return lua54_table_field_alias(fs, table, field);
+	}
+      }
+      break;
+    default:
+      break;
+    }
+    return LJ_MAX_VSTACK;
+  next:
+    if (pc == 0)
+      break;
+    pc--;
+  }
+  return LJ_MAX_VSTACK;
+}
+
+static int bcemit_lua54_is_helper_name(GCstr *field)
+{
+  if (!field)
+    return 0;
+  if (field->len == 5 && memcmp(strdata(field), "pcall", 5) == 0)
+    return 1;
+  /* require() reports loader/searcher failures at the source call site in
+  ** Lua 5.4; a tail call would discard that frame before the error is raised.
+  */
+  if (field->len == 7 && memcmp(strdata(field), "require", 7) == 0)
+    return 1;
+  /* string.format() raises Lua 5.4 parser/formatter errors with luaL_error().
+  ** Keeping a tail-position wrapper frame gives those errors the same source
+  ** call-site prefix as official Lua.
+  */
+  if (field->len == 6 && memcmp(strdata(field), "format", 6) == 0)
+    return 1;
+  if (field->len == 6 && memcmp(strdata(field), "xpcall", 6) == 0)
+    return 1;
+  /* Loader entrypoints build Lua 5.4-style error strings from the source call
+  ** frame. Keep that frame alive even for `return load(...)` / aliases.
+  */
+  if ((field->len == 4 && memcmp(strdata(field), "load", 4) == 0) ||
+      (field->len == 6 && memcmp(strdata(field), "dofile", 6) == 0) ||
+      (field->len == 8 && memcmp(strdata(field), "loadfile", 8) == 0))
+    return 1;
+  /* Keep table library calls in return position as ordinary calls. LuaJIT's
+  ** BC_CALLT replaces the caller frame before C argument checks run, which
+  ** loses Lua 5.4 source-level names such as table.concat -> 'concat'.
+  */
+  if ((field->len == 4 && memcmp(strdata(field), "move", 4) == 0) ||
+      (field->len == 4 && memcmp(strdata(field), "sort", 4) == 0) ||
+      (field->len == 6 && memcmp(strdata(field), "concat", 6) == 0) ||
+      (field->len == 6 && memcmp(strdata(field), "insert", 6) == 0) ||
+      (field->len == 6 && memcmp(strdata(field), "remove", 6) == 0) ||
+      (field->len == 6 && memcmp(strdata(field), "unpack", 6) == 0))
+    return 1;
+  /* Keep covered math fast functions in return position as ordinary calls for
+  ** the same reason: once BC_CALLT has replaced the caller frame, their C
+  ** argument checks can only fall back to "math.xxx" instead of source "xxx".
+  */
+  if ((field->len == 3 && memcmp(strdata(field), "abs", 3) == 0) ||
+      (field->len == 3 && memcmp(strdata(field), "cos", 3) == 0) ||
+      (field->len == 3 && memcmp(strdata(field), "exp", 3) == 0) ||
+      (field->len == 3 && memcmp(strdata(field), "log", 3) == 0) ||
+      (field->len == 3 && memcmp(strdata(field), "sin", 3) == 0) ||
+      (field->len == 3 && memcmp(strdata(field), "tan", 3) == 0) ||
+      (field->len == 4 && memcmp(strdata(field), "acos", 4) == 0) ||
+      (field->len == 4 && memcmp(strdata(field), "asin", 4) == 0) ||
+      (field->len == 4 && memcmp(strdata(field), "ceil", 4) == 0) ||
+      (field->len == 4 && memcmp(strdata(field), "modf", 4) == 0) ||
+      (field->len == 4 && memcmp(strdata(field), "sqrt", 4) == 0) ||
+      (field->len == 5 && memcmp(strdata(field), "floor", 5) == 0))
+    return 1;
+  return field->len > 7 && memcmp(strdata(field), "_lua54_", 7) == 0;
+}
+
+static int bcemit_lua54_is_coroutine_wrapper_name(GCstr *field)
+{
+  /* Lua 5.4 reports argument errors through the source field name for these
+  ** coroutine wrappers, so tail-position calls must keep a visible frame.
+  */
+  return bcemit_lua54_streq(field, "resume", 6) ||
+	 bcemit_lua54_streq(field, "close", 5) ||
+	 bcemit_lua54_streq(field, "status", 6) ||
+	 bcemit_lua54_streq(field, "isyieldable", 11) ||
+	 bcemit_lua54_streq(field, "create", 6) ||
+	 bcemit_lua54_streq(field, "wrap", 4);
+}
+
+static int bcemit_lua54_is_string_wrapper_name(GCstr *field)
+{
+  return bcemit_lua54_streq(field, "byte", 4) ||
+	 bcemit_lua54_streq(field, "char", 4) ||
+	 bcemit_lua54_streq(field, "dump", 4) ||
+	 bcemit_lua54_streq(field, "find", 4) ||
+	 bcemit_lua54_streq(field, "gsub", 4) ||
+	 bcemit_lua54_streq(field, "len", 3) ||
+	 bcemit_lua54_streq(field, "rep", 3) ||
+	 bcemit_lua54_streq(field, "sub", 3) ||
+	 bcemit_lua54_streq(field, "format", 6) ||
+	 bcemit_lua54_streq(field, "gmatch", 6) ||
+	 bcemit_lua54_streq(field, "lower", 5) ||
+	 bcemit_lua54_streq(field, "match", 5) ||
+	 bcemit_lua54_streq(field, "pack", 4) ||
+	 bcemit_lua54_streq(field, "upper", 5) ||
+	 bcemit_lua54_streq(field, "reverse", 7) ||
+	 bcemit_lua54_streq(field, "unpack", 6) ||
+	 bcemit_lua54_streq(field, "packsize", 8);
+}
+
+static int bcemit_lua54_is_math_entry_name(GCstr *field)
+{
+  return bcemit_lua54_streq(field, "abs", 3) ||
+	 bcemit_lua54_streq(field, "acos", 4) ||
+	 bcemit_lua54_streq(field, "asin", 4) ||
+	 bcemit_lua54_streq(field, "atan", 4) ||
+	 bcemit_lua54_streq(field, "ceil", 4) ||
+	 bcemit_lua54_streq(field, "cos", 3) ||
+	 bcemit_lua54_streq(field, "deg", 3) ||
+	 bcemit_lua54_streq(field, "exp", 3) ||
+	 bcemit_lua54_streq(field, "floor", 5) ||
+	 bcemit_lua54_streq(field, "fmod", 4) ||
+	 bcemit_lua54_streq(field, "log", 3) ||
+	 bcemit_lua54_streq(field, "max", 3) ||
+	 bcemit_lua54_streq(field, "min", 3) ||
+	 bcemit_lua54_streq(field, "modf", 4) ||
+	 bcemit_lua54_streq(field, "rad", 3) ||
+	 bcemit_lua54_streq(field, "random", 6) ||
+	 bcemit_lua54_streq(field, "randomseed", 10) ||
+	 bcemit_lua54_streq(field, "sin", 3) ||
+	 bcemit_lua54_streq(field, "sqrt", 4) ||
+	 bcemit_lua54_streq(field, "tan", 3) ||
+	 bcemit_lua54_streq(field, "tointeger", 9) ||
+	 bcemit_lua54_streq(field, "type", 4) ||
+	 bcemit_lua54_streq(field, "ult", 3);
+}
+
+static int bcemit_lua54_is_os_entry_name(GCstr *field)
+{
+  return bcemit_lua54_streq(field, "clock", 5) ||
+	 bcemit_lua54_streq(field, "date", 4) ||
+	 bcemit_lua54_streq(field, "difftime", 8) ||
+	 bcemit_lua54_streq(field, "execute", 7) ||
+	 bcemit_lua54_streq(field, "exit", 4) ||
+	 bcemit_lua54_streq(field, "getenv", 6) ||
+	 bcemit_lua54_streq(field, "remove", 6) ||
+	 bcemit_lua54_streq(field, "rename", 6) ||
+	 bcemit_lua54_streq(field, "setlocale", 9) ||
+	 bcemit_lua54_streq(field, "time", 4) ||
+	 bcemit_lua54_streq(field, "tmpname", 7);
+}
+
+static int bcemit_lua54_is_io_entry_name(GCstr *field)
+{
+  return bcemit_lua54_streq(field, "close", 5) ||
+	 bcemit_lua54_streq(field, "flush", 5) ||
+	 bcemit_lua54_streq(field, "input", 5) ||
+	 bcemit_lua54_streq(field, "lines", 5) ||
+	 bcemit_lua54_streq(field, "open", 4) ||
+	 bcemit_lua54_streq(field, "output", 6) ||
+	 bcemit_lua54_streq(field, "popen", 5) ||
+	 bcemit_lua54_streq(field, "read", 4) ||
+	 bcemit_lua54_streq(field, "tmpfile", 7) ||
+	 bcemit_lua54_streq(field, "type", 4) ||
+	 bcemit_lua54_streq(field, "write", 5);
+}
+
+static int bcemit_lua54_is_io_file_method_name(GCstr *field)
+{
+  return bcemit_lua54_streq(field, "close", 5) ||
+	 bcemit_lua54_streq(field, "flush", 5) ||
+	 bcemit_lua54_streq(field, "lines", 5) ||
+	 bcemit_lua54_streq(field, "read", 4) ||
+	 bcemit_lua54_streq(field, "seek", 4) ||
+	 bcemit_lua54_streq(field, "setvbuf", 7) ||
+	 bcemit_lua54_streq(field, "write", 5);
+}
+
+static int bcemit_lua54_is_debug_entry_name(GCstr *field)
+{
+  return bcemit_lua54_streq(field, "gethook", 7) ||
+	 bcemit_lua54_streq(field, "getinfo", 7) ||
+	 bcemit_lua54_streq(field, "getlocal", 8) ||
+	 bcemit_lua54_streq(field, "getmetatable", 12) ||
+	 bcemit_lua54_streq(field, "getregistry", 11) ||
+	 bcemit_lua54_streq(field, "getupvalue", 10) ||
+	 bcemit_lua54_streq(field, "getuservalue", 12) ||
+	 bcemit_lua54_streq(field, "setcstacklimit", 14) ||
+	 bcemit_lua54_streq(field, "sethook", 7) ||
+	 bcemit_lua54_streq(field, "setlocal", 8) ||
+	 bcemit_lua54_streq(field, "setmetatable", 12) ||
+	 bcemit_lua54_streq(field, "setupvalue", 10) ||
+	 bcemit_lua54_streq(field, "setuservalue", 12) ||
+	 bcemit_lua54_streq(field, "traceback", 9) ||
+	 bcemit_lua54_streq(field, "upvalueid", 9) ||
+	 bcemit_lua54_streq(field, "upvaluejoin", 11);
+}
+
+static int bcemit_lua54_is_utf8_entry_name(GCstr *field)
+{
+  return bcemit_lua54_streq(field, "char", 4) ||
+	 bcemit_lua54_streq(field, "codes", 5) ||
+	 bcemit_lua54_streq(field, "codepoint", 9) ||
+	 bcemit_lua54_streq(field, "len", 3) ||
+	 bcemit_lua54_streq(field, "offset", 6);
+}
+
+static int bcemit_lua54_is_package_entry_name(GCstr *field)
+{
+  return bcemit_lua54_streq(field, "loadlib", 7) ||
+	 bcemit_lua54_streq(field, "searchpath", 10);
+}
+
+static int bcemit_lua54_is_base_global_name(GCstr *field)
+{
+  return bcemit_lua54_streq(field, "assert", 6) ||
+	 bcemit_lua54_streq(field, "collectgarbage", 14) ||
+	 bcemit_lua54_streq(field, "dofile", 6) ||
+	 bcemit_lua54_streq(field, "error", 5) ||
+	 bcemit_lua54_streq(field, "getmetatable", 12) ||
+	 bcemit_lua54_streq(field, "ipairs", 6) ||
+	 bcemit_lua54_streq(field, "load", 4) ||
+	 bcemit_lua54_streq(field, "loadfile", 8) ||
+	 bcemit_lua54_streq(field, "next", 4) ||
+	 bcemit_lua54_streq(field, "pairs", 5) ||
+	 bcemit_lua54_streq(field, "pcall", 5) ||
+	 bcemit_lua54_streq(field, "print", 5) ||
+	 bcemit_lua54_streq(field, "rawequal", 8) ||
+	 bcemit_lua54_streq(field, "rawget", 6) ||
+	 bcemit_lua54_streq(field, "rawlen", 6) ||
+	 bcemit_lua54_streq(field, "rawset", 6) ||
+	 bcemit_lua54_streq(field, "select", 6) ||
+	 bcemit_lua54_streq(field, "setmetatable", 12) ||
+	 bcemit_lua54_streq(field, "tonumber", 8) ||
+	 bcemit_lua54_streq(field, "tostring", 8) ||
+	 bcemit_lua54_streq(field, "type", 4) ||
+	 bcemit_lua54_streq(field, "warn", 4) ||
+	 bcemit_lua54_streq(field, "xpcall", 6);
+}
+
+static int bcemit_lua54_is_table_fetch(FuncState *fs, BCReg base, BCPos pc,
+				       const char *name, MSize len)
+{
+  BCIns ins, key;
+  BCOp op;
+  if (pc >= fs->pc)
+    return 0;
+  ins = fs->bcbase[pc].ins;
+  op = bc_op(ins);
+  if (bc_a(ins) != base)
+    return 0;
+  if (op == BC_TGETS && bc_b(ins) == base)
+    return bcemit_lua54_streq(bcemit_lua54_const_str_by_slot(fs, bc_c(ins)),
+			      name, len);
+  if (op == BC_TGETV && bc_b(ins) == base && pc > 0) {
+    key = fs->bcbase[pc - 1].ins;
+    if (bc_op(key) == BC_KSTR && bc_a(key) == bc_c(ins))
+      return bcemit_lua54_streq(bcemit_lua54_const_str_by_slot(fs, bc_d(key)),
+				name, len);
+  }
+  return 0;
+}
+
+static int bcemit_lua54_is_io_std_file_fetch(FuncState *fs, BCReg base,
+					     BCPos tablepc)
+{
+  return bcemit_lua54_is_table_fetch(fs, base, tablepc, "stdin", 5) ||
+	 bcemit_lua54_is_table_fetch(fs, base, tablepc, "stdout", 6) ||
+	 bcemit_lua54_is_table_fetch(fs, base, tablepc, "stderr", 6);
+}
+
+static int bcemit_lua54_is_io_std_file_method_call(FuncState *fs,
+						   BCPos fieldpc,
+						   GCstr *field,
+						   BCPos keypc)
+{
+  BCIns ins;
+  BCOp op;
+  BCReg tablebase;
+  BCPos tablepc, pos;
+  if (!bcemit_lua54_is_io_file_method_name(field) || fieldpc >= fs->pc)
+    return 0;
+  ins = fs->bcbase[fieldpc].ins;
+  op = bc_op(ins);
+  if (op != BC_TGETS && op != BC_TGETV)
+    return 0;
+  tablebase = bc_b(ins);
+  tablepc = keypc == fieldpc ? fieldpc - 1 : keypc - 1;
+  if (!bcemit_lua54_is_io_std_file_fetch(fs, tablebase, tablepc))
+    return 0;
+  /* `return io.stdin.close()` is a tail-position file-method lookup, not an
+  ** io.close() library call. Keep its caller frame so Lua 5.4 argument errors
+  ** still carry the source location instead of becoming a bare message.
+  */
+  pos = tablepc;
+  while (pos-- > 0 && tablepc - pos <= 3)
+    if (bcemit_lua54_is_table_fetch(fs, tablebase, pos, "io", 2))
+      return 1;
+  return 0;
+}
+
+static int bcemit_lua54_is_env_upvalue_fetch(FuncState *fs, BCReg base,
+					     BCPos pc)
+{
+  BCIns ins;
+  BCReg uv;
+  VarIndex vidx;
+  GCstr *name;
+  if (pc >= fs->pc)
+    return 0;
+  ins = fs->bcbase[pc].ins;
+  if (bc_op(ins) != BC_UGET || bc_a(ins) != base)
+    return 0;
+  uv = bc_d(ins);
+  if (uv >= fs->nuv)
+    return 0;
+  vidx = fs->uvmap[uv];
+  if (vidx >= fs->ls->vtop)
+    return 0;
+  name = strref(fs->ls->vstack[vidx].name);
+  return name->len == 4 && memcmp(strdata(name), "_ENV", 4) == 0;
+}
+
+static int bcemit_lua54_is_known_lib_wrapper_call(FuncState *fs,
+						  BCPos fieldpc, GCstr *field,
+						  BCPos keypc)
+{
+  BCIns ins;
+  BCIns selfcopy;
+  BCOp op;
+  BCReg tablebase;
+  BCPos tablepc;
+  BCPos movpc;
+  if (fieldpc >= fs->pc)
+    return 0;
+  ins = fs->bcbase[fieldpc].ins;
+  op = bc_op(ins);
+  if (op != BC_TGETS && op != BC_TGETV)
+    return 0;
+  tablebase = bc_b(ins);
+  tablepc = keypc == fieldpc ? fieldpc - 1 : keypc - 1;
+  /* Many library fields share short names such as len/type/close. Match the
+  ** actual table fetch too, instead of committing to the first field-name hit.
+  */
+  if (bcemit_lua54_is_coroutine_wrapper_name(field) &&
+      bcemit_lua54_is_table_fetch(fs, tablebase, tablepc, "coroutine", 9))
+    return 1;
+  if (bcemit_lua54_is_string_wrapper_name(field) &&
+      bcemit_lua54_is_table_fetch(fs, tablebase, tablepc, "string", 6))
+    return 1;
+  if (bcemit_lua54_is_string_wrapper_name(field)) {
+    /* Method syntax emits `MOV base+1, object; TGET* base, object, field`.
+    ** If it calls the string library through the string metatable, tailcall
+    ** frame replacement makes diagnostics count the hidden self as #1 and
+    ** fall back to string.xxx. Keep the source method frame for Lua 5.4.
+    */
+    movpc = keypc == fieldpc ? fieldpc : keypc;
+    if (movpc > 0) {
+      selfcopy = fs->bcbase[movpc - 1].ins;
+      if (bc_op(selfcopy) == BC_MOV &&
+	  bc_a(selfcopy) == bc_a(ins) + 1 + fs->ls->fr2 &&
+	  bc_d(selfcopy) == tablebase)
+	return 1;
+    }
+  }
+  if (bcemit_lua54_is_math_entry_name(field) &&
+      bcemit_lua54_is_table_fetch(fs, tablebase, tablepc, "math", 4))
+    return 1;
+  if (bcemit_lua54_is_os_entry_name(field) &&
+      bcemit_lua54_is_table_fetch(fs, tablebase, tablepc, "os", 2))
+    return 1;
+  if (bcemit_lua54_is_io_std_file_method_call(fs, fieldpc, field, keypc))
+    return 1;
+  if (bcemit_lua54_is_io_entry_name(field) &&
+      bcemit_lua54_is_table_fetch(fs, tablebase, tablepc, "io", 2))
+    return 1;
+  if (bcemit_lua54_is_debug_entry_name(field) &&
+      bcemit_lua54_is_table_fetch(fs, tablebase, tablepc, "debug", 5))
+    return 1;
+  if (bcemit_lua54_is_utf8_entry_name(field) &&
+      bcemit_lua54_is_table_fetch(fs, tablebase, tablepc, "utf8", 4))
+    return 1;
+  if (bcemit_lua54_is_package_entry_name(field) &&
+      bcemit_lua54_is_table_fetch(fs, tablebase, tablepc, "package", 7))
+    return 1;
+  return 0;
+}
+
+static int bcemit_lua54_is_base_global_call(FuncState *fs, BCPos fieldpc,
+					    GCstr *field, BCPos keypc)
+{
+  BCIns ins;
+  BCOp op;
+  BCReg tablebase;
+  BCPos tablepc;
+  if (!bcemit_lua54_is_base_global_name(field) || fieldpc >= fs->pc)
+    return 0;
+  ins = fs->bcbase[fieldpc].ins;
+  op = bc_op(ins);
+  if (op != BC_TGETS && op != BC_TGETV)
+    return 0;
+  tablebase = bc_b(ins);
+  tablepc = keypc == fieldpc ? fieldpc - 1 : keypc - 1;
+  return bcemit_lua54_is_env_upvalue_fetch(fs, tablebase, tablepc);
+}
+
+static int bcemit_lua54_is_marked_global_notail_call(FuncState *fs,
+						     BCPos fieldpc,
+						     GCstr *field,
+						     BCPos keypc)
+{
+  BCIns ins;
+  BCOp op;
+  BCReg tablebase;
+  BCPos tablepc;
+  if (!lua54_global_notailcall(fs, field) || fieldpc >= fs->pc)
+    return 0;
+  ins = fs->bcbase[fieldpc].ins;
+  op = bc_op(ins);
+  if (op != BC_TGETS && op != BC_TGETV)
+    return 0;
+  tablebase = bc_b(ins);
+  tablepc = keypc == fieldpc ? fieldpc - 1 : keypc - 1;
+  return bcemit_lua54_is_env_upvalue_fetch(fs, tablebase, tablepc);
+}
+
+static int bcemit_lua54_is_marked_table_notail_call(FuncState *fs,
+						    BCPos fieldpc,
+						    GCstr *field,
+						    BCPos keypc)
+{
+  BCIns ins;
+  BCOp op;
+  BCReg tablebase;
+  BCPos tablepc;
+  VarIndex table;
+  if (field == NULL || fieldpc >= fs->pc)
+    return 0;
+  ins = fs->bcbase[fieldpc].ins;
+  op = bc_op(ins);
+  if (op != BC_TGETS && op != BC_TGETV)
+    return 0;
+  tablebase = bc_b(ins);
+  tablepc = keypc == fieldpc ? (fieldpc == 0 ? 0 : fieldpc - 1) :
+	    (keypc == 0 ? 0 : keypc - 1);
+  table = lua54_reg_table_source(fs, tablebase, tablepc);
+  return lua54_table_notailcall(fs, table, field);
+}
+
+static int bcemit_lua54_is_lines_iterator_result(FuncState *fs, BCPos callpc)
+{
+  BCIns call = fs->bcbase[callpc].ins;
+  BCReg base = bc_a(call);
+  BCPos pos = callpc;
+  while (pos-- > 0 && callpc - pos <= LUA54_NOTAIL_SCAN_LIMIT) {
+    BCIns ins = fs->bcbase[pos].ins;
+    BCOp op = bc_op(ins);
+    if (bc_a(ins) != base)
+      continue;
+    if (op == BC_TGETS) {
+      GCstr *field = bcemit_lua54_const_str_by_slot(fs, bc_c(ins));
+      return bcemit_lua54_streq(field, "lines", 5);
+    }
+    if (op == BC_TGETV && pos >= 1) {
+      BCIns key = fs->bcbase[pos - 1].ins;
+      if (bc_op(key) == BC_KSTR && bc_a(key) == bc_c(ins)) {
+	GCstr *field = bcemit_lua54_const_str_by_slot(fs, bc_d(key));
+	return bcemit_lua54_streq(field, "lines", 5);
+      }
+    }
+    break;
+  }
+  return 0;
+}
+
+static int bcemit_lua54_is_private_helper_call(FuncState *fs, ExpDesc *e)
+{
+  BCPos pc = e->u.s.info;
+  BCIns call = fs->bcbase[pc].ins;
+  BCReg base = bc_a(call);
+  if ((bc_op(call) != BC_CALL && bc_op(call) != BC_CALLM) || pc == 0)
+    return 0;
+  {
+    BCPos pos = pc;
+    /* Keep Lua 5.4 private helper and protected-call helpers as ordinary calls
+    ** in return position. Their C error/unwind paths still need the caller
+    ** frame; tail-call optimization would remove exactly that frame.
+    */
+    while (pos-- > 0 && pc - pos <= LUA54_NOTAIL_SCAN_LIMIT) {
+      BCIns ins = fs->bcbase[pos].ins;
+      BCOp op = bc_op(ins);
+      if (bc_a(ins) != base)
+	continue;
+      if (op == BC_TGETS && bc_b(ins) == base) {
+	GCstr *field = bcemit_lua54_const_str_by_slot(fs, bc_c(ins));
+	return bcemit_lua54_is_helper_name(field) ||
+	       bcemit_lua54_is_known_lib_wrapper_call(fs, pos, field, pos) ||
+	       bcemit_lua54_is_base_global_call(fs, pos, field, pos) ||
+	       bcemit_lua54_is_marked_global_notail_call(fs, pos, field,
+							 pos) ||
+	       bcemit_lua54_is_marked_table_notail_call(fs, pos, field,
+							pos);
+      }
+      if (op == BC_TGETV && bc_b(ins) == base && pos >= 1) {
+	BCIns key = fs->bcbase[pos - 1].ins;
+	if (bc_op(key) == BC_KSTR && bc_a(key) == bc_c(ins)) {
+	  GCstr *field = bcemit_lua54_const_str_by_slot(fs, bc_d(key));
+	  return bcemit_lua54_is_helper_name(field) ||
+		 bcemit_lua54_is_known_lib_wrapper_call(fs, pos, field,
+							pos - 1) ||
+		 bcemit_lua54_is_base_global_call(fs, pos, field, pos - 1) ||
+		 bcemit_lua54_is_marked_global_notail_call(fs, pos, field,
+							   pos - 1) ||
+		 bcemit_lua54_is_marked_table_notail_call(fs, pos, field,
+							  pos - 1);
+	}
+      }
+      break;
+    }
+  }
+  return 0;
 }
 
 static void bcemit_lua54_helper(FuncState *fs, const char *field, size_t len,
@@ -791,11 +1859,13 @@ static void bcemit_lua54_checkclose(FuncState *fs, BCReg slot, GCstr *name)
   fs->freereg = base;
 }
 
-static void bcemit_lua54_closevalue(FuncState *fs, BCReg slot)
+static void bcemit_lua54_closevalue(FuncState *fs, BCReg slot, BCReg errval,
+				    BCReg haserr)
 {
   LexState *ls = fs->ls;
   BCReg base = fs->freereg;
   BCReg argbase;
+  BCPos okjump;
   /* The C helper only prepares the close method call and unmarks the slot.
   ** The parser emits the actual __close(value, nil) as a normal Lua call so a
   ** closing metamethod can yield and resume across this frame, matching Lua
@@ -805,24 +1875,66 @@ static void bcemit_lua54_closevalue(FuncState *fs, BCReg slot)
   bcreg_reserve(fs, 1);
   if (ls->fr2) bcreg_reserve(fs, 1);
   bcemit_lua54_jit_field(fs, base, "_lua54_closevalue", 17);
-  bcreg_reserve(fs, 2);
+  bcreg_reserve(fs, 3);
   argbase = (BCReg)(base + 1 + ls->fr2);
   bcemit_AD(fs, BC_MOV, argbase, slot);
   bcemit_AD(fs, BC_KSHORT, (BCReg)(argbase + 1),
 	    (BCReg)(uint16_t)((int32_t)slot - (int32_t)argbase));
-  bcemit_ABC(fs, BC_CALL, base, 4,
+  bcemit_AD(fs, BC_MOV, (BCReg)(argbase + 2), errval);
+  bcemit_ABC(fs, BC_CALL, base, 6,
 	     fs->freereg - base - ls->fr2);
-  fs->freereg = (BCReg)(base + 3);
+  fs->freereg = (BCReg)(base + 5);
   if (ls->fr2) {
     /* C returns compact results. Move them into the same callee/gap/arg layout
     ** that a normal Lua call expression would use on FR2 targets.
     */
+    bcemit_AD(fs, BC_MOV, (BCReg)(base + 5), (BCReg)(base + 4));
+    bcemit_AD(fs, BC_MOV, (BCReg)(base + 4), (BCReg)(base + 3));
     bcemit_AD(fs, BC_MOV, (BCReg)(base + 3), (BCReg)(base + 2));
     bcemit_AD(fs, BC_MOV, (BCReg)(base + 2), (BCReg)(base + 1));
-    fs->freereg = (BCReg)(base + 4);
+    fs->freereg = (BCReg)(base + 6);
   }
-  bcemit_ABC(fs, BC_CALL, base, 1, fs->freereg - base - ls->fr2);
+  /* Run __close through pcall. A close method may yield and later throw; the
+  ** inner protected frame keeps that delayed error catchable, then the
+  ** explicit rethrow below lets the outer close-unwind path close remaining
+  ** variables with the replacement error object.
+  */
+  bcemit_ABC(fs, BC_CALL, base, 3, fs->freereg - base - ls->fr2);
+  fs->freereg = (BCReg)(base + 2);
+  argbase = fs->freereg;
+  bcemit_AD(fs, BC_GGET, argbase, const_lit(fs, "jit", 3));
+  bcreg_reserve(fs, 1);
+  if (ls->fr2) bcreg_reserve(fs, 1);
+  bcemit_lua54_jit_field(fs, argbase, "_lua54_closefinish", 18);
+  bcemit_ABC(fs, BC_CALL, argbase, 1, fs->freereg - argbase - ls->fr2);
+  fs->freereg = (BCReg)(base + 2);
+  bcemit_AD(fs, BC_IST, 0, base);
+  okjump = bcemit_AJ(fs, BC_JMP, fs->freereg, NO_JMP);
+  bcemit_AD(fs, BC_MOV, errval, (BCReg)(base + 1));
+  bcemit_AD(fs, BC_KPRI, haserr, 2);
+  jmp_tohere(fs, okjump);
   fs->freereg = base;
+}
+
+static void bcemit_lua54_throwcloseerror(FuncState *fs, BCReg errval,
+					 BCReg haserr)
+{
+  LexState *ls = fs->ls;
+  BCReg errbase;
+  BCReg argbase;
+  BCPos noerr;
+  bcemit_AD(fs, BC_ISF, 0, haserr);
+  noerr = bcemit_AJ(fs, BC_JMP, fs->freereg, NO_JMP);
+  errbase = fs->freereg;
+  bcemit_AD(fs, BC_GGET, errbase, const_lit(fs, "error", 5));
+  bcreg_reserve(fs, 1);
+  if (ls->fr2) bcreg_reserve(fs, 1);
+  bcreg_reserve(fs, 2);
+  argbase = (BCReg)(errbase + 1 + ls->fr2);
+  bcemit_AD(fs, BC_MOV, argbase, errval);
+  bcemit_AD(fs, BC_KSHORT, (BCReg)(argbase + 1), 0);
+  bcemit_ABC(fs, BC_CALL, errbase, 1, fs->freereg - errbase - ls->fr2);
+  jmp_tohere(fs, noerr);
 }
 
 static void bcemit_lua54_returnpack_begin(FuncState *fs, BCReg base)
@@ -878,6 +1990,23 @@ static void expr_toval(FuncState *fs, ExpDesc *e)
 }
 
 /* Emit store for LHS expression. */
+#if LJ_54
+static void lua54_check_const_assign_line(FuncState *fs, ExpDesc *var,
+					  BCLine line)
+{
+  VarInfo *vi = NULL;
+  if (var->k == VLOCAL || var->k == VUPVAL)
+    vi = &fs->ls->vstack[var->u.s.aux];
+  if (vi != NULL && (vi->info & VSTACK_VAR_CONST)) {
+    /* The lexer may already have consumed a multi-line RHS or EOF. Lua 5.4
+    ** reports const assignment at the left-hand-side token line instead.
+    */
+    fs->ls->linenumber = line;
+    lj_lex_error(fs->ls, 0, LJ_ERR_XCONST, strdata(strref(vi->name)));
+  }
+}
+#endif
+
 static void bcemit_store(FuncState *fs, ExpDesc *var, ExpDesc *e)
 {
   BCIns ins;
@@ -885,6 +2014,16 @@ static void bcemit_store(FuncState *fs, ExpDesc *var, ExpDesc *e)
     VarInfo *vi = &fs->ls->vstack[var->u.s.aux];
     if (vi->info & VSTACK_VAR_CONST)
       lj_lex_error(fs->ls, 0, LJ_ERR_XCONST, strdata(strref(vi->name)));
+#if LJ_54
+    /* A Lua 5.4 tail-call name marker only describes the initializer source.
+    ** Once a mutable local is assigned again, keeping that stale marker would
+    ** disable tail calls for an unrelated value stored in the same slot.
+    */
+    vi->info &= ~(VSTACK_VAR_NOTAILCALL|VSTACK_VAR_TABLE);
+    lua54_clear_table_notailcall(fs, var->u.s.aux);
+    lua54_clear_table_alias(fs, var->u.s.aux);
+    lua54_clear_table_field_alias(fs, var->u.s.aux);
+#endif
     vi->info |= VSTACK_VAR_RW;
     expr_free(fs, e);
     expr_toreg(fs, e, var->u.s.info);
@@ -893,6 +2032,12 @@ static void bcemit_store(FuncState *fs, ExpDesc *var, ExpDesc *e)
     VarInfo *vi = &fs->ls->vstack[var->u.s.aux];
     if (vi->info & VSTACK_VAR_CONST)
       lj_lex_error(fs->ls, 0, LJ_ERR_XCONST, strdata(strref(vi->name)));
+#if LJ_54
+    vi->info &= ~VSTACK_VAR_TABLE;
+    lua54_clear_table_notailcall(fs, var->u.s.aux);
+    lua54_clear_table_alias(fs, var->u.s.aux);
+    lua54_clear_table_field_alias(fs, var->u.s.aux);
+#endif
     vi->info |= VSTACK_VAR_RW;
     expr_toval(fs, e);
     if (e->k <= VKTRUE)
@@ -1120,6 +2265,14 @@ static void bcemit_comp(FuncState *fs, BinOpr opr, ExpDesc *e1, ExpDesc *e2)
       ins = BCINS_AD(op+(BC_ISEQP-BC_ISEQV), ra, const_pri(e2));
       break;
     case VKSTR:
+#if LJ_54
+      if (strislong(e2->u.sval)) {
+	/* Lua 5.4 long strings are not interned. Avoid the ISEQS pointer
+	** specialization so long-string constants compare by bytes via ISEQV.
+	*/
+	ins = BCINS_AD(op, ra, expr_toanyreg(fs, e2));
+      } else
+#endif
       ins = BCINS_AD(op+(BC_ISEQS-BC_ISEQV), ra, const_str(fs, e2));
       break;
     case VKNUM:
@@ -1269,10 +2422,17 @@ static void bcemit_unop(FuncState *fs, BCOp op, ExpDesc *e)
 	TValue *o = expr_numtv(e);
 	if (tvisint(o)) {
 	  int32_t k = intV(o), negk = (int32_t)(~(uint32_t)k+1u);
+#if LJ_54
+	  /* Lua 5.4 integer arithmetic wraps on overflow, so -mininteger stays
+	  ** mininteger on the current 32 bit compatibility integer surface.
+	  */
+	  setintV(o, negk);
+#else
 	  if (k == negk)
 	    setnumV(o, -(lua_Number)k);
 	  else
 	    setintV(o, negk);
+#endif
 	  return;
 	} else {
 	  o->u64 ^= U64x(80000000,00000000);
@@ -1335,6 +2495,422 @@ static GCstr *lex_str(LexState *ls)
 /* -- Variable handling --------------------------------------------------- */
 
 #define var_get(ls, fs, i)	((ls)->vstack[(fs)->varmap[(i)]])
+
+#if LJ_54
+static int lua54_local_notailcall(FuncState *fs, BCReg reg)
+{
+  return reg < fs->nactvar &&
+	 (var_get(fs->ls, fs, reg).info & VSTACK_VAR_NOTAILCALL) != 0;
+}
+
+static int lua54_upvalue_notailcall(FuncState *fs, BCReg uv)
+{
+  VarIndex vidx, uvsrc;
+  if (uv >= fs->nuv)
+    return 0;
+  if (fs->uvnotail[uv])
+    return 1;
+  vidx = fs->uvmap[uv];
+  if (vidx < fs->ls->vtop &&
+      (fs->ls->vstack[vidx].info & VSTACK_VAR_NOTAILCALL) != 0)
+    return 1;
+  uvsrc = fs->uvtmp[uv];
+  return uvsrc < LJ_MAX_VSTACK && uvsrc < fs->ls->vtop &&
+	 (fs->ls->vstack[uvsrc].info & VSTACK_VAR_NOTAILCALL) != 0;
+}
+
+static int lua54_callbase_notailcall(FuncState *fs, ExpDesc *e)
+{
+  BCPos pc = e->u.s.info;
+  BCIns call = fs->bcbase[pc].ins;
+  BCReg base = bc_a(call);
+  if (lua54_local_notailcall(fs, base))
+    return 1;
+  while (pc-- > 0 && e->u.s.info - pc <= LUA54_NOTAIL_SCAN_LIMIT) {
+    BCIns ins = fs->bcbase[pc].ins;
+    BCOp op = bc_op(ins);
+    if (bc_a(ins) != base)
+      continue;
+    /* Calls move locals to a temporary base register before arguments are
+    ** loaded. Follow that MOV so a local alias like `f = math.abs` can keep
+    ** its source-level name when a tail-position C argument check fails.
+    */
+    if (op == BC_MOV)
+      return lua54_local_notailcall(fs, bc_d(ins));
+    if (op == BC_UGET)
+      return lua54_upvalue_notailcall(fs, bc_d(ins));
+    if (op == BC_TGETS) {
+      GCstr *field = bcemit_lua54_const_str_by_slot(fs, bc_c(ins));
+      return bcemit_lua54_is_helper_name(field) ||
+	     bcemit_lua54_is_known_lib_wrapper_call(fs, pc, field, pc) ||
+	     bcemit_lua54_is_base_global_call(fs, pc, field, pc) ||
+	     bcemit_lua54_is_marked_global_notail_call(fs, pc, field, pc) ||
+	     bcemit_lua54_is_marked_table_notail_call(fs, pc, field, pc);
+    }
+    if (op == BC_TGETV && pc > 0) {
+      BCIns key = fs->bcbase[pc - 1].ins;
+      if (bc_op(key) == BC_KSTR && bc_a(key) == bc_c(ins)) {
+	GCstr *field = bcemit_lua54_const_str_by_slot(fs, bc_d(key));
+	return bcemit_lua54_is_helper_name(field) ||
+	       bcemit_lua54_is_known_lib_wrapper_call(fs, pc, field, pc - 1) ||
+	       bcemit_lua54_is_base_global_call(fs, pc, field, pc - 1) ||
+	       bcemit_lua54_is_marked_global_notail_call(fs, pc, field,
+							 pc - 1) ||
+	       bcemit_lua54_is_marked_table_notail_call(fs, pc, field,
+							pc - 1);
+      }
+    }
+    break;
+  }
+  return 0;
+}
+
+static int lua54_slot_helper_init_range(FuncState *fs, BCReg slot,
+					BCPos startpc, BCPos stoppc)
+{
+  BCPos pc = stoppc;
+  while (pc-- > startpc) {
+    BCIns ins = fs->bcbase[pc].ins;
+    BCOp op = bc_op(ins);
+    if (bc_a(ins) != slot)
+      continue;
+    if (op == BC_MOV) {
+      /* Propagate Lua 5.4 callsite-name preservation through simple aliases:
+      ** local it2 = it; return it2()
+      */
+      return lua54_local_notailcall(fs, bc_d(ins));
+    } else if (op == BC_UGET) {
+      return lua54_upvalue_notailcall(fs, bc_d(ins));
+    } else if (op == BC_CALL || op == BC_CALLM) {
+      /* `local it = io.lines(...); return it()` must keep the wrapper frame
+      ** for Lua 5.4 iterator argument errors such as "bad argument #2 to 'it'".
+      */
+      return bcemit_lua54_is_lines_iterator_result(fs, pc);
+    } else if (op == BC_TGETS) {
+      GCstr *field = bcemit_lua54_const_str_by_slot(fs, bc_c(ins));
+      return bcemit_lua54_is_helper_name(field) ||
+	     bcemit_lua54_is_known_lib_wrapper_call(fs, pc, field, pc) ||
+	     bcemit_lua54_is_base_global_call(fs, pc, field, pc) ||
+	     bcemit_lua54_is_marked_global_notail_call(fs, pc, field, pc) ||
+	     bcemit_lua54_is_marked_table_notail_call(fs, pc, field, pc);
+    } else if (op == BC_TGETV && pc > startpc) {
+      BCIns key = fs->bcbase[pc - 1].ins;
+      if (bc_op(key) == BC_KSTR && bc_a(key) == bc_c(ins)) {
+	GCstr *field = bcemit_lua54_const_str_by_slot(fs, bc_d(key));
+	return bcemit_lua54_is_helper_name(field) ||
+	       bcemit_lua54_is_known_lib_wrapper_call(fs, pc, field, pc - 1) ||
+	       bcemit_lua54_is_base_global_call(fs, pc, field, pc - 1) ||
+	       bcemit_lua54_is_marked_global_notail_call(fs, pc, field,
+							 pc - 1) ||
+	       bcemit_lua54_is_marked_table_notail_call(fs, pc, field,
+							pc - 1);
+      }
+    }
+    return 0;
+  }
+  return 0;
+}
+
+static int lua54_slot_helper_init(FuncState *fs, BCReg slot, BCPos startpc)
+{
+  return lua54_slot_helper_init_range(fs, slot, startpc, fs->pc);
+}
+
+static VarIndex lua54_slot_table_source_init_range(FuncState *fs, BCReg slot,
+						   BCPos startpc,
+						   BCPos stoppc)
+{
+  BCPos pc = stoppc;
+  while (pc-- > startpc) {
+    BCIns ins = fs->bcbase[pc].ins;
+    BCOp op = bc_op(ins);
+    if (bc_a(ins) != slot)
+      continue;
+    if (op == BC_MOV)
+      return lua54_resolve_table_alias(fs,
+	lua54_reg_table_source(fs, bc_d(ins), pc));
+    if (op == BC_UGET) {
+      BCReg uv = bc_d(ins);
+      if (uv < fs->nuv)
+	return lua54_resolve_table_alias(fs, fs->uvmap[uv]);
+    }
+    return LJ_MAX_VSTACK;
+  }
+  return LJ_MAX_VSTACK;
+}
+
+static VarIndex lua54_slot_table_source_init(FuncState *fs, BCReg slot,
+					     BCPos startpc)
+{
+  return lua54_slot_table_source_init_range(fs, slot, startpc, fs->pc);
+}
+
+static int lua54_slot_table_constructor_init_range(FuncState *fs, BCReg slot,
+						   BCPos startpc,
+						   BCPos stoppc)
+{
+  BCPos pc = stoppc;
+  while (pc-- > startpc) {
+    BCIns ins = fs->bcbase[pc].ins;
+    BCOp op = bc_op(ins);
+    if (bc_a(ins) != slot)
+      continue;
+    return op == BC_TNEW || op == BC_TDUP;
+  }
+  return 0;
+}
+
+static int lua54_slot_table_constructor_init(FuncState *fs, BCReg slot,
+					     BCPos startpc)
+{
+  return lua54_slot_table_constructor_init_range(fs, slot, startpc, fs->pc);
+}
+
+static VarIndex lua54_store_value_table_source(FuncState *fs, BCReg reg,
+					       BCPos storepc);
+
+static GCstr *lua54_constructor_store_field(FuncState *fs, BCPos pc,
+					    BCReg slot)
+{
+  BCIns ins = fs->bcbase[pc].ins;
+  BCOp op = bc_op(ins);
+  if (bc_b(ins) != slot)
+    return NULL;
+  if (op == BC_TSETS)
+    return bcemit_lua54_const_str_by_slot(fs, bc_c(ins));
+  if (op == BC_TSETV && pc > 0) {
+    BCIns key = fs->bcbase[pc - 1].ins;
+    if (bc_op(key) == BC_KSTR && bc_a(key) == bc_c(ins))
+      return bcemit_lua54_const_str_by_slot(fs, bc_d(key));
+  }
+  return NULL;
+}
+
+static void lua54_mark_constructor_field_aliases(FuncState *fs,
+						 VarIndex table, BCReg slot,
+						 BCPos startpc, BCPos stoppc,
+						 int pending)
+{
+  BCPos pc;
+  for (pc = startpc; pc < stoppc; pc++) {
+    BCIns ins = fs->bcbase[pc].ins;
+    BCOp op = bc_op(ins);
+    GCstr *field;
+    VarIndex source;
+    if (op != BC_TSETS && op != BC_TSETV)
+      continue;
+    field = lua54_constructor_store_field(fs, pc, slot);
+    if (field == NULL)
+      continue;
+    /* Table constructors emit field stores before the new local is active:
+    ** `local holder = { inner = t }`. Scan those stores after the target
+    ** local is marked as a table source so the static `inner -> t` relation
+    ** can feed later `holder.inner.f = helper` callsite-name propagation.
+    */
+    source = lua54_store_value_table_source(fs, bc_a(ins), pc);
+    if (pending)
+      lua54_mark_pending_table_field_alias(fs, table, field, source);
+    else
+      lua54_mark_table_field_alias(fs, table, field, source);
+  }
+}
+
+static VarIndex lua54_expr_table_source(FuncState *fs, ExpDesc *e)
+{
+  VarIndex table = LJ_MAX_VSTACK;
+  if (e->k == VLOCAL)
+    table = lua54_resolve_table_alias(fs, (VarIndex)e->u.s.aux);
+  else if (e->k == VUPVAL && e->u.s.info < fs->nuv)
+    table = lua54_resolve_table_alias(fs, fs->uvmap[e->u.s.info]);
+  return lua54_is_known_table_source(fs, table) ? table : LJ_MAX_VSTACK;
+}
+
+static GCstr *lua54_indexed_const_field(FuncState *fs, ExpDesc *var,
+					BCPos lhspc, BCPos rhspc)
+{
+  if (var->k == VGLOBAL)
+    return var->u.sval;
+  if (var->k == VINDEXED) {
+    int32_t aux = (int32_t)var->u.s.aux;
+    if (aux < 0)
+      return bcemit_lua54_const_str_by_slot(fs, (BCReg)(~aux));
+    if (var->u.s.aux <= BCMAX_C && rhspc > lhspc) {
+      BCReg key = (BCReg)var->u.s.aux;
+      BCPos pc = rhspc;
+      /* Fields whose string constant index no longer fits TGETS/TSETS are
+      ** emitted as `KSTR key; TGETV/TSETV ... key`. Treat only that static
+      ** KSTR shape as a constant field; real dynamic keys must stay dynamic.
+      */
+      while (pc > lhspc) {
+	BCIns ins;
+	BCOp op;
+	pc--;
+	ins = fs->bcbase[pc].ins;
+	op = bc_op(ins);
+	if (bc_a(ins) != key)
+	  continue;
+	if (op == BC_KSTR)
+	  return bcemit_lua54_const_str_by_slot(fs, bc_d(ins));
+	return NULL;
+      }
+    }
+  }
+  return NULL;
+}
+
+static int lua54_reg_is_env_or_global_table(FuncState *fs, BCReg reg, BCPos pc)
+{
+  while (pc-- > 0) {
+    BCIns ins = fs->bcbase[pc].ins;
+    BCOp op = bc_op(ins);
+    if (bc_a(ins) != reg)
+      continue;
+    if (op == BC_UGET)
+      return bcemit_lua54_is_env_upvalue_fetch(fs, reg, pc);
+    if (op == BC_MOV)
+      return lua54_reg_is_env_or_global_table(fs, bc_d(ins), pc);
+    if (op == BC_TGETS) {
+      GCstr *field = bcemit_lua54_const_str_by_slot(fs, bc_c(ins));
+      if (bcemit_lua54_streq(field, "_G", 2))
+	return lua54_reg_is_env_or_global_table(fs, bc_b(ins), pc);
+    } else if (op == BC_TGETV && pc >= 1) {
+      BCIns key = fs->bcbase[pc - 1].ins;
+      if (bc_op(key) == BC_KSTR && bc_a(key) == bc_c(ins)) {
+	GCstr *field = bcemit_lua54_const_str_by_slot(fs, bc_d(key));
+	if (bcemit_lua54_streq(field, "_G", 2))
+	  return lua54_reg_is_env_or_global_table(fs, bc_b(ins), pc);
+      }
+    }
+    return 0;
+  }
+  return 0;
+}
+
+static int lua54_indexed_global_alias_store(FuncState *fs, ExpDesc *var)
+{
+  if (var->k == VGLOBAL)
+    return 1;
+  return var->k == VINDEXED &&
+	 lua54_reg_is_env_or_global_table(fs, var->u.s.info, fs->pc - 1);
+}
+
+static VarIndex lua54_indexed_table_source(FuncState *fs, ExpDesc *var)
+{
+  if (var->k != VINDEXED)
+    return LJ_MAX_VSTACK;
+  return lua54_reg_table_source(fs, var->u.s.info, fs->pc - 1);
+}
+
+static BCReg lua54_last_store_value(FuncState *fs)
+{
+  BCIns ins;
+  BCOp op;
+  if (fs->pc == 0)
+    return NO_REG;
+  ins = fs->bcbase[fs->pc - 1].ins;
+  op = bc_op(ins);
+  if (op == BC_GSET || op == BC_TSETS || op == BC_TSETV || op == BC_TSETB)
+    return bc_a(ins);
+  return NO_REG;
+}
+
+static VarIndex lua54_store_value_table_source(FuncState *fs, BCReg reg,
+					       BCPos storepc)
+{
+  if (reg == NO_REG)
+    return LJ_MAX_VSTACK;
+  if (reg < fs->nactvar)
+    return lua54_reg_table_source(fs, reg, storepc);
+  /* Non-local RHS values are often materialized immediately before the store,
+  ** for example `holder.alias = base.inner`. Start before the final TSET/GSET
+  ** so source tracing sees the TGETS/TGETV that produced the temporary value.
+  */
+  if (storepc > 0)
+    return lua54_reg_table_source(fs, reg, storepc - 1);
+  return LJ_MAX_VSTACK;
+}
+
+static void lua54_mark_notailcall_locals(LexState *ls, BCReg nvars,
+					 BCPos startpc)
+{
+  FuncState *fs = ls->fs;
+  BCReg i;
+  for (i = 0; i < nvars; i++) {
+    BCReg slot = (BCReg)(fs->nactvar + i);
+    VarIndex table = lua54_slot_table_source_init(fs, slot, startpc);
+    if (lua54_slot_table_constructor_init(fs, slot, startpc)) {
+      ls->vstack[ls->vtop - nvars + i].info |= VSTACK_VAR_TABLE;
+      lua54_mark_constructor_field_aliases(fs, fs->varmap[slot], slot,
+					   startpc, fs->pc, 1);
+    }
+    if (lua54_slot_helper_init(fs, slot, startpc))
+      ls->vstack[ls->vtop - nvars + i].info |= VSTACK_VAR_NOTAILCALL;
+    if (table < LJ_MAX_VSTACK)
+      lua54_mark_pending_table_alias(fs, fs->varmap[slot], table);
+  }
+}
+
+static void lua54_mark_notailcall_store(LexState *ls, ExpDesc *var,
+					BCPos lhspc, BCPos startpc)
+{
+  FuncState *fs = ls->fs;
+  if (var->k == VLOCAL) {
+    VarIndex table = lua54_slot_table_source_init(fs, var->u.s.info, startpc);
+    if (lua54_slot_table_constructor_init(fs, var->u.s.info, startpc)) {
+      ls->vstack[var->u.s.aux].info |= VSTACK_VAR_TABLE;
+      lua54_mark_constructor_field_aliases(fs, var->u.s.aux,
+					   var->u.s.info, startpc, fs->pc, 0);
+    }
+    if (lua54_slot_helper_init(fs, var->u.s.info, startpc)) {
+      /* Mutable locals can be rebound to coroutine.resume/close after their
+      ** declaration. Re-mark the slot here so later tail-position alias calls
+      ** keep the source frame and report Lua 5.4 callsite names such as 'f'.
+      */
+      ls->vstack[var->u.s.aux].info |= VSTACK_VAR_NOTAILCALL;
+    }
+    if (table < LJ_MAX_VSTACK)
+      lua54_mark_table_alias(fs, var->u.s.aux, table);
+  } else if (lua54_indexed_global_alias_store(fs, var)) {
+    GCstr *field = lua54_indexed_const_field(fs, var, lhspc, startpc);
+    BCReg ra = lua54_last_store_value(fs);
+    if (field != NULL && ra != NO_REG) {
+      VarIndex table = lua54_store_value_table_source(fs, ra, fs->pc - 1);
+      /* Track only globals that this parser pass has just assigned from a
+      ** known no-tail helper result. This covers `global_it = io.lines(...)`
+      ** without disabling tail calls for arbitrary global Lua functions.
+      */
+      lua54_mark_global_notailcall(fs, field,
+	lua54_local_notailcall(fs, ra) ||
+	lua54_slot_helper_init_range(fs, ra, startpc, fs->pc - 1));
+      /* A global can also be a static table alias in the same chunk:
+      ** `g = t; g.f = math.abs; return t.f(true)` should report field `f`
+      ** like Lua 5.4, but unrelated runtime global rebindings remain dynamic
+      ** and are not inferred here.
+      */
+      lua54_mark_global_table_alias(fs, field, table);
+    }
+  } else if (var->k == VINDEXED) {
+    GCstr *field = lua54_indexed_const_field(fs, var, lhspc, startpc);
+    VarIndex table = lua54_indexed_table_source(fs, var);
+    BCReg ra = lua54_last_store_value(fs);
+    if (field != NULL && table < LJ_MAX_VSTACK) {
+      VarIndex source = ra != NO_REG ?
+	lua54_store_value_table_source(fs, ra, fs->pc - 1) : LJ_MAX_VSTACK;
+      lua54_mark_table_field_alias(fs, table, field, source);
+    }
+    if (field != NULL && table < LJ_MAX_VSTACK && ra != NO_REG) {
+      /* A field such as `aliases.f = math.abs` needs the same source-callsite
+      ** preservation as a local/global alias when it is later tail-called as
+      ** `return aliases.f(...)`. Keep this static and table-scoped so an
+      ** unrelated table field named `f` still uses normal tail-call codegen.
+      */
+      lua54_mark_table_notailcall(fs, table, field,
+	lua54_local_notailcall(fs, ra) ||
+	lua54_slot_helper_init_range(fs, ra, startpc, fs->pc - 1));
+    }
+  }
+}
+#endif
 
 /* Define a new local variable. */
 static void var_new(LexState *ls, BCReg n, GCstr *name)
@@ -1407,6 +2983,7 @@ static void var_new_lua54_envuv(LexState *ls)
   fs->lua54envvidx = (VarIndex)vtop;
   fs->uvmap[0] = (VarIndex)vtop;
   fs->uvtmp[0] = 0;
+  fs->uvnotail[0] = 0;
   fs->nuv = 1;
   ls->vtop = vtop+1;
   fs->vbase = ls->vtop;
@@ -1419,8 +2996,10 @@ static int var_attr_parse(LexState *ls, VarIndex vidx)
     if (var_attr_islit(attr, "const", 5)) {
       ls->vstack[vidx].info |= VSTACK_VAR_CONST;
     } else if (var_attr_islit(attr, "close", 5)) {
-      /* Lua 5.4 syntax is accepted here; __close dispatch is a VM task. */
-      ls->vstack[vidx].info |= VSTACK_VAR_CLOSE;
+      /* Lua 5.4 to-be-closed variables are also const after initialization;
+      ** reuse the existing const assignment checks for locals and upvalues.
+      */
+      ls->vstack[vidx].info |= VSTACK_VAR_CLOSE | VSTACK_VAR_CONST;
     } else {
       lj_lex_error(ls, 0, LJ_ERR_XATTRIB, strdata(attr));
     }
@@ -1455,13 +3034,28 @@ static MSize var_lookup_uv(FuncState *fs, MSize vidx, ExpDesc *e)
 {
   MSize i, n = fs->nuv;
   for (i = 0; i < n; i++)
-    if (fs->uvmap[i] == vidx)
+    if (fs->uvmap[i] == vidx) {
+#if LJ_54
+      if (e->k == VLOCAL &&
+	  (fs->ls->vstack[vidx].info & VSTACK_VAR_NOTAILCALL) != 0)
+	fs->uvnotail[i] = 1;
+      else if (e->k == VUPVAL && fs->prev != NULL &&
+	       e->u.s.info < fs->prev->nuv && fs->prev->uvnotail[e->u.s.info])
+	fs->uvnotail[i] = 1;
+#endif
       return i;  /* Already exists. */
+    }
   /* Otherwise create a new one. */
   checklimit(fs, fs->nuv, LJ_MAX_UPVAL, "upvalues");
   lj_assertFS(e->k == VLOCAL || e->k == VUPVAL, "bad expr type %d", e->k);
   fs->uvmap[n] = (uint16_t)vidx;
   fs->uvtmp[n] = (uint16_t)(e->k == VLOCAL ? vidx : LJ_MAX_VSTACK+e->u.s.info);
+#if LJ_54
+  fs->uvnotail[n] = e->k == VLOCAL ?
+    ((fs->ls->vstack[vidx].info & VSTACK_VAR_NOTAILCALL) != 0) :
+    (fs->prev != NULL && e->u.s.info < fs->prev->nuv &&
+     fs->prev->uvnotail[e->u.s.info]);
+#endif
   fs->nuv = n+1;
   return n;
 }
@@ -1554,6 +3148,7 @@ static MSize gola_new(LexState *ls, GCstr *name, uint8_t info, BCPos pc)
   /* NOBARRIER: name is anchored in fs->kt and ls->vstack is not a GCobj. */
   setgcref(ls->vstack[vtop].name, obj2gco(name));
   ls->vstack[vtop].startpc = pc;
+  ls->vstack[vtop].endpc = ls->linenumber;
   ls->vstack[vtop].slot = (uint8_t)fs->nactvar;
   ls->vstack[vtop].info = info;
   ls->vtop = vtop+1;
@@ -1637,15 +3232,24 @@ static void gola_fixup(LexState *ls, FuncScope *bl)
 	} else {  /* No outer scope: undefined goto label or no loop. */
 	  ls->linenumber = ls->fs->bcbase[v->startpc].line;
 	  if (name == NAME_BREAK)
+#if LJ_54
+	    lj_lex_error(ls, 0, LJ_ERR_XBREAK, ls->linenumber);
+#else
 	    lj_lex_error(ls, 0, LJ_ERR_XBREAK);
+#endif
 	  else
+#if LJ_54
+	    lj_lex_error(ls, 0, LJ_ERR_XLUNDEF, strdata(name), ls->linenumber);
+#else
 	    lj_lex_error(ls, 0, LJ_ERR_XLUNDEF, strdata(name));
+#endif
 	}
       }
     }
   }
 }
 
+#if !LJ_54
 /* Find existing label. */
 static VarInfo *gola_findlabel(LexState *ls, GCstr *name)
 {
@@ -1656,13 +3260,14 @@ static VarInfo *gola_findlabel(LexState *ls, GCstr *name)
       return v;
   return NULL;
 }
+#endif
 
 #if LJ_54
 /* Find an already-seen label that is visible from nested blocks. */
 static VarInfo *gola_findactivelabel(LexState *ls, GCstr *name)
 {
   VarInfo *v = ls->vstack + ls->vtop;
-  VarInfo *vb = ls->vstack;
+  VarInfo *vb = ls->vstack + ls->fs->vbase;
   while (v > vb) {
     GCstr *vname = strref((--v)->name);
     if (vname == name && gola_islabel(v))
@@ -1712,15 +3317,25 @@ static void fscope_closeactive_range(FuncState *fs, BCReg fromlevel,
 {
   LexState *ls = fs->ls;
   BCReg closevar;
+  BCReg errval, haserr;
   if (fromlevel > fs->nactvar)
     fromlevel = fs->nactvar;
+  if (!fscope_hascloseactive_range(fs, fromlevel, tolevel))
+    return;
   if (fs->freereg < fs->nactvar)
     fs->freereg = fs->nactvar;
+  errval = fs->freereg;
+  haserr = (BCReg)(errval + 1);
+  bcreg_reserve(fs, 2);
+  bcemit_AD(fs, BC_KPRI, errval, 0);
+  bcemit_AD(fs, BC_KPRI, haserr, 1);
   for (closevar = fromlevel; closevar > tolevel; ) {
     VarInfo *v = &var_get(ls, fs, --closevar);
     if (v->info & VSTACK_VAR_CLOSE)
-      bcemit_lua54_closevalue(fs, closevar);
+      bcemit_lua54_closevalue(fs, closevar, errval, haserr);
   }
+  bcemit_lua54_throwcloseerror(fs, errval, haserr);
+  fs->freereg = errval;
 }
 
 static void fscope_closeactive(FuncState *fs, BCReg tolevel)
@@ -2128,6 +3743,17 @@ static void fs_init(LexState *ls, FuncState *fs)
 #if LJ_54
   fs->lua54env = 0;
   fs->lua54envvidx = 0;
+  fs->ngnotail = 0;
+  fs->ntfnotail = 0;
+  fs->ngtalias = 0;
+  fs->ntfalias = 0;
+  fs->ntalias = 0;
+  memset(fs->uvnotail, 0, sizeof(fs->uvnotail));
+  memset(fs->gnotail, 0, sizeof(fs->gnotail));
+  memset(fs->tfnotail, 0, sizeof(fs->tfnotail));
+  memset(fs->gtalias, 0, sizeof(fs->gtalias));
+  memset(fs->tfalias, 0, sizeof(fs->tfalias));
+  memset(fs->talias, 0, sizeof(fs->talias));
 #endif
   fs->kt = lj_tab_new(L, 0, 0);
   /* Anchor table of constants in stack to avoid being collected. */
@@ -2282,6 +3908,9 @@ static void expr_table(LexState *ls, ExpDesc *e)
   if (vcall) {
     BCInsLine *ilp = &fs->bcbase[fs->pc-1];
     ExpDesc en;
+#if LJ_54
+    BCReg clear_callbase, clear_calln;
+#endif
     lj_assertFS(bc_a(ilp->ins) == freg &&
 		bc_op(ilp->ins) == (narr > 256 ? BC_TSETV : BC_TSETB),
 		"bad CALL code generation");
@@ -2289,8 +3918,22 @@ static void expr_table(LexState *ls, ExpDesc *e)
     en.u.nval.u32.lo = narr-1;
     en.u.nval.u32.hi = 0x43300000;  /* Biased integer to avoid denormals. */
     if (narr > 256) { fs->pc--; ilp--; }
+#if LJ_54
+    /* TSETM copies call results into the table, but the callee/gap/argument
+    ** registers can still hold finalizable values. Clear them before the next
+    ** allocation-triggered GC observes these dead temporaries.
+    */
+    clear_callbase = bc_a(ilp[-1].ins);
+    clear_calln = bc_op(ilp[-1].ins) == BC_CALL ?
+      (BCReg)(bc_c(ilp[-1].ins) + LJ_FR2) :
+      (BCReg)(fs->freereg - clear_callbase);
+#endif
     ilp->ins = BCINS_AD(BC_TSETM, freg, const_num(fs, &en));
     setbc_b(&ilp[-1].ins, 0);
+#if LJ_54
+    if (clear_calln != 0)
+      bcemit_nil(fs, clear_callbase, clear_calln);
+#endif
   }
   if (pc == fs->pc-1) {  /* Make expr relocable if possible. */
     e->u.s.info = pc;
@@ -2585,6 +4228,7 @@ static void expr_unop(LexState *ls, ExpDesc *v)
 {
   BCOp op;
 #if LJ_54
+  BCLine opline = ls->linenumber;
   int bitnot = 0;
 #endif
   if (ls->tok == TK_not) {
@@ -2607,10 +4251,19 @@ static void expr_unop(LexState *ls, ExpDesc *v)
 #if LJ_54
   if (bitnot) {
     bcemit_lua54_helper(ls->fs, "_lua54_bnot", 11, v, NULL, 1);
+    /* Lua 5.4 reports unary operator runtime errors at the operator line, not
+    ** at a later operand line in split expressions.
+    */
+    if (v->k == VCALL && v->u.s.info < ls->fs->pc)
+      ls->fs->bcbase[v->u.s.info].line = opline;
     return;
   }
 #endif
   bcemit_unop(ls->fs, op, v);
+#if LJ_54
+  if (v->k == VRELOCABLE && v->u.s.info < ls->fs->pc)
+    ls->fs->bcbase[v->u.s.info].line = opline;
+#endif
 }
 
 /* Parse binary expressions with priority higher than the limit. */
@@ -2689,10 +4342,20 @@ static void bcemit_lua54_thenline(FuncState *fs, BCPos condexit, BCLine thenline
 typedef struct LHSVarList {
   ExpDesc v;			/* LHS variable. */
   BCPos startpc;		/* First bytecode emitted for this LHS. */
+  BCLine line;			/* Line where the LHS variable starts. */
+#if LJ_54
+  BCPos rhspc;			/* First bytecode emitted for the RHS list. */
+#endif
   struct LHSVarList *prev;	/* Link to previous LHS variable. */
 } LHSVarList;
 
 #if LJ_54
+static void lua54_set_lhs_rhspc(LHSVarList *lh, BCPos rhspc)
+{
+  for (; lh != NULL; lh = lh->prev)
+    lh->rhspc = rhspc;
+}
+
 static BCLine lua54_exprline(FuncState *fs, const ExpDesc *e)
 {
   if ((e->k == VRELOCABLE || e->k == VCALL || e->k == VJMP) &&
@@ -2769,6 +4432,10 @@ static void parse_assignment(LexState *ls, LHSVarList *lh, BCReg nvars)
   if (lex_opt(ls, ',')) {  /* Collect LHS list and recurse upwards. */
     LHSVarList vl;
     vl.startpc = ls->fs->pc;
+    vl.line = ls->linenumber;
+#if LJ_54
+    vl.rhspc = 0;
+#endif
     vl.prev = lh;
     expr_primary(ls, &vl.v);
     if (vl.v.k == VLOCAL)
@@ -2783,6 +4450,7 @@ static void parse_assignment(LexState *ls, LHSVarList *lh, BCReg nvars)
     lex_check(ls, '=');
 #if LJ_54
     rhspc = ls->fs->pc;
+    lua54_set_lhs_rhspc(lh, rhspc);
 #endif
     nexps = expr_list(ls, &e);
 #if LJ_54
@@ -2793,23 +4461,72 @@ static void parse_assignment(LexState *ls, LHSVarList *lh, BCReg nvars)
     }
 #endif
     if (nexps == nvars) {
+#if LJ_54
+      BCReg clear_callbase = NO_REG, clear_calln = 0;
+      BCReg clear_rhs = NO_REG;
+      BCReg clear_tempbase = NO_REG, clear_tempn = 0;
+#endif
       if (e.k == VCALL) {
-	if (bc_op(*bcptr(ls->fs, &e)) == BC_VARG) {  /* Vararg assignment. */
+	BCIns call = *bcptr(ls->fs, &e);
+	if (bc_op(call) == BC_VARG) {  /* Vararg assignment. */
 	  ls->fs->freereg--;
 	  e.k = VRELOCABLE;
 	} else {  /* Multiple call results. */
+#if LJ_54
+	  /* Lua 5.4 table finalizers make stale call temporaries observable.
+	  ** After storing the call result into its LHS, clear the dead callee/gap
+	  ** and argument slots so allocation-triggered GC does not retain them.
+	  */
+	  clear_callbase = e.u.s.aux;
+	  clear_calln = bc_op(call) == BC_CALL ?
+	    (BCReg)(bc_c(call) + LJ_FR2) :
+	    (BCReg)(ls->fs->freereg - clear_callbase);
+#endif
 	  e.u.s.info = e.u.s.aux;  /* Base of call is not relocatable. */
 	  e.k = VNONRELOC;
 	}
       }
+#if LJ_54
+      if (e.k == VNONRELOC && e.u.s.info >= ls->fs->nactvar)
+	clear_rhs = e.u.s.info;
+      if (nvars == 1 && ls->fs->freereg > ls->fs->nactvar) {
+	BCReg cleartop = ls->fs->freereg;
+	if (clear_calln != 0 && clear_callbase + clear_calln > cleartop)
+	  cleartop = (BCReg)(clear_callbase + clear_calln);
+	/* Indexed assignments can leave LHS key temporaries and RHS table
+	** constructor results in dead slots until the next call. Clear all
+	** non-local temporaries before a following full GC can see them.
+	*/
+	clear_tempbase = ls->fs->nactvar;
+	clear_tempn = (BCReg)(cleartop - clear_tempbase);
+      }
+#endif
+#if LJ_54
+      lua54_check_const_assign_line(ls->fs, &lh->v, lh->line);
+#endif
       bcemit_store(ls->fs, &lh->v, &e);
+#if LJ_54
+      lua54_mark_notailcall_store(ls, &lh->v, lh->startpc, rhspc);
+      if (clear_tempn != 0)
+	bcemit_nil(ls->fs, clear_tempbase, clear_tempn);
+      else if (clear_calln != 0 && clear_callbase >= ls->fs->nactvar)
+	bcemit_nil(ls->fs, clear_callbase, clear_calln);
+      else if (clear_rhs != NO_REG)
+	bcemit_nil(ls->fs, clear_rhs, 1);
+#endif
       return;
     }
     assign_adjust(ls, nvars, nexps, &e);
   }
   /* Assign RHS to LHS and recurse downwards. */
   expr_init(&e, VNONRELOC, ls->fs->freereg-1);
+#if LJ_54
+  lua54_check_const_assign_line(ls->fs, &lh->v, lh->line);
+#endif
   bcemit_store(ls->fs, &lh->v, &e);
+#if LJ_54
+  lua54_mark_notailcall_store(ls, &lh->v, lh->startpc, lh->rhspc);
+#endif
 }
 
 /* Parse call statement or assignment. */
@@ -2818,6 +4535,10 @@ static void parse_call_assign(LexState *ls)
   FuncState *fs = ls->fs;
   LHSVarList vl;
   vl.startpc = fs->pc;
+  vl.line = ls->linenumber;
+#if LJ_54
+  vl.rhspc = 0;
+#endif
   expr_primary(ls, &vl.v);
   if (vl.v.k == VCALL) {  /* Function call statement. */
     setbc_b(bcptr(fs, &vl.v), 1);  /* No results. */
@@ -2836,6 +4557,14 @@ static void parse_call_assign(LexState *ls)
 #endif
   } else {  /* Start of an assignment. */
     vl.prev = NULL;
+#if LJ_54
+    /* Lua 5.4 diagnoses a bare prefix expression statement as a generic
+    ** syntax error. Letting it fall into assignment parsing leaks LuaJIT's old
+    ** "'=' expected" surface for chunks like load("a") or standalone "-e a".
+    */
+    if (ls->tok != '=' && ls->tok != ',')
+      err_syntax(ls, LJ_ERR_XSYNTAX);
+#endif
     parse_assignment(ls, &vl, 1);
   }
 }
@@ -2862,6 +4591,8 @@ static void parse_local(LexState *ls)
     BCReg nexps, nvars = 0;
 #if LJ_54
     FuncState *fs = ls->fs;
+    BCPos initpc;
+    VarIndex tablealias = LJ_MAX_VSTACK;
     int nclose = 0;
     BCReg closeidx = 0;
     GCstr *closename = NULL;
@@ -2879,13 +4610,26 @@ static void parse_local(LexState *ls)
 	err_syntax(ls, LJ_ERR_XCLOSE);
 #endif
     } while (lex_opt(ls, ','));
+#if LJ_54
+    initpc = fs->pc;
+#endif
     if (lex_opt(ls, '=')) {  /* Optional RHS. */
       nexps = expr_list(ls, &e);
     } else {  /* Or implicitly set to nil. */
       e.k = VVOID;
       nexps = 0;
     }
+#if LJ_54
+    if (nvars == 1 && nexps == 1)
+      tablealias = lua54_expr_table_source(fs, &e);
+#endif
     assign_adjust(ls, nvars, nexps, &e);
+#if LJ_54
+    lua54_mark_notailcall_locals(ls, nvars, initpc);
+    if (tablealias < LJ_MAX_VSTACK)
+      lua54_mark_pending_table_alias(fs, fs->varmap[fs->nactvar],
+				     tablealias);
+#endif
     var_add(ls, nvars);
 #if LJ_54
     if (nclose)
@@ -2912,6 +4656,9 @@ static void parse_func(LexState *ls, BCLine line)
   }
   parse_body(ls, &b, needself, line);
   fs = ls->fs;
+#if LJ_54
+  lua54_check_const_assign_line(fs, &v, line);
+#endif
   bcemit_store(fs, &v, &b);
   fs->bcbase[fs->pc - 1].line = line;  /* Set line for the store. */
 }
@@ -2966,6 +4713,10 @@ static void parse_return(LexState *ls)
 	  if (bc_op(*ip) == BC_VARG) goto notailcall;
 #if LJ_54
 	  if (fscope_hascloseactive(fs, 0))
+	    goto notailcall;
+	  if (bcemit_lua54_is_private_helper_call(fs, &e))
+	    goto notailcall;
+	  if (lua54_callbase_notailcall(fs, &e))
 	    goto notailcall;
 #endif
 	  fs->pc--;
@@ -3053,8 +4804,16 @@ static void parse_label(LexState *ls)
   fs->bl->flags |= FSCOPE_GOLA;
   lj_lex_next(ls);  /* Skip '::'. */
   name = lex_str(ls);
+#if LJ_54
+  {
+  VarInfo *vl = gola_findactivelabel(ls, name);
+  if (vl)
+    lj_lex_error(ls, 0, LJ_ERR_XLDUP, strdata(name), vl->endpc);
+  }
+#else
   if (gola_findlabel(ls, name))
     lj_lex_error(ls, 0, LJ_ERR_XLDUP, strdata(name));
+#endif
   idx = gola_new(ls, name, VSTACK_LABEL, fs->pc);
   lex_check(ls, TK_label);
   /* Recursively parse trailing statements: labels and ';' (Lua 5.2 only). */
@@ -3295,17 +5054,42 @@ static void parse_for(LexState *ls, BCLine line)
   FuncState *fs = ls->fs;
   GCstr *varname;
   FuncScope bl;
+#if LJ_54
+  int isiter = 0;
+  BCLine closeline = 0;
+#endif
   fscope_begin(fs, &bl, FSCOPE_LOOP);
   lj_lex_next(ls);  /* Skip 'for'. */
   varname = lex_str(ls);  /* Get first variable name. */
   if (ls->tok == '=')
     parse_for_num(ls, varname, line);
-  else if (ls->tok == ',' || ls->tok == TK_in)
+  else if (ls->tok == ',' || ls->tok == TK_in) {
+#if LJ_54
+    isiter = 1;
+#endif
     parse_for_iter(ls, varname);
-  else
+  } else
     err_syntax(ls, LJ_ERR_XFOR);
+#if LJ_54
+  closeline = ls->lastline;
+#endif
   lex_match(ls, TK_end, TK_for, line);
+#if LJ_54
+  if (isiter) {
+    BCLine endline = ls->linenumber;
+    /* The hidden generic-for closing value is compiler plumbing. Tag its close
+    ** helper with the last visible body/control line so line hooks do not see
+    ** an extra synthetic line after 'end' (official db.lua line trace).
+    */
+    ls->linenumber = closeline;
+    fscope_end(fs);  /* Resolve break list. */
+    ls->linenumber = endline;
+  } else {
+    fscope_end(fs);  /* Resolve break list. */
+  }
+#else
   fscope_end(fs);  /* Resolve break list. */
+#endif
 }
 
 /* Parse condition and 'then' block. */

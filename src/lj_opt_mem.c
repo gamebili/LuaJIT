@@ -470,7 +470,7 @@ static AliasRet aa_uref(IRIns *refa, IRIns *refb)
     else
       return ALIAS_NO;  /* Same function, different upvalue idx. */
   } else {  /* Different functions, check disambiguation hash values. */
-    if (((refa->op2 ^ refb->op2) & 0xff)) {
+    if (((refa->op2 ^ refb->op2) & IRUREF_HASH_MASK)) {
       return ALIAS_NO;  /* Upvalues with different hash values cannot alias. */
     } else if (refa->o != refb->o) {
       /* Different UREFx type, but need to confirm the UREFO really is open. */

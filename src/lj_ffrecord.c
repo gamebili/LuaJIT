@@ -6,6 +6,8 @@
 #define lj_ffrecord_c
 #define LUA_CORE
 
+#include <string.h>
+
 #include "lj_obj.h"
 
 #if LJ_HASJIT
@@ -14,6 +16,7 @@
 #include "lj_buf.h"
 #include "lj_str.h"
 #include "lj_tab.h"
+#include "lj_meta.h"
 #include "lj_frame.h"
 #include "lj_bc.h"
 #include "lj_ff.h"
@@ -65,6 +68,12 @@
 /* Type of handler to record a fast function. */
 typedef void (LJ_FASTCALL *RecordFunc)(jit_State *J, RecordFFData *rd);
 
+#if defined(__GNUC__) || defined(__clang__)
+#define RECFF_MAYBE_UNUSED	__attribute__((unused))
+#else
+#define RECFF_MAYBE_UNUSED
+#endif
+
 /* Get runtime value of int argument. */
 static int32_t argv2int(jit_State *J, TValue *o)
 {
@@ -72,6 +81,34 @@ static int32_t argv2int(jit_State *J, TValue *o)
     lj_trace_err(J, LJ_TRERR_BADTYPE);
   return numberVint(o);
 }
+
+#if LJ_54
+#define RECFF_SELECT_NYI	((int32_t)0x80000000u)
+
+static int32_t argv2int54(jit_State *J, TValue *o)
+{
+  TValue tmp;
+  lua_Number n;
+  int64_t k;
+  UNUSED(J);
+  if (tvisstr(o)) {
+    if (!lj_strscan_number(strV(o), &tmp))
+      return RECFF_SELECT_NYI;
+    o = &tmp;
+  }
+  if (tvisint(o))
+    return intV(o);
+  if (!tvisnum(o))
+    return RECFF_SELECT_NYI;
+  n = numV(o);
+  if (!(n >= -2147483648.0 && n <= 2147483647.0))
+    return RECFF_SELECT_NYI;
+  k = lj_num2i64(n);
+  if ((lua_Number)k != n)
+    return RECFF_SELECT_NYI;
+  return (int32_t)k;
+}
+#endif
 
 /* Get runtime value of string argument. */
 static GCstr *argv2str(jit_State *J, TValue *o)
@@ -301,7 +338,9 @@ static void LJ_FASTCALL recff_rawequal(jit_State *J, RecordFFData *rd)
   }  /* else: Interpreter will throw. */
 }
 
-#if LJ_52
+static void LJ_FASTCALL recff_rawlen(jit_State *J, RecordFFData *rd)
+  RECFF_MAYBE_UNUSED;
+
 static void LJ_FASTCALL recff_rawlen(jit_State *J, RecordFFData *rd)
 {
   TRef tr = J->base[0];
@@ -312,7 +351,6 @@ static void LJ_FASTCALL recff_rawlen(jit_State *J, RecordFFData *rd)
   /* else: Interpreter will throw. */
   UNUSED(rd);
 }
-#endif
 
 /* Determine mode of select() call. */
 int32_t lj_ffrecord_select_mode(jit_State *J, TRef tr, TValue *tv)
@@ -327,8 +365,14 @@ int32_t lj_ffrecord_select_mode(jit_State *J, TRef tr, TValue *tv)
     }
     return 0;
   } else {  /* select(n, ...) */
+#if LJ_54
+    int32_t start = argv2int54(J, tv);
+    if (start == RECFF_SELECT_NYI || start == 0)
+      return RECFF_SELECT_NYI;
+#else
     int32_t start = argv2int(J, tv);
     if (start == 0) lj_trace_err(J, LJ_TRERR_BADTYPE);  /* A bit misleading. */
+#endif
     return start;
   }
 }
@@ -338,6 +382,12 @@ static void LJ_FASTCALL recff_select(jit_State *J, RecordFFData *rd)
   TRef tr = J->base[0];
   if (tr) {
     ptrdiff_t start = lj_ffrecord_select_mode(J, tr, &rd->argv[0]);
+#if LJ_54
+    if ((int32_t)start == RECFF_SELECT_NYI) {
+      recff_nyiu(J, rd);
+      return;
+    }
+#endif
     if (start == 0) {  /* select('#', ...) */
       J->base[0] = lj_ir_kint(J, J->maxslot - 1);
     } else if (tref_isk(tr)) {  /* select(k, ...) */
@@ -357,10 +407,165 @@ static void LJ_FASTCALL recff_select(jit_State *J, RecordFFData *rd)
   }  /* else: Interpreter will throw. */
 }
 
+#if LJ_54
+static int recff_lua54_tointvalue(TValue *tv, int32_t *ip)
+{
+  lua_Number n, ni;
+  TValue tmp;
+  if (tvisstr(tv)) {
+    if (!lj_strscan_number(strV(tv), &tmp))
+      return 0;
+    tv = &tmp;
+  }
+  if (tvisint(tv)) {
+    *ip = intV(tv);
+    return 1;
+  }
+  if (!tvisnum(tv))
+    return 0;
+  n = numV(tv);
+  if (!(n >= (double)LUA_MININTEGER &&
+	n <= (double)LUA_MAXINTEGER))
+    return 0;
+  ni = lj_vm_floor(n);
+  if (n != ni)
+    return 0;
+  *ip = (int32_t)n;
+  return 1;
+}
+
+static TRef recff_lua54_tointref(jit_State *J, TRef tr, TValue *tv,
+				 int32_t *ip)
+{
+  if (!tr || !recff_lua54_tointvalue(tv, ip))
+    return 0;
+  if (tref_isk(tr))
+    return lj_ir_kint(J, *ip);
+  if (tref_isinteger(tr))
+    return tr;
+  if (tref_isnum(tr))
+    return emitir(IRTGI(IR_CONV), tr, IRCONV_INT_NUM|IRCONV_CHECK);
+  if (tref_isstr(tr)) {
+    TRef ok = lj_ir_call(J, IRCALL_lj_strscan_tocheckintok54, tr);
+    /* Dynamic string bases follow Lua 5.4 luaL_checkinteger(): guard that the
+    ** string still has an integer representation, then use the checked value.
+    */
+    emitir(IRTGI(IR_EQ), ok, lj_ir_kint(J, 1));
+    return lj_ir_call(J, IRCALL_lj_strscan_tocheckint54, tr);
+  }
+  return 0;
+}
+
+static void recff_lua54_tonumber_strref(jit_State *J, RecordFFData *rd,
+					TRef tr, TValue *tmp, int runtime_locale)
+{
+  GCstr *str = strV(&rd->argv[0]);
+  TRef fmt = lj_ir_call(J, runtime_locale ? IRCALL_lj_strscan_numtype54s :
+			IRCALL_lj_strscan_numtype54, tr);
+  if (lj_strscan_number(str, tmp)) {
+    if (tvisint(tmp)) {
+      emitir(IRTGI(IR_EQ), fmt, lj_ir_kint(J, 1));
+      J->base[0] = lj_ir_call(J, IRCALL_lj_strscan_toint54, tr);
+    } else {
+      emitir(IRTGI(IR_EQ), fmt, lj_ir_kint(J, 2));
+      /* Comma decimal-point constants depend on the active numeric locale.
+      ** Use a side-effect helper for them so os.setlocale() cannot leave a
+      ** stale folded STRTO result in the trace.
+      */
+      J->base[0] = runtime_locale ?
+		   lj_ir_call(J, IRCALL_lj_strscan_tonum54s, tr) :
+		   emitir(IRTG(IR_STRTO, IRT_NUM), tr, 0);
+    }
+  } else if (lj_strscan_rejectnum54(strdata(str), str->len)) {
+    /* `inf`/`nan`/`0b` are stable LuaJIT extensions rejected by Lua 5.4.
+    ** Ordinary invalid strings are guarded with fmt == 0 below, so locale or
+    ** grammar changes side-exit instead of reusing a stale nil shortcut.
+    */
+    emitir(IRTGI(IR_EQ), fmt, lj_ir_kint(J, 3));
+    J->base[0] = TREF_NIL;
+  } else {
+    emitir(IRTGI(IR_EQ), fmt, lj_ir_kint(J, 0));
+    J->base[0] = TREF_NIL;
+  }
+}
+#endif
+
 static void LJ_FASTCALL recff_tonumber(jit_State *J, RecordFFData *rd)
 {
   TRef tr = J->base[0];
   TRef base = J->base[1];
+#if LJ_54
+  TRef trbase;
+  int32_t i;
+  TValue tmp;
+  if (!tr) {
+    recff_nyiu(J, rd);
+    return;
+  }
+  if (base && !tref_isnil(base)) {
+    trbase = recff_lua54_tointref(J, base, &rd->argv[1], &i);
+    if (!trbase || i < 2 || i > 36) {
+      recff_nyiu(J, rd);  /* Interpreter keeps named base errors. */
+      return;
+    }
+    if (!tref_isk(trbase)) {
+      emitir(IRTGI(IR_GE), trbase, lj_ir_kint(J, 2));
+      emitir(IRTGI(IR_LE), trbase, lj_ir_kint(J, 36));
+    }
+    if (tref_isstr(tr)) {
+      int32_t v;
+      if (tref_isk(tr) && tref_isk(trbase)) {
+	J->base[0] = lj_strscan_tobaseint54(strV(&rd->argv[0]), i, &v) ?
+		     lj_ir_kint(J, v) : TREF_NIL;
+      } else {
+	TRef ok = lj_ir_call(J, IRCALL_lj_strscan_tobaseintok54, tr, trbase);
+	if (lj_strscan_tobaseint54(strV(&rd->argv[0]), i, &v)) {
+	  emitir(IRTGI(IR_EQ), ok, lj_ir_kint(J, 1));
+	  J->base[0] = lj_ir_call(J, IRCALL_lj_strscan_tobaseintvalue54,
+				  tr, trbase);
+	} else {
+	  emitir(IRTGI(IR_EQ), ok, lj_ir_kint(J, 0));
+	  J->base[0] = TREF_NIL;
+	}
+      }
+      return;
+    }
+    recff_nyiu(J, rd);  /* Explicit-base tonumber() requires a string arg. */
+    return;
+  }
+  if (tref_isnumber(tr)) {
+    J->base[0] = tr;  /* Preserve Lua 5.4 integer/float subtype. */
+    return;
+  }
+  if (tref_isstr(tr)) {
+    if (tref_isk(tr)) {
+      if (memchr(strdata(strV(&rd->argv[0])), ',',
+		 strV(&rd->argv[0])->len)) {
+	recff_lua54_tonumber_strref(J, rd, tr, &tmp, 1);
+	return;
+      }
+      if (lj_strscan_number(strV(&rd->argv[0]), &tmp)) {
+	J->base[0] = tvisint(&tmp) ? lj_ir_kint(J, intV(&tmp)) :
+				     lj_ir_knum(J, numV(&tmp));
+      } else {
+	J->base[0] = TREF_NIL;
+      }
+      return;
+    } else {
+      recff_lua54_tonumber_strref(J, rd, tr, &tmp, 0);
+      return;
+    }
+  }
+#if LJ_HASFFI
+  if (tref_iscdata(tr)) {
+    lj_crecord_tonumber(J, rd);
+    return;
+  }
+#endif
+  J->base[0] = TREF_NIL;
+  UNUSED(rd);
+  return;
+#endif
   if (tr && !tref_isnil(base)) {
     base = lj_opt_narrow_toint(J, base);
     if (!tref_isk(base) || IR(tref_ref(base))->i != 10) {
@@ -429,15 +634,27 @@ static void LJ_FASTCALL recff_tostring(jit_State *J, RecordFFData *rd)
   if (tref_isstr(tr)) {
     /* Ignore __tostring in the string base metatable. */
     /* Pass on result in J->base[0]. */
-  } else if (tr && !recff_metacall(J, rd, MM_tostring)) {
-    if (tref_isnumber(tr)) {
-      J->base[0] = emitir(IRT(IR_TOSTR, IRT_STR), tr,
-			  tref_isnum(tr) ? IRTOSTR_NUM : IRTOSTR_INT);
-    } else if (tref_ispri(tr)) {
-      J->base[0] = lj_ir_kstr(J, lj_strfmt_obj(J->L, &rd->argv[0]));
-    } else {
+  } else if (tr) {
+#if LJ_54
+    if (!tvisnil(lj_meta_lookup(J->L, &rd->argv[0], MM_tostring))) {
+      /* Lua 5.4 checks that __tostring returns a string after the metamethod
+      ** call. The legacy recorder tailcalls the metamethod like LuaJIT 5.1,
+      ** so recording this path can skip the post-call type check.
+      */
       recff_nyiu(J, rd);
       return;
+    }
+#endif
+    if (!recff_metacall(J, rd, MM_tostring)) {
+      if (tref_isnumber(tr)) {
+	J->base[0] = emitir(IRT(IR_TOSTR, IRT_STR), tr,
+			    tref_isnum(tr) ? IRTOSTR_NUM : IRTOSTR_INT);
+      } else if (tref_ispri(tr)) {
+	J->base[0] = lj_ir_kstr(J, lj_strfmt_obj(J->L, &rd->argv[0]));
+      } else {
+	recff_nyiu(J, rd);
+	return;
+      }
     }
   }
 }
@@ -674,8 +891,103 @@ static void LJ_FASTCALL recff_math_minmax(jit_State *J, RecordFFData *rd)
   J->base[0] = tr;
 }
 
+#if LJ_54
+static int recff_lua54_random_intvalue(TValue *tv, int32_t *ip)
+{
+  TValue tmp;
+  lua_Number n, ni;
+  if (tvisstr(tv)) {
+    if (!lj_strscan_number(strV(tv), &tmp))
+      return 0;
+    tv = &tmp;
+  }
+  if (tvisint(tv)) {
+    *ip = intV(tv);
+    return 1;
+  }
+  if (!tvisnum(tv))
+    return 0;
+  n = numV(tv);
+  if (!(n >= (double)LUA_MININTEGER &&
+	n <= (double)LUA_MAXINTEGER))
+    return 0;
+  ni = lj_vm_floor(n);
+  if (n != ni)
+    return 0;
+  *ip = (int32_t)n;
+  return 1;
+}
+
+static TRef recff_lua54_random_intref(jit_State *J, TRef tr, TValue *tv,
+				      int32_t *ip)
+{
+  if (!tr || !recff_lua54_random_intvalue(tv, ip))
+    return 0;
+  if (tref_isk(tr))
+    return lj_ir_kint(J, *ip);
+  if (tref_isinteger(tr))
+    return tr;
+  if (tref_isnum(tr)) {
+    /* Match math.random's Lua 5.4 integer-argument check before the xoshiro
+    ** helper mutates PRNG state. A failed guard side-exits to the interpreter,
+    ** which then runs the official argument/error path with its own PRNG order.
+    */
+    return emitir(IRTGI(IR_CONV), tr, IRCONV_INT_NUM|IRCONV_CHECK);
+  }
+  if (tref_isstr(tr)) {
+    TRef ok = lj_ir_call(J, IRCALL_lj_strscan_tocheckintok54, tr);
+    /* math.random() consumes PRNG state before checking arguments in the
+    ** interpreter. Guard dynamic string integers first so side exits preserve
+    ** that official error path and PRNG consumption order.
+    */
+    emitir(IRTGI(IR_EQ), ok, lj_ir_kint(J, 1));
+    return lj_ir_call(J, IRCALL_lj_strscan_tocheckint54, tr);
+  }
+  return 0;
+}
+#endif
+
 static void LJ_FASTCALL recff_math_random(jit_State *J, RecordFFData *rd)
 {
+#if LJ_54
+  GCudata *ud = udataV(&J->fn->c.upvalue[0]);
+  TRef rs = lj_ir_kptr(J, uddata(ud));
+  TRef trlow, trup;
+  int32_t low, up;
+  lj_ir_kgc(J, obj2gco(ud), IRT_UDATA);  /* Keep PRNG state alive. */
+  if (!J->base[0]) {
+    J->base[0] = lj_ir_call(J, IRCALL_lj_prng_num_random54, rs);
+  } else if (!J->base[1]) {
+    trup = recff_lua54_random_intref(J, J->base[0], &rd->argv[0], &up);
+    if (!trup) {
+      recff_nyiu(J, rd);
+      return;
+    }
+    if (up == 0) {
+      emitir(IRTGI(IR_EQ), trup, lj_ir_kint(J, 0));
+      J->base[0] = lj_ir_call(J, IRCALL_lj_prng_i32_random54, rs);
+    } else if (up >= 1) {
+      emitir(IRTGI(IR_GE), trup, lj_ir_kint(J, 1));
+      J->base[0] = lj_ir_call(J, IRCALL_lj_prng_int_random54,
+			      rs, lj_ir_kint(J, 1), trup);
+    } else {
+      recff_nyiu(J, rd);
+      return;
+    }
+  } else if ((trlow = recff_lua54_random_intref(J, J->base[0],
+					       &rd->argv[0], &low)) &&
+	     (trup = recff_lua54_random_intref(J, J->base[1],
+					      &rd->argv[1], &up)) &&
+	     low <= up) {
+    emitir(IRTGI(IR_LE), trlow, trup);
+    J->base[0] = lj_ir_call(J, IRCALL_lj_prng_int_random54,
+			    rs, trlow, trup);
+  } else {
+    recff_nyiu(J, rd);
+    return;
+  }
+  UNUSED(rd);
+#else
   GCudata *ud = udataV(&J->fn->c.upvalue[0]);
   TRef tr, one;
   lj_ir_kgc(J, obj2gco(ud), IRT_UDATA);  /* Prevent collection. */
@@ -699,6 +1011,7 @@ static void LJ_FASTCALL recff_math_random(jit_State *J, RecordFFData *rd)
   }
   J->base[0] = tr;
   UNUSED(rd);
+#endif
 }
 
 /* -- Bit library fast functions ------------------------------------------ */
@@ -1058,9 +1371,22 @@ static void recff_format(jit_State *J, RecordFFData *rd, TRef hdr, int sbufx)
       break;
     case STRFMT_STR:
       if (!tref_isstr(tra)) {
-	recff_nyiu(J, rd);  /* NYI: __tostring and non-string types for %s. */
-	/* NYI: also buffers. */
-	return;
+#if LJ_54
+	if (!(sf & STRFMT_T_QUOTED) && tref_isnumber(tra)) {
+	  /* Lua 5.4 %s follows luaL_tolstring() for plain numbers. Convert the
+	  ** current integer/float subtype to a string first, then reuse the
+	  ** existing string formatter path. Metamethod and non-number object
+	  ** cases remain in the interpreter so __tostring validation is preserved.
+	  */
+	  tra = emitir(IRT(IR_TOSTR, IRT_STR), tra,
+		       tref_isnum(tra) ? IRTOSTR_NUM : IRTOSTR_INT);
+	} else
+#endif
+	{
+	  recff_nyiu(J, rd);  /* NYI: __tostring and non-string types for %s. */
+	  /* NYI: also buffers. */
+	  return;
+	}
       }
       if (sf == STRFMT_STR)  /* Shortcut for plain %s. */
 	tr = emitir(IRTG(IR_BUFPUT, IRT_PGC), tr, tra);
@@ -1599,5 +1925,9 @@ void lj_ffrecord_func(jit_State *J)
 
 #undef IR
 #undef emitir
+#if LJ_54
+#undef RECFF_SELECT_NYI
+#endif
+#undef RECFF_MAYBE_UNUSED
 
 #endif

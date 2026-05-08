@@ -15,6 +15,7 @@
 #include "lj_buf.h"
 #include "lj_str.h"
 #include "lj_meta.h"
+#include "lj_debug.h"
 #include "lj_state.h"
 #include "lj_char.h"
 #include "lj_strscan.h"
@@ -115,19 +116,53 @@ static MSize strfmt_speclen_lua54(const FormatState *fs)
   return (MSize)(q - p);
 }
 
-static void strfmt_badconv_lua54(lua_State *L, const char *fmt, MSize len)
+static int strfmt_validconv_lua54(char c)
+{
+  switch (c) {
+  case 'a': case 'A': case 'c': case 'd': case 'e': case 'E':
+  case 'f': case 'g': case 'G': case 'i': case 'o': case 'p':
+  case 'q': case 's': case 'u': case 'x': case 'X':
+    return 1;
+  default:
+    return 0;
+  }
+}
+
+static void strfmt_convmsg_lua54(lua_State *L, const char *fmt, MSize len,
+				 const char *msgfmt)
 {
   GCstr *s = lj_str_new(L, fmt, len);
-  lj_err_callermsg(L, lj_strfmt_pushf(L,
-    "invalid conversion '%s' to 'format'", strdata(s)));
+  /* Lua 5.4 reports invalid format specifications through luaL_error(), so
+  ** direct pcall(string.format, ...) has no location prefix, while a Lua
+  ** wrapper frame still contributes its source location.
+  */
+  luaL_error(L, msgfmt, strdata(s));
+}
+
+static void strfmt_badconv_lua54(lua_State *L, const char *fmt, MSize len)
+{
+  strfmt_convmsg_lua54(L, fmt, len, "invalid conversion '%s' to 'format'");
+}
+
+static void strfmt_badspec_lua54(lua_State *L, const char *fmt, MSize len)
+{
+  strfmt_convmsg_lua54(L, fmt, len,
+		       "invalid conversion specification: '%s'");
 }
 
 static void strfmt_parseerr_lua54(lua_State *L, const FormatState *fs)
 {
   MSize len = strfmt_speclen_lua54(fs);
-  if (len > 32)  /* Same user-facing limit as Lua 5.4's MAX_FORMAT. */
-    lj_err_callermsg(L, "invalid format (too long)");
-  strfmt_badconv_lua54(L, fs->str, len);
+  /* Lua 5.4's getformat() rejects len >= MAX_FORMAT - 10, where len excludes
+  ** the leading '%'.  strfmt_speclen_lua54() includes it, so 23 is the first
+  ** total byte length that must report "invalid format (too long)".
+  */
+  if (len >= 23)
+    luaL_error(L, "invalid format (too long)");
+  if (len > 1 && strfmt_validconv_lua54(fs->str[len-1]))
+    strfmt_badspec_lua54(L, fs->str, len);
+  else
+    strfmt_badconv_lua54(L, fs->str, len);
 }
 
 static void strfmt_checkconv_lua54(lua_State *L, SFormat sf,
@@ -136,40 +171,47 @@ static void strfmt_checkconv_lua54(lua_State *L, SFormat sf,
   uint32_t flags = sf & (STRFMT_F_LEFT|STRFMT_F_PLUS|STRFMT_F_ZERO|
 			 STRFMT_F_SPACE|STRFMT_F_ALT);
   int hasprec = ((sf >> STRFMT_SH_PREC) & 255u) != 0;
-  if (len > 32)  /* Successful parses can still be too long, e.g. many '0's. */
-    lj_err_callermsg(L, "invalid format (too long)");
+  /* Successful parses can still be too long, e.g. many '0' flag bytes. */
+  if (len >= 23)
+    luaL_error(L, "invalid format (too long)");
   switch (STRFMT_TYPE(sf)) {
   case STRFMT_INT:
     if ((flags & STRFMT_F_ALT))
-      strfmt_badconv_lua54(L, fmt, len);
+      strfmt_badspec_lua54(L, fmt, len);
     break;
   case STRFMT_UINT:
     if ((sf & (STRFMT_T_HEX|STRFMT_T_OCT))) {
       if ((flags & ~(STRFMT_F_LEFT|STRFMT_F_ZERO|STRFMT_F_ALT)))
-	strfmt_badconv_lua54(L, fmt, len);
+	strfmt_badspec_lua54(L, fmt, len);
     } else if ((flags & ~(STRFMT_F_LEFT|STRFMT_F_ZERO))) {
-      strfmt_badconv_lua54(L, fmt, len);
+      strfmt_badspec_lua54(L, fmt, len);
     }
     break;
   case STRFMT_NUM:
     if ((sf & STRFMT_F_UPPER) && (sf & STRFMT_T_FP_G) == STRFMT_T_FP_F)
       strfmt_badconv_lua54(L, fmt, len);  /* Lua 5.4 does not accept %F. */
+    /* PUC Lua intentionally leaves modified %a/%A unimplemented; only the
+    ** bare hexadecimal-float conversion is accepted by string.format().
+    */
+    if (STRFMT_FP(sf) == STRFMT_FP(STRFMT_T_FP_A) &&
+	(flags || STRFMT_WIDTH(sf) != 0 || hasprec))
+      luaL_error(L, "modifiers for format '%%a'/'%%A' not implemented");
     break;
   case STRFMT_STR:
     if ((sf & STRFMT_T_QUOTED)) {
       if (sf != STRFMT_Q)
-	lj_err_callermsg(L, "specifier '%q' cannot have modifiers");
+	luaL_error(L, "specifier '%%q' cannot have modifiers");
     } else if ((flags & ~STRFMT_F_LEFT)) {
-      strfmt_badconv_lua54(L, fmt, len);
+      strfmt_badspec_lua54(L, fmt, len);
     }
     break;
   case STRFMT_CHAR:
     if ((flags & ~STRFMT_F_LEFT) || hasprec)
-      strfmt_badconv_lua54(L, fmt, len);
+      strfmt_badspec_lua54(L, fmt, len);
     break;
   case STRFMT_PTR:
     if ((flags & ~STRFMT_F_LEFT) || hasprec)
-      strfmt_badconv_lua54(L, fmt, len);
+      strfmt_badspec_lua54(L, fmt, len);
     break;
   default:
     break;
@@ -255,6 +297,12 @@ const char *lj_strfmt_wstrnum(lua_State *L, cTValue *o, MSize *lenp)
     SBufExt *sbx = bufV(o);
     *lenp = sbufxlen(sbx);
     return sbx->r ? sbx->r : "";
+#if LJ_54
+  } else if (tvisnumber(o)) {
+    GCstr *str = lj_strfmt_number(L, o);
+    *lenp = str->len;
+    return strdata(str);
+#endif
   } else if (tvisint(o)) {
     sb = lj_strfmt_putint(lj_buf_tmp_(L), intV(o));
   } else if (tvisnum(o)) {
@@ -449,10 +497,23 @@ SBuf *lj_strfmt_putfnum_uint(SBuf *sb, SFormat sf, lua_Number n)
 }
 
 #if LJ_54
+static const char *strfmt_callname54(lua_State *L)
+{
+  const char *name = NULL;
+  const char *kind = lj_debug_funcname(L, L->base-1, &name);
+  /* Direct pcall(string.format, ...) has no Lua call expression to name; keep
+  ** the public fallback there, but use field/local/upvalue names when source
+  ** code actually called the formatter.
+  */
+  if (kind && name && *kind)
+    return name;
+  return "string.format";
+}
+
 static void strfmt_argerror_named54(lua_State *L, int arg, const char *msg)
 {
   lj_err_callermsg(L, lua_pushfstring(L,
-    "bad argument #%d to 'string.format' (%s)", arg, msg));
+    "bad argument #%d to '%s' (%s)", arg, strfmt_callname54(L), msg));
 }
 
 static void strfmt_argtype_named54(lua_State *L, int arg, const char *xname)
@@ -461,12 +522,8 @@ static void strfmt_argtype_named54(lua_State *L, int arg, const char *xname)
   MSize len;
   const char *tname = o < L->top ? lj_meta_objtypename(L, o, &len) : "no value";
   UNUSED(len);
-  /* string.format() formats values through this shared helper; the generic
-  ** library checker cannot recover the public function name from here.
-  */
-  lj_err_callermsg(L, lua_pushfstring(L,
-    "bad argument #%d to 'string.format' (%s expected, got %s)",
-    arg, xname, tname));
+  strfmt_argerror_named54(L, arg,
+    lua_pushfstring(L, "%s expected, got %s", xname, tname));
 }
 
 static lua_Number strfmt_checknum_named54(lua_State *L, int arg)
@@ -544,6 +601,13 @@ int lj_strfmt_putarg(lua_State *L, SBuf *sb, int arg, int retry)
       lj_buf_putmem(sb, fs.str, fs.len);
     } else if (sf == STRFMT_ERR) {
 #if LJ_54
+      /* Lua 5.4 checks that a format item has a matching argument before it
+      ** reports malformed conversion text.  Thus string.format("%") without
+      ** a second argument is a no-value argument error, but "%", 1 still
+      ** reports the invalid conversion itself.
+      */
+      if (arg >= narg)
+	strfmt_argerror_named54(L, arg+1, "no value");
       strfmt_parseerr_lua54(L, &fs);
 #else
       lj_err_callerv(L, LJ_ERR_STRFMT,
@@ -551,15 +615,16 @@ int lj_strfmt_putarg(lua_State *L, SBuf *sb, int arg, int retry)
 #endif
     } else {
       TValue *o;
-#if LJ_54
-      strfmt_checkconv_lua54(L, sf, fs.str,
-			     (MSize)((const uint8_t *)fs.p -
-				     (const uint8_t *)fs.str));
-#endif
       o = &L->base[arg++];
 #if LJ_54
       if (arg > narg)
 	strfmt_argerror_named54(L, arg, "no value");
+      /* Lua 5.4 reports missing arguments before rejecting an otherwise parsed
+      ** but invalid conversion specification such as "%#i" or "%F".
+      */
+      strfmt_checkconv_lua54(L, sf, fs.str,
+			     (MSize)((const uint8_t *)fs.p -
+				     (const uint8_t *)fs.str));
 #else
       if (arg > narg)
 	lj_err_arg(L, arg, LJ_ERR_NOVAL);
@@ -591,7 +656,10 @@ int lj_strfmt_putarg(lua_State *L, SBuf *sb, int arg, int retry)
 	break;
       case STRFMT_UINT:
 	if (tvisint(o)) {
-	  lj_strfmt_putfxint(sb, sf, intV(o));
+	  /* Current Lua 5.4 integer surface is still 32 bit; unsigned integer
+	  ** formats must wrap at that width until the 64 bit integer batch lands.
+	  */
+	  lj_strfmt_putfxint(sb, sf, (uint32_t)intV(o));
 	  break;
 	}
 #if LJ_HASFFI
@@ -623,7 +691,17 @@ int lj_strfmt_putarg(lua_State *L, SBuf *sb, int arg, int retry)
 #if LJ_54
 	if ((sf & STRFMT_T_QUOTED)) {
 	  /* Lua 5.4 quotes strings, but prints primitive literals directly. */
-	  if (tvisint(o)) { lj_strfmt_putint(sb, intV(o)); break; }
+	  if (tvisint(o)) {
+	    if (intV(o) == (int32_t)0x80000000u) {
+	      /* Avoid reparsing the most-negative 32 bit integer as a float:
+	      ** the source spelling is unary minus applied to 2147483648.
+	      */
+	      lj_buf_putmem(sb, "(-2147483647 - 1)", 17);
+	    } else {
+	      lj_strfmt_putint(sb, intV(o));
+	    }
+	    break;
+	  }
 	  if (tvisnum(o)) { strfmt_putqnum_lua54(sb, numV(o)); break; }
 	  if (tvisnil(o)) { lj_buf_putmem(sb, "nil", 3); break; }
 	  if (tvisfalse(o)) { lj_buf_putmem(sb, "false", 5); break; }
@@ -642,6 +720,14 @@ int lj_strfmt_putarg(lua_State *L, SBuf *sb, int arg, int retry)
 	  copyTV(L, L->top++, mo);
 	  copyTV(L, L->top++, o);
 	  lua_call(L, 1, 1);
+#if LJ_54
+	  if (!tvisstr(L->top-1) && !tvisnumber(L->top-1)) {
+	    /* string.format("%s") follows luaL_tolstring(): __tostring may
+	    ** return a string or number, but other values are a hard error.
+	    */
+	    lj_err_callermsg(L, "'__tostring' must return a string");
+	  }
+#endif
 	  o = &L->base[arg-1];  /* Stack may have been reallocated. */
 	  copyTV(L, o, --L->top);  /* Replace inline for retry. */
 	  if (retry < 2) {  /* Global buffer may have been overwritten. */
@@ -800,6 +886,41 @@ GCstr * LJ_FASTCALL lj_strfmt_obj(lua_State *L, cTValue *o)
 ** - %s %c %p without formatting.
 */
 
+#if LJ_54
+static void strfmt_pututf8_lua54(SBuf *sb, unsigned long x)
+{
+  char buf[8];
+  int n = 1;
+  if (x < 0x80) {
+    buf[7] = (char)x;
+  } else {
+    unsigned int mfb = 0x3f;
+    do {
+      buf[8 - (n++)] = (char)(0x80 | (x & 0x3f));
+      x >>= 6;
+      mfb >>= 1;
+    } while (x > mfb);
+    buf[8 - n] = (char)((~mfb << 1) | x);
+  }
+  lj_buf_putmem(sb, buf + 8 - n, (MSize)n);
+}
+
+static void strfmt_pushf_bad_lua54(lua_State *L, const FormatState *fs)
+{
+  char c = fs->str[0] == '%' &&
+	   (const uint8_t *)fs->str + 1 < fs->e ? fs->str[1] : '?';
+  lj_err_callermsg(L, lj_strfmt_pushf(L,
+    "invalid option '%%%c' to 'lua_pushfstring'", c));
+}
+
+static char strfmt_pushf_conv_lua54(lua_State *L, const FormatState *fs)
+{
+  if ((MSize)((const uint8_t *)fs->p - (const uint8_t *)fs->str) != 2)
+    strfmt_pushf_bad_lua54(L, fs);
+  return fs->p[-1];
+}
+#endif
+
 /* Push formatted message as a string object to Lua stack. va_list variant. */
 const char *lj_strfmt_pushvf(lua_State *L, const char *fmt, va_list argp)
 {
@@ -814,27 +935,78 @@ const char *lj_strfmt_pushvf(lua_State *L, const char *fmt, va_list argp)
       lj_buf_putmem(sb, fs.str, fs.len);
       break;
     case STRFMT_INT:
+#if LJ_54
+      if (strfmt_pushf_conv_lua54(L, &fs) != 'd')
+	strfmt_pushf_bad_lua54(L, &fs);
+#endif
       lj_strfmt_putfxint(sb, sf, va_arg(argp, int32_t));
       break;
     case STRFMT_UINT:
+#if LJ_54
+      strfmt_pushf_bad_lua54(L, &fs);
+#endif
       lj_strfmt_putfxint(sb, sf, va_arg(argp, uint32_t));
       break;
     case STRFMT_NUM:
+#if LJ_54
+      if (strfmt_pushf_conv_lua54(L, &fs) != 'f')
+	strfmt_pushf_bad_lua54(L, &fs);
+      if (fs.p > (const uint8_t *)fs.str && fs.p[-1] == 'f') {
+	TValue tv;
+	setnumV(&tv, va_arg(argp, lua_Number));
+	/* Lua 5.4's lua_pushfstring("%f") uses the raw number-to-string
+	** conversion, so integral floats must retain their ".0" subtype cue.
+	*/
+	lj_buf_putstr(sb, lj_strfmt_number(L, &tv));
+	break;
+      }
+#endif
       lj_strfmt_putfnum(sb, STRFMT_G14, va_arg(argp, lua_Number));
       break;
     case STRFMT_STR: {
       const char *s = va_arg(argp, char *);
+#if LJ_54
+      if (strfmt_pushf_conv_lua54(L, &fs) != 's')
+	strfmt_pushf_bad_lua54(L, &fs);
+#endif
       if (s == NULL) s = "(null)";
       lj_buf_putmem(sb, s, (MSize)strlen(s));
       break;
       }
     case STRFMT_CHAR:
+#if LJ_54
+      if (strfmt_pushf_conv_lua54(L, &fs) != 'c')
+	strfmt_pushf_bad_lua54(L, &fs);
+#endif
       lj_buf_putb(sb, va_arg(argp, int));
       break;
     case STRFMT_PTR:
+#if LJ_54
+      if (strfmt_pushf_conv_lua54(L, &fs) != 'p')
+	strfmt_pushf_bad_lua54(L, &fs);
+#endif
       lj_strfmt_putptr(sb, va_arg(argp, void *));
       break;
     case STRFMT_ERR:
+#if LJ_54
+      if (fs.len == 2 && fs.str[0] == '%' && fs.str[1] == 'I') {
+	TValue tv;
+	setintptrV(&tv, va_arg(argp, lua_Integer));
+	/* %I is specific to lua_pushfstring() in Lua 5.4. Keep it out of
+	** the shared string.format() parser so Lua-visible formatting stays
+	** governed by string.format's own conversion set.
+	*/
+	lj_buf_putstr(sb, lj_strfmt_number(L, &tv));
+	fs.p = (const uint8_t *)fs.str + 2;
+	break;
+      } else if (fs.len == 2 && fs.str[0] == '%' && fs.str[1] == 'U') {
+	strfmt_pututf8_lua54(sb, (unsigned long)va_arg(argp, long));
+	fs.p = (const uint8_t *)fs.str + 2;
+	break;
+      }
+      strfmt_pushf_bad_lua54(L, &fs);
+#endif
+      /* fallthrough */
     default:
       lj_buf_putb(sb, '?');
       lj_assertL(0, "bad string format near offset %d", fs.len);

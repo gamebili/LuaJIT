@@ -60,6 +60,10 @@ end
 
 assert(_VERSION == "Lua 5.4", _VERSION)
 assert(jit.lua54compat == true)
+do
+  local f, err = load("a")
+  assert(f == nil and err:find("syntax error near <eof>", 1, true), err)
+end
 assert(getfenv == nil)
 assert(setfenv == nil)
 assert(module == nil)
@@ -130,6 +134,11 @@ do
   _G.bit = nil
 end
 do
+  local function result_count(...)
+    return select("#", ...), ...
+  end
+  local n, empty_key = result_count(next({}))
+  assert(n == 1 and empty_key == nil)
   local k = nil
   repeat
     k = next(_G, k)
@@ -166,14 +175,36 @@ do
   assert(ok == false and err:match("to 'ipairs'") ~= nil)
   assert(type(ipairs({})) == "function" and ipairs({}) == ipairs({}))
   do
+    local function result_count(...)
+      return select("#", ...), ...
+    end
     local iter = ipairs({})
+    local n, empty_key = result_count(iter({}, 0))
+    assert(n == 1 and empty_key == nil)
     local k, v = iter({ [math.mininteger] = 10 }, math.maxinteger)
     assert(k == math.mininteger and v == 10)
-    k, v = iter({ [math.mininteger] = 10 }, k)
-    assert(k == nil and v == nil)
+    n, k, v = result_count(iter({ [math.mininteger] = 10 }, k))
+    assert(n == 1 and k == nil and v == nil)
   end
   ok, err = pcall(setmetatable)
   assert(ok == false and err:match("to 'setmetatable'") ~= nil)
+  ok, err = pcall(setmetatable, {})
+  assert(ok == false and
+         err:find("to 'setmetatable' (nil or table expected, got no value)",
+                  1, true) ~= nil)
+  assert(pcall(setmetatable, {}, nil) == true)
+  ok, err = pcall(function() return setmetatable({}) end)
+  assert(ok == false and
+         err:find("to 'setmetatable' (nil or table expected, got no value)",
+                  1, true) ~= nil)
+  do
+    local f = setmetatable
+    ok, err = pcall(function() return f({}) end)
+    assert(ok == false and
+           err:find("to 'f' (nil or table expected, got no value)",
+                    1, true) ~= nil)
+    assert(pcall(function() return f({}, nil) end) == true)
+  end
   ok, err = pcall(getmetatable)
   assert(ok == false and err:match("to 'getmetatable'") ~= nil)
   local iter, state, key = pairs(1)
@@ -224,6 +255,27 @@ do
     ok, err = pcall(item[2])
     assert(ok == false and err:match("to '"..item[1].."'") ~= nil)
   end
+  do
+    ok, err = pcall(xpcall, function() end)
+    assert(ok == false and err:find("to 'xpcall' (function expected, got no value)",
+                                    1, true) ~= nil)
+    ok, err = pcall(xpcall, function() end, nil)
+    assert(ok == false and err:find("to 'xpcall' (function expected, got nil)",
+                                    1, true) ~= nil)
+    ok, err = pcall(function() return xpcall(function() end) end)
+    assert(ok == false and err:find("to 'xpcall' (function expected, got no value)",
+                                    1, true) ~= nil)
+    ok, err = pcall(function() return xpcall(function() end, nil) end)
+    assert(ok == false and err:find("to 'xpcall' (function expected, got nil)",
+                                    1, true) ~= nil)
+    local f = xpcall
+    ok, err = pcall(function() return f(function() end) end)
+    assert(ok == false and err:find("to 'f' (function expected, got no value)",
+                                    1, true) ~= nil)
+    ok, err = pcall(function() return f(function() end, nil) end)
+    assert(ok == false and err:find("to 'f' (function expected, got nil)",
+                                    1, true) ~= nil)
+  end
 end
 do
   local ok, err = pcall(rawget)
@@ -239,6 +291,33 @@ end
 do
   local locked = setmetatable({}, { __metatable = "locked" })
   assert(getmetatable(locked) == "locked")
+end
+do
+  local n = 20
+  local callable = function()
+    return 54
+  end
+  for _ = 1, n do
+    callable = setmetatable({}, { __call = callable })
+  end
+  assert(callable() == 54)
+end
+do
+  local n = 10000
+  local callable
+  callable = function()
+    if n == 0 then
+      return 1023
+    end
+    n = n - 1
+    return callable()
+  end
+  for _ = 1, 100 do
+    callable = setmetatable({}, { __call = callable })
+  end
+  -- A long Lua 5.4 callable chain can add many implicit self arguments. The
+  -- tail-call path must grow the coroutine stack and keep CALLT after growth.
+  assert(coroutine.wrap(function() return callable() end)() == 1023)
 end
 do
   local f = assert(load("return x"))
@@ -267,6 +346,16 @@ do
   local n2, v2 = debug.getupvalue(h, 2)
   assert(n1 == "_ENV" and v1 == _G)
   assert(n2 == "y" and v2 == 7)
+  -- Lua 5.4's debug.upvalueid is a query: missing upvalues return nil.
+  -- debug.upvaluejoin remains the mutating API and must still reject them.
+  assert(debug.upvalueid(h, 0) == nil)
+  assert(debug.upvalueid(h, 3) == nil)
+  assert(debug.upvalueid(h, -1) == nil)
+  assert(select("#", debug.upvalueid(h, 0)) == 1)
+  assert(select("#", debug.upvalueid(h, 3)) == 1)
+  assert(select("#", debug.upvalueid(h, -1)) == 1)
+  ok, err = pcall(debug.upvaluejoin, h, 3, h, 2)
+  assert(ok == false and err:match("upvalue") ~= nil)
 
   local source = assert(load("local _ENV = 5; return function() return x end"))()
   local target = assert(load("return x"))
@@ -277,6 +366,22 @@ do
   ok, err = pcall(target)
   assert(ok == false and err:match("_ENV") ~= nil and
          err:match("number") ~= nil)
+
+  local function expect_no_internal_c_upvalue(fn)
+    -- LuaJIT keeps some standard-library helpers as C closure upvalues for
+    -- speed, but Lua 5.4 debug APIs must not expose those implementation slots.
+    assert(select("#", debug.getupvalue(fn, 1)) == 0)
+    assert(select("#", debug.getupvalue(fn, 2)) == 0)
+    assert(select("#", debug.upvalueid(fn, 1)) == 1)
+    assert(debug.upvalueid(fn, 1) == nil)
+    assert(select("#", debug.setupvalue(fn, 1, "hidden")) == 0)
+  end
+  expect_no_internal_c_upvalue(print)
+  expect_no_internal_c_upvalue(pairs)
+  expect_no_internal_c_upvalue(ipairs)
+  local ipairs_aux1 = ipairs({})
+  local ipairs_aux2 = ipairs({})
+  assert(ipairs_aux1 == ipairs_aux2)
 end
 do
   for _, item in ipairs({
@@ -300,6 +405,207 @@ do
   }) do
     local ok, err = item[2]()
     assert(ok == false and err:match("to '"..item[1].."'") ~= nil)
+  end
+end
+do
+  local function expect_string_callname(fn, name)
+    local ok, err = pcall(fn)
+    assert(ok == false and
+           err:find("bad argument #1 to '" .. name .. "'", 1, true) ~= nil)
+  end
+  expect_string_callname(function() string.dump(true) end, "dump")
+  expect_string_callname(function() return string.dump(true) end, "dump")
+  do
+    local f = string.dump
+    expect_string_callname(function() f(true) end, "f")
+    expect_string_callname(function() return f(true) end, "f")
+  end
+  expect_string_callname(function() string.pack(nil) end, "pack")
+  expect_string_callname(function() return string.pack(nil) end, "pack")
+  do
+    local f = string.pack
+    expect_string_callname(function() f(nil) end, "f")
+    expect_string_callname(function() return f(nil) end, "f")
+  end
+  expect_string_callname(function() string.unpack(nil, "") end, "unpack")
+  expect_string_callname(function() return string.unpack(nil, "") end, "unpack")
+  expect_string_callname(function() string.packsize(nil) end, "packsize")
+  expect_string_callname(function() return string.packsize(nil) end, "packsize")
+end
+do
+  local function expect_public_tail_callname(fn, name)
+    local ok, err = pcall(fn)
+    assert(ok == false and
+           err:find("test/smoke.lua:", 1, true) ~= nil and
+           err:find("to '" .. name .. "'", 1, true) ~= nil)
+  end
+  do
+    local ok, err = pcall(math.random, true)
+    assert(ok == false and err:find("to 'math.random'", 1, true) ~= nil)
+    ok, err = pcall(math.randomseed, true)
+    assert(ok == false and err:find("to 'math.randomseed'", 1, true) ~= nil)
+  end
+  expect_public_tail_callname(function() return math.random(true) end, "random")
+  expect_public_tail_callname(function() return math.randomseed(true) end,
+                              "randomseed")
+  expect_public_tail_callname(function() return math.fmod(1, 0) end, "fmod")
+  expect_public_tail_callname(function() return math.min() end, "min")
+  do
+    local f = math.max
+    expect_public_tail_callname(function() return f() end, "f")
+  end
+  do
+    local function set_global_alias()
+      lua54_global_abs_alias = math.abs
+    end
+    set_global_alias()
+    expect_public_tail_callname(function()
+      return lua54_global_abs_alias(true)
+    end, "lua54_global_abs_alias")
+    lua54_global_abs_alias = nil
+  end
+  do
+    local alias_table = {}
+    local function set_table_alias()
+      alias_table.f = math.abs
+    end
+    set_table_alias()
+    expect_public_tail_callname(function()
+      return alias_table.f(true)
+    end, "f")
+  end
+  do
+    local alias_table = {}
+    lua54_table_global_alias = alias_table
+    lua54_table_global_alias.h = math.abs
+    expect_public_tail_callname(function()
+      return alias_table.h(true)
+    end, "h")
+    lua54_table_global_alias = nil
+  end
+  do
+    local alias_table = {}
+    alias_table.j = math.abs
+    lua54_table_global_alias = alias_table
+    expect_public_tail_callname(function()
+      return lua54_table_global_alias.j(true)
+    end, "j")
+    lua54_table_global_alias = nil
+  end
+  do
+    local alias_table = {}
+    local holder = {}
+    holder.inner = alias_table
+    holder.inner.k = math.abs
+    expect_public_tail_callname(function()
+      return alias_table.k(true)
+    end, "k")
+    expect_public_tail_callname(function()
+      return holder.inner.k(true)
+    end, "k")
+  end
+  do
+    local alias_table = {}
+    local holder = { inner = alias_table }
+    holder.inner.l = math.abs
+    expect_public_tail_callname(function()
+      return alias_table.l(true)
+    end, "l")
+    expect_public_tail_callname(function()
+      return holder.inner.l(true)
+    end, "l")
+  end
+  do
+    local alias_table = {}
+    local base = {}
+    base.inner = alias_table
+    local holder = { alias = base.inner }
+    holder.alias.m = math.abs
+    expect_public_tail_callname(function()
+      return alias_table.m(true)
+    end, "m")
+    expect_public_tail_callname(function()
+      return holder.alias.m(true)
+    end, "m")
+  end
+  do
+    local alias_table = {}
+    local base = {}
+    base.inner = alias_table
+    local holder = {}
+    holder.alias = base.inner
+    holder.alias.n = math.abs
+    expect_public_tail_callname(function()
+      return alias_table.n(true)
+    end, "n")
+    expect_public_tail_callname(function()
+      return holder.alias.n(true)
+    end, "n")
+  end
+  expect_public_tail_callname(function() return os.exit("x") end, "exit")
+  do
+    local f = os.exit
+    expect_public_tail_callname(function() return f("x") end, "f")
+  end
+  expect_public_tail_callname(function() return io.open(true) end, "open")
+  expect_public_tail_callname(function() return io.input(true) end, "input")
+  expect_public_tail_callname(function() return io.read({}) end, "read")
+  do
+    local f = io.open
+    expect_public_tail_callname(function() return f(true) end, "f")
+  end
+  expect_public_tail_callname(function() return debug.getinfo(true) end,
+                              "getinfo")
+  do
+    local f = debug.getinfo
+    expect_public_tail_callname(function() return f(true) end, "f")
+  end
+  expect_public_tail_callname(function() return utf8.len(true) end, "len")
+  do
+    local f = utf8.len
+    expect_public_tail_callname(function() return f(true) end, "f")
+  end
+  expect_public_tail_callname(function()
+    return package.searchpath({}, "?.lua")
+  end, "searchpath")
+  do
+    local f = package.searchpath
+    expect_public_tail_callname(function() return f({}, "?.lua") end, "f")
+  end
+  expect_public_tail_callname(function() return rawget() end, "rawget")
+  expect_public_tail_callname(function() return rawset({}, "k") end, "rawset")
+  expect_public_tail_callname(function() return rawequal() end, "rawequal")
+  expect_public_tail_callname(function() return rawlen(1) end, "rawlen")
+  expect_public_tail_callname(function() return next() end, "next")
+  expect_public_tail_callname(function() return pairs() end, "pairs")
+  expect_public_tail_callname(function() return ipairs() end, "ipairs")
+  expect_public_tail_callname(function() return getmetatable() end,
+                              "getmetatable")
+  expect_public_tail_callname(function() return setmetatable() end,
+                              "setmetatable")
+  expect_public_tail_callname(function() return tonumber("10", 1) end,
+                              "tonumber")
+  expect_public_tail_callname(function() return select(1.2) end, "select")
+  expect_public_tail_callname(function() return assert() end, "assert")
+  do
+    local f = rawget
+    expect_public_tail_callname(function() return f() end, "f")
+  end
+  do
+    local f = next
+    expect_public_tail_callname(function() return f() end, "f")
+  end
+  do
+    local f = tonumber
+    expect_public_tail_callname(function() return f("10", 1) end, "f")
+  end
+  do
+    local f = select
+    expect_public_tail_callname(function() return f(1.2) end, "f")
+  end
+  do
+    local f = assert
+    expect_public_tail_callname(function() return f() end, "f")
   end
 end
 do
@@ -334,10 +640,66 @@ do
   assert(debug.getinfo("1", "n") ~= nil)
 end
 do
+  local function result_count(...)
+    return select("#", ...), ...
+  end
+  local n, hook = result_count(debug.gethook())
+  assert(n == 1 and hook == nil)
+  local co = coroutine.create(function() end)
+  n, hook = result_count(debug.gethook(co))
+  assert(n == 1 and hook == nil)
+  -- Lua 5.4 treats an empty mask with count 0 as "no hook"; keeping the
+  -- function in the registry would make gethook() return function, "", 0.
+  debug.sethook(function() end, "", 0)
+  n, hook = result_count(debug.gethook())
+  assert(n == 1 and hook == nil)
+  debug.sethook(co, function() end, "", 0)
+  n, hook = result_count(debug.gethook(co))
+  assert(n == 1 and hook == nil)
+  debug.sethook(function() end, "", 1)
+  local active, mask, count = debug.gethook()
+  assert(type(active) == "function" and mask == "" and count == 1)
+  debug.sethook()
+end
+do
   assert(collectgarbage("generational") == "generational")
   assert(collectgarbage("incremental") == "generational")
   assert(collectgarbage("incremental") == "incremental")
   assert(collectgarbage("generational") == "incremental")
+  assert(type(collectgarbage("count", true, true)) == "number")
+  assert(type(collectgarbage(nil, true)) == "number")
+  assert(collectgarbage("collect", true, true) == 0)
+  collectgarbage("stop", true, true)
+  assert(collectgarbage("isrunning", true) == false)
+  collectgarbage("restart", true, true)
+  assert(collectgarbage("isrunning", true) == true)
+  do
+    local function expect_gc_int_error(opt, narg, msg, ...)
+      local ok, err = pcall(collectgarbage, opt, ...)
+      assert(ok == false)
+      assert(err:find("bad argument #" .. narg .. " to 'collectgarbage'",
+		      1, true))
+      assert(err:find(msg, 1, true))
+    end
+    collectgarbage("incremental")
+    assert(collectgarbage("generational", 20, 30) == "incremental")
+    assert(collectgarbage("incremental", "200", "100", "13") ==
+	   "generational")
+    assert(collectgarbage("generational", 20, 30, 40) == "incremental")
+    assert(collectgarbage("incremental", 200, 300, 12, 9) == "generational")
+    expect_gc_int_error("generational", 2, "integer representation", 20.5)
+    expect_gc_int_error("generational", 3, "integer representation", 20, 30.5)
+    expect_gc_int_error("generational", 2, "number expected, got boolean",
+			true)
+    expect_gc_int_error("generational", 3, "number expected, got boolean",
+			20, true)
+    expect_gc_int_error("incremental", 2, "integer representation", 200.5)
+    expect_gc_int_error("incremental", 3, "integer representation", 200, 300.5)
+    expect_gc_int_error("incremental", 4, "integer representation",
+			200, 300, 12.5)
+    expect_gc_int_error("incremental", 4, "number expected, got boolean",
+			200, 300, true)
+  end
   assert(select(1, pcall(collectgarbage, "minor")) == false)
   assert(select(1, pcall(collectgarbage, "major")) == false)
   do
@@ -358,6 +720,96 @@ do
     assert(select(1, pcall(collectgarbage, "setstepmul", 123.5)) == false)
     assert(collectgarbage("setpause", "123") == 200)
     assert(collectgarbage("setstepmul", "123") == 100)
+    collectgarbage("stop")
+    assert(collectgarbage("isrunning") == false)
+    collectgarbage("collect")
+    assert(collectgarbage("isrunning") == false)
+    assert(collectgarbage("step", 20000) == true)
+    assert(collectgarbage("isrunning") == false)
+    collectgarbage("restart")
+    assert(collectgarbage("isrunning") == true)
+    do
+      local oldhot
+      if jit and jit.opt and jit.opt.start then
+        jit.flush()
+        jit.opt.start("hotloop=1", "hotexit=1")
+        oldhot = true
+      end
+      local mt = { __mode = "k" }
+      local roots = setmetatable({}, mt)
+      local x
+      for i = 1, 100 do
+        local n = {}
+        roots[n] = { k = { x } }
+        x = n
+      end
+      collectgarbage("collect")
+      local done = false
+      local u = setmetatable({}, { __gc = function() done = true end })
+      local n = 0
+      repeat
+        n = n + 1
+        u = {}
+      until done or n > 20000
+      -- A full collection must not leave such a large threshold that a hot
+      -- allocation loop traces and sinks allocations before GC can run.
+      assert(done)
+      if oldhot then
+        jit.flush()
+        jit.opt.start("hotloop=56", "hotexit=10")
+      end
+      assert(x ~= nil and roots ~= nil and u ~= nil)
+    end
+    do
+      local function bounded_table_finalizer(limit)
+        local done = false
+        local u = setmetatable({}, { __gc = function() done = true end })
+        local keep = {34}
+        local n = 0
+        repeat
+          n = n + 1
+          u = {}
+        until done or n > limit
+        assert(done and keep[1] == 34)
+        return u
+      end
+
+      -- Match the official gc.lua sequence that leaves a large weak/ephemeron
+      -- graph before relying on allocation-triggered table finalization.
+      local lim = 15
+      local a = setmetatable({}, { __mode = "k" })
+      for i = 1, lim do a[{}] = i end
+      for i = 1, lim do a[i] = i end
+      for i = 1, lim do local s = string.rep("@", i); a[s] = s.."#" end
+      collectgarbage("collect")
+      a = setmetatable({}, { __mode = "v" })
+      for i = 1, lim do a[i] = {} end
+      for i = 1, lim do a[i.."x"] = {} end
+      for i = 1, lim do local t = {}; a[t] = t end
+      for i = 1, lim do a[i+lim] = i.."x" end
+      collectgarbage("collect")
+      a = setmetatable({}, { __mode = "kv" })
+      local x, y, z = {}, {}, {}
+      a[1], a[2], a[3] = x, y, z
+      a[string.rep("$", 11)] = string.rep("$", 11)
+      for i = 4, lim do a[i] = {} end
+      for i = 1, lim do a[{}] = i end
+      for i = 1, lim do local t = {}; a[t] = t end
+      collectgarbage("collect")
+      x, y, z = nil, nil, nil
+      collectgarbage("collect")
+      local mt = { __mode = "k" }
+      a = {{10}, {20}, {30}, {40}}
+      setmetatable(a, mt)
+      x = nil
+      for i = 1, 100 do
+        local n = {}
+        a[n] = { k = { x } }
+        x = n
+      end
+      bounded_table_finalizer(50000)
+      assert(a ~= nil and x ~= nil)
+    end
   end
 end
 do
@@ -370,6 +822,15 @@ do
   assert(load("local x <const> = 1; local function f() x = 2 end") == nil)
   assert(load("local x <unknown> = 1") == nil)
   assert(load("local x <close>, y <close> = false, false") == nil)
+  assert(load("local x <close> = nil; x = false") == nil)
+  assert(load("local x <close> = nil; local function f() x = false end") == nil)
+  do
+    local _, err = load([[
+      local x <close> = nil
+      x = false
+    ]])
+    assert(err:match(":2: attempt to assign to const variable 'x'", 1, true))
+  end
   do
     local ok, err = pcall(assert(load("local x <close> = 1")))
     assert(ok == false and err:match("variable 'x' got a non%-closable value") ~= nil)
@@ -381,6 +842,113 @@ do
     _G.__lua54_closable_decl = nil
   end
   assert(assert(load("local x <close> = false; return x"))() == false)
+  do
+    local function lexnear(src, near)
+      local fn, err = load("return " .. src, "")
+      assert(fn == nil and err:match(near, 1, true) ~= nil)
+    end
+    lexnear([["abc\x"]], [[\x"]])
+    lexnear([["\999"]], [[\999"]])
+    lexnear([["abc\u{11r"]], [[\u{11r]])
+    assert(load("#=1", "") == nil)
+    do
+      local _, err = load("a" .. string.char(1) .. "a = 1", "")
+      assert(err:match("'<\\1>'", 1, true) ~= nil)
+      _, err = load(string.char(255) .. "a = 1", "")
+      assert(err:match("'<\\255>'", 1, true) ~= nil)
+    end
+    assert(load("a" .. string.char(128) .. "1 = 1", "") == nil)
+    do
+      local _, err = load("local a = {4\n")
+      assert(err:match("near <eof>", 1, true) ~= nil)
+    end
+    do
+      local _, err = load("::A:: a = 1\n::A::")
+      assert(err:match("label 'A' already defined on line 1", 1, true))
+      _, err = load("goto A\ndo ::A:: end")
+      assert(err:match("no visible label 'A' for <goto> at line 1", 1, true))
+      _, err = load("break")
+      assert(err:match("break outside loop at line 1", 1, true))
+    end
+    do
+      local ok, err = pcall(assert(load("bbbb = 2; return bbbb()")))
+      assert(ok == false and err:match("global 'bbbb'", 1, true) ~= nil)
+      ok, err = pcall(assert(load("aaa = {}; return (aaa or aaa) + (aaa and aaa)")))
+      assert(ok == false and err:match("'aaa'", 1, true) == nil)
+      ok, err = pcall(assert(load("aaa = {}; return (aaa or aaa)()")))
+      assert(ok == false and err:match("'aaa'", 1, true) == nil)
+      local chunk = {}
+      for i = 1, 300 do chunk[i] = "aaa = x" .. i end
+      ok, err = pcall(assert(load(table.concat(chunk, "; ") ..
+        "; local t = {}; t:bbb()")))
+      assert(ok == false and err:match("method 'bbb'", 1, true) ~= nil)
+      ok, err = pcall(assert(load([[return math.sin("a")]])))
+      assert(ok == false and err:match("'sin'", 1, true) ~= nil and
+	     err:match("'math.sin'", 1, true) == nil, tostring(err))
+      ok, err = pcall(assert(load([[return math.abs(true)]])))
+      assert(ok == false and err:match("'abs'", 1, true) ~= nil and
+	     err:match("'math.abs'", 1, true) == nil, tostring(err))
+      ok, err = pcall(assert(load([[return (math.abs)(true)]])))
+      assert(ok == false and err:match("'abs'", 1, true) ~= nil and
+	     err:match("'math.abs'", 1, true) == nil, tostring(err))
+      ok, err = pcall(assert(load([[local f = math.abs; return f(true)]])))
+      assert(ok == false and err:match("'f'", 1, true) ~= nil and
+	     err:match("'math.abs'", 1, true) == nil, tostring(err))
+      ok, err = pcall(assert(load("a\n=\n-\n\nprint\n;")))
+      assert(ok == false and err:match(":3:", 1, true) ~= nil)
+      _G.__lua54_string_self = setmetatable({}, { __index = string })
+      ok, err = pcall(assert(load("__lua54_string_self:sub()")))
+      _G.__lua54_string_self = nil
+      assert(ok == false and err:match("bad self", 1, true) ~= nil)
+      ok, err = pcall(assert(load([[("a"):sub{}]])))
+      assert(ok == false and err:match("bad argument #1", 1, true) ~= nil)
+      _, err = load("local a; a" .. string.rep(",a", 500))
+      assert(err:match("too many", 1, true) ~= nil)
+      _, err = load("local function a (x) return x end; return " ..
+                    string.rep("a(", 500))
+      assert(err:match("too many", 1, true) ~= nil)
+      _, err = load("a = f(x" .. string.rep(",x", 260) .. ")")
+      assert(err:match("too many registers", 1, true) ~= nil)
+      local locals = {}
+      for i = 1, 300 do locals[i] = "a" .. i end
+      _, err = load("\nfunction foo ()\n  local " .. table.concat(locals, ",") .. "\n")
+      assert(err:match("line 2", 1, true) ~= nil and
+             err:match("too many local variables", 1, true) ~= nil)
+      local upsrc = "local function fooA ()\n  local "
+      for i = 1, 100 do upsrc = upsrc .. "a" .. i .. ", " end
+      upsrc = upsrc .. "b,c\nlocal function fooB ()\n  local "
+      for i = 1, 100 do upsrc = upsrc .. "b" .. i .. ", " end
+      upsrc = upsrc .. "b\nfunction fooC () return b+c"
+      for i = 1, 100 do upsrc = upsrc .. "+a" .. i .. "+b" .. i end
+      upsrc = upsrc .. "\nend end end"
+      _, err = load(upsrc)
+      assert(err:match("line 5", 1, true) ~= nil and
+             err:match("too many upvalues", 1, true) ~= nil)
+      local nup = 200
+      local prog = { "local a1" }
+      for i = 2, nup do prog[#prog + 1] = ", a" .. i end
+      prog[#prog + 1] = " = 1"
+      for i = 2, nup do prog[#prog + 1] = ", " .. i end
+      local sum = 1
+      prog[#prog + 1] = "; return function () return a1"
+      for i = 2, nup do
+        prog[#prog + 1] = " + a" .. i
+        sum = sum + i
+      end
+      prog[#prog + 1] = " end"
+      local manyuv = assert(load(table.concat(prog)))()
+      assert(manyuv() == sum)
+      manyuv = assert(load(string.dump(manyuv)))
+      local uvvalue = 10
+      local donor = function() return uvvalue end
+      for i = 1, nup do
+        debug.upvaluejoin(manyuv, i, donor, 1)
+      end
+      assert(manyuv() == uvvalue * nup)
+    end
+  end
+  assert(load("::l1:: do ::l1:: end") == nil)
+  assert(load("::l1:: local function f() ::l1:: end") ~= nil)
   do
     assert(assert(load([[
       local log = {}
@@ -838,6 +1406,19 @@ do
   assert(ok == false and err:match("'for' step is zero") ~= nil)
   ok, err = pcall(assert(load([[for i = 1, 3, "0" do end]])))
   assert(ok == false and err:match("'for' step is zero") ~= nil)
+  local function forerr(src, what, got)
+    local ok_for, err_for = pcall(assert(load(src)))
+    assert(ok_for == false and err_for:match(what, 1, true) ~= nil and
+           err_for:match(got, 1, true) ~= nil)
+    return err_for
+  end
+  forerr("for i = {}, 10 do end", "bad 'for' initial value", "got table")
+  forerr("for i = io.stdin, 10 do end", "bad 'for' initial value", "FILE")
+  forerr([[for i = 1, "x", 10 do end]], "bad 'for' limit", "got string")
+  assert(forerr([[local a
+for i = 1, "x" do end]], "bad 'for' limit", "got string"):match(":2:", 1, true) ~= nil)
+  forerr("for i = 1, {}, 10 do end", "bad 'for' limit", "got table")
+  forerr("for i = 1, 10, print do end", "bad 'for' step", "got function")
   local c = 0
   for i = 1.0, 10 do
     assert(math.type(i) == "float")
@@ -862,14 +1443,42 @@ do
     c = c + 1
   end
   assert(c == 10)
+  if jit and jit.opt and jit.opt.start then
+    local function check_jit_float_for(init, limit, step)
+      local n = 0
+      jit.on()
+      jit.flush()
+      -- Force recording quickly: the bug is invisible with the default hotloop
+      -- threshold, but official tests can hit it after earlier loop warmup.
+      jit.opt.start("hotloop=1", "hotexit=1")
+      for i = init, limit, step do
+        assert(math.type(i) == "float")
+        n = n + 1
+      end
+      jit.flush()
+      -- jit.opt.start() without arguments only resets optimization flags, not
+      -- hotloop/hotexit parameters. Restore explicit defaults so later hook
+      -- tests do not trace immediately on ARM64.
+      jit.opt.start("hotloop=56", "hotexit=10")
+      return n
+    end
+    assert(check_jit_float_for(1.0, 10, 1) == 10)
+    assert(check_jit_float_for(-1, -10, -1.0) == 10)
+  end
 end
 do
   local function eval(src)
     return assert(load("return "..src))()
   end
+  local intbits = math.floor(math.log(math.maxinteger, 2) + 0.5) + 1
+  assert(eval("1 << "..intbits) == 0)
+  assert(math.mininteger == eval("1 << "..(intbits - 1)))
+  assert(math.maxinteger == math.mininteger - 1)
   assert(eval("5 // 2") == 2)
   assert(eval("-5 // 2") == -3)
   assert(eval("5.5 // 2") == 2)
+  assert(eval("math.mininteger // -1") == math.mininteger)
+  assert(math.type(eval("math.mininteger // -1")) == "integer")
   assert(eval([["5" // 2]]) == 2)
   assert(eval([["5.5" // 2]]) == 2)
   assert(assert(load([[local a, b = "1.0" // "2"; return a == 0 and b == nil]]))())
@@ -879,13 +1488,12 @@ do
   assert(eval("~7") == -8)
   assert(eval("1 << 3") == 8)
   assert(eval("8 >> 1") == 4)
-  assert(eval("1 << 31") == 2147483648)
-  assert(eval("(1 << 31) - 1") == 2147483647)
-  assert(eval("1 << 40") == 1099511627776)
-  assert(eval("(1 << 40) >> 8") == 4294967296)
-  assert(eval("(1 << 40) | 255") == 1099511628031)
-  assert(eval("((1 << 40) | 255) & 511") == 255)
-  assert(eval("(1 << 40) ~ (1 << 33)") == 1108101562368)
+  assert(eval("1 << 31") == math.mininteger)
+  assert(eval("-(1 << 31)") == math.mininteger)
+  assert(math.type(eval("-(1 << 31)")) == "integer")
+  assert(eval("(1 << 31) - 1") == math.maxinteger)
+  assert(eval("1 << 32") == 0)
+  assert(eval("1 << 40") == 0)
   assert(eval("1 << 64") == 0)
   assert(eval("1 >> 64") == 0)
   assert(assert(load("local a, b = 6, 3; return (a + 1) & (b + 1)"))() == 4)
@@ -930,6 +1538,11 @@ do
     ok, err = pcall(assert(load([[return 1 + "x"]])))
     assert(ok == false and err:match("attempt to add") ~= nil and
            err:match("'number'") ~= nil and err:match("'string'") ~= nil)
+    ok, err = pcall(assert(load([[return (2 ^ 40) & 1]])))
+    assert(ok == false and err:match("number has no integer representation") ~= nil)
+    ok, err = pcall(assert(load([[return math.huge << 1]])))
+    assert(ok == false and err:match("integer representation") ~= nil and
+           err:match("field 'huge'") ~= nil)
     ok, err = pcall(assert(load([[return "x" * true]])))
     assert(ok == false and err:match("attempt to mul") ~= nil and
            err:match("'string'") ~= nil and err:match("'boolean'") ~= nil)
@@ -945,14 +1558,39 @@ do
     assert(ok == false and err:match("integer representation") ~= nil)
     ok, err = pcall(assert(load([[return "3" & 1]])))
     assert(ok == false and err:match("bitwise operation") ~= nil and
-           err:match("string value") ~= nil)
+           err:match("string value") ~= nil and
+           err:match("constant '3'") ~= nil)
+    ok, err = pcall(assert(load([[return 1 & "3"]])))
+    assert(ok == false and err:match("bitwise operation") ~= nil and
+           err:match("string value") ~= nil and
+           err:match("constant '3'") ~= nil)
+    ok, err = pcall(assert(load([[local x = "3"; return x & 1]])))
+    assert(ok == false and err:match("bitwise operation") ~= nil and
+           err:match("string value") ~= nil and
+           err:match("local 'x'") ~= nil)
     ok, err = pcall(assert(load("return true & 1")))
     assert(ok == false and err:match("bitwise operation") ~= nil and
            err:match("boolean value") ~= nil)
+    ok, err = pcall(assert(load("local b = true; return b & 1")))
+    assert(ok == false and err:match("bitwise operation") ~= nil and
+           err:match("boolean value") ~= nil and
+           err:match("local 'b'") ~= nil)
+    ok, err = pcall(assert(load("local t = {}; return t & 1")))
+    assert(ok == false and err:match("bitwise operation") ~= nil and
+           err:match("table value") ~= nil and
+           err:match("local 't'") ~= nil)
+    ok, err = pcall(assert(load([[return ~"3"]])))
+    assert(ok == false and err:match("bitwise operation") ~= nil and
+           err:match("string value") ~= nil and
+           err:match("constant '3'") ~= nil)
     _G.__lua54_named_bitwise = setmetatable({}, { __name = "Lua54Bitwise" })
     ok, err = pcall(assert(load("return __lua54_named_bitwise & 1")))
     assert(ok == false and err:match("bitwise operation") ~= nil and
            err:match("Lua54Bitwise value") ~= nil)
+    ok, err = pcall(assert(load("local t = __lua54_named_bitwise; return t & 1")))
+    assert(ok == false and err:match("bitwise operation") ~= nil and
+           err:match("Lua54Bitwise value") ~= nil and
+           err:match("local 't'") ~= nil)
     _G.__lua54_named_bitwise = nil
   end
   do
@@ -1115,8 +1753,58 @@ assert(math.type(1 + 2.0) == "float")
 assert(math.type(1 + 2) == "integer")
 assert(math.type(4 / 2) == "float")
 assert(math.type(2 ^ 3) == "float")
+assert(tostring(1) == "1")
+assert(tostring(1.0) == "1.0")
+assert(tostring(1.5) == "1.5")
+assert(("x" .. 1.0) == "x1.0")
+assert(table.concat({ 1.0, 2, 3.5 }, ",") == "1.0,2,3.5")
+do
+  local ok = true
+  for i = -80, 120 do
+    -- The recorder must not narrow a Lua 5.4 float constant such as 0.0 to
+    -- KINT, or hot loops change int+float results back to integer.
+    if math.type(i + 0.0) ~= "float" then ok = false; break end
+  end
+  assert(ok)
+end
+assert(2^54 % 3 == 1)
+assert((-2^54) % 3 == 2)
+assert(2^54 % -3 == -2)
 assert(math.type(tonumber("1")) == "integer")
 assert(math.type(tonumber("1.0")) == "float")
+assert(tonumber("0x1"..string.rep("0", 30)) == 0)
+assert(math.type(tonumber("0x1"..string.rep("0", 30))) == "integer")
+assert(assert(load("return 0x100000000"))() == 0)
+assert(tonumber("ffffFFFF", 16) + 1 == 0)
+assert(tonumber("-0ffffffFFFF", 16) - 1 == 0)
+do
+  local i = 10
+  local i2 = i * i
+  local i10 = i2 * i2 * i2 * i2 * i2
+  -- Lua 5.4 treats a present base argument as integer-base conversion even
+  -- when the base is 10; it must not fall back to decimal float scanning.
+  assert(tonumber("\t10000000000\t", i) == i10)
+  assert(tonumber("1.0", 10) == nil)
+  assert(tonumber("1\0", 2) == nil)
+  assert(pcall(tonumber, 10, 10) == false)
+  do
+    local ok, err = pcall(tonumber, "10", 1)
+    assert(ok == false and err:find("bad argument #2 to 'tonumber' (base out of range)", 1, true))
+    ok, err = pcall(tonumber, "10", 37)
+    assert(ok == false and err:find("bad argument #2 to 'tonumber' (base out of range)", 1, true))
+  end
+  if jit and jit.opt then
+    jit.opt.start("hotloop=1", "hotexit=1")
+    for base = 2, 36 do
+      local b2 = base * base
+      local b10 = b2 * b2 * b2 * b2 * b2
+      -- The recorder must not use decimal STRTO for explicit-base tonumber();
+      -- base 10 overflows the current 32-bit integer surface in the old trace.
+      assert(tonumber("\t10000000000\t", base) == b10)
+    end
+    jit.opt.start("hotloop=56", "hotexit=10")
+  end
+end
 assert(math.maxinteger == 2147483647)
 assert(math.mininteger == -2147483648)
 assert(math.maxinteger > 0 and math.mininteger < 0)
@@ -1132,6 +1820,66 @@ assert(math.ult(2, 1) == false)
 assert(math.ult(1, -1) == true)
 assert(math.ult(-1, 1) == false)
 assert(select(1, pcall(math.ult, 1.5, 2)) == false)
+assert(math.abs(math.mininteger) == math.mininteger)
+assert(math.type(math.abs(math.mininteger)) == "integer")
+assert(math.abs(math.atan(1, 0) - math.pi / 2) < 1e-14)
+assert(math.atan(1, nil) == math.atan(1))
+assert(math.fmod(5, 2) == 1 and math.type(math.fmod(5, 2)) == "integer")
+assert(math.fmod(5.0, 2) == 1 and math.type(math.fmod(5.0, 2)) == "float")
+assert(math.fmod(math.mininteger, -1) == 0)
+do
+  local ok_fmod, err_fmod = pcall(math.fmod, 3, 0)
+  assert(ok_fmod == false and
+	 err_fmod:find("bad argument #2 to 'math.fmod' (zero)", 1, true))
+  ok_fmod, err_fmod = pcall(math.fmod)
+  assert(ok_fmod == false and
+	 err_fmod:find("bad argument #2 to 'math.fmod' (number expected, got no value)", 1, true))
+  ok_fmod, err_fmod = pcall(function() return math.fmod(nil) end)
+  assert(ok_fmod == false and
+	 err_fmod:find("bad argument #2 to 'fmod' (number expected, got no value)", 1, true))
+  ok_fmod, err_fmod = pcall(math.fmod, nil, 1)
+  assert(ok_fmod == false and
+	 err_fmod:find("bad argument #1 to 'math.fmod' (number expected, got nil)", 1, true))
+  -- Lua 5.4 only raises on the integer fast path; float zero follows C fmod.
+  local fmod_nan1 = math.fmod(3, 0.0)
+  local fmod_nan2 = math.fmod(3.0, 0)
+  assert(fmod_nan1 ~= fmod_nan1 and math.type(fmod_nan1) == "float")
+  assert(fmod_nan2 ~= fmod_nan2 and math.type(fmod_nan2) == "float")
+end
+do
+  local named_math_errors = {
+    { "abs", math.abs }, { "acos", math.acos }, { "asin", math.asin },
+    { "ceil", math.ceil }, { "cos", math.cos }, { "exp", math.exp },
+    { "floor", math.floor }, { "log", math.log }, { "modf", math.modf },
+    { "sin", math.sin }, { "sqrt", math.sqrt }, { "tan", math.tan },
+  }
+  for _, item in ipairs(named_math_errors) do
+    local ok_math, err_math = pcall(item[2], true)
+    assert(ok_math == false and
+	   err_math:find("bad argument #1 to 'math." .. item[1] ..
+			 "' (number expected, got boolean)", 1, true))
+  end
+  do
+    local f = math.abs
+    local ok_math, err_math = pcall(function() return f(true) end)
+    assert(ok_math == false and
+	   err_math:find("bad argument #1 to 'f' " ..
+			 "(number expected, got boolean)", 1, true))
+  end
+  assert(math.log(8, nil) == math.log(8))
+  do
+    local ok_log, err_log = pcall(math.log, 8, true)
+    assert(ok_log == false and
+	   err_log:find("bad argument #2 to 'math.log' " ..
+			"(number expected, got boolean)", 1, true))
+  end
+end
+do
+  math.randomseed(1007)
+  assert(math.random(0) == -1557935658)
+  math.randomseed(1007, 0)
+  assert(math.abs(math.random() - 0x0.7a7040a5a323c9d6) < 2^-53)
+end
 assert(math.max("a", "b") == "b")
 assert(math.min("a", "b") == "a")
 assert(math.max(false) == false)
@@ -1148,10 +1896,12 @@ assert(math.floor("1.2") == 1)
 assert(math.type(math.ceil(1.2)) == "integer")
 do
   local ok, err = pcall(math.deg)
-  assert(ok == false and err:match("math%.deg") ~= nil and
+  assert(ok == false and
+         (err:match("math%.deg") ~= nil or err:match("'deg'") ~= nil) and
          err:match("number expected") ~= nil)
   ok, err = pcall(math.rad, {})
-  assert(ok == false and err:match("math%.rad") ~= nil and
+  assert(ok == false and
+         (err:match("math%.rad") ~= nil or err:match("'rad'") ~= nil) and
          err:match("number expected") ~= nil)
   assert(math.deg(tostring(math.pi)) > 179.999)
   assert(math.rad("180") > 3.141 and math.rad("180") < 3.142)
@@ -1181,6 +1931,162 @@ do
   assert(ok == false and err:match("thread expected") and err:match("Lua54Smoke"))
 end
 do
+  local ok, err = pcall(function() coroutine.status(true) end)
+  assert(ok == false and
+         err:find("bad argument #1 to 'status' (thread expected, got boolean)",
+                  1, true) ~= nil)
+  local f = coroutine.status
+  ok, err = pcall(function() f(true) end)
+  assert(ok == false and
+         err:find("bad argument #1 to 'f' (thread expected, got boolean)",
+                  1, true) ~= nil)
+  ok, err = pcall(function() coroutine.create(true) end)
+  assert(ok == false and
+         err:find("bad argument #1 to 'create' (function expected, got boolean)",
+                  1, true) ~= nil)
+  f = coroutine.create
+  ok, err = pcall(function() f(true) end)
+  assert(ok == false and
+         err:find("bad argument #1 to 'f' (function expected, got boolean)",
+                  1, true) ~= nil)
+  ok, err = pcall(function() coroutine.wrap(true) end)
+  assert(ok == false and
+         err:find("bad argument #1 to 'wrap' (function expected, got boolean)",
+                  1, true) ~= nil)
+  f = coroutine.wrap
+  ok, err = pcall(function() f(true) end)
+  assert(ok == false and
+         err:find("bad argument #1 to 'f' (function expected, got boolean)",
+                  1, true) ~= nil)
+  ok, err = pcall(function() coroutine.isyieldable(true) end)
+  assert(ok == false and
+         err:find("bad argument #1 to 'isyieldable' (thread expected, got boolean)",
+                  1, true) ~= nil)
+  f = coroutine.isyieldable
+  ok, err = pcall(function() f(true) end)
+  assert(ok == false and
+         err:find("bad argument #1 to 'f' (thread expected, got boolean)",
+                  1, true) ~= nil)
+  ok, err = pcall(function() coroutine.status(nil) end)
+  assert(ok == false and err:find("test/smoke.lua:", 1, true) ~= nil and
+         err:find("bad argument #1 to 'status' (thread expected, got nil)",
+                  1, true) ~= nil,
+         err)
+  f = coroutine.status
+  ok, err = pcall(function() f(nil) end)
+  assert(ok == false and err:find("test/smoke.lua:", 1, true) ~= nil and
+         err:find("bad argument #1 to 'f' (thread expected, got nil)",
+                  1, true) ~= nil,
+         err)
+  ok, err = pcall(function() coroutine.create(nil) end)
+  assert(ok == false and err:find("test/smoke.lua:", 1, true) ~= nil and
+         err:find("bad argument #1 to 'create' (function expected, got nil)",
+                  1, true) ~= nil,
+         err)
+  f = coroutine.create
+  ok, err = pcall(function() f(nil) end)
+  assert(ok == false and err:find("test/smoke.lua:", 1, true) ~= nil and
+         err:find("bad argument #1 to 'f' (function expected, got nil)",
+                  1, true) ~= nil,
+         err)
+  ok, err = pcall(function() coroutine.wrap(nil) end)
+  assert(ok == false and err:find("test/smoke.lua:", 1, true) ~= nil and
+         err:find("bad argument #1 to 'wrap' (function expected, got nil)",
+                  1, true) ~= nil,
+         err)
+  f = coroutine.wrap
+  ok, err = pcall(function() f(nil) end)
+  assert(ok == false and err:find("test/smoke.lua:", 1, true) ~= nil and
+         err:find("bad argument #1 to 'f' (function expected, got nil)",
+                  1, true) ~= nil,
+         err)
+  ok, err = pcall(function() coroutine.isyieldable(nil) end)
+  assert(ok == false and err:find("test/smoke.lua:", 1, true) ~= nil and
+         err:find("bad argument #1 to 'isyieldable' (thread expected, got nil)",
+                  1, true) ~= nil,
+         err)
+  f = coroutine.isyieldable
+  ok, err = pcall(function() f(nil) end)
+  assert(ok == false and err:find("test/smoke.lua:", 1, true) ~= nil and
+         err:find("bad argument #1 to 'f' (thread expected, got nil)",
+                  1, true) ~= nil,
+         err)
+  -- Tail-position calls to Lua 5.4 coroutine wrappers must keep the source
+  -- call frame; otherwise errors fall back to coroutine.xxx instead of field.
+  ok, err = pcall(function() return coroutine.status(nil) end)
+  assert(ok == false and err:find("test/smoke.lua:", 1, true) ~= nil and
+         err:find("bad argument #1 to 'status' (thread expected, got nil)",
+                  1, true) ~= nil,
+         err)
+  ok, err = pcall(function() return coroutine.create(nil) end)
+  assert(ok == false and err:find("test/smoke.lua:", 1, true) ~= nil and
+         err:find("bad argument #1 to 'create' (function expected, got nil)",
+                  1, true) ~= nil,
+         err)
+  ok, err = pcall(function() return coroutine.wrap(nil) end)
+  assert(ok == false and err:find("test/smoke.lua:", 1, true) ~= nil and
+         err:find("bad argument #1 to 'wrap' (function expected, got nil)",
+                  1, true) ~= nil,
+         err)
+  ok, err = pcall(function() return coroutine.isyieldable(nil) end)
+  assert(ok == false and err:find("test/smoke.lua:", 1, true) ~= nil and
+         err:find("bad argument #1 to 'isyieldable' (thread expected, got nil)",
+                  1, true) ~= nil,
+         err)
+  ok, err = pcall(coroutine.resume)
+  assert(ok == false and
+         err:find("bad argument #1 to 'coroutine.resume' (thread expected, got no value)",
+                  1, true) ~= nil)
+  ok, err = pcall(function() coroutine.resume() end)
+  assert(ok == false and
+         err:find("bad argument #1 to 'resume' (thread expected, got no value)",
+                  1, true) ~= nil)
+  ok, err = pcall(function() coroutine.resume(nil) end)
+  assert(ok == false and
+         err:find("bad argument #1 to 'resume' (thread expected, got nil)",
+                  1, true) ~= nil)
+  f = coroutine.resume
+  ok, err = pcall(function() f() end)
+  assert(ok == false and
+         err:find("bad argument #1 to 'f' (thread expected, got no value)",
+                  1, true) ~= nil)
+  ok, err = pcall(function() return coroutine.resume() end)
+  assert(ok == false and
+         err:find("bad argument #1 to 'resume' (thread expected, got no value)",
+                  1, true) ~= nil)
+  f = coroutine.resume
+  ok, err = pcall(function() return f() end)
+  assert(ok == false and
+         err:find("bad argument #1 to 'f' (thread expected, got no value)",
+                  1, true) ~= nil)
+  ok, err = pcall(coroutine.close)
+  assert(ok == false and
+         err:find("bad argument #1 to 'coroutine.close' (thread expected, got no value)",
+                  1, true) ~= nil)
+  ok, err = pcall(function() coroutine.close() end)
+  assert(ok == false and
+         err:find("bad argument #1 to 'close' (thread expected, got no value)",
+                  1, true) ~= nil)
+  ok, err = pcall(function() coroutine.close(nil) end)
+  assert(ok == false and
+         err:find("bad argument #1 to 'close' (thread expected, got nil)",
+                  1, true) ~= nil)
+  f = coroutine.close
+  ok, err = pcall(function() f() end)
+  assert(ok == false and
+         err:find("bad argument #1 to 'f' (thread expected, got no value)",
+                  1, true) ~= nil)
+  ok, err = pcall(function() return coroutine.close() end)
+  assert(ok == false and
+         err:find("bad argument #1 to 'close' (thread expected, got no value)",
+                  1, true) ~= nil)
+  f = coroutine.close
+  ok, err = pcall(function() return f() end)
+  assert(ok == false and
+         err:find("bad argument #1 to 'f' (thread expected, got no value)",
+                  1, true) ~= nil)
+end
+do
   local co = coroutine.create(function()
     assert(coroutine.isyieldable() == true)
     coroutine.yield("paused")
@@ -1193,6 +2099,54 @@ do
   assert(select(1, coroutine.resume(co)) == true)
   assert(coroutine.status(co) == "dead")
   assert(coroutine.isyieldable(co) == true)
+end
+do
+  local function recurse_resume()
+    local co = coroutine.create(recurse_resume)
+    local _, err = coroutine.resume(co)
+    return err
+  end
+  assert(recurse_resume():match("C stack overflow", 1, true) ~= nil)
+end
+do
+  local overflow_line = debug.getinfo(1, "l").currentline + 1
+  local function auxy() auxy() end
+  local handler_line
+  local function entry(x)
+    handler_line = debug.getinfo(x, "l").currentline + 2
+    collectgarbage("stop")
+    auxy()
+    collectgarbage("restart")
+  end
+  local _, tb = xpcall(entry, debug.traceback, 1)
+  collectgarbage("restart")
+  assert(type(tb) == "string" and tb:match("stack overflow", 1, true) ~= nil)
+  local seen = 0
+  for line in tb:gmatch("[^\n]*") do
+    local curr = tonumber(line:match(":(%d+):"))
+    if curr == handler_line then break end
+    if curr then
+      assert(curr == overflow_line)
+      seen = seen + 1
+    end
+  end
+  -- Lua 5.4 keeps enough emergency stack to let traceback show recursive
+  -- overflow frames before returning to the xpcall handler.
+  assert(seen > 5)
+end
+do
+  local function loop()
+    return 1 + loop()
+  end
+  local _, msg = xpcall(loop, function(err)
+    assert(err:match("stack overflow", 1, true) ~= nil)
+    local ok, nested = pcall(loop)
+    -- A second overflow while already running an error handler is reported as
+    -- error-handler failure, matching Lua 5.4's LUA_ERRERR behavior.
+    assert(ok == false and nested:match("error handling", 1, true) ~= nil)
+    return 15
+  end)
+  assert(msg == 15)
 end
 do
   for _, s in ipairs({
@@ -1231,6 +2185,29 @@ do
   ok, err = pcall(string.format, "%d", true)
   assert(ok == false and err:match("string%.format") ~= nil and
          err:match("number expected") ~= nil)
+  do
+    local function field_format_error()
+      return string.format("%d", true)
+    end
+    ok, err = pcall(field_format_error)
+    assert(ok == false and
+           err:find("test/smoke.lua:", 1, true) ~= nil and
+           err:find("bad argument #2 to 'format' (number expected, got boolean)", 1, true) ~= nil,
+           err)
+    local f = string.format
+    local function local_format_error()
+      return f("%d", true)
+    end
+    ok, err = pcall(local_format_error)
+    assert(ok == false and
+           err:find("test/smoke.lua:", 1, true) ~= nil and
+           err:find("bad argument #2 to 'f' (number expected, got boolean)", 1, true) ~= nil,
+           err)
+  end
+  ok, err = pcall(string.format, "%I", 1)
+  assert(ok == false and err == "invalid conversion '%I' to 'format'")
+  ok, err = pcall(string.format, "%U", 0x20ac)
+  assert(ok == false and err == "invalid conversion '%U' to 'format'")
   assert(string.format("%q", nil) == "nil")
   assert(string.format("%q", true) == "true")
   assert(string.format("%q", 1) == "1")
@@ -1254,6 +2231,67 @@ do
   assert(string.format("%p", 1) == "(null)")
   assert(string.format("%p", "x") ~= "(null)")
   do
+    local short1 = string.rep("a", 10)
+    local short2 = string.rep("aa", 5)
+    local long1 = string.rep("a", 300)
+    local long2 = string.rep("aa", 150)
+    -- Lua 5.4 only interns short strings. Long strings with equal bytes keep
+    -- distinct object identities, but equality and table keys still use bytes.
+    assert(short1 == short2)
+    assert(string.format("%p", short1) == string.format("%p", short2))
+    assert(long1 == long2)
+    assert(string.format("%p", long1) ~= string.format("%p", long2))
+    local t = {}
+    t[long1] = 45
+    assert(t[long2] == 45)
+    local changed = (long1:gsub(".", function(c) return c end))
+    assert(changed == long1)
+    assert(string.format("%p", changed) ~= string.format("%p", long1))
+  end
+  do
+    local old = os.setlocale(nil, "collate")
+    local loc
+    for _, name in ipairs({ "ptb", "pt_BR.iso88591", "ISO-8859-1" }) do
+      if os.setlocale(name, "collate") then
+        loc = name
+        break
+      end
+    end
+    if loc then
+      local accented = string.char(0xe1) .. "lo"
+      -- Lua 5.4 string ordering follows the active collate locale; byte order
+      -- would put this accented byte after 'm' and fail the official test.
+      assert("alo" < accented and accented < "amo")
+      assert("alo" <= accented and accented <= "amo")
+      if jit and jit.opt then
+        jit.opt.start("hotloop=1", "hotexit=1")
+        for _ = 1, 8 do
+          assert("alo" < accented and accented < "amo")
+        end
+      end
+    end
+    if old then os.setlocale(old, "collate") end
+  end
+  do
+    local old = os.setlocale(nil, "ctype")
+    local loc
+    for _, name in ipairs({ "ptb", "pt_BR.iso88591", "ISO-8859-1" }) do
+      if os.setlocale(name, "ctype") then
+        loc = name
+        break
+      end
+    end
+    if loc then
+      local lower = string.char(0xe1, 0xe9, 0xed, 0xf3, 0xfa)
+      -- Pattern character classes and case conversion are locale-sensitive in
+      -- Lua 5.4, unlike LuaJIT's fixed ASCII lj_char table.
+      assert((lower:gsub("%a", "x")) == "xxxxx")
+      assert(string.upper(string.char(0xe1)) == string.char(0xc1))
+      assert(string.lower(string.char(0xc1)) == string.char(0xe1))
+    end
+    if old then os.setlocale(old, "ctype") end
+  end
+  do
     local null = "(null)"
     assert(#string.format("%90p", {}) == 90)
     assert(#string.format("%-60p", {}) == 60)
@@ -1266,12 +2304,43 @@ do
   ok, err = pcall(string.format, "%.1s", "\0")
   assert(ok == false and err:match("contains zeros") ~= nil)
   do
-    local function expect_format_error(fmt, msg, value)
+    local fmt_meta = setmetatable({}, {
+      __tostring = function() return "hello" end,
+      __name = "fmtmeta"
+    })
+    assert(string.format("%s %.10s", fmt_meta, fmt_meta) == "hello hello")
+    getmetatable(fmt_meta).__tostring = nil
+    assert(string.format("%.4s", fmt_meta) == "fmtm")
+    getmetatable(fmt_meta).__tostring = function() return {} end
+    ok, err = pcall(string.format, "%s", fmt_meta)
+    assert(ok == false and err:find("'__tostring' must return a string", 1, true), err)
+  end
+  do
+    local function expect_format_error(fmt, msg, value, exact)
       local ok_fmt, err_fmt = pcall(string.format, fmt, value or 10)
-      assert(ok_fmt == false and err_fmt:match(msg) ~= nil)
+      if exact then
+        assert(ok_fmt == false and err_fmt == msg, err_fmt)
+      else
+        assert(ok_fmt == false and err_fmt:match(msg) ~= nil)
+      end
+    end
+    local function expect_format_noarg_error(fmt)
+      local ok_fmt, err_fmt = pcall(string.format, fmt)
+      assert(ok_fmt == false and
+             err_fmt == "bad argument #2 to 'string.format' (no value)",
+             err_fmt)
     end
     local long_width = string.rep("0", 600)
+    expect_format_noarg_error("%")
+    expect_format_noarg_error("%.")
+    expect_format_noarg_error("%#i")
+    expect_format_noarg_error("%F")
+    expect_format_noarg_error("%" .. string.rep("9", 21) .. "s")
     expect_format_error("%100.3d", "invalid conversion")
+    expect_format_error("%" .. string.rep("9", 21) .. "s",
+                        "invalid format (too long)", "x", true)
+    expect_format_error("%1." .. string.rep("9", 19) .. "s",
+                        "invalid format (too long)", "x", true)
     expect_format_error("%1" .. long_width .. ".3d", "too long")
     expect_format_error("%1.100d", "invalid conversion")
     expect_format_error("%" .. long_width .. "d", "too long")
@@ -1279,11 +2348,83 @@ do
     expect_format_error("%.10c", "invalid conversion")
     expect_format_error("%0.34s", "invalid conversion", "abc")
     expect_format_error("%#i", "invalid conversion")
-    expect_format_error("%3.1p", "invalid conversion")
+    expect_format_error("%3.1p", "invalid conversion specification: '%3.1p'", {}, true)
+    expect_format_error("%#p", "invalid conversion specification: '%#p'", {}, true)
     expect_format_error("%0.s", "invalid conversion", "abc")
     expect_format_error("%10q", "cannot have modifiers", "abc")
-    expect_format_error("%F", "invalid conversion", 1.5)
+    expect_format_error("%F", "invalid conversion '%F' to 'format'", 1.5, true)
+    expect_format_error("%#a", "modifiers for format '%a'/'%A' not implemented", 1.5, true)
+    expect_format_error("%#A", "modifiers for format '%a'/'%A' not implemented", 1.5, true)
+    expect_format_error("%10a", "modifiers for format '%a'/'%A' not implemented", 1.5, true)
+    expect_format_error("%.3a", "modifiers for format '%a'/'%A' not implemented", 1.5, true)
+    expect_format_error("%+a", "modifiers for format '%a'/'%A' not implemented", 1.5, true)
+    assert(string.format("%a", 1.5) == "0x1.8p+0")
+    assert(string.format("%A", 1.5) == "0X1.8P+0")
     expect_format_error("%d %d", "no value")
+    do
+      local function tail_format_error()
+        return string.format("%#p", {})
+      end
+      local ok_tail, err_tail = pcall(tail_format_error)
+      assert(ok_tail == false and
+             err_tail:find("test/smoke.lua:", 1, true) ~= nil and
+             err_tail:find("invalid conversion specification: '%#p'", 1, true) ~= nil,
+             err_tail)
+      local function dynamic_tail_format_error()
+        return string.format("%" .. string.rep("9", 21) .. "s", "x")
+      end
+      ok_tail, err_tail = pcall(dynamic_tail_format_error)
+      assert(ok_tail == false and
+             err_tail:find("test/smoke.lua:", 1, true) ~= nil and
+             err_tail:find("invalid format (too long)", 1, true) ~= nil, err_tail)
+      local dynfmt = string.format
+      local function dynamic_alias_tail_format_error()
+        return dynfmt("%" .. string.rep("9", 21) .. "s", "x")
+      end
+      ok_tail, err_tail = pcall(dynamic_alias_tail_format_error)
+      assert(ok_tail == false and
+             err_tail:find("test/smoke.lua:", 1, true) ~= nil and
+             err_tail:find("invalid format (too long)", 1, true) ~= nil, err_tail)
+    end
+  end
+  do
+    local function expect_pack_error(f, fname, msg, ...)
+      local ok_pack, err_pack = pcall(f, ...)
+      assert(ok_pack == false and err_pack:find("to '" .. fname .. "'", 1, true) ~= nil)
+      assert(err_pack:find(msg, 1, true) ~= nil)
+    end
+    local function expect_pack_parser_error(f, msg, ...)
+      local ok_pack, err_pack = pcall(f, ...)
+      assert(ok_pack == false and err_pack:find(msg, 1, true) ~= nil, err_pack)
+    end
+    expect_pack_error(string.pack, "string.pack", "missing size for format option 'c'", "c", "x")
+    expect_pack_error(string.pack, "string.pack", "string contains zeros", "z", "a\0b")
+    expect_pack_error(string.pack, "string.pack", "invalid next option for option 'X'", "X ", 1)
+    expect_pack_error(string.pack, "string.pack", "format asks for alignment not power of 2", "!3i", 1)
+    expect_pack_error(string.pack, "string.pack", "number has no integer representation", "b", 1.2)
+    expect_pack_error(string.pack, "string.pack", "number expected, got nil", "i1")
+    expect_pack_error(string.pack, "string.pack", "number expected, got nil", "f")
+    expect_pack_error(string.pack, "string.pack", "string expected, got nil", "c1")
+    expect_pack_error(string.pack, "string.pack", "string expected, got nil", "z")
+    expect_pack_error(string.pack, "string.pack", "string expected, got nil", "s1")
+    expect_pack_error(string.packsize, "string.packsize", "missing size for format option 'c'", "c")
+    expect_pack_error(string.packsize, "string.packsize", "variable-length format", "z")
+    expect_pack_error(string.packsize, "string.packsize", "format asks for alignment not power of 2", "!3i")
+    expect_pack_error(string.unpack, "string.unpack", "unfinished string for format 'z'", "z", "abc")
+    expect_pack_error(string.unpack, "string.unpack", "data string too short", "s1", "")
+    expect_pack_error(string.unpack, "string.unpack", "data string too short", "s1", string.char(2) .. "a")
+    expect_pack_parser_error(string.packsize, "integral size (0) out of limits [1,16]", "!0i")
+    expect_pack_parser_error(string.packsize, "integral size (17) out of limits [1,16]", "!17i")
+    expect_pack_parser_error(string.pack, "integral size (17) out of limits [1,16]", "!17i", 1)
+    expect_pack_parser_error(string.unpack, "integral size (17) out of limits [1,16]", "!17i", "")
+    expect_pack_parser_error(string.packsize, "integral size (0) out of limits [1,16]", "s0")
+    expect_pack_parser_error(string.packsize, "integral size (17) out of limits [1,16]", "s17")
+    expect_pack_parser_error(string.packsize, "integral size (999999999) out of limits [1,16]",
+                             "s999999999999999999999999")
+    expect_pack_parser_error(string.packsize, "integral size (214748364) out of limits [1,16]",
+                             "i2147483647")
+    expect_pack_parser_error(string.packsize, "invalid format option '9'",
+                             "c9999999999")
   end
 end
 do
@@ -1312,6 +2453,27 @@ do
   expect_bad_integer(string.match, "abc", "b", 1.2)
   expect_bad_integer(string.gmatch, "abc", "b", 1.2)
   expect_bad_integer(string.gsub, "aaa", "a", "b", 1.2)
+  do
+    local function tail_byte_method(s)
+      return s:byte({})
+    end
+    local function tail_find_method(s)
+      return s:find({})
+    end
+    -- String method syntax hides the self argument from Lua 5.4 diagnostics.
+    -- Tail calls must keep the caller frame or the C fallback reports
+    -- string.byte/string.find with the hidden self counted as argument #1.
+    local ok_method, err_method = pcall(tail_byte_method, "abc")
+    assert(ok_method == false and
+	   err_method:find("test/smoke.lua:", 1, true) and
+	   err_method:find("bad argument #1 to 'byte' (number expected, got table)",
+			   1, true))
+    ok_method, err_method = pcall(tail_find_method, "abc")
+    assert(ok_method == false and
+	   err_method:find("test/smoke.lua:", 1, true) and
+	   err_method:find("bad argument #1 to 'find' (string expected, got table)",
+			   1, true))
+  end
   assert(string.gsub("a b cd", " *", "-") == "-a-b-c-d-")
   do
     local sub = "a  \nbc\t\td"
@@ -1324,6 +2486,32 @@ do
     assert(res .. string.sub(sub, i) == "-a-b-c-d-")
   end
   do
+    local iter = string.gmatch("abc", ".")
+    local info = debug.getinfo(iter, "u")
+    assert(info.nups == 3)
+    local n1, v1 = debug.getupvalue(iter, 1)
+    local n2, v2 = debug.getupvalue(iter, 2)
+    local n3, v3 = debug.getupvalue(iter, 3)
+    assert(n1 == "" and v1 == "abc")
+    assert(n2 == "" and v2 == ".")
+    assert(n3 == "" and type(v3) == "userdata")
+    assert(select("#", debug.getupvalue(iter, 4)) == 0)
+    assert(iter() == "a" and iter() == "b" and iter() == "c")
+    assert(iter() == nil)
+  end
+  do
+    local ok_rep, err_rep = pcall(string.gsub, "alo", ".")
+    assert(ok_rep == false and
+	   err_rep:find("bad argument #3 to 'string.gsub' (string/function/table expected, got no value)", 1, true))
+    ok_rep, err_rep = pcall(function() return string.gsub("alo", ".", nil) end)
+    assert(ok_rep == false and
+	   err_rep:find("bad argument #3 to 'gsub' (string/function/table expected, got nil)", 1, true))
+    ok_rep, err_rep = pcall(function()
+      local f = string.gsub
+      return f("alo", ".", true)
+    end)
+    assert(ok_rep == false and
+	   err_rep:find("bad argument #3 to 'f' (string/function/table expected, got boolean)", 1, true))
     local ok_cap, err_cap = pcall(string.gsub, "alo", ".", "%2")
     assert(ok_cap == false and err_cap:match("invalid capture index %%2") ~= nil)
     ok_cap, err_cap = pcall(string.gsub, "alo", "(%0)", "a")
@@ -1344,6 +2532,17 @@ do
   assert(debug.getuservalue(io.stdout) == nil)
   assert(debug.getuservalue(io.stdout, 1) == nil)
   assert(debug.setuservalue(io.stdout, {}, 1) == nil)
+  local light = debug.upvalueid(function() return debug end, 1)
+  local ok, err = pcall(debug.setuservalue, light, {})
+  assert(ok == false and err:match("light userdata", 1, true) ~= nil)
+  local stripped = assert(load(string.dump(function(a) return a + 1 end, true)))
+  ok, err = pcall(stripped, {})
+  assert(ok == false and err:match("^%?:%-1:") ~= nil)
+  _G.__lua54_named_object = setmetatable({}, { __name = "Lua54NamedObject" })
+  ok, err = pcall(io.input, __lua54_named_object)
+  _G.__lua54_named_object = nil
+  assert(ok == false and err:match("FILE*", 1, true) ~= nil and
+         err:match("Lua54NamedObject", 1, true) ~= nil)
 end
 do
   for _, item in ipairs({
@@ -1356,29 +2555,74 @@ do
     { "debug.upvalueid", function() return pcall(debug.upvalueid, nil, 1) end },
     { "debug.upvaluejoin", function() return pcall(debug.upvaluejoin, nil, 1, nil, 1) end },
     { "debug.sethook", function() return pcall(debug.sethook, true) end },
-    { "debug.getuservalue", function() return pcall(debug.getuservalue, nil) end },
+    { "debug.getmetatable", function() return pcall(debug.getmetatable) end },
+    { "debug.setmetatable", function() return pcall(debug.setmetatable) end },
     { "debug.setuservalue", function() return pcall(debug.setuservalue, nil, {}) end },
     { "debug.setcstacklimit", function() return pcall(debug.setcstacklimit, nil) end },
   }) do
     local ok, err = item[2]()
     assert(ok == false and err:match("to '"..item[1].."'") ~= nil)
   end
+  local ok, err = pcall(debug.getmetatable)
+  assert(ok == false and
+         err:find("bad argument #1 to 'debug.getmetatable' (value expected)",
+                  1, true) ~= nil)
+  ok, err = pcall(debug.setmetatable, 1, true)
+  assert(ok == false and
+         err:find("bad argument #2 to 'debug.setmetatable' (nil or table expected, got boolean)",
+                  1, true) ~= nil)
+  ok, err = pcall(debug.setmetatable, 1, "x")
+  assert(ok == false and
+         err:find("bad argument #2 to 'debug.setmetatable' (nil or table expected, got string)",
+                  1, true) ~= nil)
+  assert(debug.getuservalue() == nil)
+  assert(debug.getuservalue(nil) == nil)
+  assert(debug.getuservalue(true) == nil)
+  ok, err = pcall(debug.getuservalue, true, true)
+  assert(ok == false and
+         err:find("bad argument #2 to 'debug.getuservalue' (number expected, got boolean)",
+                  1, true) ~= nil)
+  ok, err = pcall(debug.setuservalue, io.stdout)
+  assert(ok == false and
+         err:find("bad argument #2 to 'debug.setuservalue' (value expected)",
+                  1, true) ~= nil)
+  ok, err = pcall(debug.setuservalue, true, true, true)
+  assert(ok == false and
+         err:find("bad argument #3 to 'debug.setuservalue' (number expected, got boolean)",
+                  1, true) ~= nil)
 end
 do
   local ok, err = pcall(table.concat, nil)
-  assert(ok == false and err:match("to 'table%.concat'") ~= nil)
+  assert(ok == false and err:find("bad argument #1 to 'table.concat' (table expected, got nil)", 1, true) ~= nil)
   ok, err = pcall(table.concat, {}, true)
-  assert(ok == false and err:match("to 'table%.concat'") ~= nil)
+  assert(ok == false and err:find("bad argument #2 to 'table.concat' (string expected, got boolean)", 1, true) ~= nil)
   ok, err = pcall(table.insert, nil, 1)
-  assert(ok == false and err:match("to 'table%.insert'") ~= nil)
+  assert(ok == false and err:find("bad argument #1 to 'table.insert' (table expected, got nil)", 1, true) ~= nil)
   ok, err = pcall(table.remove, nil)
-  assert(ok == false and err:match("to 'table%.remove'") ~= nil)
+  assert(ok == false and err:find("bad argument #1 to 'table.remove' (table expected, got nil)", 1, true) ~= nil)
   ok, err = pcall(table.sort, nil)
-  assert(ok == false and err:match("to 'table%.sort'") ~= nil)
+  assert(ok == false and err:find("bad argument #1 to 'table.sort' (table expected, got nil)", 1, true) ~= nil)
   ok, err = pcall(table.sort, {}, true)
-  assert(ok == false and err:match("to 'table%.sort'") ~= nil)
+  assert(ok == true and err == nil)
+  ok, err = pcall(table.sort, { 1 }, true)
+  assert(ok == true and err == nil)
+  ok, err = pcall(table.sort, { 2, 1 }, true)
+  assert(ok == false and err:find("bad argument #2 to 'table.sort' (function expected, got boolean)", 1, true) ~= nil)
   ok, err = pcall(table.move)
-  assert(ok == false and err:match("to 'table%.move'") ~= nil)
+  assert(ok == false and err:find("bad argument #2 to 'table.move' (number expected, got no value)", 1, true) ~= nil)
+  ok, err = pcall(function() table.concat(nil) end)
+  assert(ok == false and err:find("bad argument #1 to 'concat' (table expected, got nil)", 1, true) ~= nil)
+  ok, err = pcall(function() return table.concat(nil) end)
+  assert(ok == false and err:find("bad argument #1 to 'concat' (table expected, got nil)", 1, true) ~= nil)
+  local f = table.concat
+  ok, err = pcall(function() f(nil) end)
+  assert(ok == false and err:find("bad argument #1 to 'f' (table expected, got nil)", 1, true) ~= nil)
+  ok, err = pcall(function() return f(nil) end)
+  assert(ok == false and err:find("bad argument #1 to 'f' (table expected, got nil)", 1, true) ~= nil)
+  ok, err = pcall(function() return table.sort(nil) end)
+  assert(ok == false and err:find("bad argument #1 to 'sort' (table expected, got nil)", 1, true) ~= nil)
+  ok, err = pcall(function() table.sort({ 1, 2, 3 }, table.sort) end)
+  assert(ok == false and err:find("bad argument #1 to 'table.sort' (table expected, got number)", 1, true) ~= nil)
 end
 do
   local t = setmetatable({ 1 }, { __len = function() return 3 end })
@@ -1467,6 +2711,15 @@ do
   assert(ok == false and err:match("bad argument #2") ~= nil)
   ok, err = pcall(table.move, nil, 1, 0, 1)
   assert(ok == false and err:match("bad argument #1") ~= nil)
+  ok, err = pcall(table.move, {}, 0, math.maxinteger, 1)
+  assert(ok == false and err:find("bad argument #3 to 'table.move' (too many elements to move)", 1, true) ~= nil)
+  ok, err = pcall(table.move, {}, 1, math.maxinteger, 2)
+  assert(ok == false and err:find("bad argument #4 to 'table.move' (destination wrap around)", 1, true) ~= nil)
+  local edge_dst = table.move({ [math.maxinteger - 2] = 1,
+                                [math.maxinteger - 1] = 2,
+                                [math.maxinteger] = 3 },
+                              math.maxinteger - 2, math.maxinteger, -10, {})
+  assert(edge_dst[-10] == 1 and edge_dst[-9] == 2 and edge_dst[-8] == 3)
   local dst = {}
   table.move({ 1, 2 }, "1", 2, "2", dst)
   assert(dst[2] == 1 and dst[3] == 2)
@@ -1480,6 +2733,9 @@ do
   assert(dst[3] == 11 and dst[4] == 21)
 end
 do
+  local huge = setmetatable({}, { __len = function() return math.maxinteger end })
+  local ok, err = pcall(table.sort, huge)
+  assert(ok == false and err:match("too big", 1, true) ~= nil)
   local t = setmetatable({ 3, 2, 1 }, { __len = function() return 2 end })
   table.sort(t)
   assert(t[1] == 2 and t[2] == 3 and t[3] == 1)
@@ -1672,6 +2928,9 @@ do
     local brk = assert(rest:find("%.%.%.\t%(skip"))
     assert(countlines(rest:sub(1, brk)) == 10)
     assert(countlines(rest:sub(brk)) == 11)
+    local ctrace = debug.traceback(nil)
+    assert(ctrace:find("[C]: in ?", 1, true) ~= nil)
+    assert(ctrace:find("[C]: at 0x", 1, true) == nil)
   end
   do
     local stripped = assert(load(string.dump(assert(load([[
@@ -1687,6 +2946,11 @@ do
       return a
     ]])), true)))
     assert(stripped() == 13)
+    local stripped_err = assert(load(string.dump(function()
+      error("stripped boom")
+    end, true)))
+    local ok, err = pcall(stripped_err)
+    assert(ok == false and err == "stripped boom")
   end
   do
     local function stripped_linehook_probe()
@@ -2124,7 +3388,7 @@ lua54_linehook_gap_probe = 4
     -- not keep running after hooks are enabled, or Lua 5.4 debug counts collapse
     -- to a handful of trace exits instead of the interpreted instruction stream.
     assert(n > 100)
-    if jit then jit.opt.start("hotloop=56") end
+    if jit then jit.opt.start("hotloop=56", "hotexit=10") end
   end
 end
 
@@ -2140,6 +3404,14 @@ do
     local a, b, c, d, pos = string.unpack("bBhH",
       string.pack("bBhH", -2, 254, -300, 65000))
     assert(a == -2 and b == 254 and c == -300 and d == 65000 and pos == 7)
+  end
+  do
+    local a, pos = string.unpack("b", "abc", 0)
+    assert(a == 97 and pos == 2)
+    local c, cpos = string.unpack("c1", "abc", 0)
+    assert(c == "a" and cpos == 2)
+    local ok, err = pcall(string.unpack, "b", "", 0)
+    assert(not ok and err:find("data string too short", 1, true))
   end
   assert(bytes(string.pack("<i2I2", -2, 65534)) == "254,255,254,255")
   assert(bytes(string.pack(">i2I2", -2, 65534)) == "255,254,255,254")
@@ -2169,10 +3441,11 @@ do
     local a, pos = string.unpack("s1", "\3abcx")
     assert(a == "abc" and pos == 5)
   end
-  assert(string.packsize("jT") == 16)
+  assert(string.packsize("j") == 4)
+  assert(string.packsize("jT") == 4 + string.packsize("T"))
   do
     local a, b, pos = string.unpack("<jT", string.pack("<jT", -2, 5))
-    assert(a == -2 and b == 5 and pos == 17)
+    assert(a == -2 and b == 5 and pos == 5 + string.packsize("T"))
   end
   assert(string.packsize("!8bi8") == 16)
   assert(bytes(string.pack("!8bi8", 1, 2)) ==
@@ -2206,6 +3479,29 @@ do
 end
 
 do
+  local function expect_package_error(f, fname, msg, ...)
+    local ok_pkg, err_pkg = pcall(f, ...)
+    assert(ok_pkg == false and err_pkg:find("to '" .. fname .. "'", 1, true) ~= nil)
+    assert(err_pkg:find(msg, 1, true) ~= nil)
+  end
+  expect_package_error(require, "require", "string expected, got table", {})
+  expect_package_error(require, "require", "string expected, got boolean", true)
+  expect_package_error(package.searchpath, "package.searchpath",
+                       "string expected, got table", {}, "?.lua")
+  expect_package_error(package.searchpath, "package.searchpath",
+                       "string expected, got table", "x", {})
+  expect_package_error(package.searchpath, "package.searchpath",
+                       "string expected, got table", "x", "?.lua", {})
+  expect_package_error(package.searchpath, "package.searchpath",
+                       "string expected, got table", "x", "?.lua", ".", {})
+  expect_package_error(package.loadlib, "package.loadlib",
+                       "string expected, got nil", nil, "x")
+  expect_package_error(package.loadlib, "package.loadlib",
+                       "string expected, got table", {}, "x")
+  expect_package_error(package.loadlib, "package.loadlib",
+                       "string expected, got nil", "x", nil)
+  expect_package_error(package.loadlib, "package.loadlib",
+                       "string expected, got table", "x", {})
   package.preload.__lua54_smoke_module = function()
     return { ok = true }
   end
@@ -2217,10 +3513,41 @@ do
 end
 
 do
+  package.preload.__lua54_nil_module = function()
+  end
+  local m, loaderdata = require("__lua54_nil_module")
+  assert(m == true and loaderdata == ":preload:")
+  assert(package.loaded.__lua54_nil_module == true)
+  local again, again_data = require("__lua54_nil_module")
+  assert(again == true and again_data == nil)
+  package.loaded.__lua54_nil_module = nil
+  package.preload.__lua54_nil_module = nil
+end
+
+do
+  local calls = 0
+  package.preload.__lua54_error_module = function()
+    calls = calls + 1
+    error("lua54 require boom", 0)
+  end
+  local ok1, err1 = pcall(require, "__lua54_error_module")
+  local ok2, err2 = pcall(require, "__lua54_error_module")
+  assert(ok1 == false and err1 == "lua54 require boom")
+  assert(ok2 == false and err2 == "lua54 require boom")
+  assert(calls == 2)
+  assert(package.loaded.__lua54_error_module == nil)
+  package.preload.__lua54_error_module = nil
+end
+
+do
   local found, searcherr = package.searchpath("__lua54_missing__", "nope/?.lua;none/?.lua")
   assert(found == nil)
   assert(not searcherr:match("^\n\t"))
   assert(searcherr:match("\n\tno file") ~= nil)
+  local empty_found, empty_err = package.searchpath("__lua54_missing__", "?.lua;;")
+  assert(empty_found == nil and empty_err:match("no file ''", 1, true) ~= nil)
+  local no_path_found, no_path_err = package.searchpath("__lua54_missing__", "")
+  assert(no_path_found == nil and no_path_err == "no file ''")
   local preloaderr = package.searchers[1]("__lua54_missing_preload__")
   assert(type(preloaderr) == "string" and not preloaderr:match("^\n\t"))
   local old_searchers = package.searchers
@@ -2230,6 +3557,21 @@ do
   local ok, err = pcall(require, "__lua54_missing_custom__")
   assert(ok == false and err:match("module '__lua54_missing_custom__' not found:\n\tcustom missing"))
   package.searchers = old_searchers
+  do
+    local missing = assert(load([[
+      return require("__lua54_missing_loc__")
+    ]]))
+    ok, err = pcall(missing)
+    assert(ok == false and err:find(": module '__lua54_missing_loc__' not found:", 1, true))
+    local bad_searchers = assert(load([[
+      package.searchers = 1
+      return require("__lua54_bad_searchers__")
+    ]]))
+    old_searchers = package.searchers
+    ok, err = pcall(bad_searchers)
+    package.searchers = old_searchers
+    assert(ok == false and err:find(": 'package.searchers' must be a table", 1, true))
+  end
 end
 
 do
@@ -2260,6 +3602,10 @@ do
 end
 
 do
+  local function result_count(...)
+    return select("#", ...), ...
+  end
+
   local co = coroutine.create(function()
     coroutine.yield("paused")
     return "done"
@@ -2267,15 +3613,31 @@ do
   local ok, value = coroutine.resume(co)
   assert(ok == true and value == "paused")
   assert(coroutine.status(co) == "suspended")
-  assert(coroutine.close(co) == true)
+  local close_n, closed = result_count(coroutine.close(co))
+  assert(close_n == 1 and closed == true)
   assert(coroutine.status(co) == "dead")
   assert(select(1, coroutine.resume(co)) == false)
   assert(select(1, pcall(coroutine.close, coroutine.running())) == false)
   do
+    local main = coroutine.running()
+    local checker = coroutine.create(function()
+      local ok_close, err_close = pcall(coroutine.close, main)
+      assert(ok_close == false and err_close:match("normal coroutine", 1, true) ~= nil)
+    end)
+    assert(coroutine.resume(checker) == true)
+  end
+  do
     local done = coroutine.create(function() return "done" end)
     assert(select(1, coroutine.resume(done)) == true)
     assert(coroutine.status(done) == "dead")
-    assert(coroutine.close(done) == true)
+    local done_n, done_closed = result_count(coroutine.close(done))
+    assert(done_n == 1 and done_closed == true)
+  end
+  do
+    local fresh = coroutine.create(function() return "fresh" end)
+    local fresh_n, fresh_closed = result_count(coroutine.close(fresh))
+    assert(fresh_n == 1 and fresh_closed == true)
+    assert(coroutine.status(fresh) == "dead")
   end
   do
     local bad = coroutine.create(function() error("lua54 close error") end)
@@ -2283,9 +3645,19 @@ do
     local closed, err = coroutine.close(bad)
     assert(closed == false)
     assert(type(err) == "string" and err:match("lua54 close error"))
+    bad = coroutine.create(error)
+    local ok_resume, resume_err = coroutine.resume(bad, 100)
+    assert(ok_resume == false and resume_err == 100)
+    closed, err = coroutine.close(bad)
+    assert(closed == false and err == 100)
+    local reclose_n, reclosed = result_count(coroutine.close(bad))
+    assert(reclose_n == 1 and reclosed == true)
   end
   do
     assert(assert(load([[
+      local function result_count(...)
+        return select("#", ...), ...
+      end
       local log = {}
       local mt = {
         __close = function(self, err)
@@ -2298,13 +3670,17 @@ do
       end)
       local ok, value = coroutine.resume(co)
       assert(ok == true and value == "paused")
-      assert(coroutine.close(co) == true)
+      local close_n, closed = result_count(coroutine.close(co))
+      assert(close_n == 1 and closed == true)
       assert(table.concat(log, ",") == "x:nil")
       return true
     ]]))())
   end
   do
     assert(assert(load([[
+      local function result_count(...)
+        return select("#", ...), ...
+      end
       local log = {}
       local mt = {
         __close = function(self, err)
@@ -2320,13 +3696,18 @@ do
       assert(select(1, coroutine.resume(co)) == true)
       local closed, err = coroutine.close(co)
       assert(closed == false and err == "close coroutine boom")
+      assert(coroutine.status(co) == "dead")
       assert(table.concat(log, ",") == "b:nil,a:close coroutine boom")
-      assert(coroutine.close(co) == true)
+      local reclose_n, reclosed = result_count(coroutine.close(co))
+      assert(reclose_n == 1 and reclosed == true)
       return true
     ]]))())
   end
   do
     assert(assert(load([[
+      local function result_count(...)
+        return select("#", ...), ...
+      end
       local co
       co = coroutine.create(function()
         local x <close> = setmetatable({}, {
@@ -2338,9 +3719,193 @@ do
         coroutine.yield("paused")
       end)
       assert(select(1, coroutine.resume(co)) == true)
-      assert(coroutine.close(co) == true)
+      local close_n, closed = result_count(coroutine.close(co))
+      assert(close_n == 1 and closed == true)
       return true
     ]]))())
+  end
+  do
+    assert(assert(load([[
+      local track = {}
+      local function closable(fn)
+        return setmetatable({}, { __close = fn })
+      end
+      local function h(o)
+        local hv <close> = o
+        return 1
+      end
+      local function body()
+        local x <close> = closable(function(_, msg)
+          track[#track + 1] = msg or false
+          error(20)
+        end)
+        local y <close> = closable(function(_, msg)
+          track[#track + 1] = msg or false
+        end)
+        local z <close> = closable(function(_, msg)
+          track[#track + 1] = msg or false
+          error(10)
+        end)
+        coroutine.yield(1)
+        h(closable(function(_, msg)
+          track[#track + 1] = msg or false
+          error(2)
+        end))
+      end
+      -- This is the official Lua 5.4 coroutine/pcall close-recovery shape:
+      -- the first close error is protected by pcall, then outer __close
+      -- methods continue with the replacement error until the last one wins.
+      local co = coroutine.create(pcall)
+      local ok, value = coroutine.resume(co, body)
+      assert(ok == true and value == 1)
+      local st, protected_ok, err = coroutine.resume(co)
+      assert(st == true and protected_ok == false and err == 20)
+      assert(coroutine.status(co) == "dead")
+      assert(track[1] == false and track[2] == 2 and
+             track[3] == 10 and track[4] == 10)
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
+      local function closable(fn)
+        return setmetatable({}, { __close = fn })
+      end
+      local closed = false
+      do
+        local a <close> = closable(function(_, msg)
+          assert(msg == nil)
+          closed = true
+        end)
+        local ok, err = pcall(function() error(77) end)
+        assert(ok == false and err == 77 and closed == false)
+      end
+      assert(closed == true)
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
+      local function closable(fn)
+        return setmetatable({}, { __close = fn })
+      end
+      local log = {}
+      local co = coroutine.create(function()
+        local function foo(err)
+          local z <close> = closable(function(_, msg)
+            log[#log + 1] = "z:"..tostring(msg)
+            coroutine.yield("z")
+          end)
+          local y <close> = closable(function(_, msg)
+            log[#log + 1] = "y:"..tostring(msg)
+            coroutine.yield("y")
+            if err then error(err + 20) end
+          end)
+          local x <close> = closable(function(_, msg)
+            log[#log + 1] = "x:"..tostring(msg)
+            coroutine.yield("x")
+          end)
+          error(err)
+        end
+        return pcall(foo, 10)
+      end)
+      local ok, value = coroutine.resume(co)
+      assert(ok == true and value == "x")
+      ok, value = coroutine.resume(co)
+      assert(ok == true and value == "y")
+      ok, value = coroutine.resume(co)
+      assert(ok == true and value == "z")
+      local protected_ok, err
+      ok, protected_ok, err = coroutine.resume(co)
+      assert(ok == true and protected_ok == false and err == 30)
+      assert(table.concat(log, ",") == "x:10,y:10,z:30")
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
+      local function closable(fn)
+        return setmetatable({}, { __close = fn })
+      end
+      local x, y = false, false
+      local co = coroutine.wrap(function()
+        local xv <close> = closable(function(_, msg)
+          assert(msg == 23)
+          x = true
+        end)
+        do
+          local yv <close> = closable(function(_, msg)
+            assert(msg == nil)
+            y = true
+          end)
+          coroutine.yield(100)
+        end
+        coroutine.yield(200)
+        error(23)
+      end)
+      assert(co() == 100 and x == false and y == false)
+      assert(co() == 200 and x == false and y == true)
+      local ok, err = pcall(co)
+      assert(ok == false and err == 23 and x == true and y == true)
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
+      local function closable(fn)
+        return setmetatable({}, { __close = fn })
+      end
+      local n = 0
+      local co = coroutine.wrap(function()
+        local xx <close> = closable(function(_, msg)
+          n = n + 1
+          assert(string.find(msg, "@XXX"))
+          error("@YYY")
+        end)
+        local xv <close> = closable(function()
+          n = n + 1
+          error("@XXX")
+        end)
+        coroutine.yield(100)
+        error(200)
+      end)
+      assert(co() == 100 and n == 0)
+      local ok, msg = pcall(co)
+      assert(ok == false and n == 2 and string.find(msg, "@YYY"))
+      -- Full GC used to traverse stale coroutine stack slots after close-error
+      -- replacement forced stack growth during lua_closethread().
+      collectgarbage()
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
+      local function closable(fn)
+        return setmetatable({}, { __close = fn })
+      end
+      local co
+      co = coroutine.wrap(function()
+        -- Official Lua 5.4.1 regression: a wrap reset must not leave the
+        -- wrapped thread looking resumable while close metamethods re-enter it.
+        local x <close> = closable(function()
+          local ok = pcall(co)
+          assert(ok == false)
+        end)
+        error(111)
+      end)
+      local ok, err = pcall(co)
+      assert(ok == false and err == 111)
+      ok, err = pcall(co)
+      assert(ok == false and string.find(tostring(err), "dead coroutine"))
+      return true
+    ]]))())
+  end
+  do
+    local function recurse(fn)
+      coroutine.wrap(fn)(fn)
+    end
+    local ok, err = pcall(recurse, recurse)
+    assert(ok == false and tostring(err):match("C stack overflow", 1, true) ~= nil)
   end
 end
 
@@ -2367,9 +3932,24 @@ do
   assert(math.tointeger(full) == full)
   assert(full >= math.mininteger and full <= math.maxinteger)
   assert(math.random(5, 5) == 5)
-  assert(select(1, pcall(math.random, -1)) == false)
-  assert(select(1, pcall(math.random, 10, 5)) == false)
-  assert(select(1, pcall(math.random, 1.5)) == false)
+  local function expect_random_error(f, fname, msg, ...)
+    local ok_random, err_random = pcall(f, ...)
+    assert(ok_random == false and err_random:find("to '" .. fname .. "'", 1, true) ~= nil)
+    assert(err_random:find(msg, 1, true) ~= nil)
+  end
+  expect_random_error(math.random, "math.random", "interval is empty", -1)
+  do
+    local ok, err = pcall(math.random, 10, 5)
+    assert(ok == false and err:find("to 'math.random'", 1, true) ~= nil and
+           err:find("interval is empty", 1, true) ~= nil)
+  end
+  expect_random_error(math.random, "math.random",
+                      "number has no integer representation", 1.5)
+  expect_random_error(math.random, "math.random", "number expected, got boolean", true)
+  expect_random_error(math.randomseed, "math.randomseed",
+                      "number has no integer representation", 1.5)
+  expect_random_error(math.randomseed, "math.randomseed",
+                      "number expected, got boolean", true)
   assert(select(1, pcall(math.random, 1, 2, 3)) == false)
 end
 
@@ -2461,14 +4041,77 @@ do
 end
 
 do
+  assert(os.date("") == "")
+  assert(os.date("!") == "")
+  assert(os.date("\0\0") == "\0\0")
+  assert(os.date("!\0\0") == "\0\0")
+  if package.config:sub(1, 1) == "\\" then
+    assert(os.date("%c", 0) == os.date("%x %X", 0))
+    assert(os.date("!%c", 0) == os.date("!%x %X", 0))
+    assert(os.date("%#c", 0):find("1970", 1, true) ~= nil)
+    assert(os.date("%#x", 0):find("1970", 1, true) ~= nil)
+    assert(os.date("%#d", 0) == "1")
+    local ok, err = pcall(os.date, "%#X", 0)
+    assert(ok == false and
+           err:find("to 'os.date' (invalid conversion specifier '%#X')",
+                    1, true) ~= nil)
+  end
+  do
+    local ok, err = pcall(os.date, "%Q", 0)
+    assert(ok == false and
+           err:find("to 'os.date' (invalid conversion specifier '%Q')",
+                    1, true) ~= nil)
+  end
   local ok, err = pcall(os.date, true)
   assert(ok == false and err:match("to 'os%.date'") ~= nil)
   ok, err = pcall(os.date, "%c", true)
   assert(ok == false and err:match("to 'os%.date'") ~= nil)
+  ok, err = pcall(os.date, "%Y", 1.5)
+  assert(ok == false and err:match("integer representation") ~= nil)
+  ok, err = pcall(os.date, "%Y", "1.5")
+  assert(ok == false and err:match("integer representation") ~= nil)
+  ok, err = pcall(os.date, "%Y", 2^60)
+  assert(ok == false and err:match("date result cannot be represented") ~= nil)
   ok, err = pcall(os.difftime, 1, true)
   assert(ok == false and err:match("to 'os%.difftime'") ~= nil)
+  ok, err = pcall(os.difftime, 2.5, 1)
+  assert(ok == false and err:match("integer representation") ~= nil)
+  ok, err = pcall(os.difftime, 2, 1.5)
+  assert(ok == false and err:match("integer representation") ~= nil)
+  ok, err = pcall(os.difftime)
+  assert(ok == false and
+	 err:find("bad argument #1 to 'os.difftime' (number expected, got no value)", 1, true))
+  ok, err = pcall(function() return os.difftime(nil) end)
+  assert(ok == false and
+	 err:find("bad argument #1 to 'difftime' (number expected, got nil)", 1, true))
+  ok, err = pcall(os.difftime, 1)
+  assert(ok == false and
+	 err:find("bad argument #2 to 'os.difftime' (number expected, got no value)", 1, true))
+  assert(os.difftime("3", "1") == 2)
   ok, err = pcall(os.execute, true)
   assert(ok == false and err:match("to 'os%.execute'") ~= nil)
+  do
+    local shell_exists = os.execute()
+    if shell_exists then
+      local is_windows = package.config:sub(1, 1) == "\\"
+      local badcmd = is_windows and
+        "__unlikely_lua54_command__ 2>NUL" or
+        "__unlikely_lua54_command__ 2>/dev/null"
+      local expected_status = is_windows and 1 or 127
+      os.remove("__unlikely_lua54_missing_file__")
+      -- os.execute() must clear stale errno before system(); otherwise a prior
+      -- file failure is misreported as a system error instead of an exit tuple.
+      local exec_ok, exec_why, exec_code = os.execute(badcmd)
+      assert(exec_ok == nil and exec_why == "exit" and
+             exec_code == expected_status)
+    end
+  end
+  ok, err = pcall(os.exit, "x")
+  assert(ok == false and err:match("to 'os%.exit'") ~= nil)
+  ok, err = pcall(os.exit, 1.5)
+  assert(ok == false and err:match("integer representation") ~= nil)
+  ok, err = pcall(os.exit, {})
+  assert(ok == false and err:match("to 'os%.exit'") ~= nil)
   ok, err = pcall(os.getenv, true)
   assert(ok == false and err:match("to 'os%.getenv'") ~= nil)
   ok, err = pcall(os.remove, true)
@@ -2481,6 +4124,23 @@ do
   assert(ok == false and err:match("to 'os%.setlocale'") ~= nil)
   ok, err = pcall(os.time, true)
   assert(ok == false and err:match("to 'os%.time'") ~= nil)
+  ok, err = pcall(os.time, { year = 1000, month = 1, day = 1, hour = "x" })
+  assert(ok == false and err:match("field 'hour' is not an integer") ~= nil)
+  ok, err = pcall(os.time, { year = 1000, month = 1, day = 1, hour = 1.5 })
+  assert(ok == false and err:match("field 'hour' is not an integer") ~= nil)
+  ok, err = pcall(os.time, { hour = 12 })
+  assert(ok == false and err:match("field 'day' missing") ~= nil)
+  ok, err = pcall(os.time, { year = 4000, month = 1, day = 1 })
+  assert(ok == false and err:match("time result cannot be represented") ~= nil)
+  local stamp = os.time({ year = 2020, month = 5, day = 7,
+			  hour = 12, min = 34, sec = 56 })
+  assert(math.type(stamp) == "integer")
+  local normalized = { year = 2005, month = 1, day = 1, hour = 1, min = 0, sec = -3602 }
+  os.time(normalized)
+  assert(normalized.day == 31 and normalized.month == 12 and
+	 normalized.year == 2004 and normalized.hour == 23 and
+	 normalized.min == 59 and normalized.sec == 58 and
+	 normalized.yday == 366)
 end
 
 do
@@ -2505,12 +4165,24 @@ do
   warn("@off")
   local ok, err = pcall(warn, 1)
   assert(ok == true)
-  ok, err = pcall(warn, true)
-  assert(ok == false)
-  assert(type(err) == "string" and err:match("string expected"))
   ok, err = pcall(warn)
-  assert(ok == false)
-  assert(type(err) == "string" and err:match("string expected"))
+  assert(ok == false and
+         err:find("bad argument #1 to 'warn' (string expected, got no value)",
+                  1, true) ~= nil)
+  ok, err = pcall(warn, nil)
+  assert(ok == false and
+         err:find("bad argument #1 to 'warn' (string expected, got nil)",
+                  1, true) ~= nil)
+  ok, err = pcall(warn, true)
+  assert(ok == false and
+         err:find("bad argument #1 to 'warn' (string expected, got boolean)",
+                  1, true) ~= nil)
+  ok, err = pcall(warn, setmetatable({}, {
+    __tostring = function() return "not for warn" end,
+  }))
+  assert(ok == false and
+         err:find("bad argument #1 to 'warn' (string expected, got table)",
+                  1, true) ~= nil)
   warn("@off")
 end
 
@@ -2525,8 +4197,292 @@ do
   assert(iter() == "line")
   assert(iter() == nil)
   assert(io.type(closing) == "closed file")
+  local ok, err = pcall(iter)
+  assert(ok == false and tostring(err):find("file is already closed", 1, true))
   os.remove(fname)
 end
+
+do
+  local fname = "lua54_lines_option_close.tmp"
+  local f = assert(io.open(fname, "w"))
+  f:write("line\n")
+  f:close()
+  local iter, _, _, closing = io.lines(fname, "L")
+  assert(iter() == "line\n")
+  assert(iter() == nil)
+  assert(io.type(closing) == "closed file")
+  assert(os.remove(fname))
+end
+
+do
+  local fname = "lua54_lines_debug_close.tmp"
+  local f = assert(io.open(fname, "w"))
+  f:write("line\n")
+  f:close()
+  local function gettoclose(lv)
+    lv = lv + 1
+    local statevars = 0
+    for i = 1, 1000 do
+      local n, v = debug.getlocal(lv, i)
+      if n == "(for state)" then
+        statevars = statevars + 1
+        if statevars == 4 then return v end
+      end
+    end
+  end
+  local closing
+  for _ in io.lines(fname) do
+    closing = gettoclose(1)
+    assert(io.type(closing) == "file")
+    break
+  end
+  assert(io.type(closing) == "closed file")
+  os.remove(fname)
+end
+
+do
+  local function expect_file_method_self(fn, name, got)
+    local ok, err = pcall(fn)
+    err = tostring(err)
+    assert(ok == false and err:find("test/smoke.lua:", 1, true) and
+	   err:find("to '" .. name .. "'", 1, true) and
+	   err:find("FILE* expected, got " .. got, 1, true))
+  end
+  expect_file_method_self(function() return io.stdin.close() end,
+			  "close", "no value")
+  expect_file_method_self(function() return io.stdin.read() end,
+			  "read", "no value")
+  expect_file_method_self(function() return io.stdin.write("x") end,
+			  "write", "string")
+  expect_file_method_self(function() return io.stdin.flush() end,
+			  "flush", "no value")
+  expect_file_method_self(function() return io.stdin.seek() end,
+			  "seek", "no value")
+  expect_file_method_self(function() return io.stdin.setvbuf("no") end,
+			  "setvbuf", "string")
+  expect_file_method_self(function() return io.stdin.lines() end,
+			  "lines", "no value")
+end
+
+assert(assert(load([[
+  local ok, err = pcall(io.stdin.close)
+  assert(ok == false and tostring(err):find("got no value", 1, true))
+  ok, err = pcall(io.type)
+  assert(ok == false and tostring(err):find("to 'io.type'", 1, true) and
+	 tostring(err):find("value expected", 1, true))
+  ok, err = pcall(io.input, true)
+  assert(ok == false and tostring(err):find("to 'io.input'", 1, true) and
+	 tostring(err):find("FILE* expected", 1, true))
+  ok, err = pcall(io.output, true)
+  assert(ok == false and tostring(err):find("to 'io.output'", 1, true) and
+	 tostring(err):find("FILE* expected", 1, true))
+  ok, err = pcall(io.close, true)
+  assert(ok == false and tostring(err):find("to 'io.close'", 1, true) and
+	 tostring(err):find("FILE* expected", 1, true))
+  ok, err = pcall(io.lines, true)
+  assert(ok == false and tostring(err):find("to 'io.lines'", 1, true) and
+	 tostring(err):find("string expected", 1, true))
+  ok, err = pcall(io.open, true, "r")
+  assert(ok == false and tostring(err):find("to 'io.open'", 1, true) and
+	 tostring(err):find("string expected", 1, true))
+  ok, err = pcall(io.open, "lua54_invalid_open_mode.tmp", true)
+  assert(ok == false and tostring(err):find("to 'io.open'", 1, true) and
+	 tostring(err):find("string expected", 1, true))
+  ok, err = pcall(io.popen, true, "r")
+  assert(ok == false and tostring(err):find("to 'io.popen'", 1, true) and
+	 tostring(err):find("string expected", 1, true))
+  ok, err = pcall(io.popen, "lua54", true)
+  assert(ok == false and tostring(err):find("to 'io.popen'", 1, true) and
+	 tostring(err):find("string expected", 1, true))
+  ok, err = pcall(io.read, {})
+  assert(ok == false and tostring(err):find("bad argument #1 to 'io.read'",
+					    1, true) and
+	 tostring(err):find("string expected, got table", 1, true))
+  ok, err = pcall(io.write, true)
+  assert(ok == false and tostring(err):find("bad argument #1 to 'io.write'",
+					    1, true) and
+	 tostring(err):find("string expected, got boolean", 1, true))
+  for _, m in ipairs({ "rw", "rb+", "r+bk", "", "+", "b" }) do
+    ok, err = pcall(io.open, "lua54_invalid_open_mode.tmp", m)
+    assert(ok == false and tostring(err):find("to 'io.open'", 1, true) and
+	   tostring(err):find("invalid mode", 1, true))
+  end
+  local fname = "lua54_valid_open_mode.tmp"
+  local f = assert(io.open(fname, "w"))
+  f:write("x")
+  f:close()
+  assert(io.open(fname, "r+b")):close()
+  assert(io.open(fname, "r+")):close()
+  assert(io.open(fname, "rb")):close()
+  local F
+  do
+    local f <close> = assert(io.open(fname, "r"))
+    F = f
+    local mt = getmetatable(f)
+    assert(type(mt.__close) == "function")
+    assert(f:close())
+  end
+  assert(io.type(F) == "closed file")
+  do
+    local f <close> = assert(io.open(fname, "w"))
+    f:write(string.format("0x%X\n", -math.maxinteger))
+  end
+  do
+    local f <close> = assert(io.open(fname, "r"))
+    assert(f:read("n") == -math.maxinteger)
+  end
+  do
+    local f <close> = assert(io.open(fname, "w+"))
+    f:write("abcdef")
+    f:seek("set", 0)
+    local ok, err = pcall(function() return f:read(1.5) end)
+    assert(ok == false and tostring(err):find("integer representation", 1, true))
+    ok, err = pcall(function() return f:read("2") end)
+    assert(ok == false and tostring(err):find("bad argument #1 to 'read'", 1, true) and
+	   tostring(err):find("invalid format", 1, true))
+    ok, err = pcall(function() return f:read({}) end)
+    assert(ok == false and tostring(err):find("bad argument #1 to 'read'", 1, true) and
+	   tostring(err):find("string expected, got table", 1, true))
+  end
+  do
+    local f <close> = assert(io.open(fname, "w+"))
+    f:write("abcdef")
+    assert(f:seek("set", "2") == 2)
+    -- Lua 5.4 requires seek offsets to be exact integers.  The compat path
+    -- must not silently truncate fraction numbers or numeric strings.
+    local ok, err = pcall(function() return f:seek("set", 1.5) end)
+    assert(ok == false and tostring(err):find("integer representation", 1, true))
+    ok, err = pcall(function() return f:seek("set", "1.5") end)
+    assert(ok == false and tostring(err):find("integer representation", 1, true))
+    ok, err = pcall(function() return f:seek("set", "x") end)
+    assert(ok == false and tostring(err):find("bad argument #2 to 'seek'", 1, true) and
+	   tostring(err):find("number expected, got string", 1, true))
+  end
+  do
+    local f <close> = assert(io.open(fname, "w"))
+    assert(f:setvbuf("no"))
+    assert(f:setvbuf("full", "4096"))
+    local ok, err = pcall(function() return f:setvbuf("full", 1.5) end)
+    assert(ok == false and tostring(err):find("integer representation", 1, true))
+    ok, err = pcall(function() return f:setvbuf("full", "1.5") end)
+    assert(ok == false and tostring(err):find("integer representation", 1, true))
+    ok, err = pcall(function() return f:setvbuf("full", "x") end)
+    assert(ok == false and tostring(err):find("bad argument #2 to 'setvbuf'", 1, true) and
+	   tostring(err):find("number expected, got string", 1, true))
+  end
+  do
+    local f <close> = assert(io.open(fname, "w"))
+    assert(f:write(1.0, ",", 3.5))
+    local ok, err = pcall(function() return f:write({}) end)
+    assert(ok == false and tostring(err):find("bad argument #1 to 'write'", 1, true) and
+	   tostring(err):find("string expected, got table", 1, true))
+    ok, err = pcall(io.write, {})
+    assert(ok == false and tostring(err):find("bad argument #1 to 'io.write'", 1, true) and
+	   tostring(err):find("string expected, got table", 1, true))
+  end
+  do
+    local f <close> = assert(io.open(fname, "w"))
+    f:write("local x, z = coroutine.yield(10)\n")
+    f:write("local y = coroutine.yield(20)\n")
+    f:write("return x + y * z\n")
+  end
+  do
+    local co = coroutine.wrap(dofile)
+    assert(co(fname) == 10)
+    assert(co(100, 101) == 20)
+    assert(co(200) == 100 + 200 * 101)
+  end
+  do
+    local f <close> = assert(io.open(fname, "w"))
+    f:write(string.rep("a", 300), "\n")
+  end
+  do
+    local opts = {}
+    for i = 1, 250 do opts[i] = 1 end
+    local iter, _, _, closing = io.lines(fname, table.unpack(opts))
+    local values = { iter() }
+    assert(#values == 250 and values[1] == "a" and values[#values] == "a")
+    closing:close()
+    opts[#opts + 1] = 1
+    local ok, err = pcall(io.lines, fname, table.unpack(opts))
+    assert(ok == false and tostring(err):find("too many arguments", 1, true))
+    local it, _, _, bad_closing = io.lines(fname, {})
+    ok, err = pcall(function() return it() end)
+    assert(ok == false and tostring(err):find("bad argument #2 to 'it'",
+					    1, true) and
+	   tostring(err):find("string expected, got table", 1, true))
+    bad_closing:close()
+    do
+      local iter2, _, _, closing2 = io.lines(fname, {})
+      local it2 = iter2
+      ok, err = pcall(function() return it2() end)
+      assert(ok == false and tostring(err):find("bad argument #2 to 'it2'",
+					      1, true) and
+	     tostring(err):find("string expected, got table", 1, true))
+      closing2:close()
+    end
+    do
+      local iter3, _, _, closing3 = io.lines(fname, {})
+      local function make()
+	local it3 = iter3
+	return function() return it3() end
+      end
+      ok, err = pcall(make())
+      assert(ok == false and tostring(err):find("bad argument #2 to 'it3'",
+					      1, true) and
+	     tostring(err):find("string expected, got table", 1, true))
+      closing3:close()
+    end
+    do
+      local iter4, _, _, closing4 = io.lines(fname, {})
+      lua54_lines_global_it = iter4
+      ok, err = pcall(function() return lua54_lines_global_it() end)
+      assert(ok == false and
+	     tostring(err):find("bad argument #2 to 'lua54_lines_global_it'",
+				1, true) and
+	     tostring(err):find("string expected, got table", 1, true))
+      lua54_lines_global_it = nil
+      closing4:close()
+    end
+    do
+      local iter5, _, _, closing5 = io.lines(fname, {})
+      lua54_lines_global_it = iter5
+      local function call_global_iter()
+	return lua54_lines_global_it()
+      end
+      ok, err = pcall(call_global_iter)
+      assert(ok == false and
+	     tostring(err):find("bad argument #2 to 'lua54_lines_global_it'",
+				1, true) and
+	     tostring(err):find("string expected, got table", 1, true))
+      lua54_lines_global_it = nil
+      closing5:close()
+    end
+    do
+      local mf = assert(io.open(fname, "r"))
+      local it = mf:lines({})
+      ok, err = pcall(function() return it() end)
+      assert(ok == false and tostring(err):find("bad argument #2 to 'it'",
+					      1, true) and
+	     tostring(err):find("string expected, got table", 1, true))
+      mf:close()
+    end
+  end
+  do
+    io.input(fname)
+    io.close(io.input())
+    local ok, err = pcall(io.read)
+    assert(ok == false and tostring(err):find("default input file is closed", 1, true))
+    io.input(io.stdin)
+    io.output(fname)
+    io.close()
+    ok, err = pcall(io.write, "x")
+    assert(ok == false and tostring(err):find("default output file is closed", 1, true))
+    io.output(io.stdout)
+  end
+  os.remove(fname)
+  return true
+]]))())
 
 do
   local first = string.gmatch("abcabc", "a", 2)
@@ -2589,6 +4545,50 @@ do
   assert(f == nil and err:match("cannot load incompatible bytecode"))
   f, err = load(official54, "=official54", "t")
   assert(f == nil and err:match("attempt to load a binary chunk %(mode is 't'%)"))
+  do
+    local function once(v)
+      local done = false
+      return function()
+	if done then return nil end
+	done = true
+	return v
+      end
+    end
+    local bad_reader
+    f, err = load(once(true))
+    assert(f == nil and err:find(": reader function must return a string", 1, true))
+    f, err = load(once({}))
+    assert(f == nil and err:find(": reader function must return a string", 1, true))
+    bad_reader = once(true)
+    f, err = load(function()
+      return bad_reader() or "return "
+    end)
+    assert(f == nil and err:find(": reader function must return a string", 1, true))
+    local ok, wrapped_f, wrapped_err = pcall(function()
+      return load(once(true))
+    end)
+    assert(ok == true and wrapped_f == nil and
+           wrapped_err:find("test/smoke.lua:", 1, true) ~= nil and
+           wrapped_err:find("reader function must return a string", 1, true) ~= nil)
+  end
+end
+
+do
+  local ok, err = pcall(function() return dofile(true) end)
+  assert(ok == false and err:find("test/smoke.lua:", 1, true) ~= nil and
+         err:find("bad argument #1 to 'dofile' (string expected, got boolean)",
+                  1, true) ~= nil)
+end
+
+do
+  local fname = "lua54_loadfile_comment_binary.tmp"
+  local f = assert(io.open(fname, "wb"))
+  f:write("#this is a comment for a binary file\0\n",
+	  string.dump(function() return 20, "\0\0\0" end))
+  f:close()
+  local a, b, c = assert(loadfile(fname))()
+  assert(a == 20 and b == "\0\0\0" and c == nil)
+  assert(os.remove(fname))
 end
 
 do
@@ -2726,6 +4726,6 @@ do
     assert(int_for_boundary_loop() == 10)
     assert(int_for_boundary_loop() == 10)
     jit.flush()
-    jitopt.start("hotloop=56")
+    jitopt.start("hotloop=56", "hotexit=10")
   end
 end

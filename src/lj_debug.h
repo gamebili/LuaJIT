@@ -15,6 +15,20 @@ typedef struct lj_Debug {
   const char *namewhat;
   const char *what;
   const char *source;
+#if LJ_54
+  size_t srclen;
+  int currentline;
+  int linedefined;
+  int lastlinedefined;
+  uint8_t nups;
+  uint8_t nparams;
+  char isvararg;
+  char istailcall;
+  unsigned short ftransfer;
+  unsigned short ntransfer;
+  char short_src[LUA_IDSIZE];
+  struct CallInfo *i_ci;
+#else
   int currentline;
   int nups;
   int linedefined;
@@ -26,7 +40,16 @@ typedef struct lj_Debug {
   unsigned short ftransfer;
   unsigned short ntransfer;
   int i_ci;
+#endif
 } lj_Debug;
+
+#if LJ_54
+#define LJ_DEBUG_CI_ENCODE(ci)	((struct CallInfo *)(intptr_t)(ci))
+#define LJ_DEBUG_CI_VALUE(ci)	((intptr_t)(ci))
+#else
+#define LJ_DEBUG_CI_ENCODE(ci)	((int)(ci))
+#define LJ_DEBUG_CI_VALUE(ci)	((intptr_t)(ci))
+#endif
 
 LJ_FUNC cTValue *lj_debug_frame(lua_State *L, int level, int *size);
 LJ_FUNC BCLine LJ_FASTCALL lj_debug_line(GCproto *pt, BCPos pc);
@@ -36,8 +59,13 @@ LJ_FUNC const char *lj_debug_uvnamev(cTValue *o, uint32_t idx, TValue **tvp,
 LJ_FUNC int lj_debug_hasenvuv(GCfunc *fn);
 LJ_FUNC const char *lj_debug_slotname(GCproto *pt, const BCIns *pc,
 				      BCReg slot, const char **name);
+LJ_FUNC BCPos lj_debug_framepc(lua_State *L, GCfunc *fn, cTValue *nextframe);
 LJ_FUNC const char *lj_debug_funcname(lua_State *L, cTValue *frame,
 				      const char **name);
+#if LJ_54
+LJ_FUNC const char *lj_debug_callname54(lua_State *L, const char *fallback,
+					const char *prefix);
+#endif
 LJ_FUNC void lj_debug_shortname(char *out, GCstr *str, BCLine line);
 LJ_FUNC void lj_debug_addloc(lua_State *L, const char *msg,
 			     cTValue *frame, cTValue *nextframe);

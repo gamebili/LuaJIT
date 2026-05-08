@@ -409,11 +409,11 @@ static void callhook(lua_State *L, int event, BCLine line,
     ar.event = event;
     ar.currentline = line;
     /* Top frame, nextframe = NULL. */
-    ar.i_ci = (int)((L->base-1) - tvref(L->stack));
+    ar.i_ci = LJ_DEBUG_CI_ENCODE((L->base-1) - tvref(L->stack));
     ar.ftransfer = ftransfer;
     ar.ntransfer = ntransfer;
     g->hook_L = L;
-    g->hook_ci = ar.i_ci;
+    g->hook_ci = (int)LJ_DEBUG_CI_VALUE(ar.i_ci);
     g->hook_ftransfer = ftransfer;
     g->hook_ntransfer = ntransfer;
     lj_state_checkstack(L, 1+LUA_MINSTACK);
@@ -459,6 +459,16 @@ uint32_t LJ_FASTCALL lj_dispatch_ceret(lua_State *L, uint32_t ftransfer,
   if (ftransfer > 65535u) ftransfer = 65535u;
   if (ntransfer > 65535u) ntransfer = 65535u;
 #if LJ_54
+  if (L->close_pcall) {
+    TValue *fnslot = L->base - (1+LJ_FR2);
+    if (fnslot >= tvref(L->stack) && tvisfunc(fnslot)) {
+      GCfunc *fn = funcV(fnslot);
+      if (!isluafunc(fn) && (fn->c.ffid == FF_pcall || fn->c.ffid == FF_xpcall)) {
+	ERRNO_RESTORE
+	return nres1;
+      }
+    }
+  }
   if (G(L)->hook_skipret) {
     G(L)->hook_skipret--;
     ERRNO_RESTORE

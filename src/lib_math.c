@@ -4,6 +4,8 @@
 */
 
 #include <math.h>
+#include <string.h>
+#include <time.h>
 
 #define lib_math_c
 #define LUA_LIB
@@ -13,7 +15,9 @@
 #include "lualib.h"
 
 #include "lj_obj.h"
+#include "lj_debug.h"
 #include "lj_err.h"
+#include "lj_frame.h"
 #include "lj_lib.h"
 #include "lj_meta.h"
 #include "lj_str.h"
@@ -30,6 +34,11 @@
 #define LJ_MATH_MININTEGER	((lua_Integer)(-LJ_MATH_MAXINTEGER - 1))
 
 #if LJ_54
+static const char *math_argname54(lua_State *L, const char *fallback)
+{
+  return lj_debug_callname54(L, fallback, "math");
+}
+
 static int math_toint32(lua_State *L, int narg, int32_t *ip, int *isnum)
 {
   TValue tmp;
@@ -63,14 +72,20 @@ static int math_toint32(lua_State *L, int narg, int32_t *ip, int *isnum)
   return 1;
 }
 
-static int32_t math_checkrandomint(lua_State *L, int narg)
+static void math_argtype_named54(lua_State *L, int narg, const char *fname,
+				 const char *xname);
+
+static int32_t math_checkrandomint(lua_State *L, int narg, const char *fname)
 {
   int32_t i;
   int isnum;
   if (!math_toint32(L, narg, &i, &isnum)) {
     if (isnum)
-      luaL_argerror(L, narg, "number has no integer representation");
-    lj_err_argt(L, narg, LUA_TNUMBER);
+      lj_err_callermsg(L,
+	lj_strfmt_pushf(L, "bad argument #%d to '%s' "
+			"(number has no integer representation)", narg,
+			math_argname54(L, fname)));
+    math_argtype_named54(L, narg, fname, "number");
   }
   return i;
 }
@@ -104,6 +119,7 @@ static void math_argtype_named54(lua_State *L, int narg, const char *fname,
   } else {
     tname = lj_obj_typename[0];
   }
+  fname = math_argname54(L, fname);
   lj_err_callermsg(L,
     lj_strfmt_pushf(L, "bad argument #%d to '%s' (%s expected, got %s)",
 		    narg, fname, xname, tname));
@@ -111,6 +127,7 @@ static void math_argtype_named54(lua_State *L, int narg, const char *fname,
 
 static void math_argvalue_named54(lua_State *L, int narg, const char *fname)
 {
+  fname = math_argname54(L, fname);
   lj_err_callermsg(L,
     lj_strfmt_pushf(L, "bad argument #%d to '%s' (value expected)",
 		    narg, fname));
@@ -135,28 +152,99 @@ static lua_Number math_checknum_named54(lua_State *L, int narg,
   math_argtype_named54(L, narg, fname, "number");
   return 0;  /* unreachable */
 }
+
 #endif
 
 LJLIB_ASM(math_abs)		LJLIB_REC(.)
 {
+#if LJ_54
+  cTValue *o = L->base;
+  if (o < L->top && tvisint(o)) {
+    int32_t i = intV(o);
+    setintV(L->base-1-LJ_FR2, i < 0 ? (int32_t)(0u - (uint32_t)i) : i);
+  } else {
+    setnumV(L->base-1-LJ_FR2, fabs(math_checknum_named54(L, 1, "math.abs")));
+  }
+  return FFH_RES(1);
+#else
   lj_lib_checknumber(L, 1);
   return FFH_RETRY;
+#endif
 }
 LJLIB_ASM_(math_floor)		LJLIB_REC(math_round IRFPM_FLOOR)
 LJLIB_ASM_(math_ceil)		LJLIB_REC(math_round IRFPM_CEIL)
 
 LJLIB_ASM(math_sqrt)		LJLIB_REC(math_unary IRFPM_SQRT)
 {
+#if LJ_54
+  setnumV(L->base-1-LJ_FR2, sqrt(math_checknum_named54(L, 1, "math.sqrt")));
+  return FFH_RES(1);
+#else
   lj_lib_checknum(L, 1);
   return FFH_RETRY;
+#endif
 }
 LJLIB_ASM_(math_log10)		LJLIB_REC(math_call IRCALL_log10)
-LJLIB_ASM_(math_exp)		LJLIB_REC(math_call IRCALL_exp)
-LJLIB_ASM_(math_sin)		LJLIB_REC(math_call IRCALL_sin)
-LJLIB_ASM_(math_cos)		LJLIB_REC(math_call IRCALL_cos)
-LJLIB_ASM_(math_tan)		LJLIB_REC(math_call IRCALL_tan)
-LJLIB_ASM_(math_asin)		LJLIB_REC(math_call IRCALL_asin)
-LJLIB_ASM_(math_acos)		LJLIB_REC(math_call IRCALL_acos)
+LJLIB_ASM(math_exp)		LJLIB_REC(math_call IRCALL_exp)
+{
+#if LJ_54
+  setnumV(L->base-1-LJ_FR2, exp(math_checknum_named54(L, 1, "math.exp")));
+  return FFH_RES(1);
+#else
+  lj_lib_checknum(L, 1);
+  return FFH_RETRY;
+#endif
+}
+LJLIB_ASM(math_sin)		LJLIB_REC(math_call IRCALL_sin)
+{
+#if LJ_54
+  setnumV(L->base-1-LJ_FR2, sin(math_checknum_named54(L, 1, "math.sin")));
+  return FFH_RES(1);
+#else
+  lj_lib_checknum(L, 1);
+  return FFH_RETRY;
+#endif
+}
+LJLIB_ASM(math_cos)		LJLIB_REC(math_call IRCALL_cos)
+{
+#if LJ_54
+  setnumV(L->base-1-LJ_FR2, cos(math_checknum_named54(L, 1, "math.cos")));
+  return FFH_RES(1);
+#else
+  lj_lib_checknum(L, 1);
+  return FFH_RETRY;
+#endif
+}
+LJLIB_ASM(math_tan)		LJLIB_REC(math_call IRCALL_tan)
+{
+#if LJ_54
+  setnumV(L->base-1-LJ_FR2, tan(math_checknum_named54(L, 1, "math.tan")));
+  return FFH_RES(1);
+#else
+  lj_lib_checknum(L, 1);
+  return FFH_RETRY;
+#endif
+}
+LJLIB_ASM(math_asin)		LJLIB_REC(math_call IRCALL_asin)
+{
+#if LJ_54
+  setnumV(L->base-1-LJ_FR2, asin(math_checknum_named54(L, 1, "math.asin")));
+  return FFH_RES(1);
+#else
+  lj_lib_checknum(L, 1);
+  return FFH_RETRY;
+#endif
+}
+LJLIB_ASM(math_acos)		LJLIB_REC(math_call IRCALL_acos)
+{
+#if LJ_54
+  setnumV(L->base-1-LJ_FR2, acos(math_checknum_named54(L, 1, "math.acos")));
+  return FFH_RES(1);
+#else
+  lj_lib_checknum(L, 1);
+  return FFH_RETRY;
+#endif
+}
 LJLIB_ASM_(math_atan)		LJLIB_REC(math_call IRCALL_atan)
 LJLIB_ASM_(math_sinh)		LJLIB_REC(math_call IRCALL_sinh)
 LJLIB_ASM_(math_cosh)		LJLIB_REC(math_call IRCALL_cosh)
@@ -166,6 +254,21 @@ LJLIB_ASM_(math_modf)
 
 LJLIB_ASM(math_log)		LJLIB_REC(math_log)
 {
+#if LJ_54
+  if (L->base+1 < L->top && !tvisnil(L->base+1)) {
+    double x = math_checknum_named54(L, 1, "math.log");
+    double y = math_checknum_named54(L, 2, "math.log");
+#ifdef LUAJIT_NO_LOG2
+    x = log(x); y = 1.0 / log(y);
+#else
+    x = lj_vm_log2(x); y = 1.0 / lj_vm_log2(y);
+#endif
+    setnumV(L->base-1-LJ_FR2, x*y);  /* Do NOT join the expression to x / y. */
+    return FFH_RES(1);
+  }
+  setnumV(L->base-1-LJ_FR2, log(math_checknum_named54(L, 1, "math.log")));
+  return FFH_RES(1);
+#else
   double x = lj_lib_checknum(L, 1);
   if (L->base+1 < L->top) {
     double y = lj_lib_checknum(L, 2);
@@ -177,6 +280,7 @@ LJLIB_ASM(math_log)		LJLIB_REC(math_log)
     setnumV(L->base-1-LJ_FR2, x*y);  /* Do NOT join the expression to x / y. */
     return FFH_RES(1);
   }
+#endif
   return FFH_RETRY;
 }
 
@@ -294,24 +398,62 @@ static int lj_cf_math_tointeger(lua_State *L)
 
 static int lj_cf_math_floor54(lua_State *L)
 {
-  lua_Number n = lj_lib_checknum(L, 1);
+  lua_Number n = math_checknum_named54(L, 1, "math.floor");
   math_pushintegernum(L, lj_vm_floor(n));
   return 1;
 }
 
 static int lj_cf_math_ceil54(lua_State *L)
 {
-  lua_Number n = lj_lib_checknum(L, 1);
+  lua_Number n = math_checknum_named54(L, 1, "math.ceil");
   math_pushintegernum(L, -lj_vm_floor(-n));
   return 1;
 }
 
 static int lj_cf_math_modf54(lua_State *L)
 {
-  lua_Number ip, fp = modf(lj_lib_checknum(L, 1), &ip);
+  lua_Number ip, fp = modf(math_checknum_named54(L, 1, "math.modf"), &ip);
   math_pushintegernum(L, ip);
   setnumV(L->top++, fp);
   return 2;
+}
+
+static int lj_cf_math_atan54(lua_State *L)
+{
+  lua_Number y = math_checknum_named54(L, 1, "math.atan");
+  /* Lua 5.4 folds the old atan2 surface into math.atan(y [, x]); nil keeps
+  ** the official default x=1, while any present non-nil value is checked.
+  */
+  lua_Number x = (L->base+1 < L->top && !tvisnil(L->base+1)) ?
+		 math_checknum_named54(L, 2, "math.atan") : 1.0;
+  setnumV(L->top++, atan2(y, x));
+  return 1;
+}
+
+static int lj_cf_math_fmod54(lua_State *L)
+{
+  cTValue *a = L->base;
+  cTValue *b = L->base + 1;
+  if (a < L->top && b < L->top && tvisint(a) && tvisint(b)) {
+    int32_t d = intV(b);
+    if ((uint32_t)d + 1u <= 1u) {
+      if (d == 0)
+	lj_err_callermsg(L,
+	  lj_strfmt_pushf(L, "bad argument #2 to '%s' (zero)",
+			  math_argname54(L, "math.fmod")));
+      setintV(L->top++, 0);  /* Avoid mininteger / -1 overflow. */
+    } else {
+      setintV(L->top++, intV(a) % d);
+    }
+  } else {
+    /* PUC Lua checks the divisor first here, so math.fmod() and
+    ** math.fmod(nil) both report argument #2 as the missing no-value slot.
+    */
+    lua_Number y = math_checknum_named54(L, 2, "math.fmod");
+    lua_Number x = math_checknum_named54(L, 1, "math.fmod");
+    setnumV(L->top++, fmod(x, y));
+  }
+  return 1;
 }
 
 static int lj_cf_math_deg54(lua_State *L)
@@ -334,14 +476,14 @@ static int lj_cf_math_ult(lua_State *L)
   int isnum;
   if (!math_toint32(L, 1, &a, &isnum)) {
     if (isnum)
-      lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #1 to 'math.ult' "
-	"(number has no integer representation)"));
+      lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #1 to '%s' "
+	"(number has no integer representation)", math_argname54(L, "math.ult")));
     math_argtype_named54(L, 1, "math.ult", "number");
   }
   if (!math_toint32(L, 2, &b, &isnum)) {
     if (isnum)
-      lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #2 to 'math.ult' "
-	"(number has no integer representation)"));
+      lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #2 to '%s' "
+	"(number has no integer representation)", math_argname54(L, "math.ult")));
     math_argtype_named54(L, 2, "math.ult", "number");
   }
   /* The compatibility mode currently uses LuaJIT's internal 32 bit integers. */
@@ -362,14 +504,64 @@ static int lj_cf_math_ult(lua_State *L)
 typedef union { uint64_t u64; double d; } U64double;
 
 #if LJ_54
-static void random_pushint(lua_State *L, PRNGState *rs, int32_t lo, int32_t hi)
+static uint64_t random_rotl64(uint64_t x, int n)
 {
-  uint64_t span = (uint64_t)((int64_t)hi - (int64_t)lo) + 1u;
-  int32_t r = (int32_t)((int64_t)lo + (int64_t)(lj_prng_u64(rs) % span));
-  setintV(L->top++, r);
+  return (x << n) | (x >> (64 - n));
+}
+
+static uint64_t random_next54(PRNGState *rs)
+{
+  uint64_t state0 = rs->u[0];
+  uint64_t state1 = rs->u[1];
+  uint64_t state2 = rs->u[2] ^ state0;
+  uint64_t state3 = rs->u[3] ^ state1;
+  uint64_t res = random_rotl64(state1 * 5u, 7) * 9u;
+  rs->u[0] = state0 ^ state3;
+  rs->u[1] = state1 ^ state2;
+  rs->u[2] = state2 ^ (state1 << 17);
+  rs->u[3] = random_rotl64(state3, 45);
+  return res;
+}
+
+static lua_Number random_float54(uint64_t x)
+{
+  /* Lua 5.4 converts the high 53 random bits to a double in [0, 1). */
+  return (lua_Number)(x >> 11) * (1.0 / 9007199254740992.0);
+}
+
+static uint32_t random_project54(PRNGState *rs, uint32_t ran, uint32_t n)
+{
+  if ((n & (n + 1u)) == 0)
+    return ran & n;
+  else {
+    uint32_t lim = n;
+    lim |= (lim >> 1);
+    lim |= (lim >> 2);
+    lim |= (lim >> 4);
+    lim |= (lim >> 8);
+    lim |= (lim >> 16);
+    while ((ran &= lim) > n)
+      ran = (uint32_t)random_next54(rs);
+    return ran;
+  }
+}
+
+static void random_setseed54(lua_State *L, PRNGState *rs,
+			     int32_t n1, int32_t n2)
+{
+  int i;
+  rs->u[0] = (uint32_t)n1;
+  rs->u[1] = 0xffu;  /* Avoid a zero xoshiro256** state. */
+  rs->u[2] = (uint32_t)n2;
+  rs->u[3] = 0;
+  for (i = 0; i < 16; i++)
+    (void)random_next54(rs);
+  setintV(L->top++, n1);
+  setintV(L->top++, n2);
 }
 #endif
 
+#if !LJ_54
 /* PRNG seeding function. */
 static void random_seed(PRNGState *rs, double d)
 {
@@ -386,6 +578,7 @@ static void random_seed(PRNGState *rs, double d)
   for (i = 0; i < 10; i++)
     (void)lj_prng_u64(rs);
 }
+#endif
 
 /* PRNG extract function. */
 LJLIB_PUSH(top-2)  /* Upvalue holds userdata with PRNGState. */
@@ -393,34 +586,37 @@ LJLIB_CF(math_random)		LJLIB_REC(.)
 {
   int n = (int)(L->top - L->base);
   PRNGState *rs = (PRNGState *)(uddata(udataV(lj_lib_upvalue(L, 1))));
-  U64double u;
-  double d;
 #if LJ_54
+  uint64_t rv;
+  int32_t low, up;
+  uint32_t p;
   if (n > 2)
     return luaL_error(L, "wrong number of arguments");
-  if (n > 0) {
-    int32_t r1 = math_checkrandomint(L, 1);
-    /* Lua 5.4 returns integers for bounded random calls; keep that path
-    ** separate from LuaJIT's historical floating point range scaling.
-    */
-    if (n == 1) {
-      if (r1 == 0) {
-	random_pushint(L, rs, (int32_t)LJ_MATH_MININTEGER,
-		       (int32_t)LJ_MATH_MAXINTEGER);
-      } else {
-	if (r1 < 1)
-	  luaL_argerror(L, 1, "interval is empty");
-	random_pushint(L, rs, 1, r1);
-      }
-    } else {
-      int32_t r2 = math_checkrandomint(L, 2);
-      if (r1 > r2)
-	luaL_argerror(L, 1, "interval is empty");
-      random_pushint(L, rs, r1, r2);
-    }
+  rv = random_next54(rs);
+  if (n == 0) {
+    setnumV(L->top++, random_float54(rv));
     return 1;
+  } else if (n == 1) {
+    low = 1;
+    up = math_checkrandomint(L, 1, "math.random");
+    if (up == 0) {
+      setintV(L->top++, (int32_t)(uint32_t)rv);
+      return 1;
+    }
+  } else {
+    low = math_checkrandomint(L, 1, "math.random");
+    up = math_checkrandomint(L, 2, "math.random");
   }
-#endif
+  if (low > up)
+    lj_err_callermsg(L,
+      lj_strfmt_pushf(L, "bad argument #1 to '%s' (interval is empty)",
+		      math_argname54(L, "math.random")));
+  p = random_project54(rs, (uint32_t)rv, (uint32_t)up - (uint32_t)low);
+  setintV(L->top++, (int32_t)(p + (uint32_t)low));
+  return 1;
+#else
+  U64double u;
+  double d;
   u.u64 = lj_prng_u64d(rs);
   d = u.d - 1.0;
   if (n > 0) {
@@ -463,6 +659,7 @@ LJLIB_CF(math_random)		LJLIB_REC(.)
   }  /* else: d is a double in range [0, 1] */
   setnumV(L->top++, d);
   return 1;
+#endif
 }
 
 /* PRNG seed function. */
@@ -470,36 +667,26 @@ LJLIB_PUSH(top-2)  /* Upvalue holds userdata with PRNGState. */
 LJLIB_CF(math_randomseed)
 {
   PRNGState *rs = (PRNGState *)(uddata(udataV(lj_lib_upvalue(L, 1))));
-  if (L->base != L->top) {
 #if LJ_54
-    lua_Number s1 = lj_lib_checknum(L, 1);
-    lua_Number s2 = L->base+1 < L->top ? lj_lib_checknum(L, 2) : 0;
-    /* LuaJIT keeps one PRNG seed value; fold Lua 5.4's two visible seeds
-    ** into that internal state, but still return the accepted seed pair.
-    */
-    random_seed(rs, s1 + s2 * 3.14159265358979323846);
-    copyTV(L, L->top++, L->base);
-    if (L->base+1 < L->top-1)
-      copyTV(L, L->top++, L->base+1);
-    else
-      setintV(L->top++, 0);
-    return 2;
+  int32_t s1, s2;
+  if (L->base != L->top) {
+    s1 = math_checkrandomint(L, 1, "math.randomseed");
+    s2 = (L->base+1 < L->top && !tvisnil(L->base+1)) ?
+	 math_checkrandomint(L, 2, "math.randomseed") : 0;
+  } else {
+    s1 = (int32_t)(uint32_t)time(NULL);
+    s2 = (int32_t)(uint32_t)(uintptr_t)L;
+  }
+  random_setseed54(L, rs, s1, s2);
+  return 2;
 #else
+  if (L->base != L->top) {
     random_seed(rs, lj_lib_checknum(L, 1));
-#endif
   } else if (!lj_prng_seed_secure(rs)) {
     lj_err_caller(L, LJ_ERR_PRNGSD);
   }
-#if LJ_54
-  /* Lua 5.4 returns the actual seed pair for the implicit seeding path.
-  ** LuaJIT has a single PRNG state, so expose two generated 32 bit seeds
-  ** from the freshly seeded state instead of the old placeholder 0, 0.
-  */
-  setintV(L->top++, (int32_t)lj_prng_u64(rs));
-  setintV(L->top++, (int32_t)lj_prng_u64(rs));
-  return 2;
-#endif
   return 0;
+#endif
 }
 
 /* ------------------------------------------------------------------------ */
@@ -537,6 +724,10 @@ LUALIB_API int luaopen_math(lua_State *L)
   lua_setfield(L, -2, "ceil");
   lua_pushcfunction(L, lj_cf_math_modf54);
   lua_setfield(L, -2, "modf");
+  lua_pushcfunction(L, lj_cf_math_atan54);
+  lua_setfield(L, -2, "atan");
+  lua_pushcfunction(L, lj_cf_math_fmod54);
+  lua_setfield(L, -2, "fmod");
   lua_pushcfunction(L, lj_cf_math_deg54);
   lua_setfield(L, -2, "deg");
   lua_pushcfunction(L, lj_cf_math_rad54);

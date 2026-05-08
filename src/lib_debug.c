@@ -20,11 +20,19 @@
 #include "lj_meta.h"
 #include "lj_strscan.h"
 #include "lj_strfmt.h"
+#include "lj_ff.h"
 #include "lj_lib.h"
 
 /* ------------------------------------------------------------------------ */
 
 #define LJLIB_MODULE_debug
+
+#if LJ_54
+static TValue *debug_checkany_named54(lua_State *L, int narg,
+				      const char *fname);
+static void debug_argtype_named54(lua_State *L, int narg, const char *fname,
+				  const char *xname);
+#endif
 
 LJLIB_CF(debug_getregistry)
 {
@@ -34,7 +42,14 @@ LJLIB_CF(debug_getregistry)
 
 LJLIB_CF(debug_getmetatable)	LJLIB_REC(.)
 {
+#if LJ_54
+  /* Lua 5.4 reports the public debug.* entry in argument errors. Explicit
+  ** nil is still a valid value; only a missing first argument is an error.
+  */
+  debug_checkany_named54(L, 1, "debug.getmetatable");
+#else
   lj_lib_checkany(L, 1);
+#endif
   if (!lua_getmetatable(L, 1)) {
     setnilV(L->top-1);
   }
@@ -43,7 +58,14 @@ LJLIB_CF(debug_getmetatable)	LJLIB_REC(.)
 
 LJLIB_CF(debug_setmetatable)
 {
+#if LJ_54
+  if (!(L->base+1 < L->top &&
+	(tvistab(L->base+1) || tvisnil(L->base+1)))) {
+    debug_argtype_named54(L, 2, "debug.setmetatable", "nil or table");
+  }
+#else
   lj_lib_checktabornil(L, 2);
+#endif
   L->top = L->base+2;
   lua_setmetatable(L, 1);
 #if !LJ_52
@@ -103,6 +125,7 @@ static lua_State *getthread(lua_State *L, int *arg)
 static void debug_argerror_named54(lua_State *L, int narg, const char *fname,
 				   const char *msg)
 {
+  fname = lj_debug_callname54(L, fname, "debug");
   lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #%d to '%s' (%s)",
 				      narg, fname, msg));
 }
@@ -143,6 +166,16 @@ static GCfunc *debug_checkfunc_named54(lua_State *L, int narg,
   if (!(o < L->top && tvisfunc(o)))
     debug_argtype_named54(L, narg, fname, "function");
   return funcV(o);
+}
+
+static int debug_hide_internal_cfuncuv54(GCfunc *fn)
+{
+  /* Built-in fast/library functions may keep LuaJIT implementation details in
+  ** C closure upvalues. Lua 5.4's standard C functions expose no such slots via
+  ** the debug library. Do not hide runtime C closures such as string.gmatch()
+  ** iterators: official Lua 5.4 exposes their unnamed C upvalues.
+  */
+  return fn->c.ffid == FF_print || fn->c.ffid == FF_pairs;
 }
 
 static GCstr *debug_checkstr_named54(lua_State *L, int narg,
@@ -377,7 +410,9 @@ static int debug_getupvalue(lua_State *L, int get, const char *fname)
 #endif
   const char *name;
 #if LJ_54
-  debug_checkfunc_named54(L, 1, fname);
+  GCfunc *fn = debug_checkfunc_named54(L, 1, fname);
+  if (debug_hide_internal_cfuncuv54(fn))
+    return 0;
 #else
   lj_lib_checkfunc(L, 1);
 #endif
@@ -426,12 +461,25 @@ LJLIB_CF(debug_upvalueid)
     n--;
   }
 #endif
+#if LJ_54
+  if (debug_hide_internal_cfuncuv54(fn)) {
+    lua_pushnil(L);
+    return 1;
+  }
+  if (n <= 0) {
+    lua_pushnil(L);
+    return 1;
+  }
+  n--;
+  /* debug.upvalueid is a query in Lua 5.4: missing upvalues return nil.
+  ** debug.upvaluejoin keeps the stricter mutating-API checks below. */
+  if ((uint32_t)n >= (isluafunc(fn) ? fn->l.nupvalues : fn->c.nupvalues)) {
+    lua_pushnil(L);
+    return 1;
+  }
+#else
   n--;
   if ((uint32_t)n >= fn->l.nupvalues)
-#if LJ_54
-    debug_argerror_named54(L, 2, "debug.upvalueid",
-			   "index out of range");
-#else
     lj_err_arg(L, 2, LJ_ERR_IDXRNG);
 #endif
   lua_pushlightuserdata(L, isluafunc(fn) ? (void *)gcref(fn->l.uvptr[n]) :
@@ -525,9 +573,16 @@ LJLIB_CF(debug_getuservalue)
 #if LJ_54
   int32_t n;
   int tp;
-  if (!(o < L->top && tvisudata(o)))
-    debug_argtype_named54(L, 1, "debug.getuservalue", "userdata");
+  /* Lua 5.4 treats getuservalue(non-userdata) as "no declared slot" and
+  ** returns nil. The optional slot index is still checked first, so bad
+  ** indexes are not hidden by a non-userdata first argument.
+  */
   n = debug_optint_named54(L, 2, 1, "debug.getuservalue");
+  if (!(o < L->top && tvisudata(o))) {
+    setnilV(o);
+    L->top = o+1;
+    return 1;
+  }
   tp = lua_getiuservalue(L, 1, n);
   if (tp == LUA_TNONE) {
     setnilV(o);
@@ -552,10 +607,14 @@ LJLIB_CF(debug_setuservalue)
 #if LJ_54
   int32_t n;
   int ok;
+  /* Match Lua 5.4's argument order: validate the optional slot index before
+  ** rejecting the target object or value. This keeps diagnostics stable for
+  ** calls such as debug.setuservalue(true, true, true).
+  */
+  n = debug_optint_named54(L, 3, 1, "debug.setuservalue");
   if (!(o < L->top && tvisudata(o)))
     debug_argtype_named54(L, 1, "debug.setuservalue", "userdata");
   debug_checkany_named54(L, 2, "debug.setuservalue");
-  n = debug_optint_named54(L, 3, 1, "debug.setuservalue");
   L->top = o+2;  /* lua_setiuservalue consumes the value from the top. */
   ok = lua_setiuservalue(L, 1, n);
   if (!ok)
@@ -651,7 +710,7 @@ static void hook_skipline54(lua_State *L, lua_State *L1, lua_Hook func,
   if (lua_getstack(L, 1, &ar) && lua_getinfo(L, "l", &ar) &&
       ar.currentline >= 0) {
     g->hook_skipline = 1;
-    g->hook_skipline_ci = ar.i_ci & 0xffff;
+    g->hook_skipline_ci = (uint16_t)(LJ_DEBUG_CI_VALUE(ar.i_ci) & 0xffff);
     g->hook_skipline_line = (BCLine)ar.currentline;
   }
 }
@@ -680,7 +739,11 @@ LJLIB_CF(debug_sethook)
     luaL_checktype(L, arg+1, LUA_TFUNCTION);
     count = luaL_optint(L, arg+3, 0);
 #endif
-    func = hookf; mask = makemask(smask, count);
+    mask = makemask(smask, count);
+    /* Lua 5.4 uses a NULL hook whenever both mask and count are empty, even if
+    ** a function argument was supplied. This keeps gethook() at one nil result.
+    */
+    func = mask ? hookf : NULL;
   }
 #if LJ_54
   if (!luaL_getsubtable(L, LUA_REGISTRYINDEX, KEY_HOOK54)) {
@@ -691,7 +754,10 @@ LJLIB_CF(debug_sethook)
   }
   lua_pushthread(L1);
   lua_xmove(L1, L, 1);
-  lua_pushvalue(L, arg+1);
+  if (func != NULL)
+    lua_pushvalue(L, arg+1);
+  else
+    lua_pushnil(L);
   lua_rawset(L, -3);
   lua_pop(L, 1);
   lua_sethook(L1, func, mask, count);
@@ -712,7 +778,10 @@ LJLIB_CF(debug_gethook)
   char buff[5];
   int mask = lua_gethookmask(L1);
   lua_Hook hook = lua_gethook(L1);
-  if (hook != NULL && hook != hookf) {  /* external hook? */
+  if (hook == NULL) {
+    lua_pushnil(L);
+    return 1;
+  } else if (hook != hookf) {  /* external hook? */
     lua_pushliteral(L, "external hook");
   } else {
 #if LJ_54

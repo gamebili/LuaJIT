@@ -394,7 +394,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  str RCw, SAVE_MULTRES
 #if LJ_54
   |  ldr TMP0, L->closelist
-  |  cbz TMP0, >7
+  |  cbz TMP0, ->vm_returnc_closed
   |  // Lua 5.4 closes C API to-be-closed slots before the C return hook and
   |  // before return values are moved into the caller frame.
   |  sub TMP1, RC, #8
@@ -402,16 +402,24 @@ static void build_subroutines(BuildCtx *ctx)
   |  stp BASE, TMP1, L->base
   |  lsr CARG2w, RCw, #3
   |  mov CARG1, L
-  |  bl extern lj_close_cframe
+  |  bl extern lj_close_prepare_cframe_pcall
+  |  mov RA, CRET1
   |  ldr BASE, L->base
-  |   lsl RC, CRET1, #3
-  |  str RCw, SAVE_MULTRES
   |   ldr PC, [BASE, FRAME_PC]		// __close may have called back into Lua.
+  |  cbnz RA, ->vm_call_close
+  |  ldrsw TMP0, L->close_cframe_nres1
+  |  str wzr, L->close_cframe_nres1
+  |   lsl RC, TMP0, #3
+  |  str RCw, SAVE_MULTRES
   |  ldr RA, L->top
   |  sub RA, RA, RC
   |  add RA, RA, #8			// RA = result pointer.
-  |7:
+  |  sub TMP1, RA, BASE
+  |  lsr TMP1, TMP1, #3
+  |  add TMP1w, TMP1w, #1
+  |  strh TMP1w, GL->hook_cres_ftransfer
 #endif
+  |->vm_returnc_closed:
   |  ands CARG1, PC, #FRAME_TYPE
   |  bne ->vm_return
   |  ldrb TMP0w, GL->hookmask
@@ -532,10 +540,44 @@ static void build_subroutines(BuildCtx *ctx)
   |  ldr BASE, L->base
   |    mov_false TMP0
   |  sub RA, BASE, #8			// Results start at BASE-8.
-  |  ldr PC, [BASE, FRAME_PC]		// Fetch PC of previous frame.
-  |   st_vmstate ST_INTERP
-  |  ldrb TMP1w, GL->hookmask
-  |  tbz TMP1w, #LUA_HOOKRET, >7
+|  ldr PC, [BASE, FRAME_PC]		// Fetch PC of previous frame.
+|   st_vmstate ST_INTERP
+#if LJ_54
+|  ldr TMP1, L->closelist
+|  cbz TMP1, ->vm_unwind_ff_closed
+|  ldrb TMP1w, L->close_defer
+|  cbz TMP1w, ->vm_unwind_ff_closed
+|  strb wzr, L->close_defer
+|  and TMP1, PC, #FRAME_TYPE
+|  cmp TMP1, #FRAME_CONT
+|  beq ->vm_unwind_ff_closed
+|  cbnz TMP1, >9
+|  // A Lua caller can run error-unwind __close through a VM continuation, so
+|  // __close may yield and then resume closing the remaining outer slots.
+|  str PC, SAVE_PC
+|  mov CARG1, L
+|  bl extern lj_close_prepare_pcall
+|  mov RA, CRET1
+|  ldr BASE, L->base
+|  ldr PC, SAVE_PC
+|  cbnz RA, >8
+|  sub RA, BASE, #8
+|  b ->vm_unwind_ff_closed
+|8:
+|  b ->vm_call_close
+|9:
+|  // Non-Lua callers cannot enter the continuation dispatcher; keep this path
+|  // protected but non-yieldable for shapes such as coroutine.create(pcall).
+|  str PC, SAVE_PC
+|  mov CARG1, L
+|  bl extern lj_close_unwind_pcall
+|  ldr BASE, L->base
+|  ldr PC, SAVE_PC
+|  sub RA, BASE, #8
+#endif
+|->vm_unwind_ff_closed:
+|  ldrb TMP1w, GL->hookmask
+|  tbz TMP1w, #LUA_HOOKRET, >7
   |  // The pcall frame is still intact here. Fire the synthetic C return hook
   |  // before false+error overwrite the function/PC slots below.
   |  mov TMP1w, #3
@@ -557,9 +599,26 @@ static void build_subroutines(BuildCtx *ctx)
   |7:
   |    mov_false TMP0
   |    str TMP0, [BASE, #-8]		// Prepend false to error message.
-  |  mov RC, #24			// false + error, already adjusted.
-  |  str RCw, SAVE_MULTRES
-  |  b ->BC_RET_Z
+|  mov RC, #24			// false + error, already adjusted.
+|  str RCw, SAVE_MULTRES
+|  ands CARG1, PC, #FRAME_TYPE
+|  bne ->vm_return
+|  b ->BC_RET_Z
+|
+|->vm_call_close:
+#if LJ_54
+|  str PC, [RA, #-24]		// [cont|PC]
+|  sub TMP1, BASE, #FRAME_CONT
+|  mov BASE, RA
+|  mov NARGS8:RC, #24		// pcall(__close, value, err).
+|  ldr LFUNC:CARG3, [BASE, FRAME_FUNC]
+|  sub PC, BASE, TMP1
+|  and LFUNC:CARG3, CARG3, #LJ_GCVMASK
+|  str BASE, L->base
+|  b ->vm_call_dispatch_f
+#else
+|  b ->vm_unwind_ff_closed
+#endif
   |
   |//-----------------------------------------------------------------------
   |//-- Grow stack for calls -----------------------------------------------
@@ -712,10 +771,16 @@ static void build_subroutines(BuildCtx *ctx)
   |.if FFI
   |    bls >1
   |.endif
-  |  ldr CARG3, LFUNC:CARG3->pc
-  |  ldr KBASE, [CARG3, #PC2PROTO(k)]
-  |  // BASE = base, RA = resultptr, CARG4 = meta base
-  |    br_auth CARG1
+|  ldr CARG3, LFUNC:CARG3->pc
+|  ldr KBASE, [CARG3, #PC2PROTO(k)]
+|  // BASE = base, RA = resultptr, CARG4 = meta base
+#if LJ_54
+|  cmp CARG1, #LJ_CONT_CLOSE
+|  beq ->cont_close
+|  cmp CARG1, #LJ_CONT_CLOSE_CFRAME
+|  beq ->cont_close_cframe
+#endif
+|    br_auth CARG1
   |
   |.if FFI
   |1:
@@ -741,9 +806,65 @@ static void build_subroutines(BuildCtx *ctx)
   |  lsr CARG3, TMP1, #3
   |  b ->BC_CAT_Z
   |
-  |1:
-  |   str TMP0, [BASE, RA, lsl #3]
-  |  b ->cont_nop
+|1:
+|   str TMP0, [BASE, RA, lsl #3]
+|  b ->cont_nop
+|
+|->cont_close:			// BASE = base, RA = resultptr, CARG4 = close call base.
+#if LJ_54
+|  // Continue the protected close chain after pcall(__close, value, err)
+|  // returns. The helper either prepares the next close call or leaves the
+|  // final replacement error below the continuation frame.
+|  str BASE, L->base
+|  mov CARG2, CARG4
+|  mov CARG3, RA
+|  lsr CARG4w, RCw, #3
+|  str PC, SAVE_PC
+|  mov CARG1, L
+|  bl extern lj_close_continue_pcall
+|  mov RA, CRET1
+|  ldr BASE, L->base
+|  ldr PC, SAVE_PC
+|  cbnz RA, >8
+|  sub RA, BASE, #8
+|  b ->vm_unwind_ff_closed
+|8:
+|  b ->vm_call_close
+#else
+|  b ->cont_nop
+#endif
+|
+|->cont_close_cframe:		// BASE = base, RA = resultptr, CARG4 = close call base.
+#if LJ_54
+|  // Continue C-return closing after pcall(__close, value, err) returns.
+|  // Results have not been moved into the caller frame yet, so recompute the
+|  // return window after the last close method completes or resumes.
+|  str BASE, L->base
+|  mov CARG2, CARG4
+|  mov CARG3, RA
+|  lsr CARG4w, RCw, #3
+|  str PC, SAVE_PC
+|  mov CARG1, L
+|  bl extern lj_close_continue_cframe_pcall
+|  mov RA, CRET1
+|  ldr BASE, L->base
+|  ldr PC, SAVE_PC
+|  cbnz RA, ->vm_call_close
+|  ldrsw TMP0, L->close_cframe_nres1
+|  str wzr, L->close_cframe_nres1
+|  lsl RC, TMP0, #3
+|  str RCw, SAVE_MULTRES
+|  ldr RA, L->top
+|  sub RA, RA, RC
+|  add RA, RA, #8			// RA = result pointer.
+|  sub TMP1, RA, BASE
+|  lsr TMP1, TMP1, #3
+|  add TMP1w, TMP1w, #1
+|  strh TMP1w, GL->hook_cres_ftransfer
+|  b ->vm_returnc_closed
+#else
+|  b ->cont_nop
+#endif
   |
   |//-- Table indexing metamethods -----------------------------------------
   |
@@ -1011,8 +1132,11 @@ static void build_subroutines(BuildCtx *ctx)
   |   str PC, SAVE_PC
   |  add CARG3, BASE, NARGS8:RC
   |  bl extern lj_meta_call	// (lua_State *L, TValue *func, TValue *top)
+  |  add NARGS8:RC, NARGS8:RC, CRET1, lsl #3	// Account for __call chain args.
+  |  ldr BASE, L->top
+  |   ldr RB, L->base
+  |  sub BASE, BASE, NARGS8:RC
   |  ldr LFUNC:CARG3, [BASE, FRAME_FUNC]  // Guaranteed to be a function here.
-  |   add NARGS8:RC, NARGS8:RC, #8	// Got one more argument now.
   |  and LFUNC:CARG3, CARG3, #LJ_GCVMASK
   |  ins_call
   |
@@ -1024,9 +1148,12 @@ static void build_subroutines(BuildCtx *ctx)
   |   str PC, SAVE_PC
   |  add CARG3, RA, NARGS8:RC
   |  bl extern lj_meta_call	// (lua_State *L, TValue *func, TValue *top)
+  |  add NARGS8:RC, NARGS8:RC, CRET1, lsl #3	// Account for __call chain args.
+  |  ldr BASE, L->base
+  |   ldr RA, L->top
+  |  ldr PC, [BASE, FRAME_PC]
+  |  sub RA, RA, NARGS8:RC
   |  ldr TMP1, [RA, FRAME_FUNC]		// Guaranteed to be a function here.
-  |   ldr PC, [BASE, FRAME_PC]
-  |   add NARGS8:RC, NARGS8:RC, #8	// Got one more argument now.
   |  and LFUNC:CARG3, TMP1, #LJ_GCVMASK
   |  b ->BC_CALLT2_Z
   |
@@ -1063,6 +1190,9 @@ static void build_subroutines(BuildCtx *ctx)
 |  lsr TMP0w, RCw, #3
 |  add TMP0w, TMP0w, #1
 |  strh TMP0w, GL->hook_cres_ftransfer
+|  ldr CFUNC:CARG4, [BASE, FRAME_FUNC]
+|  and CFUNC:CARG4, CARG4, #LJ_GCVMASK
+|  str CFUNC:CARG4, GL->hook_cfunc
 |.endmacro
   |
   |.macro .ffunc_1, name
@@ -1073,6 +1203,9 @@ static void build_subroutines(BuildCtx *ctx)
   |  lsr TMP0w, RCw, #3
   |  add TMP0w, TMP0w, #1
   |  strh TMP0w, GL->hook_cres_ftransfer
+  |  ldr CFUNC:CARG4, [BASE, FRAME_FUNC]
+  |  and CFUNC:CARG4, CARG4, #LJ_GCVMASK
+  |  str CFUNC:CARG4, GL->hook_cfunc
   |  ldr CARG1, [BASE]
   |   cmp NARGS8:RC, #8
   |   blo ->fff_fallback
@@ -1086,6 +1219,9 @@ static void build_subroutines(BuildCtx *ctx)
   |  lsr TMP0w, RCw, #3
   |  add TMP0w, TMP0w, #1
   |  strh TMP0w, GL->hook_cres_ftransfer
+  |  ldr CFUNC:CARG4, [BASE, FRAME_FUNC]
+  |  and CFUNC:CARG4, CARG4, #LJ_GCVMASK
+  |  str CFUNC:CARG4, GL->hook_cfunc
   |  ldp CARG1, CARG2, [BASE]
   |   cmp NARGS8:RC, #16
   |   blo ->fff_fallback
@@ -1470,7 +1606,9 @@ static void build_subroutines(BuildCtx *ctx)
   |  ldr TMP0, [CARG4, #-8]!
   |   mov_false TMP1
   |    mov RC, #(2+1)*8
+#if !LJ_54
   |  str CARG4, L:RA->top		// Remove error from coroutine stack.
+#endif
   |  str TMP0, [BASE]			// Copy error message.
   |  b <7
   |.else
@@ -1527,7 +1665,9 @@ static void build_subroutines(BuildCtx *ctx)
   |   movz CARG3, #0x41e0, lsl #48	// 2^31.
   |  subs CARG1w, CARG2w, CARG1w, asr #31
   |   add_TISNUM CARG1, CARG1
+#if !LJ_54
   |  csel CARG1, CARG1, CARG3, pl
+#endif
   |  // Fallthrough.
   |
   |->fff_restv:
@@ -1537,11 +1677,34 @@ static void build_subroutines(BuildCtx *ctx)
   |->fff_res1:
   |  // PC = return.
   |  mov RC, #(1+1)*8
-  |->fff_res:
+|->fff_res:
   |  // RC = (nresults+1)*8, PC = return.
-  |  ands CARG1, PC, #FRAME_TYPE
   |   str RCw, SAVE_MULTRES
-  |   sub RA, BASE, #16
+#if LJ_54
+  |  ldrb TMP0w, GL->hookmask
+  |  tbz TMP0w, #LUA_HOOKRET, >4
+  |  tst PC, #FRAME_TYPE
+  |  bne >4
+  |  // Fast functions place results over frame slots. Build a temporary public
+  |  // transfer window so Lua 5.4 return hooks can inspect arguments/results.
+  |  str PC, SAVE_PC
+  |  str BASE, L->base
+  |  lsr CARG3w, RCw, #3
+  |  sub CARG3w, CARG3w, #1		// CARG3 = nresults.
+  |  mov CARG2w, #0
+  |  cbz CARG3w, >3
+  |  ldrh CARG2w, GL->hook_cres_ftransfer
+  |3:
+  |  mov CARG1, L
+  |  bl extern lj_dispatch_fferet
+  |  ldr BASE, L->base
+  |   lsl RC, CRET1, #3
+  |  str RCw, SAVE_MULTRES
+  |   ldr PC, SAVE_PC
+  |4:
+#endif
+  |  ands CARG1, PC, #FRAME_TYPE
+   |   sub RA, BASE, #16
   |  bne ->vm_return
   |  ldr INSw, [PC, #-4]
   |  decode_RB RB, INS
@@ -2577,6 +2740,13 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |2:  // Check if the tags are the same and it's a table or userdata.
     |  cmp ITYPE, TMP0
+#if LJ_54
+    |  bne >3
+    |  cmn ITYPE, #-LJ_TSTR
+    |  beq >6
+    |  cmp ITYPE, TMP0
+    |3:
+#endif
     |  ccmn ITYPE, #-LJ_TISTABUD, #2, eq
     if (vk) {
       |  bhi <1
@@ -2609,6 +2779,22 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     }
     |  b ->vmeta_equal
 #endif
+#if LJ_54
+    |6:  // Different long string objects may still be byte-equal in Lua 5.4.
+    |  and STR:CARG1, CARG1, #LJ_GCVMASK
+    |  and STR:CARG2, CARG3, #LJ_GCVMASK
+    |  mov RC, RB			// Save the comparison branch target.
+    |  str BASE, L->base
+    |  bl extern lj_str_equal		// (GCstr *a, GCstr *b)
+    |  cmp CRET1w, #1
+    if (vk) {
+      |  bne <1
+    } else {
+      |  beq <1
+    }
+    |  mov PC, RC
+    |  b <1
+#endif
     break;
 
   case BC_ISEQS: case BC_ISNES:
@@ -2620,9 +2806,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |   ldr CARG2, [KBASE, RC, lsl #3]
     |    add PC, PC, #4
     |   movn TMP0, #~LJ_TSTR
-    |.if FFI
     |  asr ITYPE, CARG1, #47
-    |.endif
     |    add RB, PC, RB, lsl #2
     |   add CARG2, CARG2, TMP0, lsl #47
     |    sub RB, RB, #0x20000
@@ -2631,6 +2815,22 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  beq ->vmeta_equal_cd
     |.endif
     |  cmp CARG1, CARG2
+#if LJ_54
+    |  beq >1
+    |  cmn ITYPE, #-LJ_TSTR
+    |  bne >2
+    |  and STR:CARG1, CARG1, #LJ_GCVMASK
+    |  and STR:CARG2, CARG2, #LJ_GCVMASK
+    |  mov RC, RB			// Save the comparison branch target.
+    |  str BASE, L->base
+    |  bl extern lj_str_equal		// (GCstr *a, GCstr *b)
+    |  mov RB, RC
+    |  cmp CRET1w, #1			// Preserve flags as byte-equality.
+    |  b >1
+    |2:
+    |  cmp CARG1, CARG2			// Preserve flags as raw TValue inequality.
+    |1:
+#endif
     if (vk) {
       |  csel PC, RB, PC, eq
     } else {
@@ -2791,14 +2991,18 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  asr ITYPE, TMP0, #47
     |  cmn ITYPE, #-LJ_TISNUM
     |  bhi ->vmeta_unm
-    |  eor TMP0, TMP0, #U64x(80000000,00000000)
-    |  bne >5
-    |  negs TMP0w, TMP0w
-    |   movz CARG3, #0x41e0, lsl #48	// 2^31.
-    |   add_TISNUM TMP0, TMP0
-    |  csel TMP0, TMP0, CARG3, vc
-    |   movz CARG3, #0x8000, lsl #48	// -0.
-    |  csel TMP0, TMP0, CARG3, ne
+  |  eor TMP0, TMP0, #U64x(80000000,00000000)
+  |  bne >5
+  |  negs TMP0w, TMP0w
+#if !LJ_54
+  |   movz CARG3, #0x41e0, lsl #48	// 2^31.
+#endif
+  |   add_TISNUM TMP0, TMP0
+#if !LJ_54
+  |  csel TMP0, TMP0, CARG3, vc
+#endif
+  |   movz CARG3, #0x8000, lsl #48	// -0.
+  |  csel TMP0, TMP0, CARG3, ne
     |5:
     |  str TMP0, [BASE, RA, lsl #3]
     |  ins_next
@@ -3253,7 +3457,13 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  asr ITYPE, TMP1, #47
     |  cmn ITYPE, #-LJ_TSTR		// String key?
     |  bne ->vmeta_tgetv
-    |   and STR:RC, TMP1, #LJ_GCVMASK
+    |   and STR:CARG4, TMP1, #LJ_GCVMASK
+#if LJ_54
+    |  ldr TMP2w, STR:CARG4->len
+    |  cmp TMP2w, #LJ_STR_MAXSHORT
+    |  bhi ->vmeta_tgetv		// Non-interned long strings need byte-key lookup.
+#endif
+    |  mov STR:RC, STR:CARG4
     |  b ->BC_TGETS_Z
     break;
   case BC_TGETS:
@@ -3266,6 +3476,11 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  checktab CARG2, ->vmeta_tgets1
     |->BC_TGETS_Z:
     |  // TAB:CARG2 = GCtab *, STR:RC = GCstr *, RA = dst
+#if LJ_54
+    |  ldr TMP0w, STR:RC->len
+    |  cmp TMP0w, #LJ_STR_MAXSHORT
+    |  bhi ->vmeta_tgets		// Non-interned long strings need byte-key lookup.
+#endif
     |  ldr TMP1w, TAB:CARG2->hmask
     |   ldr TMP2w, STR:RC->sid
     |    ldr NODE:CARG3, TAB:CARG2->node
@@ -3379,7 +3594,13 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  asr ITYPE, TMP1, #47
     |  cmn ITYPE, #-LJ_TSTR		// String key?
     |  bne ->vmeta_tsetv
-    |   and STR:RC, TMP1, #LJ_GCVMASK
+    |   and STR:CARG4, TMP1, #LJ_GCVMASK
+#if LJ_54
+    |  ldr TMP2w, STR:CARG4->len
+    |  cmp TMP2w, #LJ_STR_MAXSHORT
+    |  bhi ->vmeta_tsetv		// Non-interned long strings need byte-key lookup.
+#endif
+    |  mov STR:RC, STR:CARG4
     |  b ->BC_TSETS_Z
     break;
   case BC_TSETS:
@@ -3392,6 +3613,11 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  checktab CARG2, ->vmeta_tsets1
     |->BC_TSETS_Z:
     |  // TAB:CARG2 = GCtab *, STR:RC = GCstr *, RA = src
+#if LJ_54
+    |  ldr TMP0w, STR:RC->len
+    |  cmp TMP0w, #LJ_STR_MAXSHORT
+    |  bhi ->vmeta_tsets		// Non-interned long strings need byte-key lookup.
+#endif
     |  ldr TMP1w, TAB:CARG2->hmask
     |   ldr TMP2w, STR:RC->sid
     |    ldr NODE:CARG3, TAB:CARG2->node
@@ -3601,18 +3827,26 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |   cmp TMP1, NARGS8:RC
     |  str TMP0, [BASE, RB]
     |    mov RB, TMP1
-    |   bne <2
+   |   bne <2
     |3:
+    |  add TMP0, BASE, RB
+    |  str TMP0, L->top
 #if LJ_54
     |  cbnz TMP2w, >9
     |  // BC_CALLT replaces the caller frame with the callee. Preserve that
     |  // fact out-of-band for Lua 5.4 debug.getinfo(..., "t") and tail hooks.
-    |  ldr TMP0, L->stack
-    |  sub TMP1, BASE, TMP0
-    |  lsr TMP1, TMP1, #3
-    |  sub TMP1w, TMP1w, #1
-    |  str TMP1w, L->tailcall_ci
-    |9:
+  |  ldr TMP0, L->stack
+  |  sub TMP1, BASE, TMP0
+  |  lsr TMP1, TMP1, #3
+  |  sub TMP1w, TMP1w, #1
+  |  ldrsw TMP0, L->tailcall_ci
+  |  cbz TMP0w, >8
+  |  cmp TMP0w, TMP1w
+  |  beq >8
+  |  str TMP0w, L->tailcall_ci2
+  |8:
+  |  str TMP1w, L->tailcall_ci
+  |9:
 #endif
     |  cmp TMP2, #1			// (> FF_C) Calling a fast function?
     |  bhi >5
@@ -3831,13 +4065,19 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  // same stack offset are not reported as tail calls.
     |  ldr TMP0, L->stack
     |  ldrsw TMP1, L->tailcall_ci
-    |  sub TMP0, BASE, TMP0
-    |  lsr TMP0, TMP0, #3
-    |  sub TMP0w, TMP0w, #1
-    |  cmp TMP1w, TMP0w
-    |  bne >9
-    |  str wzr, L->tailcall_ci
-    |9:
+  |  sub TMP0, BASE, TMP0
+  |  lsr TMP0, TMP0, #3
+  |  sub TMP0w, TMP0w, #1
+  |  cmp TMP1w, TMP0w
+  |  bne >8
+  |  str wzr, L->tailcall_ci
+  |  b >9
+  |8:
+  |  ldrsw TMP1, L->tailcall_ci2
+  |  cmp TMP1w, TMP0w
+  |  bne >9
+  |  str wzr, L->tailcall_ci2
+  |9:
 #endif
     |1:
     |  ands CARG1, PC, #FRAME_TYPE
@@ -3896,13 +4136,19 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  // See BC_RET above: clear any tailcall marker for this returning frame.
     |  ldr TMP0, L->stack
     |  ldrsw TMP1, L->tailcall_ci
-    |  sub TMP0, BASE, TMP0
-    |  lsr TMP0, TMP0, #3
-    |  sub TMP0w, TMP0w, #1
-    |  cmp TMP1w, TMP0w
-    |  bne >9
-    |  str wzr, L->tailcall_ci
-    |9:
+  |  sub TMP0, BASE, TMP0
+  |  lsr TMP0, TMP0, #3
+  |  sub TMP0w, TMP0w, #1
+  |  cmp TMP1w, TMP0w
+  |  bne >8
+  |  str wzr, L->tailcall_ci
+  |  b >9
+  |8:
+  |  ldrsw TMP1, L->tailcall_ci2
+  |  cmp TMP1w, TMP0w
+  |  bne >9
+  |  str wzr, L->tailcall_ci2
+  |9:
 #endif
     |  ands CARG1, PC, #FRAME_TYPE
     |   eor CARG2, PC, #FRAME_VARG
@@ -4220,8 +4466,17 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |   sbfiz RC, CRET1, #3, #32
     |    st_vmstate ST_INTERP
     |  ldr PC, [BASE, FRAME_PC]
-    |   sub RA, TMP1, RC		// RA = L->top - nresults*8
-    |  b ->vm_returnc
+   |   sub RA, TMP1, RC		// RA = L->top - nresults*8
+#if LJ_54
+    |  // Lua 5.4 return hooks expose the first returned C value, not the slot
+    |  // after the original argument list. Recompute it after the C function
+    |  // has set L->top and reported the real result count.
+    |  sub TMP0, RA, BASE
+    |  lsr TMP0w, TMP0w, #3
+    |  add TMP0w, TMP0w, #1
+    |  strh TMP0w, GL->hook_cres_ftransfer
+#endif
+  |  b ->vm_returnc
     break;
 
   /* ---------------------------------------------------------------------- */

@@ -480,6 +480,19 @@ enum {
 **   Constant references and literals must not be modified.
 */
 
+/* UREFx op2 layout: high bits hold the upvalue index, low bits hold a small
+** disambiguation hash for alias analysis. Lua 5.4 raises the upvalue limit to
+** 200, so the hash must stay at 7 bits to keep every encoded literal below
+** REF_BIAS and avoid colliding with IR references.
+*/
+#define IRUREF_HASH_BITS	7
+#define IRUREF_HASH_MASK	((1u << IRUREF_HASH_BITS) - 1u)
+#define IRUREF_ENCODE(uv, hash)	(((uv) << IRUREF_HASH_BITS) | \
+				 ((hash) & IRUREF_HASH_MASK))
+#define IRUREF_UPVALUE(uvh)	((uint32_t)(uvh) >> IRUREF_HASH_BITS)
+#define IRUREF_HASH(uvh)	((uint32_t)(uvh) & IRUREF_HASH_MASK)
+LJ_STATIC_ASSERT(IRUREF_ENCODE(LJ_MAX_UPVAL-1, IRUREF_HASH_MASK) < REF_BIAS);
+
 #define IRREF2(lo, hi)		((IRRef2)(lo) | ((IRRef2)(hi) << 16))
 
 #define irref_isk(ref)		((ref) < REF_BIAS)

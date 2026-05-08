@@ -15,8 +15,15 @@
 
 #include "lj_arch.h"
 
+#if LJ_54
+int luaopen_base_luajit(lua_State *L);
+#define LJ_OPEN_BASE	luaopen_base_luajit
+#else
+#define LJ_OPEN_BASE	luaopen_base
+#endif
+
 static const luaL_Reg lj_lib_load[] = {
-  { "",			luaopen_base },
+  { "",			LJ_OPEN_BASE },
   { LUA_LOADLIBNAME,	luaopen_package },
   { LUA_TABLIBNAME,	luaopen_table },
   { LUA_IOLIBNAME,	luaopen_io },

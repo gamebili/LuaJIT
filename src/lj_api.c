@@ -32,7 +32,15 @@
 #include "lj_strfmt.h"
 
 #if LJ_54
+#if (defined(__ELF__) || defined(__MACH__) || defined(__psp2__)) && \
+    !((defined(__sun__) && defined(__svr4__)) || defined(__CELLOS_LV2__))
+/* LUA_API expands to extern+visibility on ELF/Mach-O. That form is fine for
+** function declarations, but Clang warns when it is used on a data definition.
+*/
+__attribute__((visibility("default"))) const char lua_ident[] =
+#else
 LUA_API const char lua_ident[] =
+#endif
   "$LuaVersion: " LUA_COPYRIGHT " $"
   "$LuaAuthors: " LUA_AUTHORS " $";
 #endif
@@ -170,8 +178,16 @@ LUA_API int lua_setcstacklimit(lua_State *L, unsigned int limit)
 
 LUALIB_API void luaL_checkstack(lua_State *L, int size, const char *msg)
 {
-  if (!lua_checkstack(L, size))
+  if (!lua_checkstack(L, size)) {
+#if LJ_54
+    if (msg == NULL)
+      /* Lua 5.4 treats a NULL auxiliary message as no extra text; avoid the
+      ** old formatted "(null)" suffix in stack overflow diagnostics.
+      */
+      lj_err_caller(L, LJ_ERR_STKOV);
+#endif
     lj_err_callerv(L, LJ_ERR_STKOVM, msg);
+  }
 }
 
 LUA_API void lua_xmove(lua_State *L, lua_State *to, int n)
@@ -821,9 +837,24 @@ LUALIB_API int luaL_checkoption(lua_State *L, int idx, const char *def,
 				const char *const lst[])
 {
   ptrdiff_t i;
+#if LJ_54
+  cTValue *o = index2adr(L, idx);
+  const char *s;
+  if (tvisnil(o)) {
+    if (def == NULL)
+      lj_err_argt(L, idx, LUA_TSTRING);
+    s = def;
+  } else {
+    /* Lua 5.4 only uses the default for absent/nil arguments. A present
+    ** non-string/non-number option must still raise the normal type error.
+    */
+    s = luaL_checklstring(L, idx, NULL);
+  }
+#else
   const char *s = lua_tolstring(L, idx, NULL);
   if (s == NULL && (s = def) == NULL)
     lj_err_argt(L, idx, LUA_TSTRING);
+#endif
   for (i = 0; lst[i]; i++)
     if (strcmp(lst[i], s) == 0)
       return (int)i;
@@ -1574,7 +1605,14 @@ LUALIB_API int luaL_getmetafield(lua_State *L, int idx, const char *field)
     cTValue *tv = lj_tab_getstr(tabV(L->top-1), lj_str_newz(L, field));
     if (tv && !tvisnil(tv)) {
       copyTV(L, L->top-1, tv);
+#if LJ_54
+      /* Lua 5.4 changed luaL_getmetafield() to return the pushed field's
+      ** type code. Keep default LuaJIT on the historical boolean surface.
+      */
+      return lua_type(L, -1);
+#else
       return 1;
+#endif
     }
     L->top--;
   }
@@ -1676,9 +1714,17 @@ LUA_API void *lua_upvalueid(lua_State *L, int idx, int n)
       return (void *)&fn->c.env;
     n--;
   }
-#endif
+  if (n <= 0)
+    return NULL;
+  n--;
+  /* Match Lua 5.4's public API: invalid upvalue indices return NULL so
+  ** debug.upvalueid can report nil without turning a query into an error. */
+  if ((uint32_t)n >= (isluafunc(fn) ? fn->l.nupvalues : fn->c.nupvalues))
+    return NULL;
+#else
   n--;
   lj_checkapi((uint32_t)n < fn->l.nupvalues, "bad upvalue %d", n);
+#endif
   return isluafunc(fn) ? (void *)gcref(fn->l.uvptr[n]) :
 			 (void *)&fn->c.upvalue[n];
 }
@@ -1859,11 +1905,7 @@ LUA_API int lua_setmetatable(lua_State *L, int idx)
 	cTValue *gc = lj_tab_getstr(mt, mmname_str(g, MM_gc));
 	if (gc && !tvisnil(gc)) {
 	  t->flags54 |= LJ_TAB_HAS_GC;
-	  /* Force an upcoming allocation step to notice the newly armed table
-	  ** finalizer without changing collectgarbage("stop") semantics.
-	  */
-	  if (g->gc.threshold != LJ_MAX_MEM && g->gc.threshold > g->gc.total)
-	    g->gc.threshold = g->gc.total;
+	  lj_gc_arm_table_finalizer(g);
 	}
       }
 #endif
@@ -2022,27 +2064,77 @@ LUA_API int lua_pcall(lua_State *L, int nargs, int nresults, int errfunc)
 }
 
 #if LJ_54
+enum {
+  LUA54_CAPI_CONT_NONE,
+  LUA54_CAPI_CONT_YIELDK,
+  LUA54_CAPI_CONT_CALLK,
+  LUA54_CAPI_CONT_PCALLK
+};
+
 LUA_API void (lua_callk)(lua_State *L, int nargs, int nresults,
 			 lua_KContext ctx, lua_KFunction k)
 {
-  /* Lua 5.4 exposes the *k entry points as real exported functions. LuaJIT's
-  ** VM does not yet store a Lua 5.4 continuation in C frames, so this ABI shim
-  ** keeps the NULL-continuation path exact and leaves real continuation resume
-  ** semantics in the VM-level TODO batch.
-  */
-  (void)ctx;
-  (void)k;
+  if (k != NULL && cframe_canyield(L->cframe)) {
+    void *oldcf = L->cframe;
+    int status;
+    lj_checkapi(L->status == LUA_OK || L->status == LUA_ERRERR,
+		"thread called in wrong state %d", L->status);
+    lj_checkapi_slot(nargs+1);
+    L->capi_yield_ctx = ctx;
+    L->capi_yield_k = k;
+    L->capi_yield_nresults = nresults;
+    L->capi_yield_kind = LUA54_CAPI_CONT_CALLK;
+    status = lj_vm_resume(L, api_call_base(L, nargs), nresults+1, 0);
+    if (status == LUA_YIELD) {
+      /* vm_resume is the only existing VM entry that marks the callee frame as
+      ** yieldable. Reattach the outer resumable C frame and propagate the
+      ** suspension so the C caller of lua_callk() is not resumed prematurely.
+      */
+      L->cframe = oldcf;
+      lj_err_throw(L, LUA_YIELD);
+    }
+    L->capi_yield_ctx = 0;
+    L->capi_yield_k = NULL;
+    L->capi_yield_nresults = 0;
+    L->capi_yield_kind = LUA54_CAPI_CONT_NONE;
+    if (status != LUA_OK)
+      lj_err_throw(L, status);
+    return;
+  }
   lua_call(L, nargs, nresults);
 }
 
 LUA_API int (lua_pcallk)(lua_State *L, int nargs, int nresults, int errfunc,
 			 lua_KContext ctx, lua_KFunction k)
 {
-  /* See lua_callk(): this preserves the current non-continuation behavior while
-  ** matching Lua 5.4's exported function ABI for external modules.
-  */
-  (void)ctx;
-  (void)k;
+  if (k != NULL && cframe_canyield(L->cframe)) {
+    void *oldcf = L->cframe;
+    ptrdiff_t ef;
+    int status;
+    lj_checkapi(L->status == LUA_OK || L->status == LUA_ERRERR,
+		"thread called in wrong state %d", L->status);
+    lj_checkapi_slot(nargs+1);
+    if (errfunc == 0) {
+      ef = 0;
+    } else {
+      cTValue *o = index2adr_stack(L, errfunc);
+      ef = savestack(L, o);
+    }
+    L->capi_yield_ctx = ctx;
+    L->capi_yield_k = k;
+    L->capi_yield_nresults = nresults;
+    L->capi_yield_kind = LUA54_CAPI_CONT_PCALLK;
+    status = lj_vm_resume(L, api_call_base(L, nargs), nresults+1, ef);
+    if (status == LUA_YIELD) {
+      L->cframe = oldcf;
+      lj_err_throw(L, LUA_YIELD);
+    }
+    L->capi_yield_ctx = 0;
+    L->capi_yield_k = NULL;
+    L->capi_yield_nresults = 0;
+    L->capi_yield_kind = LUA54_CAPI_CONT_NONE;
+    return status;
+  }
   return lua_pcall(L, nargs, nresults, errfunc);
 }
 #endif
@@ -2140,28 +2232,217 @@ LUA_API int lua_yield(lua_State *L, int nresults)
 LUA_API int (lua_yieldk)(lua_State *L, int nresults, lua_KContext ctx,
 			 lua_KFunction k)
 {
-  /* Export Lua 5.4's yieldk ABI without pretending the VM can resume through a
-  ** stored C continuation yet; NULL-continuation yielding follows lua_yield().
-  */
-  (void)ctx;
-  (void)k;
+  if (L->capi_cont_yieldable) {
+    cTValue *f = L->top - nresults;
+    /* A Lua 5.4 C continuation is resumed from lua_resume54(), not from an
+    ** ordinary VM C frame. Preserve the continuation-yield contract here:
+    ** move yielded values to the coroutine result base, save the next
+    ** continuation if one was supplied, and let the resume wrapper return
+    ** LUA_YIELD to the caller instead of treating this as a C-boundary yield.
+    */
+    lj_checkapi(nresults >= 0 && f >= L->base,
+		"not enough results to yield");
+    if (k != NULL) {
+      L->capi_yield_ctx = ctx;
+      L->capi_yield_k = k;
+      L->capi_yield_kind = LUA54_CAPI_CONT_YIELDK;
+    } else {
+      L->capi_yield_ctx = 0;
+      L->capi_yield_k = NULL;
+      L->capi_yield_kind = LUA54_CAPI_CONT_NONE;
+    }
+    if (f > L->base) {
+      TValue *t = L->base;
+      while (--nresults >= 0) copyTV(L, t++, f++);
+      L->top = t;
+    }
+    L->status = LUA_YIELD;
+    return -1;
+  }
+  if (k != NULL) {
+    /* Store the Lua 5.4 continuation on the coroutine object before the VM
+    ** unwinds the C stack. The resume wrapper consumes it and exposes the
+    ** resume arguments as the continuation stack.
+    */
+    if (!cframe_canyield(L->cframe))
+      lj_err_msg(L, LJ_ERR_CYIELD);
+    L->capi_yield_ctx = ctx;
+    L->capi_yield_k = k;
+    L->capi_yield_kind = LUA54_CAPI_CONT_YIELDK;
+  }
   return lua_yield(L, nresults);
 }
 #endif
 
 LUA_API int lua_resume(lua_State *L, int nargs)
 {
+#if LJ_54
+  if (L->status == LUA_OK && L->top == L->base) {
+    /* A reset/dead coroutine has no initial function left on its stack. Lua
+    ** 5.4 reports this as a dead coroutine instead of trying to call nil.
+    */
+    L->top = L->base;
+    setstrV(L, L->top, lj_err_str(L, LJ_ERR_CODEAD));
+    incr_top(L);
+    return LUA_ERRRUN;
+  }
+#endif
   if (L->cframe == NULL && L->status <= LUA_YIELD)
     return lj_vm_resume(L,
       L->status == LUA_OK ? api_call_base(L, nargs) : L->top - nargs,
       0, 0);
+#if LJ_54
+  {
+    int dead = (L->status > LUA_YIELD ||
+		(L->status == LUA_OK && L->top == L->base));
+    L->top = L->base;
+    setstrV(L, L->top, lj_err_str(L, dead ? LJ_ERR_CODEAD : LJ_ERR_COSUSP));
+  }
+#else
   L->top = L->base;
   setstrV(L, L->top, lj_err_str(L, LJ_ERR_COSUSP));
+#endif
   incr_top(L);
   return LUA_ERRRUN;
 }
 
 #if LJ_54
+typedef struct Lua54YieldKCtx {
+  lua_KFunction k;
+  lua_KContext ctx;
+  int status;
+  int nres;
+} Lua54YieldKCtx;
+
+static TValue *cp_lua54_yieldk_cont(lua_State *L, lua_CFunction dummy,
+				    void *ud)
+{
+  Lua54YieldKCtx *yk = (Lua54YieldKCtx *)ud;
+  UNUSED(dummy);
+  yk->nres = yk->k(L, yk->status, yk->ctx);
+  if (yk->nres < 0 && L->status == LUA_YIELD)
+    return NULL;
+  lj_checkapi(yk->nres >= 0 && yk->nres <= L->top - L->base,
+	      "not enough results returned by lua_yieldk continuation");
+  return NULL;
+}
+
+static int resume_lua54_yieldk_cont(lua_State *L, int nargs, int *nresults)
+{
+  TValue *stackbase = tvref(L->stack) + 1 + LJ_FR2;
+  TValue *argbase = L->top - nargs;
+  Lua54YieldKCtx yk;
+  int status, i;
+  lj_checkapi(nargs >= 0 && argbase >= stackbase,
+	      "not enough stack values to resume continuation");
+  /* Replace the previous yield results with the new resume arguments. This
+  ** matches Lua 5.4's C continuation view: stack index 1 is the first resume
+  ** value, not the old value yielded to the caller.
+  */
+  for (i = 0; i < nargs; i++)
+    copyTV(L, stackbase + i, argbase + i);
+  L->base = stackbase;
+  L->top = stackbase + nargs;
+  yk.k = L->capi_yield_k;
+  yk.ctx = L->capi_yield_ctx;
+  yk.status = LUA_YIELD;
+  yk.nres = 0;
+  L->capi_yield_k = NULL;
+  L->capi_yield_ctx = 0;
+  L->capi_yield_kind = LUA54_CAPI_CONT_NONE;
+  L->status = LUA_OK;
+  L->capi_cont_yieldable = 1;
+  status = lj_vm_cpcall(L, NULL, &yk, cp_lua54_yieldk_cont);
+  L->capi_cont_yieldable = 0;
+  if (status == LUA_OK && L->status == LUA_YIELD) {
+    if (nresults) *nresults = (int)(L->top - stackbase);
+    return LUA_YIELD;
+  }
+  if (status == LUA_OK) {
+    TValue *resbase = L->top - yk.nres;
+    for (i = 0; i < yk.nres; i++)
+      copyTV(L, stackbase + i, resbase + i);
+    L->base = stackbase;
+    L->top = stackbase + yk.nres;
+    if (nresults) *nresults = yk.nres;
+    return LUA_OK;
+  }
+  L->status = (uint8_t)status;
+  if (nresults) *nresults = 0;
+  return status;
+}
+
+static int resume_lua54_callk_cont(lua_State *L, int status, int *nresults)
+{
+  TValue *stackbase = tvref(L->stack) + 1 + LJ_FR2;
+  TValue *callbase = L->base;
+  Lua54YieldKCtx yk;
+  int i, nres, kind;
+  yk.k = L->capi_yield_k;
+  yk.ctx = L->capi_yield_ctx;
+  yk.status = status == LUA_OK ? LUA_YIELD : status;
+  yk.nres = 0;
+  nres = L->capi_yield_nresults;
+  kind = L->capi_yield_kind;
+  L->capi_yield_k = NULL;
+  L->capi_yield_ctx = 0;
+  L->capi_yield_nresults = 0;
+  L->capi_yield_kind = LUA54_CAPI_CONT_NONE;
+  if (status != LUA_OK && status != LUA_YIELD &&
+      kind != LUA54_CAPI_CONT_PCALLK) {
+    if (nresults) *nresults = 0;
+    return status;
+  }
+  /* The yielded callee has now returned. Run the saved Lua 5.4 continuation
+  ** with the callee results still on the coroutine stack.
+  */
+  L->base = stackbase;
+  if (status != LUA_OK && status != LUA_YIELD) {
+    lj_checkapi(L->top > stackbase,
+		"not enough error results returned by lua_pcallk callee");
+    copyTV(L, stackbase, L->top - 1);
+    L->top = stackbase + 1;
+  } else if (nres >= 0) {
+    TValue *resbase = L->top - nres;
+    lj_checkapi(nres <= L->top - stackbase,
+		"not enough results returned by lua_callk callee");
+    for (i = 0; i < nres; i++)
+      copyTV(L, stackbase + i, resbase + i);
+    L->top = stackbase + nres;
+  } else {
+    /* LUA_MULTRET leaves the yielded callee's dynamic result window in the
+    ** resumed C call frame. Move that whole window down so the Lua 5.4
+    ** continuation sees stack index 1 as the first callee result.
+    */
+    TValue *resbase = callbase;
+    nres = (int)(L->top - resbase);
+    lj_checkapi(nres >= 0 && resbase >= stackbase,
+		"bad multret results returned by lua_callk callee");
+    for (i = 0; i < nres; i++)
+      copyTV(L, stackbase + i, resbase + i);
+    L->top = stackbase + nres;
+  }
+  L->capi_cont_yieldable = 1;
+  status = lj_vm_cpcall(L, NULL, &yk, cp_lua54_yieldk_cont);
+  L->capi_cont_yieldable = 0;
+  if (status == LUA_OK && L->status == LUA_YIELD) {
+    if (nresults) *nresults = (int)(L->top - stackbase);
+    return LUA_YIELD;
+  }
+  if (status == LUA_OK) {
+    TValue *resbase = L->top - yk.nres;
+    for (i = 0; i < yk.nres; i++)
+      copyTV(L, stackbase + i, resbase + i);
+    L->base = stackbase;
+    L->top = stackbase + yk.nres;
+    if (nresults) *nresults = yk.nres;
+    return LUA_OK;
+  }
+  L->status = (uint8_t)status;
+  if (nresults) *nresults = 0;
+  return status;
+}
+
 LUA_API int lua_resume54(lua_State *L, lua_State *from, int nargs,
 			 int *nresults)
 {
@@ -2170,7 +2451,15 @@ LUA_API int lua_resume54(lua_State *L, lua_State *from, int nargs,
   /* The VM still implements LuaJIT's legacy resume ABI. This wrapper exposes
   ** Lua 5.4's result-count out parameter without changing the internal ABI.
   */
+  if (L->status == LUA_YIELD && L->capi_yield_k != NULL &&
+      L->capi_yield_kind == LUA54_CAPI_CONT_YIELDK)
+    return resume_lua54_yieldk_cont(L, nargs, nresults);
   status = lua_resume(L, nargs);
+  if (L->capi_yield_k != NULL &&
+      (L->capi_yield_kind == LUA54_CAPI_CONT_CALLK ||
+       L->capi_yield_kind == LUA54_CAPI_CONT_PCALLK) &&
+      status != LUA_YIELD)
+    return resume_lua54_callk_cont(L, status, nresults);
   if (nresults)
     *nresults = (status == LUA_OK || status == LUA_YIELD) ? lua_gettop(L) : 0;
   return status;
@@ -2198,29 +2487,59 @@ LUA_API int lua_resetthread(lua_State *L)
 LUA_API int lua_closethread(lua_State *L, lua_State *from)
 {
   TValue *base = tvref(L->stack) + 1 + LJ_FR2;
+  ptrdiff_t baseofs = savestack(L, base);
   int status = L->status == LUA_YIELD ? LUA_OK : L->status;
   int closestatus;
+  TValue errtv;
   (void)from;
   /* Lua 5.4 closes pending to-be-closed values while resetting a coroutine.
   ** A yielded coroutine closes with nil error; an errored coroutine passes its
   ** current error object, and a __close error replaces that object.
   */
+  L->capi_yield_k = NULL;
+  L->capi_yield_ctx = 0;
+  L->capi_yield_nresults = 0;
+  L->capi_yield_kind = LUA54_CAPI_CONT_NONE;
+  L->capi_cont_yieldable = 0;
   L->status = LUA_OK;
   L->cframe = NULL;
   closestatus = lj_close_unwind_status(L, base, status);
+  base = restorestack(L, baseofs);
   if (closestatus != LUA_OK)
     status = closestatus;
+  /* Preserve the final error object before resetting the coroutine stack and
+  ** closing upvalues. An errored coroutine without active close variables can
+  ** otherwise leave the original error in a slot that is invalidated below.
+  */
+  if (status != LUA_OK) {
+    if (L->top > tvref(L->stack))
+      copyTV(L, &errtv, L->top-1);
+    else
+      setnilV(&errtv);
+  }
   lj_func_closeuv(L, tvref(L->stack));
+  {
+    TValue *o, *stack = tvref(L->stack), *limit = tvref(L->maxstack);
+    /* Resetting a coroutine discards all suspended frames. Clear the whole
+    ** GC-scanned stack area after saving the final error, otherwise stale
+    ** frame temporaries from close/error paths can be marked during a full GC.
+    */
+    for (o = stack; o < limit; o++)
+      setnilV(o);
+  }
   L->base = base;
   if (status == LUA_OK) {
     L->top = base;
   } else {
-    if (L->top > base)
-      copyTV(L, base, L->top-1);
-    else
-      setnilV(base);
+    copyTV(L, base, &errtv);
     L->top = base+1;
   }
+  /* lua_closethread() may run __close metamethods on the target coroutine via
+  ** protected calls. Restore the active VM thread to the caller before the
+  ** library function resumes using its own stack.
+  */
+  if (from != NULL)
+    setgcref(G(L)->cur_L, obj2gco(from));
   return status;
 }
 #endif
@@ -2277,7 +2596,14 @@ LUA_API int lua_gc(lua_State *L, int what, int data)
     g->gc.threshold = data == -1 ? (g->gc.total/100)*g->gc.pause : g->gc.total;
     break;
   case LUA_GCCOLLECT:
+    data = (g->gc.threshold == LJ_MAX_MEM);
     lj_gc_fullgc(L);
+    if (LJ_54 && data) {
+      /* Explicit full collections are allowed while stopped, but Lua 5.4 does
+      ** not treat them as collectgarbage("restart").
+      */
+      g->gc.threshold = LJ_MAX_MEM;
+    }
     break;
   case LUA_GCCOUNT:
     res = (int)(g->gc.total >> 10);
@@ -2287,12 +2613,19 @@ LUA_API int lua_gc(lua_State *L, int what, int data)
     break;
   case LUA_GCSTEP: {
     GCSize a = (GCSize)data << 10;
+    int wasstopped = (g->gc.threshold == LJ_MAX_MEM);
     g->gc.threshold = (a <= g->gc.total) ? (g->gc.total - a) : 0;
     while (g->gc.total >= g->gc.threshold)
       if (lj_gc_step(L) > 0) {
 	res = 1;
 	break;
       }
+    if (LJ_54 && wasstopped) {
+      /* A manual Lua 5.4 GC step may do collection work while the collector is
+      ** stopped, but it must not implicitly restart automatic GC scheduling.
+      */
+      g->gc.threshold = LJ_MAX_MEM;
+    }
     break;
   }
   case LUA_GCSETPAUSE:
@@ -2331,8 +2664,14 @@ LUA_API int lua_gc(lua_State *L, int what, int data)
 
 LUA_API void lua_setwarnf(lua_State *L, lua_WarnFunction f, void *ud)
 {
-  G(L)->warnf = f;
-  G(L)->warnud = ud;
+  global_State *g = G(L);
+  g->warnf = f;
+  g->warnud = ud;
+  /* Official Lua replaces the warning callback directly.  A NULL callback is
+  ** not the default writer; it suppresses lua_warning() until the embedder
+  ** installs another callback.
+  */
+  g->warn_disabled = (f == NULL);
 }
 
 LUA_API void lua_warning(lua_State *L, const char *msg, int tocont)
@@ -2340,7 +2679,9 @@ LUA_API void lua_warning(lua_State *L, const char *msg, int tocont)
   global_State *g = G(L);
   if (g->warnf) {
     g->warnf(g->warnud, msg, tocont);
-  } else if (msg && msg[0] == '@') {
+  } else if (g->warn_disabled) {
+    return;
+  } else if (!tocont && !g->warn_cont && msg && msg[0] == '@') {
     if (strcmp(msg, "@on") == 0) {
       g->warn_on = 1;
       g->warn_cont = 0;

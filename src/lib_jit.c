@@ -8,6 +8,7 @@
 
 #include <limits.h>
 #include <math.h>
+#include <string.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -23,6 +24,7 @@
 #include "lj_strscan.h"
 #include "lj_tab.h"
 #include "lj_state.h"
+#include "lj_frame.h"
 #include "lj_close.h"
 #include "lj_bc.h"
 #if LJ_HASFFI
@@ -158,9 +160,8 @@ LJLIB_CF(jit_attach)
 #if LJ_54
 #define LJ_LUA54_I32_MAX	((int64_t)2147483647)
 #define LJ_LUA54_I32_MIN	((int64_t)(-LJ_LUA54_I32_MAX - 1))
-#define LJ_LUA54_I64_LIMIT	9223372036854775808.0
 
-static int lua54_toint64(lua_State *L, int narg, int64_t *ip, int *isnum)
+static int lua54_toint32(lua_State *L, int narg, int32_t *ip, int *isnum)
 {
   cTValue *o = L->base + narg-1;
   double n, ni;
@@ -171,26 +172,91 @@ static int lua54_toint64(lua_State *L, int narg, int64_t *ip, int *isnum)
     return 0;
   if (isnum) *isnum = 1;
   if (tvisint(o)) {
-    *ip = (int64_t)intV(o);
+    *ip = intV(o);
     return 1;
   }
   n = numV(o);
-  if (!(n >= -LJ_LUA54_I64_LIMIT && n < LJ_LUA54_I64_LIMIT))
+  if (!(n >= (lua_Number)LJ_LUA54_I32_MIN &&
+	n <= (lua_Number)LJ_LUA54_I32_MAX))
     return 0;
   ni = lj_vm_floor(n);
   if (n != ni)
     return 0;
-  *ip = lj_num2i64(n);
+  *ip = (int32_t)lj_num2i64(n);
   return 1;
 }
 
-static int64_t lua54_checkintop64(lua_State *L, int narg)
+static const char *lua54_operand_source(lua_State *L, int narg,
+					const char **oname);
+
+static void lua54_argerr_numint(lua_State *L, int narg)
 {
-  int64_t i;
+  cTValue *name = L->base + 2 + (narg - 1);
+  if (name < L->top && tvisstr(name)) {
+    lj_err_callermsg(L, lj_strfmt_pushf(L,
+      "number (%s) has no integer representation", strdata(strV(name))));
+  }
+  {
+    const char *oname = NULL;
+    const char *what = lua54_operand_source(L, narg, &oname);
+    if (what)
+      lj_err_callermsg(L, lj_strfmt_pushf(L,
+	"number (%s '%s') has no integer representation", what, oname));
+  }
+  lj_err_caller(L, LJ_ERR_NUMINT);
+}
+
+static const char *lua54_operand_source(lua_State *L, int narg,
+					const char **oname)
+{
+  int framesize;
+  cTValue *frame = lj_debug_frame(L, 1, &framesize);
+  if (frame && isluafunc(frame_func(frame))) {
+    cTValue *nextframe = framesize ? frame + framesize : NULL;
+    GCproto *pt = funcproto(frame_func(frame));
+    BCPos pos = lj_debug_framepc(L, frame_func(frame), nextframe);
+    if (pos != ~(BCPos)0 && pos < pt->sizebc) {
+      const BCIns *ip = proto_bc(pt) + pos;
+      BCOp op = bc_op(*ip);
+      if (op == BC_CALL || op == BC_CALLM ||
+	  op == BC_CALLT || op == BC_CALLMT) {
+	BCReg slot = (BCReg)(bc_a(*ip) + 1 + LJ_FR2 + (narg - 1));
+	const char *what;
+	/* Lua 5.4 includes source-level operand names for lowered bitwise
+	** helper failures. Recover the original operand slot from the helper
+	** call instead of adding hidden runtime arguments.
+	*/
+	what = lj_debug_slotname(pt, ip, slot, oname);
+	if (what)
+	  return what;
+	{
+	  const BCIns *p = ip;
+	  BCReg want = slot;
+	  int steps = 0;
+	  while (p > proto_bc(pt) && steps++ < 12) {
+	    BCIns ins = *--p;
+	    BCOp bop = bc_op(ins);
+	    if (bop == BC_MOV && bc_a(ins) == want) {
+	      want = bc_d(ins);
+	    } else if (bop == BC_KSTR && bc_a(ins) == want) {
+	      *oname = strdata(gco2str(proto_kgc(pt, ~(ptrdiff_t)bc_d(ins))));
+	      return "constant";
+	    }
+	  }
+	}
+      }
+    }
+  }
+  return NULL;
+}
+
+static int32_t lua54_checkintop32(lua_State *L, int narg)
+{
+  int32_t i;
   int isnum;
-  if (!lua54_toint64(L, narg, &i, &isnum)) {
+  if (!lua54_toint32(L, narg, &i, &isnum)) {
     if (isnum)
-      lj_err_caller(L, LJ_ERR_NUMINT);
+      lua54_argerr_numint(L, narg);
     else {
       cTValue *o = L->base + narg-1;
       MSize tlen;
@@ -199,8 +265,16 @@ static int64_t lua54_checkintop64(lua_State *L, int narg)
 	lj_err_argt(L, narg, LUA_TNUMBER);
       tname = lj_meta_objtypename(L, o, &tlen);
       UNUSED(tlen);
-      lj_err_callermsg(L, lj_strfmt_pushf(L,
-	"attempt to perform bitwise operation on a %s value", tname));
+      {
+	const char *oname = NULL;
+	const char *what = lua54_operand_source(L, narg, &oname);
+	if (what)
+	  lj_err_callermsg(L, lj_strfmt_pushf(L,
+	    "attempt to perform bitwise operation on a %s value (%s '%s')",
+	    tname, what, oname));
+	lj_err_callermsg(L, lj_strfmt_pushf(L,
+	  "attempt to perform bitwise operation on a %s value", tname));
+      }
     }
   }
   return i;
@@ -296,41 +370,32 @@ static int lua54_callbinmeta(lua_State *L, const char *mmname, int unary)
   ** as extra returns when string/table metamethods return multiple values.
   */
   copyTV(L, L->base, L->top-1);
-  setnilV(L->base + 1);
-  setnilV(L->base + 2);
+  {
+    TValue *p;
+    for (p = L->base + 1; p < L->top; p++)
+      setnilV(p);
+  }
   L->top = L->base + 1;
   return 1;
+}
+
+static void lua54_finish_one_result(lua_State *L)
+{
+  TValue *p;
+  /* Some Lua 5.4 operators are lowered to private helper calls with extra
+  ** diagnostic operands. Clear all non-result argument slots so multi-result
+  ** assignments cannot observe helper temporaries.
+  */
+  for (p = L->base + 1; p < L->top; p++)
+    setnilV(p);
+  L->top = L->base + 1;
 }
 
 static int lua54_pushbinint(lua_State *L, int32_t v)
 {
   TValue *base = L->base;
   setintV(base, v);
-  /* The lowered helpers are compiled as ordinary calls but may be used as the
-  ** last expression in a multi-assignment. LuaJIT does not nil-fill stale
-  ** temporary argument slots for C helpers, so clear the two operand slots
-  ** after writing the single official Lua 5.4 result.
-  */
-  setnilV(base + 1);
-  setnilV(base + 2);
-  L->top = base + 1;
-  return 1;
-}
-
-static int lua54_pushbinint64(lua_State *L, int64_t v)
-{
-  TValue *base = L->base;
-  /* The current compat layer still has 32-bit integer TValue storage. Keep
-  ** exact wider bitwise results as numbers until the full 64-bit TValue batch
-  ** replaces this bridge.
-  */
-  if (v >= LJ_LUA54_I32_MIN && v <= LJ_LUA54_I32_MAX)
-    setintV(base, (int32_t)v);
-  else
-    setnumV(base, (lua_Number)v);
-  setnilV(base + 1);
-  setnilV(base + 2);
-  L->top = base + 1;
+  lua54_finish_one_result(L);
   return 1;
 }
 
@@ -338,10 +403,20 @@ static int lua54_pushbinnum(lua_State *L, lua_Number n)
 {
   TValue *base = L->base;
   setnumV(base, n);
-  setnilV(base + 1);
-  setnilV(base + 2);
-  L->top = base + 1;
+  lua54_finish_one_result(L);
   return 1;
+}
+
+static lua_Number lua54_nummod(lua_Number a, lua_Number b)
+{
+  lua_Number m = fmod(a, b);
+  /* Lua 5.4 defines float modulo as a - floor(a / b) * b.  Computing that
+  ** directly loses low bits for large operands, so mirror luai_nummod:
+  ** fmod first, then adjust the sign to match the floor-based result.
+  */
+  if (m > 0 ? b < 0 : (m < 0 && b > 0))
+    m += b;
+  return m;
 }
 
 static int lj_cf_jit__lua54_idiv(lua_State *L)
@@ -362,6 +437,12 @@ static int lj_cf_jit__lua54_idiv(lua_State *L)
     int64_t ai = a, bi = b, q, r;
     if (bi == 0)
       return luaL_error(L, "attempt to divide by zero");
+    if (a == (int32_t)LJ_LUA54_I32_MIN && b == -1) {
+      /* Lua 5.4 integer division keeps the current integer surface wrapping
+      ** for mininteger // -1; falling through to int64 would expose a float.
+      */
+      return lua54_pushbinint(L, a);
+    }
     q = ai / bi;
     r = ai % bi;
     if (r != 0 && ((r < 0) != (bi < 0)))
@@ -392,97 +473,106 @@ static int lj_cf_jit__lua54_mod(lua_State *L)
       return luaL_error(L, "attempt to perform 'n%%0'");
     return lua54_pushbinint(L, lj_vm_modi(a, b));
   }
-  return lua54_pushbinnum(L, lj_vm_foldarith(na, nb, MM_mod-MM_add));
+  return lua54_pushbinnum(L, lua54_nummod(na, nb));
 }
 
 static int lj_cf_jit__lua54_band(lua_State *L)
 {
   int ia, ib;
-  int64_t a, b;
-  if (!lua54_toint64(L, 1, &a, &ia) || !lua54_toint64(L, 2, &b, &ib)) {
+  int32_t a, b;
+  if (!lua54_toint32(L, 1, &a, &ia) || !lua54_toint32(L, 2, &b, &ib)) {
     if (lua54_callbinmeta(L, "__band", 0))
       return 1;
-    a = lua54_checkintop64(L, 1);
-    b = lua54_checkintop64(L, 2);
+    a = lua54_checkintop32(L, 1);
+    b = lua54_checkintop32(L, 2);
   }
-  return lua54_pushbinint64(L, (int64_t)((uint64_t)a & (uint64_t)b));
+  return lua54_pushbinint(L, (int32_t)((uint32_t)a & (uint32_t)b));
 }
 
 static int lj_cf_jit__lua54_bor(lua_State *L)
 {
   int ia, ib;
-  int64_t a, b;
-  if (!lua54_toint64(L, 1, &a, &ia) || !lua54_toint64(L, 2, &b, &ib)) {
+  int32_t a, b;
+  if (!lua54_toint32(L, 1, &a, &ia) || !lua54_toint32(L, 2, &b, &ib)) {
     if (lua54_callbinmeta(L, "__bor", 0))
       return 1;
-    a = lua54_checkintop64(L, 1);
-    b = lua54_checkintop64(L, 2);
+    a = lua54_checkintop32(L, 1);
+    b = lua54_checkintop32(L, 2);
   }
-  return lua54_pushbinint64(L, (int64_t)((uint64_t)a | (uint64_t)b));
+  return lua54_pushbinint(L, (int32_t)((uint32_t)a | (uint32_t)b));
 }
 
 static int lj_cf_jit__lua54_bxor(lua_State *L)
 {
   int ia, ib;
-  int64_t a, b;
-  if (!lua54_toint64(L, 1, &a, &ia) || !lua54_toint64(L, 2, &b, &ib)) {
+  int32_t a, b;
+  if (!lua54_toint32(L, 1, &a, &ia) || !lua54_toint32(L, 2, &b, &ib)) {
     if (lua54_callbinmeta(L, "__bxor", 0))
       return 1;
-    a = lua54_checkintop64(L, 1);
-    b = lua54_checkintop64(L, 2);
+    a = lua54_checkintop32(L, 1);
+    b = lua54_checkintop32(L, 2);
   }
-  return lua54_pushbinint64(L, (int64_t)((uint64_t)a ^ (uint64_t)b));
+  return lua54_pushbinint(L, (int32_t)((uint32_t)a ^ (uint32_t)b));
 }
 
 static int lj_cf_jit__lua54_bnot(lua_State *L)
 {
   int isnum;
-  int64_t a;
-  if (!lua54_toint64(L, 1, &a, &isnum)) {
+  int32_t a;
+  if (!lua54_toint32(L, 1, &a, &isnum)) {
     if (lua54_callbinmeta(L, "__bnot", 1))
       return 1;
-    a = lua54_checkintop64(L, 1);
+    a = lua54_checkintop32(L, 1);
   }
-  return lua54_pushbinint64(L, (int64_t)~(uint64_t)a);
+  return lua54_pushbinint(L, (int32_t)~(uint32_t)a);
 }
 
-static int64_t lua54_shift64(int64_t a, int64_t sh, int left)
+static int32_t lua54_shift32(int32_t a, int32_t sh, int left)
 {
-  int64_t s = sh;
+  int64_t s = (int64_t)sh;
   if (s < 0) {
     s = -s;
     left = !left;
   }
-  if (s >= 64)
+  if (s >= 32)
     return 0;
-  return left ? (int64_t)((uint64_t)a << s) :
-		(int64_t)((uint64_t)a >> s);
+  return left ? (int32_t)((uint32_t)a << s) :
+		(int32_t)((uint32_t)a >> s);
 }
 
 static int lj_cf_jit__lua54_shl(lua_State *L)
 {
   int ia, ib;
-  int64_t a, sh;
-  if (!lua54_toint64(L, 1, &a, &ia) || !lua54_toint64(L, 2, &sh, &ib)) {
+  int32_t a, sh;
+  if (!lua54_toint32(L, 1, &a, &ia) || !lua54_toint32(L, 2, &sh, &ib)) {
     if (lua54_callbinmeta(L, "__shl", 0))
       return 1;
-    a = lua54_checkintop64(L, 1);
-    sh = lua54_checkintop64(L, 2);
+    a = lua54_checkintop32(L, 1);
+    sh = lua54_checkintop32(L, 2);
   }
-  return lua54_pushbinint64(L, lua54_shift64(a, sh, 1));
+  return lua54_pushbinint(L, lua54_shift32(a, sh, 1));
 }
 
 static int lj_cf_jit__lua54_shr(lua_State *L)
 {
   int ia, ib;
-  int64_t a, sh;
-  if (!lua54_toint64(L, 1, &a, &ia) || !lua54_toint64(L, 2, &sh, &ib)) {
+  int32_t a, sh;
+  if (!lua54_toint32(L, 1, &a, &ia) || !lua54_toint32(L, 2, &sh, &ib)) {
     if (lua54_callbinmeta(L, "__shr", 0))
       return 1;
-    a = lua54_checkintop64(L, 1);
-    sh = lua54_checkintop64(L, 2);
+    a = lua54_checkintop32(L, 1);
+    sh = lua54_checkintop32(L, 2);
   }
-  return lua54_pushbinint64(L, lua54_shift64(a, sh, 0));
+  return lua54_pushbinint(L, lua54_shift32(a, sh, 0));
+}
+
+static void lua54_forerror(lua_State *L, cTValue *o, const char *what)
+{
+  MSize tlen;
+  const char *tname = lj_meta_objtypename(L, o, &tlen);
+  UNUSED(tlen);
+  lj_err_callermsg(L, lj_strfmt_pushf(L,
+    "bad 'for' %s (number expected, got %s)", what, tname));
 }
 
 static int lj_cf_jit__lua54_forstep(lua_State *L)
@@ -493,10 +583,10 @@ static int lj_cf_jit__lua54_forstep(lua_State *L)
     lj_err_argt(L, 1, LUA_TNUMBER);
   if (tvisstr(o)) {
     if (!lj_strscan_number(strV(o), &tmp))
-      lj_err_argt(L, 1, LUA_TNUMBER);
+      lua54_forerror(L, o, "step");
     o = &tmp;
   } else if (!tvisnumber(o)) {
-    lj_err_argt(L, 1, LUA_TNUMBER);
+    lua54_forerror(L, o, "step");
   }
   if (tvisint(o) ? intV(o) == 0 : tviszero(o))
     return luaL_error(L, "'for' step is zero");
@@ -546,48 +636,105 @@ static int lj_cf_jit__lua54_nopclose(lua_State *L)
 
 static int lj_cf_jit__lua54_closeerror(lua_State *L)
 {
-  return luaL_error(L, "%s", luaL_checkstring(L, 1));
+  lua_settop(L, 1);
+  return lua_error(L);
 }
 
-static int lua54_pushclosecall(lua_State *L, cTValue *fn, cTValue *self)
+static int lj_cf_jit__lua54_closemsgh(lua_State *L)
 {
-  TValue *top = L->top;
+  if (lua_type(L, 1) == LUA_TSTRING) {
+    const char *msg = lua_tostring(L, 1);
+    /* Preserve error(err, 0) objects exactly. When the error already carries a
+    ** source prefix, append the synthetic close frame so traceback handlers do
+    ** not lose the original __close call site through the internal pcall.
+    */
+    if (msg[0] == '@' || strchr(msg, ' ') == NULL) {
+      luaL_where(L, 2);
+      if (lua_tostring(L, -1)[0] == '\0') {
+        lua_pop(L, 1);
+        lua_pushliteral(L, "close.lua:0: ");
+      }
+      lua_pushvalue(L, 1);
+      lua_concat(L, 2);
+      msg = lua_tostring(L, -1);
+      lua_pushfstring(L, "%s\n\t[C]: in metamethod 'close'", msg);
+      return 1;
+    } else if (strstr(msg, ": ") != NULL) {
+      lua_pushfstring(L, "%s\n\t[C]: in metamethod 'close'", msg);
+      return 1;
+    }
+  }
+  lua_settop(L, 1);
+  return 1;
+}
+
+static int lua54_pushclosecall(lua_State *L, cTValue *fn, cTValue *self,
+			       cTValue *err)
+{
+  TValue *top;
+  L->close_pcall = 1;
+  lua_getfield(L, LUA_REGISTRYINDEX, "_LUA54_RAW_XPCALL");
+  if (lua_isnil(L, -1)) {
+    lua_pop(L, 1);
+    lua_getglobal(L, "xpcall");
+  }
+  top = L->top;
   copyTV(L, top++, fn);
-  copyTV(L, top++, self);
-  setnilV(top++);
   L->top = top;
-  return 3;
+  lua_pushcfunction(L, lj_cf_jit__lua54_closemsgh);
+  top = L->top;
+  copyTV(L, top++, self);
+  copyTV(L, top++, err);
+  L->top = top;
+  return 5;
 }
 
 static int lua54_pushnopclose(lua_State *L)
 {
-  lj_state_checkstack(L, 3);
+  lj_state_checkstack(L, 5);
+  L->close_pcall = 1;
+  lua_getfield(L, LUA_REGISTRYINDEX, "_LUA54_RAW_XPCALL");
+  if (lua_isnil(L, -1)) {
+    lua_pop(L, 1);
+    lua_getglobal(L, "xpcall");
+  }
   lua_pushcfunction(L, lj_cf_jit__lua54_nopclose);
+  lua_pushcfunction(L, lj_cf_jit__lua54_closemsgh);
   setnilV(L->top++);
   setnilV(L->top++);
   lua54_skip_helper_return(L);
-  return 3;
+  return 5;
 }
 
 static int lua54_pushcloseerror(lua_State *L)
 {
   TValue *top;
-  lj_state_checkstack(L, 3);
+  lj_state_checkstack(L, 5);
+  L->close_pcall = 1;
+  lua_getfield(L, LUA_REGISTRYINDEX, "_LUA54_RAW_XPCALL");
+  if (lua_isnil(L, -1)) {
+    lua_pop(L, 1);
+    lua_getglobal(L, "xpcall");
+  }
   lua_pushcfunction(L, lj_cf_jit__lua54_closeerror);
+  lua_pushcfunction(L, lj_cf_jit__lua54_closemsgh);
   top = L->top;
   setstrV(L, top++, lj_str_newlit(L,
     "attempt to call a nil value (metamethod 'close')"));
   setnilV(top++);
   L->top = top;
   lua54_skip_helper_return(L);
-  return 3;
+  return 5;
 }
 
 static int lj_cf_jit__lua54_closevalue(lua_State *L)
 {
   int32_t slotdelta = lj_lib_checkint(L, 2);
   TValue *o = L->base + slotdelta;
+  cTValue *err = L->base+2 < L->top ? L->base+2 : niltv(L);
   ptrdiff_t slotofs;
+  ptrdiff_t errofs = 0;
+  int errstack;
   cTValue *mo;
   if (o >= L->top)
     return lua54_pushnopclose(L);
@@ -603,8 +750,13 @@ static int lj_cf_jit__lua54_closevalue(lua_State *L)
   if (!lj_close_getmethod(L, o))
     return lua54_pushcloseerror(L);
   slotofs = savestack(L, o);
-  lj_state_checkstack(L, 3);
+  errstack = err >= tvref(L->stack) && err < tvref(L->maxstack);
+  if (errstack)
+    errofs = savestack(L, err);
+  lj_state_checkstack(L, 5);
   o = restorestack(L, slotofs);
+  if (errstack)
+    err = restorestack(L, errofs);
   mo = lj_close_getmethod(L, o);
   if (!mo)
     return lua54_pushcloseerror(L);
@@ -613,7 +765,14 @@ static int lj_cf_jit__lua54_closevalue(lua_State *L)
   ** visible and yieldable.
   */
   lua54_skip_helper_return(L);
-  return lua54_pushclosecall(L, mo, o);
+  return lua54_pushclosecall(L, mo, o, err);
+}
+
+static int lj_cf_jit__lua54_closefinish(lua_State *L)
+{
+  L->close_pcall = 0;
+  lua54_skip_helper_return(L);
+  return 0;
 }
 
 static int lj_cf_jit__lua54_packreturn(lua_State *L)
@@ -1261,27 +1420,73 @@ LUALIB_API int luaopen_jit(lua_State *L)
 #if LJ_54
   lua_getglobal(L, LUA_JITLIBNAME);
   lua_pushcfunction(L, lj_cf_jit__lua54_idiv);
-  lua_setfield(L, -2, "_lua54_idiv");
+  lua_setfield(L, -2, "_lua54_idiv_c");
   lua_pushcfunction(L, lj_cf_jit__lua54_mod);
-  lua_setfield(L, -2, "_lua54_mod");
+  lua_setfield(L, -2, "_lua54_mod_c");
   lua_pushcfunction(L, lj_cf_jit__lua54_band);
-  lua_setfield(L, -2, "_lua54_band");
+  lua_setfield(L, -2, "_lua54_band_c");
   lua_pushcfunction(L, lj_cf_jit__lua54_bor);
-  lua_setfield(L, -2, "_lua54_bor");
+  lua_setfield(L, -2, "_lua54_bor_c");
   lua_pushcfunction(L, lj_cf_jit__lua54_bxor);
-  lua_setfield(L, -2, "_lua54_bxor");
+  lua_setfield(L, -2, "_lua54_bxor_c");
   lua_pushcfunction(L, lj_cf_jit__lua54_bnot);
-  lua_setfield(L, -2, "_lua54_bnot");
+  lua_setfield(L, -2, "_lua54_bnot_c");
   lua_pushcfunction(L, lj_cf_jit__lua54_shl);
-  lua_setfield(L, -2, "_lua54_shl");
+  lua_setfield(L, -2, "_lua54_shl_c");
   lua_pushcfunction(L, lj_cf_jit__lua54_shr);
-  lua_setfield(L, -2, "_lua54_shr");
+  lua_setfield(L, -2, "_lua54_shr_c");
+  luaL_loadstring(L,
+    "local rawget, type, getmetatable = rawget, type, getmetatable\n"
+    "local jit = jit\n"
+    "local function realmt(v)\n"
+    "  local d = rawget(_G, 'debug')\n"
+    "  local f = d and d.getmetatable\n"
+    "  return f and f(v) or getmetatable(v)\n"
+    "end\n"
+    "local function metamethod(v, name)\n"
+    "  local mt = realmt(v)\n"
+    "  return type(mt) == 'table' and mt[name] or nil\n"
+    "end\n"
+    "local function canyield()\n"
+    "  local c = rawget(_G, 'coroutine')\n"
+    "  local f = c and c.isyieldable\n"
+    "  return f and f() or false\n"
+    "end\n"
+    "local function bin(raw, name, a, b)\n"
+    "  if not canyield() then return raw(a, b) end\n"
+    "  local mm = metamethod(a, name) or metamethod(b, name)\n"
+    "  if mm ~= nil then local r = mm(a, b); return r end\n"
+    "  return raw(a, b)\n"
+    "end\n"
+    "local function un(raw, name, a)\n"
+    "  if not canyield() then return raw(a) end\n"
+    "  local mm = metamethod(a, name)\n"
+    "  if mm ~= nil then local r = mm(a, a); return r end\n"
+    "  return raw(a)\n"
+    "end\n"
+    "function jit._lua54_idiv(a,b) return bin(jit._lua54_idiv_c, '__idiv', a, b) end\n"
+    "function jit._lua54_mod(a,b) return bin(jit._lua54_mod_c, '__mod', a, b) end\n"
+    "function jit._lua54_band(a,b) return bin(jit._lua54_band_c, '__band', a, b) end\n"
+    "function jit._lua54_bor(a,b) return bin(jit._lua54_bor_c, '__bor', a, b) end\n"
+    "function jit._lua54_bxor(a,b) return bin(jit._lua54_bxor_c, '__bxor', a, b) end\n"
+    "function jit._lua54_bnot(a) return un(jit._lua54_bnot_c, '__bnot', a) end\n"
+    "function jit._lua54_shl(a,b) return bin(jit._lua54_shl_c, '__shl', a, b) end\n"
+    "function jit._lua54_shr(a,b) return bin(jit._lua54_shr_c, '__shr', a, b) end\n");
+  lua_call(L, 0, 0);
   lua_pushcfunction(L, lj_cf_jit__lua54_forstep);
   lua_setfield(L, -2, "_lua54_forstep");
   lua_pushcfunction(L, lj_cf_jit__lua54_checkclose);
   lua_setfield(L, -2, "_lua54_checkclose");
   lua_pushcfunction(L, lj_cf_jit__lua54_closevalue);
   lua_setfield(L, -2, "_lua54_closevalue");
+  lua_pushcfunction(L, lj_cf_jit__lua54_closefinish);
+  lua_setfield(L, -2, "_lua54_closefinish");
+  if (luaL_loadstring(L, "return function(f,self,err) return pcall(f,self,err) end") == LUA_OK &&
+      lua_pcall(L, 0, 1, 0) == LUA_OK) {
+    lua_setfield(L, -2, "_lua54_closepcall");
+  } else {
+    lua_pop(L, 1);
+  }
   lua_pushcfunction(L, lj_cf_jit__lua54_packreturn);
   lua_setfield(L, -2, "_lua54_packreturn");
   lua_pushcfunction(L, lj_cf_jit__lua54_unpackreturn);

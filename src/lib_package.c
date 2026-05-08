@@ -15,6 +15,10 @@
 
 #include "lj_obj.h"
 #include "lj_err.h"
+#include "lj_meta.h"
+#include "lj_debug.h"
+#include "lj_str.h"
+#include "lj_strfmt.h"
 #include "lj_lib.h"
 
 /* ------------------------------------------------------------------------ */
@@ -31,6 +35,66 @@
 /* Symbol name prefixes. */
 #define SYMPREFIX_CF		"luaopen_%s"
 #define SYMPREFIX_BC		"luaJIT_BC_%s"
+
+#if LJ_54
+static void package_error_caller54(lua_State *L, const char *msg)
+{
+  lj_err_callermsg(L, msg);
+}
+
+static void package_argerror_named54(lua_State *L, int narg,
+				     const char *fname, const char *msg)
+{
+  fname = lj_debug_callname54(L, fname, "package");
+  lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #%d to '%s' (%s)",
+				      narg, fname, msg));
+}
+
+static const char *package_argtypename54(lua_State *L, int narg)
+{
+  TValue *o = L->base + narg-1;
+  if (o < L->top) {
+    MSize tlen;
+    const char *tname = lj_meta_objtypename(L, o, &tlen);
+    UNUSED(tlen);
+    return tname;
+  }
+  return lj_obj_typename[0];
+}
+
+static void package_argtype_named54(lua_State *L, int narg,
+				    const char *fname, const char *xname)
+{
+  package_argerror_named54(L, narg, fname,
+    lj_strfmt_pushf(L, "%s expected, got %s", xname,
+		    package_argtypename54(L, narg)));
+}
+
+static const char *package_checkstr_named54(lua_State *L, int narg,
+					    const char *fname)
+{
+  TValue *o = L->base + narg-1;
+  if (o < L->top) {
+    if (tvisstr(o)) {
+      return strdata(strV(o));
+    } else if (tvisnumber(o)) {
+      GCstr *s = lj_strfmt_number(L, o);
+      setstrV(L, o, s);
+      return strdata(s);
+    }
+  }
+  package_argtype_named54(L, narg, fname, "string");
+  return NULL;  /* unreachable */
+}
+
+static const char *package_optstr_named54(lua_State *L, int narg,
+					  const char *fname, const char *def)
+{
+  TValue *o = L->base + narg-1;
+  return (o < L->top && !tvisnil(o)) ?
+	 package_checkstr_named54(L, narg, fname) : def;
+}
+#endif
 
 #if LJ_TARGET_DLOPEN
 
@@ -271,8 +335,14 @@ static int ll_loadfunc(lua_State *L, const char *path, const char *name, int r)
 
 static int lj_cf_package_loadlib(lua_State *L)
 {
+#if LJ_54
+  const char *fname = "package.loadlib";
+  const char *path = package_checkstr_named54(L, 1, fname);
+  const char *init = package_checkstr_named54(L, 2, fname);
+#else
   const char *path = luaL_checkstring(L, 1);
   const char *init = luaL_checkstring(L, 2);
+#endif
   int st = ll_loadfunc(L, path, init, 1);
   if (st == 0) {  /* no errors? */
     return 1;  /* return the loaded function */
@@ -302,6 +372,23 @@ static int readable(const char *filename)
   return 1;
 }
 
+#if LJ_54
+static int pushnexttemplate(lua_State *L, const char **ppath,
+			    const char *pathend)
+{
+  const char *path = *ppath;
+  const char *l;
+  if (path == NULL) return 0;
+  l = strchr(path, *LUA_PATHSEP);  /* find next separator */
+  if (l == NULL) l = pathend;
+  /* Lua 5.4 preserves empty templates from leading/repeated/trailing
+  ** separators, so package.searchpath reports attempts such as no file ''.
+  */
+  lua_pushlstring(L, path, (size_t)(l - path));  /* template */
+  *ppath = (l == pathend) ? NULL : l + 1;
+  return 1;
+}
+#else
 static const char *pushnexttemplate(lua_State *L, const char *path)
 {
   const char *l;
@@ -312,6 +399,7 @@ static const char *pushnexttemplate(lua_State *L, const char *path)
   lua_pushlstring(L, path, (size_t)(l - path));  /* template */
   return l;
 }
+#endif
 
 static const char *searchpath (lua_State *L, const char *name,
 			       const char *path, const char *sep,
@@ -319,12 +407,20 @@ static const char *searchpath (lua_State *L, const char *name,
 {
   luaL_Buffer msg;  /* to build error message */
 #if LJ_54
+  const char *pathend = path + strlen(path);
   int first = 1;
 #endif
   luaL_buffinit(L, &msg);
   if (*sep != '\0')  /* non-empty separator? */
     name = luaL_gsub(L, name, sep, dirsep);  /* replace it by 'dirsep' */
+#if LJ_54
+  /* Lua 5.4 treats even an empty path as one empty template, so the public
+  ** error fragment is "no file ''" instead of an empty string.
+  */
+  while (pushnexttemplate(L, &path, pathend)) {
+#else
   while ((path = pushnexttemplate(L, path)) != NULL) {
+#endif
     const char *filename = luaL_gsub(L, lua_tostring(L, -1),
 				     LUA_PATH_MARK, name);
     lua_remove(L, -2);  /* remove path template */
@@ -350,10 +446,18 @@ static const char *searchpath (lua_State *L, const char *name,
 
 static int lj_cf_package_searchpath(lua_State *L)
 {
+#if LJ_54
+  const char *fname = "package.searchpath";
+  const char *f = searchpath(L, package_checkstr_named54(L, 1, fname),
+				package_checkstr_named54(L, 2, fname),
+				package_optstr_named54(L, 3, fname, "."),
+				package_optstr_named54(L, 4, fname, LUA_DIRSEP));
+#else
   const char *f = searchpath(L, luaL_checkstring(L, 1),
 				luaL_checkstring(L, 2),
 				luaL_optstring(L, 3, "."),
 				luaL_optstring(L, 4, LUA_DIRSEP));
+#endif
   if (f != NULL) {
     return 1;
   } else {  /* error message is on top of the stack */
@@ -472,7 +576,11 @@ static int lj_cf_package_loader_preload(lua_State *L)
 
 static int lj_cf_package_require(lua_State *L)
 {
+#if LJ_54
+  const char *name = package_checkstr_named54(L, 1, "require");
+#else
   const char *name = luaL_checkstring(L, 1);
+#endif
   int i;
   lua_settop(L, 1);  /* _LOADED table will be at index 2 */
   lua_getfield(L, LUA_REGISTRYINDEX, "_LOADED");
@@ -486,7 +594,7 @@ static int lj_cf_package_require(lua_State *L)
 #if LJ_54
   lua_getfield(L, LUA_ENVIRONINDEX, "searchers");
   if (!lua_istable(L, -1))
-    luaL_error(L, LUA_QL("package.searchers") " must be a table");
+    package_error_caller54(L, LUA_QL("package.searchers") " must be a table");
 #else
   lua_getfield(L, LUA_ENVIRONINDEX, "loaders");
   if (!lua_istable(L, -1))
@@ -495,9 +603,15 @@ static int lj_cf_package_require(lua_State *L)
   lua_pushliteral(L, "");  /* error message accumulator */
   for (i = 1; ; i++) {
     lua_rawgeti(L, -2, i);  /* get a loader */
+#if LJ_54
+    if (lua_isnil(L, -1))
+      package_error_caller54(L, lj_strfmt_pushf(L,
+        "module " LUA_QS " not found:%s", name, lua_tostring(L, -2)));
+#else
     if (lua_isnil(L, -1))
       luaL_error(L, "module " LUA_QS " not found:%s",
 		 name, lua_tostring(L, -2));
+#endif
     lua_pushstring(L, name);
 #if LJ_54
     lua_call(L, 1, 2);  /* Lua 5.4 searchers return loader + loader data. */
@@ -521,9 +635,12 @@ static int lj_cf_package_require(lua_State *L)
       lua_pop(L, 1);
 #endif
   }
-  (L->top++)->u64 = KEY_SENTINEL;
-  lua_setfield(L, 2, name);  /* _LOADED[name] = sentinel */
 #if LJ_54
+  /* Lua 5.4 does not poison package.loaded with a sentinel before running the
+  ** loader: a loader error must leave the module unloadable for the next
+  ** require(), and a nil-returning loader must publish true instead of an
+  ** internal sentinel value.
+  */
   /* Preserve loader data across the loader call, pass it as the second
   ** argument, and return it as require()'s second result on first load.
   */
@@ -549,6 +666,8 @@ static int lj_cf_package_require(lua_State *L)
   lj_lib_checkfpu(L);
   return 2;
 #else
+  (L->top++)->u64 = KEY_SENTINEL;
+  lua_setfield(L, 2, name);  /* _LOADED[name] = sentinel */
   lua_pushstring(L, name);  /* pass name as argument to module */
   lua_call(L, 1, 1);  /* run loaded module */
   if (!lua_isnil(L, -1))  /* non-nil return? */
@@ -659,10 +778,29 @@ static void setpath(lua_State *L, const char *fieldname, const char *envname,
   if (path == NULL || noenv) {
     lua_pushstring(L, def);
   } else {
-    path = luaL_gsub(L, path, LUA_PATHSEP LUA_PATHSEP,
-			      LUA_PATHSEP AUXMARK LUA_PATHSEP);
-    luaL_gsub(L, path, AUXMARK, def);
-    lua_remove(L, -2);
+    const char *dftmark = strstr(path, LUA_PATHSEP LUA_PATHSEP);
+    if (dftmark == NULL) {
+      lua_pushstring(L, path);
+    } else {
+      size_t len = strlen(path);
+      luaL_Buffer b;
+      luaL_buffinit(L, &b);
+      /* Match Lua 5.4's path replacement exactly: ";;" means "insert the
+      ** default path here", but the separator around the default is emitted
+      ** only when the user supplied a real prefix or suffix.
+      */
+      if (path < dftmark) {
+	luaL_addlstring(&b, path, (size_t)(dftmark - path));
+	luaL_addchar(&b, *LUA_PATHSEP);
+      }
+      luaL_addstring(&b, def);
+      if (dftmark < path + len - 2) {
+	luaL_addchar(&b, *LUA_PATHSEP);
+	luaL_addlstring(&b, dftmark + 2,
+			(size_t)((path + len - 2) - dftmark));
+      }
+      luaL_pushresult(&b);
+    }
   }
   setprogdir(L);
   lua_setfield(L, -2, fieldname);

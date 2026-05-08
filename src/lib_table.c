@@ -18,6 +18,8 @@
 #include "lj_obj.h"
 #include "lj_gc.h"
 #include "lj_err.h"
+#include "lj_debug.h"
+#include "lj_frame.h"
 #include "lj_buf.h"
 #include "lj_tab.h"
 #include "lj_meta.h"
@@ -129,6 +131,15 @@ static int table_toint32value54(cTValue *o, int32_t *ip, int *isnum)
 static void table_argerror_named54(lua_State *L, int narg, const char *fname,
 				   const char *msg)
 {
+  const char *dname = NULL;
+  const char *kind = lj_debug_funcname(L, L->base-1, &dname);
+  /* Lua 5.4 reports a source-level call name when the caller bytecode still
+  ** exposes one, e.g. table.sort(1) -> 'sort' or local f=table.sort; f(1)
+  ** -> 'f'. Calls routed through pcall/C frames and internal comparator calls
+  ** have no useful caller slot, so keep the stable table.* fallback.
+  */
+  if (kind && dname && !(dname[0] == '?' && dname[1] == '\0'))
+    fname = dname;
   lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #%d to '%s' (%s)",
 				      narg, fname, msg));
 }
@@ -388,18 +399,29 @@ static int lj_cf_table_move54(lua_State *L)
   }
   if (e >= f) {
     int32_t i, d = tt - f;
+    int64_t n = (int64_t)e - (int64_t)f + 1;
+    int64_t destend = (int64_t)tt + n - 1;
+    /* Match Lua 5.4's overflow guards before moving anything. Without these
+    ** checks, huge ranges such as 0..maxinteger would spin for billions of
+    ** public API get/set operations before any observable error.
+    */
+    if (n > (int64_t)INT32_MAX)
+      table_argerror_named54(L, 3, "table.move", "too many elements to move");
+    if (destend > (int64_t)INT32_MAX || destend < (int64_t)INT32_MIN)
+      table_argerror_named54(L, 4, "table.move", "destination wrap around");
     if (tt > e || tt <= f || a2 != a1) {
-      for (i = f; i <= e; i++) {
+      for (i = f; ; i++) {
 	/* Lua 5.4 table.move observes __index/__newindex; use public table
 	** accessors here instead of LuaJIT's raw array helpers.
 	*/
 	lua_geti(L, 1, i);
-	lua_seti(L, target, i+d);
+	lua_seti(L, target, (int32_t)((uint32_t)i + (uint32_t)d));
+	if (i == e) break;
       }
     } else {
       for (i = e; i >= f; i--) {
 	lua_geti(L, 1, i);
-	lua_seti(L, target, i+d);
+	lua_seti(L, target, (int32_t)((uint32_t)i + (uint32_t)d));
 	if (i == f) break;
       }
     }
@@ -605,18 +627,25 @@ LJLIB_CF(table_sort)
 #if LJ_54
   GCtab *t = table_checktab_named54(L, 1, "table.sort");
   int32_t n = table_len54(L, t, 1);
+  if (n >= INT32_MAX)
+    luaL_error(L, "array too big");
 #else
   GCtab *t = lj_lib_checktab(L, 1);
   int32_t n = (int32_t)lj_tab_len(t);
 #endif
   lua_settop(L, 2);
-  if (!tvisnil(L->base+1)) {
 #if LJ_54
+  /* Lua 5.4 only validates the comparator when the sort will actually
+  ** compare elements. Empty and single-element tables accept any 2nd value.
+  */
+  if (n > 1 && !tvisnil(L->base+1)) {
     table_checkfunc_named54(L, 2, "table.sort");
-#else
-    lj_lib_checkfunc(L, 2);
-#endif
   }
+#else
+  if (!tvisnil(L->base+1)) {
+    lj_lib_checkfunc(L, 2);
+  }
+#endif
   auxsort(L, 1, n);
   return 0;
 }
@@ -634,8 +663,13 @@ static int lj_cf_table_unpack54(lua_State *L)
     e = table_len54(L, tabV(L->base), 1);
   } else {
     lua_Integer len = 0;
+    int ok = 0;
     lua_len(L, 1);
-    if (!lua_numbertointeger(lua_tonumber(L, -1), &len)) {
+    /* lua_numbertointeger is the public Lua 5.4 header macro and intentionally
+    ** truncates in-range floats. Runtime length checks need exact integers.
+    */
+    len = lua_tointegerx(L, -1, &ok);
+    if (!ok) {
       lua_pop(L, 1);
       luaL_error(L, "object length is not an integer");
     }

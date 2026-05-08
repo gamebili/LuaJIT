@@ -12,9 +12,18 @@
 #include "lj_obj.h"
 #include "lj_gc.h"
 #include "lj_err.h"
+#include "lj_str.h"
 #include "lj_tab.h"
 
 /* -- Object hashing ------------------------------------------------------ */
+
+static LJ_AINLINE int strkeyeq(const GCstr *a, const GCstr *b)
+{
+  /* Lua 5.4 long strings are not interned, but table keys still compare by
+  ** byte contents. Keep pointer equality as the fast path for short strings.
+  */
+  return lj_str_equal((GCstr *)a, (GCstr *)b);
+}
 
 /* Hash an arbitrary key and return its anchor position in the hash table. */
 static Node *hashkey(const GCtab *t, cTValue *key)
@@ -395,7 +404,12 @@ cTValue *lj_tab_getstr(GCtab *t, const GCstr *key)
 {
   Node *n = hashstr(t, key);
   do {
-    if (tvisstr(&n->key) && strV(&n->key) == key)
+    /* GC leaves dead keys behind when the value is nil. Never dereference or
+    ** byte-compare such keys; weak-table lookups may otherwise touch freed
+    ** long strings before the hash slot is reused.
+    */
+    if (!tvisnil(&n->val) && tvisstr(&n->key) &&
+	strkeyeq(strV(&n->key), key))
       return &n->val;
   } while ((n = nextnode(n)));
   return NULL;
@@ -426,7 +440,7 @@ cTValue *lj_tab_get(lua_State *L, GCtab *t, cTValue *key)
   genlookup:
     n = hashkey(t, key);
     do {
-      if (lj_obj_equal(&n->key, key))
+      if (!tvisnil(&n->val) && lj_obj_equal(&n->key, key))
 	return &n->val;
     } while ((n = nextnode(n)));
   }
@@ -529,7 +543,8 @@ TValue *lj_tab_setstr(lua_State *L, GCtab *t, const GCstr *key)
   TValue k;
   Node *n = hashstr(t, key);
   do {
-    if (tvisstr(&n->key) && strV(&n->key) == key)
+    if (!tvisnil(&n->val) && tvisstr(&n->key) &&
+	strkeyeq(strV(&n->key), key))
       return &n->val;
   } while ((n = nextnode(n)));
   setstrV(L, &k, key);
@@ -557,7 +572,7 @@ TValue *lj_tab_set(lua_State *L, GCtab *t, cTValue *key)
   }
   n = hashkey(t, key);
   do {
-    if (lj_obj_equal(&n->key, key))
+    if (!tvisnil(&n->val) && lj_obj_equal(&n->key, key))
       return &n->val;
   } while ((n = nextnode(n)));
   return lj_tab_newkey(L, t, key);
@@ -591,8 +606,18 @@ uint32_t LJ_FASTCALL lj_tab_keyindex(GCtab *t, cTValue *key)
   if (!tvisnil(key)) {
     Node *n = hashkey(t, key);
     do {
-      if (lj_obj_equal(&n->key, key))
-	return t->asize + (uint32_t)((n+1) - noderef(t->node));
+      if (!tvisnil(&n->val)) {
+	if (lj_obj_equal(&n->key, key))
+	  return t->asize + (uint32_t)((n+1) - noderef(t->node));
+      } else {
+	/* GC keeps nil-valued dead keys in the hash chain so traversal and
+	** rehash stay stable. Do not dereference or byte-compare such keys:
+	** Lua 5.4 long-string keys may already have been swept. Pointer/raw
+	** TValue identity is enough for the deleted-key traversal case.
+	*/
+	if (n->key.u64 == key->u64)
+	  return t->asize + (uint32_t)((n+1) - noderef(t->node));
+      }
     } while ((n = nextnode(n)));
     if (key->u32.hi == LJ_KEYINDEX)  /* Despecialized ITERN while running. */
       return key->u32.lo;

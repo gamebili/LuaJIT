@@ -38,6 +38,40 @@ int32_t LJ_FASTCALL lj_str_cmp(GCstr *a, GCstr *b)
   return (int32_t)(a->len - b->len);
 }
 
+/* Lua 5.4 orders strings with the active collate locale and handles embedded
+** NUL bytes by comparing each C-string segment, matching upstream l_strcmp().
+** Keep lj_str_cmp() byte-stable for bytecode/table internals and use this only
+** for user-visible ordered comparisons in 5.4 compatibility mode.
+*/
+int32_t LJ_FASTCALL lj_str_cmp_locale(GCstr *a, GCstr *b)
+{
+  const char *s1 = strdata(a);
+  const char *s2 = strdata(b);
+  MSize rl1 = a->len, rl2 = b->len;
+  for (;;) {
+    int temp = strcoll(s1, s2);
+    if (temp != 0) {
+      return temp;
+    } else {
+      MSize zl1 = (MSize)strlen(s1);
+      MSize zl2 = (MSize)strlen(s2);
+      if (zl2 == rl2)
+	return zl1 == rl1 ? 0 : 1;
+      else if (zl1 == rl1)
+	return -1;
+      zl1++; zl2++;
+      s1 += zl1; rl1 -= zl1; s2 += zl2; rl2 -= zl2;
+    }
+  }
+}
+
+/* Equality compare of strings. Handles non-interned Lua 5.4 long strings. */
+int LJ_FASTCALL lj_str_equal(GCstr *a, GCstr *b)
+{
+  return a == b || (LJ_54 && a->len == b->len &&
+		    memcmp(strdata(a), strdata(b), a->len) == 0);
+}
+
 /* Find fixed string p inside string s. */
 const char *lj_str_find(const char *s, const char *p, MSize slen, MSize plen)
 {
@@ -271,9 +305,10 @@ static LJ_NOINLINE GCstr *lj_str_rehash_chain(lua_State *L, StrHash hashc,
 #define STRID_RESEED_INTERVAL	0
 #endif
 
-/* Allocate a new string and add to string interning table. */
+/* Allocate a new string and add to string table. */
 static GCstr *lj_str_alloc(lua_State *L, const char *str, MSize len,
-			   StrHash hash, int hashalg)
+			   StrHash hash, int hashalg,
+			   int stable_sid, StrID sid)
 {
   GCstr *s = lj_mem_newt(L, lj_str_size(len), GCstr);
   global_State *g = G(L);
@@ -282,18 +317,25 @@ static GCstr *lj_str_alloc(lua_State *L, const char *str, MSize len,
   s->gct = ~LJ_TSTR;
   s->len = len;
   s->hash = hash;
+  if (stable_sid) {
+    /* Lua 5.4 long strings are not interned. Give equal long-string contents
+    ** the same table hash key, while keeping the actual GC object distinct.
+    */
+    s->sid = sid;
+  } else {
 #ifndef STRID_RESEED_INTERVAL
-  s->sid = g->str.id++;
+    s->sid = g->str.id++;
 #elif STRID_RESEED_INTERVAL
-  if (!g->str.idreseed--) {
-    uint64_t r = lj_prng_u64(&g->prng);
-    g->str.id = (StrID)r;
-    g->str.idreseed = (uint8_t)(r >> (64 - STRID_RESEED_INTERVAL));
-  }
-  s->sid = g->str.id++;
+    if (!g->str.idreseed--) {
+      uint64_t r = lj_prng_u64(&g->prng);
+      g->str.id = (StrID)r;
+      g->str.idreseed = (uint8_t)(r >> (64 - STRID_RESEED_INTERVAL));
+    }
+    s->sid = g->str.id++;
 #else
-  s->sid = (StrID)lj_prng_u64(&g->prng);
+    s->sid = (StrID)lj_prng_u64(&g->prng);
 #endif
+  }
   s->reserved = 0;
   s->hashalg = (uint8_t)hashalg;
   /* Clear last 4 bytes of allocated memory. Implies zero-termination, too. */
@@ -310,13 +352,19 @@ static GCstr *lj_str_alloc(lua_State *L, const char *str, MSize len,
   return s;  /* Return newly interned string. */
 }
 
-/* Intern a string and return string object. */
-GCstr *lj_str_new(lua_State *L, const char *str, size_t lenx)
+/* Create a string and return string object. Parser constants may force
+** interning even for Lua 5.4 long strings; runtime-created long strings must
+** stay distinct objects.
+*/
+static GCstr *lj_str_newx(lua_State *L, const char *str, size_t lenx,
+			  int intern_long)
 {
   global_State *g = G(L);
   if (lenx-1 < LJ_MAX_STR-1) {
     MSize len = (MSize)lenx;
     StrHash hash = hash_sparse(g->str.seed, str, len);
+    StrID sid = (StrID)hash;
+    int nointern = LJ_54 && len > LJ_STR_MAXSHORT && !intern_long;
     MSize coll = 0;
     int hashalg = 0;
     /* Check if the string has already been interned. */
@@ -332,8 +380,11 @@ GCstr *lj_str_new(lua_State *L, const char *str, size_t lenx)
       GCstr *sx = gco2str(o);
       if (sx->hash == hash && sx->len == len) {
 	if (memcmp(str, strdata(sx), len) == 0) {
-	  if (isdead(g, o)) flipwhite(o);  /* Resurrect if dead. */
-	  return sx;  /* Return existing string. */
+	  if (!nointern) {
+	    if (isdead(g, o)) flipwhite(o);  /* Resurrect if dead. */
+	    return sx;  /* Return existing short string. */
+	  }
+	  /* Equal long strings deliberately remain separate GC objects in Lua 5.4. */
 	}
 	coll++;
       }
@@ -347,12 +398,24 @@ GCstr *lj_str_new(lua_State *L, const char *str, size_t lenx)
     }
 #endif
     /* Otherwise allocate a new string. */
-    return lj_str_alloc(L, str, len, hash, hashalg);
+    return lj_str_alloc(L, str, len, hash, hashalg, nointern, sid);
   } else {
     if (lenx)
       lj_err_msg(L, LJ_ERR_STROV);
     return &g->strempty;
   }
+}
+
+/* Intern short strings, but create distinct runtime long strings in Lua 5.4. */
+GCstr *lj_str_new(lua_State *L, const char *str, size_t lenx)
+{
+  return lj_str_newx(L, str, lenx, 0);
+}
+
+/* Intern parser/source constants, including Lua 5.4 long string literals. */
+GCstr *lj_str_new_intern(lua_State *L, const char *str, size_t lenx)
+{
+  return lj_str_newx(L, str, lenx, 1);
 }
 
 void LJ_FASTCALL lj_str_free(global_State *g, GCstr *s)

@@ -16,16 +16,65 @@ if not exist "%GNUMAKE%" (
 
 set "PATH=%MSYS_BIN%;%UCRT_BIN%;%PATH%"
 
-if "%BUILD_JOBS%"=="" set "BUILD_JOBS=%NUMBER_OF_PROCESSORS%"
-if "%BUILD_JOBS%"=="" set "BUILD_JOBS=4"
+set "CPU_CORES="
+set "DEFAULT_BUILD_JOBS="
+for /f "usebackq delims=" %%C in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$sum=0; foreach ($cpu in (Get-CimInstance Win32_Processor)) { $sum += $cpu.NumberOfCores }; if ($sum -gt 0) { [int]$sum }" 2^>nul`) do (
+  if not "%%C"=="" set "CPU_CORES=%%C"
+)
+if "!CPU_CORES!"=="" if not "%NUMBER_OF_PROCESSORS%"=="" set "CPU_CORES=%NUMBER_OF_PROCESSORS%"
+if not "!CPU_CORES!"=="" (
+  rem Keep make parallelism at half of detected physical CPU cores. This cap
+  rem prevents both stale BUILD_JOBS values and command-line -jN from fanning
+  rem out too far on high-core machines.
+  set /a "DEFAULT_BUILD_JOBS=CPU_CORES / 2"
+)
+if "!DEFAULT_BUILD_JOBS!"=="" set "DEFAULT_BUILD_JOBS=2"
+if !DEFAULT_BUILD_JOBS! LSS 1 set "DEFAULT_BUILD_JOBS=1"
+if "%BUILD_JOBS%"=="" (
+  set "BUILD_JOBS=!DEFAULT_BUILD_JOBS!"
+) else (
+  if !BUILD_JOBS! GTR !DEFAULT_BUILD_JOBS! set "BUILD_JOBS=!DEFAULT_BUILD_JOBS!"
+)
+if "!BUILD_JOBS!"=="" set "BUILD_JOBS=!DEFAULT_BUILD_JOBS!"
+if !BUILD_JOBS! LSS 1 set "BUILD_JOBS=1"
 
 set "MAKE_JOBS=-j%BUILD_JOBS%"
 set "MAKE_ARGS=%*"
+set "SAW_MAKE_J="
+set "EXPECT_MAKE_JOBS="
 for %%A in (%*) do (
   set "ARG=%%~A"
-  rem Respect an explicit make parallelism override from the command line.
-  if /I "!ARG:~0,2!"=="-j" set "MAKE_JOBS="
-  if /I "!ARG:~0,5!"=="JOBS=" set "MAKE_JOBS=-j!ARG:~5!"
+  if "!EXPECT_MAKE_JOBS!"=="1" (
+    set "REQ_JOBS=!ARG!"
+    set "REQ_JOBS_NUM=1"
+    if "!REQ_JOBS!"=="" set "REQ_JOBS_NUM="
+    for /f "delims=0123456789" %%N in ("!REQ_JOBS!") do set "REQ_JOBS_NUM="
+    if not "!REQ_JOBS_NUM!"=="" (
+      if !REQ_JOBS! LSS 1 set "REQ_JOBS=1"
+      if !REQ_JOBS! LSS !BUILD_JOBS! set "MAKE_JOBS=-j!REQ_JOBS!"
+    )
+    set "EXPECT_MAKE_JOBS="
+  )
+  rem GNU make treats bare -j as unlimited jobs. Strip it and use the bounded
+  rem half-core MAKE_JOBS computed above. If the next token is numeric, treat
+  rem "-j 4" like "-j4" so the number is not forwarded as a make target.
+  if /I "!ARG!"=="-j" (
+    set "SAW_MAKE_J=1"
+    set "EXPECT_MAKE_JOBS=1"
+  )
+  rem Numeric -jN may lower the bounded job count, but never raise it above the
+  rem half-core cap. Invalid forms are forwarded to make so make can reject them.
+  if /I "!ARG:~0,2!"=="-j" if /I not "!ARG!"=="-j" (
+    set "REQ_JOBS=!ARG:~2!"
+    set "REQ_JOBS_NUM=1"
+    if "!REQ_JOBS!"=="" set "REQ_JOBS_NUM="
+    for /f "delims=0123456789" %%N in ("!REQ_JOBS!") do set "REQ_JOBS_NUM="
+    if not "!REQ_JOBS_NUM!"=="" (
+      set "SAW_MAKE_J=1"
+      if !REQ_JOBS! LSS 1 set "REQ_JOBS=1"
+      if !REQ_JOBS! LSS !BUILD_JOBS! set "MAKE_JOBS=-j!REQ_JOBS!"
+    )
+  )
 )
 
 if "%~1"=="" goto :TEST
@@ -39,6 +88,14 @@ if /I "%~1"=="test" goto :TEST
 if /I "%~1"=="default" goto :DEFAULT
 if /I "%~1"=="lua54" goto :LUA54
 if /I "%~1"=="lua54perf" goto :LUA54PERF
+if /I "%~1"=="official54" goto :OFFICIAL54
+if /I "%~1"=="lua54official" goto :OFFICIAL54
+if /I "%~1"=="platform" goto :PLATFORM
+if /I "%~1"=="platformprobe" goto :PLATFORM_PROBE
+if /I "%~1"=="platformpc" goto :PLATFORM_PC
+if /I "%~1"=="platformandroid" goto :PLATFORM_ANDROID
+if /I "%~1"=="platformios" goto :PLATFORM_IOS
+if /I "%~1"=="platformemscripten" goto :PLATFORM_EMSCRIPTEN
 if /I "%~1"=="smoke" goto :SMOKE
 if /I "%~1"=="smoke54" goto :SMOKE54
 if /I "%~1"=="rebuild" goto :REBUILD
@@ -52,15 +109,19 @@ echo   build       Build LuaJIT only.
 echo   test        Run default and Lua 5.4 C API smoke tests. This is default.
 echo   default     Run the default compatibility smoke and C API smoke.
 echo   lua54       Run the Lua 5.4 compatibility smoke and C API smoke.
-echo   lua54perf   Run Lua 5.4 perf and memory smoke with JIT on/off.
+echo   lua54perf   Run Lua 5.4 perf/memory smoke with fixed jit.opt profiles and JIT off.
+echo   official54  Run the current official Lua 5.4.8 compatibility matrix.
+echo   platform    Run the PC/Android/iOS/Emscripten Lua 5.4 platform matrix.
+echo   platformprobe Probe iOS/Emscripten toolchain availability without building PC/Android.
 echo   smoke       Run the default Lua smoke test only.
 echo   smoke54     Run the Lua 5.4 compatibility Lua smoke test only.
 echo   clean       Forward to make clean.
 echo   rebuild     Run clean, then build.
 echo.
 echo Any other arguments are forwarded to GNU make unchanged.
-echo Parallelism defaults to BUILD_JOBS or NUMBER_OF_PROCESSORS.
-echo Override examples: build.bat lua54 -j8   or   set BUILD_JOBS=8
+echo Perf profiles pin opt level, hotloop, and hotexit; override with LUA54_PERF_JIT_OPTS.
+echo Parallelism is capped to half of detected physical CPU cores; BUILD_JOBS and -jN can only lower that cap, and bare -j is normalized to it.
+echo Examples: build.bat lua54 -j8   or   set BUILD_JOBS=8
 exit /b 0
 
 :BUILD
@@ -100,6 +161,41 @@ call :SET_REST %*
 call :RUN smoketest-perf-lua54compat%REST_ARGS%
 exit /b !ERRORLEVEL!
 
+:OFFICIAL54
+call :SET_REST %*
+call :RUN smoketest-official-lua54compat%REST_ARGS%
+exit /b !ERRORLEVEL!
+
+:PLATFORM
+call :SET_REST %*
+call :RUN_PLATFORM all%REST_ARGS%
+exit /b !ERRORLEVEL!
+
+:PLATFORM_PROBE
+call :SET_REST %*
+call :RUN_PLATFORM probe%REST_ARGS%
+exit /b !ERRORLEVEL!
+
+:PLATFORM_PC
+call :SET_REST %*
+call :RUN_PLATFORM pc%REST_ARGS%
+exit /b !ERRORLEVEL!
+
+:PLATFORM_ANDROID
+call :SET_REST %*
+call :RUN_PLATFORM android%REST_ARGS%
+exit /b !ERRORLEVEL!
+
+:PLATFORM_IOS
+call :SET_REST %*
+call :RUN_PLATFORM ios%REST_ARGS%
+exit /b !ERRORLEVEL!
+
+:PLATFORM_EMSCRIPTEN
+call :SET_REST %*
+call :RUN_PLATFORM emscripten%REST_ARGS%
+exit /b !ERRORLEVEL!
+
 :TEST
 call :SET_REST %*
 call :RUN smoketest-capi-default%REST_ARGS%
@@ -114,15 +210,55 @@ call :RUN %MAKE_ARGS%
 exit /b !ERRORLEVEL!
 
 :RUN
-echo [build.bat] "%GNUMAKE%" %MAKE_JOBS% %*
-"%GNUMAKE%" %MAKE_JOBS% %*
-exit /b %ERRORLEVEL%
+if not "!SAW_MAKE_J!"=="1" (
+  echo [build.bat] "%GNUMAKE%" %MAKE_JOBS% %*
+  "%GNUMAKE%" %MAKE_JOBS% %*
+  exit /b !ERRORLEVEL!
+)
+set "RUN_ARGS="
+set "SKIP_MAKE_JOBS="
+for %%A in (%*) do (
+  set "ARG=%%~A"
+  set "KEEP_ARG=1"
+  if "!SKIP_MAKE_JOBS!"=="1" (
+    set "REQ_JOBS=!ARG!"
+    set "REQ_JOBS_NUM=1"
+    if "!REQ_JOBS!"=="" set "REQ_JOBS_NUM="
+    for /f "delims=0123456789" %%N in ("!REQ_JOBS!") do set "REQ_JOBS_NUM="
+    if not "!REQ_JOBS_NUM!"=="" set "KEEP_ARG="
+    set "SKIP_MAKE_JOBS="
+  )
+  set "STRIP_MAKE_J="
+  if "!KEEP_ARG!"=="1" if /I "!ARG!"=="-j" (
+    set "STRIP_MAKE_J=1"
+    set "SKIP_MAKE_JOBS=1"
+  )
+  if "!KEEP_ARG!"=="1" if /I "!ARG:~0,2!"=="-j" if /I not "!ARG!"=="-j" (
+    set "REQ_JOBS=!ARG:~2!"
+    set "REQ_JOBS_NUM=1"
+    if "!REQ_JOBS!"=="" set "REQ_JOBS_NUM="
+    for /f "delims=0123456789" %%N in ("!REQ_JOBS!") do set "REQ_JOBS_NUM="
+    if not "!REQ_JOBS_NUM!"=="" set "STRIP_MAKE_J=1"
+  )
+  if "!STRIP_MAKE_J!"=="1" set "KEEP_ARG="
+  if "!KEEP_ARG!"=="1" set "RUN_ARGS=!RUN_ARGS! %%A"
+)
+echo [build.bat] "%GNUMAKE%" %MAKE_JOBS% !RUN_ARGS!
+"%GNUMAKE%" %MAKE_JOBS% !RUN_ARGS!
+exit /b !ERRORLEVEL!
+
+:RUN_PLATFORM
+echo [build.bat] powershell -ExecutionPolicy Bypass -File tools\lua54_platform_matrix.ps1 -Target %*
+powershell -ExecutionPolicy Bypass -File tools\lua54_platform_matrix.ps1 -Target %*
+exit /b !ERRORLEVEL!
 
 :SET_REST
 set "REST_ARGS="
 shift
 :SET_REST_LOOP
 if "%~1"=="" exit /b 0
-set "REST_ARGS=!REST_ARGS! %~1"
+rem Preserve quoted make variable assignments such as
+rem "XCFLAGS=-DFOO -DBAR"; stripping quotes would split them into make options.
+set "REST_ARGS=!REST_ARGS! ^"%~1^""
 shift
 goto :SET_REST_LOOP

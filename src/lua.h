@@ -37,6 +37,10 @@
 #define LUA_AUTHORS	"R. Ierusalimschy, L. H. de Figueiredo & W. Celes"
 #endif
 
+/* Private selector for the external Lua 5.4 header surface. Keep it local to
+** this header so extension modules do not observe a non-official macro name.
+*/
+#undef LUAJIT_EXTERNAL_LUA54
 #if defined(LUAJIT_ENABLE_LUA54COMPAT) && !defined(LUA_CORE) && \
     !defined(LUA_LIB) && !defined(LUAJIT_INTERNAL_USE)
 #define LUAJIT_EXTERNAL_LUA54 1
@@ -155,7 +159,7 @@ typedef LUA_NUMBER lua_Number;
 
 /* type for integer functions */
 typedef LUA_INTEGER lua_Integer;
-typedef unsigned int lua_Unsigned;
+typedef LUA_UNSIGNED lua_Unsigned;
 
 #define LUA_MAXINTEGER	((lua_Integer)2147483647)
 #define LUA_MININTEGER	((lua_Integer)(-LUA_MAXINTEGER - 1))
@@ -342,8 +346,10 @@ LUA_API int   (lua_setiuservalue) (lua_State *L, int idx, int n);
 /*
 ** `load' and `call' functions (load and run Lua code)
 */
+#if !LUAJIT_EXTERNAL_LUA54
 LUA_API void  (lua_call) (lua_State *L, int nargs, int nresults);
 LUA_API int   (lua_pcall) (lua_State *L, int nargs, int nresults, int errfunc);
+#endif
 #ifdef LUAJIT_ENABLE_LUA54COMPAT
 LUA_API void  (lua_callk) (lua_State *L, int nargs, int nresults,
 			   lua_KContext ctx, lua_KFunction k);
@@ -354,7 +360,10 @@ LUA_API int   (lua_pcallk) (lua_State *L, int nargs, int nresults,
 LUA_API int   (lua_cpcall) (lua_State *L, lua_CFunction func, void *ud);
 #endif
 #if LUAJIT_EXTERNAL_LUA54
-#define lua_load	lua_loadx
+LUA_API int   (lua_load54) (lua_State *L, lua_Reader reader, void *dt,
+                                        const char *chunkname,
+                                        const char *mode);
+#define lua_load	lua_load54
 #else
 LUA_API int   (lua_load) (lua_State *L, lua_Reader reader, void *dt,
                                         const char *chunkname);
@@ -372,7 +381,9 @@ LUA_API int (lua_dump) (lua_State *L, lua_Writer writer, void *data);
 /*
 ** coroutine functions
 */
+#if !LUAJIT_EXTERNAL_LUA54
 LUA_API int  (lua_yield) (lua_State *L, int nresults);
+#endif
 #ifdef LUAJIT_ENABLE_LUA54COMPAT
 LUA_API int  (lua_yieldk) (lua_State *L, int nresults, lua_KContext ctx,
 			   lua_KFunction k);
@@ -469,8 +480,12 @@ LUA_API void lua_setglobal54 (lua_State *L, const char *name);
 #define lua_isnone(L,n)		(lua_type(L, (n)) == LUA_TNONE)
 #define lua_isnoneornil(L, n)	(lua_type(L, (n)) <= 0)
 
+#if LUAJIT_EXTERNAL_LUA54
+#define lua_pushliteral(L, s)	lua_pushstring((L), "" s)
+#else
 #define lua_pushliteral(L, s)	\
 	lua_pushlstring(L, "" s, (sizeof(s)/sizeof(char))-1)
+#endif
 
 #if LUAJIT_EXTERNAL_LUA54
 #define lua_pushglobaltable(L)	((void)lua_rawgeti((L), LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS))
@@ -513,8 +528,8 @@ LUA_API void lua_setglobal54 (lua_State *L, const char *name);
 
 #define lua_numbertointeger(n,p) \
   ((n) >= (lua_Number)LUA_MININTEGER && \
-   (n) <= (lua_Number)LUA_MAXINTEGER && \
-   (lua_Number)(*(p) = (lua_Integer)(n)) == (n))
+   (n) < -(lua_Number)LUA_MININTEGER && \
+   (*(p) = (lua_Integer)(n), 1))
 
 #define LUA_OPEQ	0
 #define LUA_OPLT	1
@@ -616,8 +631,10 @@ LUA_API int lua_gethookcount (lua_State *L);
 /* From Lua 5.2. */
 LUA_API void *lua_upvalueid (lua_State *L, int idx, int n);
 LUA_API void lua_upvaluejoin (lua_State *L, int idx1, int n1, int idx2, int n2);
+#if !LUAJIT_EXTERNAL_LUA54
 LUA_API int lua_loadx (lua_State *L, lua_Reader reader, void *dt,
 		       const char *chunkname, const char *mode);
+#endif
 #if LUAJIT_EXTERNAL_LUA54
 LUA_API lua_Number lua_version54 (lua_State *L);
 #define lua_version	lua_version54
@@ -638,6 +655,21 @@ struct lua_Debug {
   const char *namewhat;	/* (n) `global', `local', `field', `method' */
   const char *what;	/* (S) `Lua', `C', `main', `tail' */
   const char *source;	/* (S) */
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+  size_t srclen;	/* (S) */
+  int currentline;	/* (l) */
+  int linedefined;	/* (S) */
+  int lastlinedefined;	/* (S) */
+  unsigned char nups;	/* (u) number of upvalues */
+  unsigned char nparams;/* (u) number of parameters */
+  char isvararg;	/* (u) */
+  char istailcall;	/* (t) */
+  unsigned short ftransfer;	/* (r) index of first value transferred */
+  unsigned short ntransfer;	/* (r) number of transferred values */
+  char short_src[LUA_IDSIZE]; /* (S) */
+  /* private part: LuaJIT stores an encoded frame id in this pointer-sized slot. */
+  struct CallInfo *i_ci;
+#else
   int currentline;	/* (l) */
   int nups;		/* (u) number of upvalues */
   int linedefined;	/* (S) */
@@ -650,9 +682,12 @@ struct lua_Debug {
   unsigned short ntransfer;	/* (r) number of transferred values */
   /* private part */
   int i_ci;  /* active function */
+#endif
 };
 
 /* }====================================================================== */
+
+#undef LUAJIT_EXTERNAL_LUA54
 
 
 /******************************************************************************

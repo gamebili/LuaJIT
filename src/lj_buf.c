@@ -91,12 +91,25 @@ void LJ_FASTCALL lj_buf_shrink(lua_State *L, SBuf *sb)
 {
   char *b = sb->b;
   MSize osz = (MSize)(sb->e - b);
-  if (osz > 2*LJ_MIN_SBUF) {
-    b = lj_mem_realloc(L, b, osz, (osz >> 1));
-    sb->w = sb->b = b;  /* Not supposed to keep data across shrinks. */
-    sb->e = b + (osz >> 1);
-  }
   lj_assertG_(G(sbufL(sb)), !sbufisext(sb), "YAGNI shrink SBufExt");
+  if (osz > 2*LJ_MIN_SBUF) {
+    MSize nsz = osz >> 1;
+#if LJ_54
+    /* Lua 5.4 compatibility tests make full-GC memory after huge string.rep()
+    ** observable. Do not retain multi-megabyte scratch buffers across a GC.
+    */
+    if (osz > (1u << 20))
+      nsz = LJ_MIN_SBUF;
+#endif
+    /* The temp buffer trim is only a GC memory-saving hint. If a custom
+    ** allocator refuses to shrink in place, keep the old buffer unchanged.
+    */
+    b = lj_mem_realloc_noerr(L, b, osz, nsz);
+    if (b == NULL)
+      return;
+    sb->w = sb->b = b;  /* Not supposed to keep data across shrinks. */
+    sb->e = b + nsz;
+  }
 }
 
 char * LJ_FASTCALL lj_buf_tmp(lua_State *L, MSize sz)
@@ -255,7 +268,13 @@ SBuf *lj_buf_puttab(SBuf *sb, GCtab *t, GCstr *sep, int32_t i, int32_t e)
       } else if (tvisint(o)) {
 	w = lj_strfmt_wint(lj_buf_more(sb, STRFMT_MAXBUF_INT+seplen), intV(o));
       } else if (tvisnum(o)) {
+#if LJ_54
+	GCstr *s = lj_strfmt_number(sbufL(sb), o);
+	MSize len = s->len;
+	w = lj_buf_wmem(lj_buf_more(sb, len + seplen), strdata(s), len);
+#else
 	w = lj_buf_more(lj_strfmt_putfnum(sb, STRFMT_G14, numV(o)), seplen);
+#endif
       } else {
 	goto badtype;
       }

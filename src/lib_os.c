@@ -7,6 +7,7 @@
 */
 
 #include <errno.h>
+#include <limits.h>
 #include <string.h>
 #include <time.h>
 
@@ -23,6 +24,7 @@
 #include "lj_buf.h"
 #include "lj_str.h"
 #include "lj_meta.h"
+#include "lj_debug.h"
 #include "lj_strscan.h"
 #include "lj_strfmt.h"
 #include "lj_lib.h"
@@ -45,6 +47,7 @@
 static void os_argerror_named54(lua_State *L, int narg, const char *fname,
 				const char *msg)
 {
+  fname = lj_debug_callname54(L, fname, "os");
   lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #%d to '%s' (%s)",
 				      narg, fname, msg));
 }
@@ -93,11 +96,11 @@ static GCstr *os_optstr_named54(lua_State *L, int narg, const char *fname)
   return os_checkstr_named54(L, narg, fname);
 }
 
-static lua_Number os_checknum_named54(lua_State *L, int narg,
-				      const char *fname)
+static time_t os_checktime_named54(lua_State *L, int narg, const char *fname)
 {
   TValue tmp;
   cTValue *o = L->base + narg-1;
+  int64_t k;
   if (o >= L->top)
     os_argtype_named54(L, narg, fname, "number");
   if (tvisstr(o)) {
@@ -105,19 +108,53 @@ static lua_Number os_checknum_named54(lua_State *L, int narg,
       os_argtype_named54(L, narg, fname, "number");
     o = &tmp;
   }
-  if (tvisint(o))
-    return (lua_Number)intV(o);
-  if (!tvisnum(o))
+  if (tvisint(o)) {
+    k = (int64_t)intV(o);
+  } else if (tvisnum(o)) {
+    lua_Number n = numV(o);
+    if (!(n >= (lua_Number)INT64_MIN && n < -((lua_Number)INT64_MIN)))
+      os_argerror_named54(L, narg, fname, "number has no integer representation");
+    k = lj_num2i64(n);
+    if ((lua_Number)k != n)
+      os_argerror_named54(L, narg, fname, "number has no integer representation");
+  } else {
     os_argtype_named54(L, narg, fname, "number");
-  return numV(o);
+    k = 0;  /* Unreachable. */
+  }
+  if ((int64_t)(time_t)k != k)
+    os_argerror_named54(L, narg, fname, "time out-of-bounds");
+  return (time_t)k;
 }
 
-static lua_Number os_optnum_named54(lua_State *L, int narg, lua_Number def,
-				    const char *fname)
+static int32_t os_optint_named54(lua_State *L, int narg, int32_t def,
+				 const char *fname)
 {
+  TValue tmp;
   cTValue *o = L->base + narg-1;
-  return (o < L->top && !tvisnil(o)) ?
-	 os_checknum_named54(L, narg, fname) : def;
+  int64_t k;
+  if (o >= L->top || tvisnil(o))
+    return def;
+  if (tvisstr(o)) {
+    if (!lj_strscan_number(strV(o), &tmp))
+      os_argtype_named54(L, narg, fname, "number");
+    o = &tmp;
+  }
+  if (tvisint(o)) {
+    return intV(o);
+  } else if (tvisnum(o)) {
+    lua_Number n = numV(o);
+    if (!(n >= -2147483648.0 && n <= 2147483647.0))
+      os_argerror_named54(L, narg, fname,
+			  "number has no integer representation");
+    k = lj_num2i64(n);
+    if ((lua_Number)k != n)
+      os_argerror_named54(L, narg, fname,
+			  "number has no integer representation");
+    return (int32_t)k;
+  } else {
+    os_argtype_named54(L, narg, fname, "number");
+    return 0;  /* Unreachable. */
+  }
 }
 
 static void os_checktab_named54(lua_State *L, int narg, const char *fname)
@@ -165,7 +202,12 @@ LJLIB_CF(os_execute)
 #else
   const char *cmd = luaL_optstring(L, 1, NULL);
 #endif
-  int stat = system(cmd);
+  int stat;
+  /* Match Lua 5.4: system() status must not inherit errno from an earlier
+  ** failing file operation, or luaL_execresult() reports the wrong tuple.
+  */
+  errno = 0;
+  stat = system(cmd);
 #if LJ_52
   if (cmd)
     return luaL_execresult(L, stat);
@@ -251,7 +293,14 @@ LJLIB_CF(os_exit)
   if (L->base < L->top && tvisbool(L->base))
     status = boolV(L->base) ? EXIT_SUCCESS : EXIT_FAILURE;
   else
+#if LJ_54
+    /* Lua 5.4 reports invalid status arguments against the public os.exit()
+    ** name; the second close argument remains a plain truthiness check.
+    */
+    status = os_optint_named54(L, 1, EXIT_SUCCESS, "os.exit");
+#else
     status = lj_lib_optint(L, 1, EXIT_SUCCESS);
+#endif
   if (L->base+1 < L->top && tvistruecond(L->base+1))
     lua_close(L);
   exit(status);
@@ -280,6 +329,19 @@ static void setboolfield(lua_State *L, const char *key, int value)
   lua_setfield(L, -2, key);
 }
 
+static void setallfields(lua_State *L, struct tm *stm)
+{
+  setfield(L, "sec", stm->tm_sec);
+  setfield(L, "min", stm->tm_min);
+  setfield(L, "hour", stm->tm_hour);
+  setfield(L, "day", stm->tm_mday);
+  setfield(L, "month", stm->tm_mon+1);
+  setfield(L, "year", stm->tm_year+1900);
+  setfield(L, "wday", stm->tm_wday+1);
+  setfield(L, "yday", stm->tm_yday+1);
+  setboolfield(L, "isdst", stm->tm_isdst);
+}
+
 static int getboolfield(lua_State *L, const char *key)
 {
   int res;
@@ -289,8 +351,49 @@ static int getboolfield(lua_State *L, const char *key)
   return res;
 }
 
-static int getfield(lua_State *L, const char *key, int d)
+static int getfield(lua_State *L, const char *key, int d
+#if LJ_54
+		    , int delta
+#endif
+		   )
 {
+#if LJ_54
+  TValue tmp;
+  cTValue *o;
+  int64_t res;
+  lua_getfield(L, -1, key);
+  o = L->top - 1;
+  if (tvisnil(o)) {
+    lua_pop(L, 1);
+    if (d < 0)
+      luaL_error(L, "field '%s' missing in date table", key);
+    return d;
+  }
+  if (tvisstr(o)) {
+    if (!lj_strscan_number(strV(o), &tmp))
+      luaL_error(L, "field '%s' is not an integer", key);
+    o = &tmp;
+  }
+  if (tvisint(o)) {
+    res = (int64_t)intV(o);
+  } else if (tvisnum(o)) {
+    lua_Number n = numV(o);
+    int64_t k;
+    if (!(n >= -2147483648.0 && n <= 2147483647.0))
+      luaL_error(L, "field '%s' is not an integer", key);
+    k = lj_num2i64(n);
+    if ((lua_Number)k != n)
+      luaL_error(L, "field '%s' is not an integer", key);
+    res = k;
+  } else {
+    luaL_error(L, "field '%s' is not an integer", key);
+    res = 0;  /* Unreachable. */
+  }
+  if (!(res >= 0 ? res - delta <= INT_MAX : INT_MIN + delta <= res))
+    luaL_error(L, "field '%s' is out-of-bound", key);
+  lua_pop(L, 1);
+  return (int)(res - delta);
+#else
   int res;
   lua_getfield(L, -1, key);
   if (lua_isnumber(L, -1)) {
@@ -302,15 +405,47 @@ static int getfield(lua_State *L, const char *key, int d)
   }
   lua_pop(L, 1);
   return res;
+#endif
 }
+
+#if LJ_54
+#define OS_DATE_SIZETIMEFMT	250
+#if LJ_TARGET_WINDOWS
+#define OS_DATE_STRFTIMEOPTIONS  "aAbBcdHIjmMpSUwWxXyYzZ%" \
+  "||" "#c#x#d#H#I#j#m#M#S#U#w#W#y#Y"
+#else
+#define OS_DATE_STRFTIMEOPTIONS  "aAbBcCdDeFgGhHIjmMnprRStTuUVwWxXyYzZ%" \
+  "||" "EcECExEXEyEY" "OdOeOHOIOmOMOSOuOUOVOwOWOy"
+#endif
+
+static const char *os_date_checkoption54(lua_State *L, const char *conv,
+					 MSize convlen, char *buff)
+{
+  const char *option = OS_DATE_STRFTIMEOPTIONS;
+  int oplen = 1;
+  for (; *option != '\0' && oplen <= (int)convlen; option += oplen) {
+    if (*option == '|') {
+      oplen++;
+    } else if (memcmp(conv, option, (size_t)oplen) == 0) {
+      memcpy(buff, conv, (size_t)oplen);
+      buff[oplen] = '\0';
+      return conv + oplen;
+    }
+  }
+  os_argerror_named54(L, 1, "os.date",
+    lua_pushfstring(L, "invalid conversion specifier '%%%s'", conv));
+  return conv;  /* Unreachable. */
+}
+#endif
 
 LJLIB_CF(os_date)
 {
 #if LJ_54
   GCstr *fmt = os_optstr_named54(L, 1, "os.date");
   const char *s = fmt ? strdata(fmt) : "%c";
+  MSize slen = fmt ? fmt->len : 2;
   time_t t = lua_isnoneornil(L, 2) ? time(NULL) :
-	     lj_num2int_type(os_checknum_named54(L, 2, "os.date"), time_t);
+	     os_checktime_named54(L, 2, "os.date");
 #else
   const char *s = luaL_optstring(L, 1, "%c");
   time_t t = lua_isnoneornil(L, 2) ? time(NULL) :
@@ -320,8 +455,15 @@ LJLIB_CF(os_date)
 #if LJ_TARGET_POSIX
   struct tm rtm;
 #endif
-  if (*s == '!') {  /* UTC? */
+  if (
+#if LJ_54
+      slen != 0 &&
+#endif
+      *s == '!') {  /* UTC? */
     s++;  /* Skip '!' */
+#if LJ_54
+    slen--;
+#endif
 #if LJ_TARGET_POSIX
     stm = gmtime_r(&t, &rtm);
 #else
@@ -335,18 +477,56 @@ LJLIB_CF(os_date)
 #endif
   }
   if (stm == NULL) {  /* Invalid date? */
+#if LJ_54
+    return luaL_error(L, "date result cannot be represented in this installation");
+#else
     setnilV(L->top++);
-  } else if (strcmp(s, "*t") == 0) {
+#endif
+  } else if (
+#if LJ_54
+	     slen == 2 && s[0] == '*' && s[1] == 't'
+#else
+	     strcmp(s, "*t") == 0
+#endif
+	     ) {
     lua_createtable(L, 0, 9);  /* 9 = number of fields */
-    setfield(L, "sec", stm->tm_sec);
-    setfield(L, "min", stm->tm_min);
-    setfield(L, "hour", stm->tm_hour);
-    setfield(L, "day", stm->tm_mday);
-    setfield(L, "month", stm->tm_mon+1);
-    setfield(L, "year", stm->tm_year+1900);
-    setfield(L, "wday", stm->tm_wday+1);
-    setfield(L, "yday", stm->tm_yday+1);
-    setboolfield(L, "isdst", stm->tm_isdst);
+    setallfields(L, stm);
+#if LJ_54
+  } else {
+    SBuf *sb = &G(L)->tmpbuf;
+    const char *se = s + slen;
+    char cc[4];
+    cc[0] = '%';
+    setsbufL(sb, L);
+    lj_buf_reset(sb);
+    while (s < se) {
+      if (*s != '%') {
+	lj_buf_putb(sb, (uint8_t)*s++);
+      } else {
+	size_t len;
+	char *buf;
+	s++;
+	s = os_date_checkoption54(L, s, (MSize)(se - s), cc + 1);
+	/* strftime is C-string based, so feed it one validated conversion at a
+	** time and append literal bytes, including embedded NULs, separately.
+	*/
+	buf = lj_buf_more(sb, OS_DATE_SIZETIMEFMT);
+#if LJ_TARGET_WINDOWS
+	/* The official Windows Lua 5.4 binary reports %c through the same
+	** short-date/short-time form as %x %X. Normalize this conversion so the
+	** compat build is not exposed to the host CRT's alternate %c spelling.
+	*/
+	len = strftime(buf, OS_DATE_SIZETIMEFMT,
+		       (cc[1] == 'c' && cc[2] == '\0') ? "%x %X" : cc, stm);
+#else
+	len = strftime(buf, OS_DATE_SIZETIMEFMT, cc, stm);
+#endif
+	sb->w = buf + len;
+      }
+    }
+    setstrV(L, L->top++, lj_buf_str(L, sb));
+    lj_gc_check(L);
+#else
   } else if (*s) {
     SBuf *sb = &G(L)->tmpbuf;
     MSize sz = 0, retry = 4;
@@ -366,6 +546,7 @@ LJLIB_CF(os_date)
     }
   } else {
     setstrV(L, L->top++, &G(L)->strempty);
+#endif
   }
   return 1;
 }
@@ -383,29 +564,58 @@ LJLIB_CF(os_time)
     luaL_checktype(L, 1, LUA_TTABLE);
 #endif
     lua_settop(L, 1);  /* make sure table is at the top */
+#if LJ_54
+    ts.tm_sec = getfield(L, "sec", 0, 0);
+    ts.tm_min = getfield(L, "min", 0, 0);
+    ts.tm_hour = getfield(L, "hour", 12, 0);
+    ts.tm_mday = getfield(L, "day", -1, 0);
+    ts.tm_mon = getfield(L, "month", -1, 1);
+    ts.tm_year = getfield(L, "year", -1, 1900);
+#else
     ts.tm_sec = getfield(L, "sec", 0);
     ts.tm_min = getfield(L, "min", 0);
     ts.tm_hour = getfield(L, "hour", 12);
     ts.tm_mday = getfield(L, "day", -1);
     ts.tm_mon = getfield(L, "month", -1) - 1;
     ts.tm_year = getfield(L, "year", -1) - 1900;
+#endif
     ts.tm_isdst = getboolfield(L, "isdst");
     t = mktime(&ts);
+#if LJ_54
+    /* Lua 5.4 exposes mktime normalization by updating the input date table. */
+    setallfields(L, &ts);
+#endif
   }
   if (t == (time_t)(-1))
+#if LJ_54
+    return luaL_error(L, "time result cannot be represented in this installation");
+#else
     lua_pushnil(L);
+#endif
+#if LJ_54
+  /* Lua 5.4 returns os.time() as an integer.  The current compat runtime still
+  ** has a 32-bit integer subtype, so setint64V keeps in-range timestamps as
+  ** integers and falls back to number for values that need the larger surface.
+  */
+  else
+    setint64V(L->top++, (int64_t)t);
+#else
   else
     lua_pushnumber(L, (lua_Number)t);
+#endif
   return 1;
 }
 
 LJLIB_CF(os_difftime)
 {
 #if LJ_54
-  lua_pushnumber(L,
-    difftime(lj_num2int_type(os_checknum_named54(L, 1, "os.difftime"), time_t),
-	     lj_num2int_type(os_optnum_named54(L, 2, (lua_Number)0,
-					       "os.difftime"), time_t)));
+  time_t t1, t2;
+  /* Do not pass checks directly to difftime(): C does not define argument
+  ** evaluation order, while Lua 5.4 reports a missing first time as #1.
+  */
+  t1 = os_checktime_named54(L, 1, "os.difftime");
+  t2 = os_checktime_named54(L, 2, "os.difftime");
+  lua_pushnumber(L, difftime(t1, t2));
 #else
   lua_pushnumber(L,
     difftime(lj_num2int_type(luaL_checknumber(L, 1), time_t),

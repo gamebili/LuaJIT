@@ -7,6 +7,7 @@
 */
 
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 
 #define lib_io_c
@@ -21,6 +22,9 @@
 #include "lj_err.h"
 #include "lj_buf.h"
 #include "lj_str.h"
+#include "lj_char.h"
+#include "lj_meta.h"
+#include "lj_debug.h"
 #include "lj_state.h"
 #include "lj_strfmt.h"
 #include "lj_ff.h"
@@ -53,6 +57,7 @@ static IOFileUD *io_tofilep(lua_State *L)
   return (IOFileUD *)uddata(udataV(L->base));
 }
 
+#if !LJ_54
 static IOFileUD *io_tofile(lua_State *L)
 {
   IOFileUD *iof = io_tofilep(L);
@@ -60,12 +65,19 @@ static IOFileUD *io_tofile(lua_State *L)
     lj_err_caller(L, LJ_ERR_IOCLFL);
   return iof;
 }
+#endif
 
 static IOFileUD *io_stdfile(lua_State *L, ptrdiff_t id)
 {
   IOFileUD *iof = IOSTDF_IOF(L, id);
-  if (iof->fp == NULL)
+  if (iof->fp == NULL) {
+#if LJ_54
+    lj_err_callermsg(L, id == GCROOT_IO_INPUT ?
+		     "default input file is closed" :
+		     "default output file is closed");
+#endif
     lj_err_caller(L, LJ_ERR_IOSTDCL);
+  }
   return iof;
 }
 
@@ -120,8 +132,317 @@ static int io_file_close(lua_State *L, IOFileUD *iof)
   return luaL_fileresult(L, ok, NULL);
 }
 
+#if LJ_54
+static void io_argerror54(lua_State *L, const char *fname, int narg,
+			  const char *msg);
+
+static int io_checkmode_lua54(const char *mode)
+{
+  /* Lua 5.4 validates open modes itself: first r/w/a, optional '+', then any
+  ** binary markers. This intentionally rejects legacy C-library extensions.
+  */
+  if (*mode == '\0' || strchr("rwa", *mode++) == NULL)
+    return 0;
+  if (*mode == '+')
+    mode++;
+  while (*mode == 'b')
+    mode++;
+  return *mode == '\0';
+}
+
+static const char *io_checkmode(lua_State *L, int arg, GCstr *s,
+				const char *defmode, const char *fname)
+{
+  const char *mode = s ? strdata(s) : defmode;
+  if (!io_checkmode_lua54(mode))
+    io_argerror54(L, fname, arg, "invalid mode");
+  return mode;
+}
+
+static void io_methodargerror54(lua_State *L, const char *fname, int narg,
+				const char *msg)
+{
+  /* Lua reports file methods without the hidden self slot in public argument
+  ** numbers. Keep audited method diagnostics local so unrelated legacy I/O
+  ** messages stay unchanged until their own boundaries are checked.
+  */
+  fname = lj_debug_callname54(L, fname, "io");
+  lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #%d to '%s' (%s)",
+				      narg, fname, msg));
+}
+
+static const char *io_typename54(lua_State *L, int cidx)
+{
+  TValue *o = L->base + cidx-1;
+  if (o < L->top) {
+    MSize tlen;
+    const char *tname = lj_meta_objtypename(L, o, &tlen);
+    UNUSED(tlen);
+    return tname;
+  }
+  return lj_obj_typename[0];
+}
+
+static void io_argerror54(lua_State *L, const char *fname, int narg,
+			  const char *msg)
+{
+  fname = lj_debug_callname54(L, fname, "io");
+  lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #%d to '%s' (%s)",
+				      narg, fname, msg));
+}
+
+static void io_argtype54(lua_State *L, const char *fname, int narg,
+			 const char *xname)
+{
+  io_argerror54(L, fname, narg,
+    lj_strfmt_pushf(L, "%s expected, got %s", xname,
+		    io_typename54(L, narg)));
+}
+
+static cTValue *io_checkany54(lua_State *L, const char *fname, int narg)
+{
+  cTValue *o = L->base + narg-1;
+  if (o >= L->top)
+    io_argerror54(L, fname, narg, "value expected");
+  return o;
+}
+
+static GCstr *io_checkstr_named54(lua_State *L, int narg, const char *fname)
+{
+  TValue *o = L->base + narg-1;
+  if (o < L->top) {
+    if (tvisstr(o)) {
+      return strV(o);
+    } else if (tvisnumber(o)) {
+      GCstr *s = lj_strfmt_number(L, o);
+      setstrV(L, o, s);
+      return s;
+    }
+  }
+  io_argtype54(L, fname, narg, "string");
+  return NULL;  /* Unreachable. */
+}
+
+static GCstr *io_optstr_named54(lua_State *L, int narg, const char *fname)
+{
+  TValue *o = L->base + narg-1;
+  if (o >= L->top || tvisnil(o))
+    return NULL;
+  return io_checkstr_named54(L, narg, fname);
+}
+
+static IOFileUD *io_tofile_named54(lua_State *L, const char *fname)
+{
+  if (!(L->base < L->top && tvisudata(L->base) &&
+	udataV(L->base)->udtype == UDTYPE_IO_FILE)) {
+    io_argtype54(L, fname, 1, LUA_FILEHANDLE);
+  }
+  return (IOFileUD *)uddata(udataV(L->base));
+}
+
+static IOFileUD *io_file_named54(lua_State *L, const char *fname)
+{
+  IOFileUD *iof = io_tofile_named54(L, fname);
+  if (iof->fp == NULL)
+    lj_err_caller(L, LJ_ERR_IOCLFL);
+  return iof;
+}
+
+static IOFileUD *io_method_tofile_named54(lua_State *L, const char *fname)
+{
+  if (!(L->base < L->top && tvisudata(L->base) &&
+	udataV(L->base)->udtype == UDTYPE_IO_FILE)) {
+    /* Dot-called file methods have no hidden self. Report the public method
+    ** name and Lua 5.4's "FILE* expected" detail instead of the legacy '?'.
+    */
+    io_methodargerror54(L, fname, 1,
+      lj_strfmt_pushf(L, "%s expected, got %s", LUA_FILEHANDLE,
+		      io_typename54(L, 1)));
+  }
+  return (IOFileUD *)uddata(udataV(L->base));
+}
+
+static IOFileUD *io_method_file_named54(lua_State *L, const char *fname)
+{
+  IOFileUD *iof = io_method_tofile_named54(L, fname);
+  if (iof->fp == NULL)
+    lj_err_caller(L, LJ_ERR_IOCLFL);
+  return iof;
+}
+
+static void io_seekargtype54(lua_State *L, const char *xname)
+{
+  io_methodargerror54(L, "seek", 2,
+    lj_strfmt_pushf(L, "%s expected, got %s", xname, io_typename54(L, 3)));
+}
+
+static int64_t io_checkseekofs54(lua_State *L)
+{
+  TValue tmp;
+  cTValue *o = L->base+2;
+  if (o >= L->top || tvisnil(o))
+    return 0;
+  if (tvisstr(o)) {
+    if (!lj_strscan_number(strV(o), &tmp))
+      io_seekargtype54(L, "number");
+    o = &tmp;
+  }
+  if (tvisint(o)) {
+    return (int64_t)intV(o);
+  } else if (tvisnum(o)) {
+    lua_Number n = numV(o);
+    int64_t k;
+    /* file:seek takes a lua_Integer offset in Lua 5.4.  Do not truncate
+    ** fractions or decimal strings such as "1.5" before passing them to C.
+    */
+    if (!(n >= (lua_Number)INT64_MIN && n < -((lua_Number)INT64_MIN)))
+      io_methodargerror54(L, "seek", 2,
+			  "number has no integer representation");
+    k = lj_num2i64(n);
+    if ((lua_Number)k != n)
+      io_methodargerror54(L, "seek", 2,
+			  "number has no integer representation");
+    return k;
+  }
+  io_seekargtype54(L, "number");
+  return 0;  /* Unreachable. */
+}
+
+static void io_setvbufargtype54(lua_State *L, const char *xname)
+{
+  io_methodargerror54(L, "setvbuf", 2,
+    lj_strfmt_pushf(L, "%s expected, got %s", xname, io_typename54(L, 3)));
+}
+
+static size_t io_checksetvbufsize54(lua_State *L)
+{
+  TValue tmp;
+  cTValue *o = L->base+2;
+  int64_t k;
+  if (o >= L->top || tvisnil(o))
+    return LUAL_BUFFERSIZE;
+  if (tvisstr(o)) {
+    if (!lj_strscan_number(strV(o), &tmp))
+      io_setvbufargtype54(L, "number");
+    o = &tmp;
+  }
+  if (tvisint(o)) {
+    k = (int64_t)intV(o);
+  } else if (tvisnum(o)) {
+    lua_Number n = numV(o);
+    /* setvbuf's size is also a Lua 5.4 integer parameter. Reject fractions
+    ** before calling C so the public result is an argument error, not a
+    ** platform-dependent setvbuf failure.
+    */
+    if (!(n >= (lua_Number)INT64_MIN && n < -((lua_Number)INT64_MIN)))
+      io_methodargerror54(L, "setvbuf", 2,
+			  "number has no integer representation");
+    k = lj_num2i64(n);
+    if ((lua_Number)k != n)
+      io_methodargerror54(L, "setvbuf", 2,
+			  "number has no integer representation");
+  } else {
+    io_setvbufargtype54(L, "number");
+    k = 0;  /* Unreachable. */
+  }
+  return (size_t)k;
+}
+
+static MSize io_checkreadlen54(lua_State *L, int cidx, int narg)
+{
+  cTValue *o = L->base + cidx-1;
+  int64_t k;
+  lua_Number n;
+  if (tvisint(o))
+    return (MSize)intV(o);
+  n = numV(o);
+  /* Numeric read lengths are lua_Integer values in Lua 5.4.  Preserve the
+  ** legacy negative-size path for now, but reject fractions before they are
+  ** truncated into a shorter read.
+  */
+  if (!(n >= (lua_Number)INT64_MIN && n < -((lua_Number)INT64_MIN)))
+    io_methodargerror54(L, "read", narg,
+			"number has no integer representation");
+  k = lj_num2i64(n);
+  if ((lua_Number)k != n)
+    io_methodargerror54(L, "read", narg,
+			"number has no integer representation");
+  return (MSize)k;
+}
+#endif
+
 /* -- Read/write helpers -------------------------------------------------- */
 
+#if LJ_54
+#define IO_MAXLENNUM	200
+
+typedef struct IOReadNum {
+  FILE *fp;
+  int c;
+  int n;
+  char buf[IO_MAXLENNUM+1];
+} IOReadNum;
+
+static int io_readnum_nextc(IOReadNum *rn)
+{
+  if (rn->n >= IO_MAXLENNUM) {
+    rn->buf[0] = '\0';
+    return 0;
+  }
+  rn->buf[rn->n++] = (char)rn->c;
+  rn->c = getc(rn->fp);
+  return 1;
+}
+
+static int io_readnum_test2(IOReadNum *rn, const char *set)
+{
+  if (rn->c == set[0] || rn->c == set[1])
+    return io_readnum_nextc(rn);
+  return 0;
+}
+
+static int io_readnum_digits(IOReadNum *rn, int hex)
+{
+  int count = 0;
+  while ((hex ? lj_char_isxdigit(rn->c) : lj_char_isdigit(rn->c)) &&
+	 io_readnum_nextc(rn))
+    count++;
+  return count;
+}
+
+static int io_file_readnum(lua_State *L, FILE *fp)
+{
+  IOReadNum rn;
+  int count = 0;
+  int hex = 0;
+  rn.fp = fp;
+  rn.n = 0;
+  do { rn.c = getc(fp); } while (lj_char_isspace(rn.c));
+  io_readnum_test2(&rn, "-+");
+  if (io_readnum_test2(&rn, "00")) {
+    if (io_readnum_test2(&rn, "xX"))
+      hex = 1;
+    else
+      count = 1;
+  }
+  count += io_readnum_digits(&rn, hex);
+  if (io_readnum_test2(&rn, ".."))
+    count += io_readnum_digits(&rn, hex);
+  if (count > 0 && io_readnum_test2(&rn, hex ? "pP" : "eE")) {
+    io_readnum_test2(&rn, "-+");
+    io_readnum_digits(&rn, 0);
+  }
+  ungetc(rn.c, fp);
+  rn.buf[rn.n] = '\0';
+  /* Lua 5.4 reads the numeric prefix, then lets lua_stringtonumber() apply the
+  ** same integer/float and hexadecimal rules as the rest of the language.
+  */
+  if (lua_stringtonumber(L, rn.buf))
+    return 1;
+  setnilV(L->top++);
+  return 0;
+}
+#else
 static int io_file_readnum(lua_State *L, FILE *fp)
 {
   lua_Number d;
@@ -141,6 +462,7 @@ static int io_file_readnum(lua_State *L, FILE *fp)
     return 0;
   }
 }
+#endif
 
 static int io_file_readline(lua_State *L, FILE *fp, MSize chop)
 {
@@ -189,10 +511,15 @@ static int io_file_readlen(lua_State *L, FILE *fp, MSize m)
   }
 }
 
-static int io_file_read(lua_State *L, IOFileUD *iof, int start)
+static int io_file_read(lua_State *L, IOFileUD *iof, int start,
+			const char *fname, int argshift)
 {
   FILE *fp = iof->fp;
   int ok, n, nargs = (int)(L->top - L->base) - start;
+#if !LJ_54
+  UNUSED(fname);
+  UNUSED(argshift);
+#endif
   clearerr(fp);
   if (nargs == 0) {
     ok = io_file_readline(L, fp, 1);
@@ -212,11 +539,26 @@ static int io_file_read(lua_State *L, IOFileUD *iof, int start)
 	else if (p[0] == 'a')
 	  io_file_readall(L, fp);
 	else
+#if LJ_54
+	  io_methodargerror54(L, fname, n+1-argshift, "invalid format");
+#else
 	  lj_err_arg(L, n+1, LJ_ERR_INVFMT);
+#endif
       } else if (tvisnumber(L->base+n)) {
+#if LJ_54
+	ok = io_file_readlen(L, fp, io_checkreadlen54(L, n+1,
+						      n+1-argshift));
+#else
 	ok = io_file_readlen(L, fp, (MSize)lj_lib_checkint(L, n+1));
+#endif
       } else {
+#if LJ_54
+	io_methodargerror54(L, fname, n+1-argshift,
+	  lj_strfmt_pushf(L, "string expected, got %s",
+			  io_typename54(L, n+1)));
+#else
 	lj_err_arg(L, n+1, LJ_ERR_INVOPT);
+#endif
       }
     }
   }
@@ -227,16 +569,26 @@ static int io_file_read(lua_State *L, IOFileUD *iof, int start)
   return n - start;
 }
 
-static int io_file_write(lua_State *L, IOFileUD *iof, int start)
+static int io_file_write(lua_State *L, IOFileUD *iof, int start,
+			 const char *fname)
 {
   FILE *fp = iof->fp;
   cTValue *tv;
   int status = 1;
+#if !LJ_54
+  UNUSED(fname);
+#endif
   for (tv = L->base+start; tv < L->top; tv++) {
     MSize len;
     const char *p = lj_strfmt_wstrnum(L, tv, &len);
     if (!p)
+#if LJ_54
+      io_methodargerror54(L, fname, (int)(tv - L->base) + 1 - start,
+	lj_strfmt_pushf(L, "string expected, got %s",
+			io_typename54(L, (int)(tv - L->base) + 1)));
+#else
       lj_err_argt(L, (int)(tv - L->base) + 1, LUA_TSTRING);
+#endif
     status = status && (fwrite(p, 1, len, fp) == len);
   }
   if (LJ_52 && status) {
@@ -253,18 +605,56 @@ static int io_file_iter(lua_State *L)
   GCfunc *fn = curr_func(L);
   IOFileUD *iof = uddata(udataV(&fn->c.upvalue[0]));
   int n = fn->c.nupvalues - 1;
-  if (iof->fp == NULL)
+  if (iof->fp == NULL) {
+#if LJ_54
+    if (iof->type & IOFILE_FLAG_CLOSE)
+      lj_err_callermsg(L, "file is already closed");
+#endif
     lj_err_caller(L, LJ_ERR_IOCLFL);
+  }
   L->top = L->base;
   if (n) {  /* Copy upvalues with options to stack. */
-    lj_state_checkstack(L, (MSize)n);
-    memcpy(L->top, &fn->c.upvalue[1], n*sizeof(TValue));
-    L->top += n;
+#if LJ_54
+    int packed = 0;
+    if (n == 1 && tvistab(&fn->c.upvalue[1])) {
+      int i;
+      lua_rawgeti(L, lua_upvalueindex(2), 0);
+      packed = tvisint(L->top-1);
+      n = packed ? (int)intV(L->top-1) : n;
+      lua_pop(L, 1);
+      if (packed) {
+	luaL_checkstack(L, n+LUA_MINSTACK, "too many arguments");
+	for (i = 1; i <= n; i++)
+	  lua_rawgeti(L, lua_upvalueindex(2), i);
+      }
+    }
+    if (!packed)
+#endif
+    {
+      lj_state_checkstack(L, (MSize)n);
+      memcpy(L->top, &fn->c.upvalue[1], n*sizeof(TValue));
+      L->top += n;
+    }
   }
-  n = io_file_read(L, iof, 0);
+#if LJ_54
+  /* io.lines()/file:lines() iterators have an implicit file argument in
+  ** official diagnostics, so copied read options start at public argument #2.
+  */
+  n = io_file_read(L, iof, 0, "?", -1);
+#else
+  n = io_file_read(L, iof, 0, "read", 0);
+#endif
   if (ferror(iof->fp))
     lj_err_callermsg(L, strVdata(L->top-2));
+#if LJ_54
+  if (n > 0 && tvisnil(L->top - n) && (iof->type & IOFILE_FLAG_CLOSE)) {
+#else
   if (tvisnil(L->base) && (iof->type & IOFILE_FLAG_CLOSE)) {
+#endif
+    /* With explicit io.lines read options, the copied options stay below the
+    ** actual results. Close auto-opened files based on the first result slot,
+    ** matching Lua 5.4's EOF test for line iterators.
+    */
     io_file_close(L, iof);  /* Return values are ignored. */
     return 0;
   }
@@ -274,8 +664,31 @@ static int io_file_iter(lua_State *L)
 static int io_file_lines(lua_State *L)
 {
   int n = (int)(L->top - L->base);
+#if LJ_54
+  int optn = n - 1;
+  if (optn > 250)
+    return luaL_error(L, "too many arguments");
+  if (n > LJ_MAX_UPVAL) {
+    int i;
+    /* LuaJIT C closures are limited to LJ_MAX_UPVAL, while Lua 5.4 allows up
+    ** to 250 read options. Store all options in a single table upvalue.
+    */
+    lua_createtable(L, optn, 1);
+    for (i = 1; i <= optn; i++) {
+      lua_pushvalue(L, i+1);
+      lua_rawseti(L, -2, i);
+    }
+    lua_pushinteger(L, optn);
+    lua_rawseti(L, -2, 0);
+    lua_pushvalue(L, 1);
+    lua_insert(L, -2);
+    lua_pushcclosure(L, io_file_iter, 2);
+    return 1;
+  }
+#else
   if (n > LJ_MAX_UPVAL)
     lj_err_caller(L, LJ_ERR_UNPACK);
+#endif
   lua_pushcclosure(L, io_file_iter, n);
   return 1;
 }
@@ -287,6 +700,9 @@ static int io_file_lines(lua_State *L)
 LJLIB_CF(io_method_close)
 {
   IOFileUD *iof;
+#if LJ_54
+  iof = io_method_file_named54(L, "close");
+#else
   if (L->base < L->top) {
     iof = io_tofile(L);
   } else {
@@ -294,22 +710,36 @@ LJLIB_CF(io_method_close)
     if (iof->fp == NULL)
       lj_err_caller(L, LJ_ERR_IOCLFL);
   }
+#endif
   return io_file_close(L, iof);
 }
 
 LJLIB_CF(io_method_read)
 {
-  return io_file_read(L, io_tofile(L), 1);
+#if LJ_54
+  return io_file_read(L, io_method_file_named54(L, "read"), 1, "read", 1);
+#else
+  return io_file_read(L, io_tofile(L), 1, "read", 1);
+#endif
 }
 
 LJLIB_CF(io_method_write)		LJLIB_REC(io_write 0)
 {
-  return io_file_write(L, io_tofile(L), 1);
+#if LJ_54
+  return io_file_write(L, io_method_file_named54(L, "write"), 1, "write");
+#else
+  return io_file_write(L, io_tofile(L), 1, "write");
+#endif
 }
 
 LJLIB_CF(io_method_flush)		LJLIB_REC(io_flush 0)
 {
+#if LJ_54
+  return luaL_fileresult(L, fflush(io_method_file_named54(L, "flush")->fp) == 0,
+			 NULL);
+#else
   return luaL_fileresult(L, fflush(io_tofile(L)->fp) == 0, NULL);
+#endif
 }
 
 #if LJ_32 && defined(__ANDROID__) && __ANDROID_API__ < 24
@@ -322,14 +752,23 @@ extern long int ftello32(FILE *) __asm__("ftello");
 
 LJLIB_CF(io_method_seek)
 {
+#if LJ_54
+  FILE *fp = io_method_file_named54(L, "seek")->fp;
+#else
   FILE *fp = io_tofile(L)->fp;
+#endif
   int opt = lj_lib_checkopt(L, 2, 1, "\3set\3cur\3end");
   int64_t ofs = 0;
+#if !LJ_54
   TValue *o;
+#endif
   int res;
   if (opt == 0) opt = SEEK_SET;
   else if (opt == 1) opt = SEEK_CUR;
   else if (opt == 2) opt = SEEK_END;
+#if LJ_54
+  ofs = io_checkseekofs54(L);
+#else
   o = L->base+2;
   if (o < L->top) {
     if (tvisstr(o)) lj_strscan_num(strV(o), o);
@@ -340,6 +779,7 @@ LJLIB_CF(io_method_seek)
     else if (!tvisnil(o))
       lj_err_argt(L, 3, LUA_TNUMBER);
   }
+#endif
 #if LJ_TARGET_POSIX
   res = fseeko(fp, ofs, opt);
 #elif _MSC_VER >= 1400
@@ -366,9 +806,17 @@ LJLIB_CF(io_method_seek)
 
 LJLIB_CF(io_method_setvbuf)
 {
+#if LJ_54
+  FILE *fp = io_method_file_named54(L, "setvbuf")->fp;
+#else
   FILE *fp = io_tofile(L)->fp;
+#endif
   int opt = lj_lib_checkopt(L, 2, -1, "\4full\4line\2no");
+#if LJ_54
+  size_t sz = io_checksetvbufsize54(L);
+#else
   size_t sz = (size_t)lj_lib_optint(L, 3, LUAL_BUFFERSIZE);
+#endif
   if (opt == 0) opt = _IOFBF;
   else if (opt == 1) opt = _IOLBF;
   else if (opt == 2) opt = _IONBF;
@@ -377,7 +825,11 @@ LJLIB_CF(io_method_setvbuf)
 
 LJLIB_CF(io_method_lines)
 {
+#if LJ_54
+  io_method_file_named54(L, "lines");
+#else
   io_tofile(L);
+#endif
   return io_file_lines(L);
 }
 
@@ -411,9 +863,15 @@ LJLIB_PUSH(top-2) LJLIB_SET(!)  /* Set environment. */
 
 LJLIB_CF(io_open)
 {
+#if LJ_54
+  const char *fname = strdata(io_checkstr_named54(L, 1, "io.open"));
+  GCstr *s = io_optstr_named54(L, 2, "io.open");
+  const char *mode = io_checkmode(L, 2, s, "r", "io.open");
+#else
   const char *fname = strdata(lj_lib_checkstr(L, 1));
   GCstr *s = lj_lib_optstr(L, 2);
   const char *mode = s ? strdata(s) : "r";
+#endif
   IOFileUD *iof = io_file_new(L);
   iof->fp = fopen(fname, mode);
   return iof->fp != NULL ? 1 : luaL_fileresult(L, 0, fname);
@@ -422,9 +880,15 @@ LJLIB_CF(io_open)
 LJLIB_CF(io_popen)
 {
 #if LJ_TARGET_POSIX || (LJ_TARGET_WINDOWS && !LJ_TARGET_XBOXONE && !LJ_TARGET_UWP)
+#if LJ_54
+  const char *fname = strdata(io_checkstr_named54(L, 1, "io.popen"));
+  GCstr *s = io_optstr_named54(L, 2, "io.popen");
+  const char *mode = io_checkmode(L, 2, s, "r", "io.popen");
+#else
   const char *fname = strdata(lj_lib_checkstr(L, 1));
   GCstr *s = lj_lib_optstr(L, 2);
   const char *mode = s ? strdata(s) : "r";
+#endif
   IOFileUD *iof = io_file_new(L);
   iof->type = IOFILE_TYPE_PIPE;
 #if LJ_TARGET_POSIX
@@ -452,17 +916,29 @@ LJLIB_CF(io_tmpfile)
 
 LJLIB_CF(io_close)
 {
-  return lj_cf_io_method_close(L);
+  IOFileUD *iof;
+  if (L->base < L->top) {
+#if LJ_54
+    iof = io_file_named54(L, "io.close");
+#else
+    iof = io_tofile(L);
+#endif
+  } else {
+    iof = IOSTDF_IOF(L, GCROOT_IO_OUTPUT);
+    if (iof->fp == NULL)
+      lj_err_caller(L, LJ_ERR_IOCLFL);
+  }
+  return io_file_close(L, iof);
 }
 
 LJLIB_CF(io_read)
 {
-  return io_file_read(L, io_stdfile(L, GCROOT_IO_INPUT), 0);
+  return io_file_read(L, io_stdfile(L, GCROOT_IO_INPUT), 0, "io.read", 0);
 }
 
 LJLIB_CF(io_write)		LJLIB_REC(io_write GCROOT_IO_OUTPUT)
 {
-  return io_file_write(L, io_stdfile(L, GCROOT_IO_OUTPUT), 0);
+  return io_file_write(L, io_stdfile(L, GCROOT_IO_OUTPUT), 0, "io.write");
 }
 
 LJLIB_CF(io_flush)		LJLIB_REC(io_flush GCROOT_IO_OUTPUT)
@@ -470,13 +946,29 @@ LJLIB_CF(io_flush)		LJLIB_REC(io_flush GCROOT_IO_OUTPUT)
   return luaL_fileresult(L, fflush(io_stdfile(L, GCROOT_IO_OUTPUT)->fp) == 0, NULL);
 }
 
-static int io_std_getset(lua_State *L, ptrdiff_t id, const char *mode)
+static int io_std_getset(lua_State *L, ptrdiff_t id, const char *mode
+#if LJ_54
+			 , const char *fname
+#endif
+)
 {
   if (L->base < L->top && !tvisnil(L->base)) {
     if (tvisudata(L->base)) {
+#if LJ_54
+      io_file_named54(L, fname);
+#else
       io_tofile(L);
+#endif
       L->top = L->base+1;
     } else {
+#if LJ_54
+      /* Lua 5.4 accepts file handles or path strings here; other objects must
+      ** report the FILE* expectation so __name-based diagnostics stay intact.
+      */
+      if (!tvisstr(L->base) && !tvisnumber(L->base))
+	io_argtype54(L, fname, 1, LUA_FILEHANDLE);
+      (void)io_checkstr_named54(L, 1, fname);
+#endif
       io_file_open(L, mode);
     }
     /* NOBARRIER: The standard I/O handles are GC roots. */
@@ -489,12 +981,20 @@ static int io_std_getset(lua_State *L, ptrdiff_t id, const char *mode)
 
 LJLIB_CF(io_input)
 {
-  return io_std_getset(L, GCROOT_IO_INPUT, "r");
+  return io_std_getset(L, GCROOT_IO_INPUT, "r"
+#if LJ_54
+		       , "io.input"
+#endif
+  );
 }
 
 LJLIB_CF(io_output)
 {
-  return io_std_getset(L, GCROOT_IO_OUTPUT, "w");
+  return io_std_getset(L, GCROOT_IO_OUTPUT, "w"
+#if LJ_54
+		       , "io.output"
+#endif
+  );
 }
 
 LJLIB_CF(io_lines)
@@ -504,6 +1004,9 @@ LJLIB_CF(io_lines)
 #endif
   if (L->base == L->top) setnilV(L->top++);
   if (!tvisnil(L->base)) {  /* io.lines(fname) */
+#if LJ_54
+    (void)io_checkstr_named54(L, 1, "io.lines");
+#endif
     IOFileUD *iof = io_file_open(L, "r");
     iof->type = IOFILE_TYPE_FILE|IOFILE_FLAG_CLOSE;
 #if LJ_54
@@ -531,7 +1034,11 @@ LJLIB_CF(io_lines)
 
 LJLIB_CF(io_type)
 {
+#if LJ_54
+  cTValue *o = io_checkany54(L, "io.type", 1);
+#else
   cTValue *o = lj_lib_checkany(L, 1);
+#endif
   if (!(tvisudata(o) && udataV(o)->udtype == UDTYPE_IO_FILE))
     setnilV(L->top++);
   else if (((IOFileUD *)uddata(udataV(o)))->fp != NULL)
@@ -561,6 +1068,16 @@ static GCobj *io_std_new(lua_State *L, FILE *fp, const char *name)
 LUALIB_API int luaopen_io(lua_State *L)
 {
   LJ_LIB_REG(L, NULL, io_method);
+#if LJ_54
+  /* Lua 5.4 exposes file handles as FILE* in user-facing type diagnostics. */
+  lua_pushliteral(L, LUA_FILEHANDLE);
+  lua_setfield(L, -2, "__name");
+  /* File handles are valid to-be-closed values. Official Lua wires __close to
+  ** the GC-style close path, so scope exit ignores already closed handles.
+  */
+  lua_getfield(L, -1, "__gc");
+  lua_setfield(L, -2, "__close");
+#endif
   copyTV(L, L->top, L->top-1); L->top++;
   lua_setfield(L, LUA_REGISTRYINDEX, LUA_FILEHANDLE);
   LJ_LIB_REG(L, LUA_IOLIBNAME, io);

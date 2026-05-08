@@ -6,9 +6,35 @@
 #include <stdio.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <stddef.h>
+#include <limits.h>
 
 #include "lua.h"
 #include "lauxlib.h"
+
+#define CAPI_STATIC_ASSERT(name, cond) \
+  typedef char capi_static_assert_##name[(cond) ? 1 : -1]
+
+CAPI_STATIC_ASSERT(lua_debug_srclen_after_source,
+  offsetof(lua_Debug, srclen) == offsetof(lua_Debug, source) + sizeof(const char *));
+CAPI_STATIC_ASSERT(lua_debug_nups_is_uchar,
+  sizeof(((lua_Debug *)0)->nups) == sizeof(unsigned char));
+CAPI_STATIC_ASSERT(lua_debug_nparams_is_uchar,
+  sizeof(((lua_Debug *)0)->nparams) == sizeof(unsigned char));
+CAPI_STATIC_ASSERT(lua_debug_isvararg_is_char,
+  sizeof(((lua_Debug *)0)->isvararg) == sizeof(char));
+CAPI_STATIC_ASSERT(lua_debug_istailcall_is_char,
+  sizeof(((lua_Debug *)0)->istailcall) == sizeof(char));
+CAPI_STATIC_ASSERT(lua_debug_transfer_before_short_src,
+  offsetof(lua_Debug, ftransfer) < offsetof(lua_Debug, short_src));
+CAPI_STATIC_ASSERT(lua_debug_private_ci_is_pointer_sized,
+  sizeof(((lua_Debug *)0)->i_ci) == sizeof(void *));
+#ifdef LUA_UNSIGNED
+CAPI_STATIC_ASSERT(lua_unsigned_matches_public_type,
+  sizeof(LUA_UNSIGNED) == sizeof(lua_Unsigned));
+CAPI_STATIC_ASSERT(lua_unsigned_matches_integer_width,
+  sizeof(lua_Unsigned) == sizeof(lua_Integer));
+#endif
 
 #ifdef LUA_GLOBALSINDEX
 #error "Lua 5.4 compatibility header must not expose LUA_GLOBALSINDEX"
@@ -56,6 +82,30 @@
 
 #ifndef LUAI_MAXALIGN
 #error "Lua 5.4 compatibility header must expose LUAI_MAXALIGN"
+#endif
+
+#ifndef LUA_NUMBER_FRMLEN
+#error "Lua 5.4 compatibility header must expose LUA_NUMBER_FRMLEN"
+#endif
+
+#ifndef LUA_INTEGER_FRMLEN
+#error "Lua 5.4 compatibility header must expose LUA_INTEGER_FRMLEN"
+#endif
+
+#ifndef LUA_INTEGER_FMT
+#error "Lua 5.4 compatibility header must expose LUA_INTEGER_FMT"
+#endif
+
+#ifndef LUAI_UACINT
+#error "Lua 5.4 compatibility header must expose LUAI_UACINT"
+#endif
+
+#ifndef LUA_UNSIGNED
+#error "Lua 5.4 compatibility header must expose LUA_UNSIGNED"
+#endif
+
+#ifndef LUA_MAXUNSIGNED
+#error "Lua 5.4 compatibility header must expose LUA_MAXUNSIGNED"
 #endif
 
 #ifndef LUA_GNAME
@@ -112,6 +162,46 @@ typedef char lua54_buffer_init_field[
 
 #ifndef luaL_loadbuffer
 #error "Lua 5.4 lauxlib header must expose luaL_loadbuffer macro"
+#endif
+
+#ifndef luaL_argcheck
+#error "Lua 5.4 lauxlib header must expose luaL_argcheck macro"
+#endif
+
+#ifndef luaL_checkstring
+#error "Lua 5.4 lauxlib header must expose luaL_checkstring macro"
+#endif
+
+#ifndef luaL_optstring
+#error "Lua 5.4 lauxlib header must expose luaL_optstring macro"
+#endif
+
+#ifndef luaL_typename
+#error "Lua 5.4 lauxlib header must expose luaL_typename macro"
+#endif
+
+#ifndef luaL_dofile
+#error "Lua 5.4 lauxlib header must expose luaL_dofile macro"
+#endif
+
+#ifndef luaL_dostring
+#error "Lua 5.4 lauxlib header must expose luaL_dostring macro"
+#endif
+
+#ifndef luaL_getmetatable
+#error "Lua 5.4 lauxlib header must expose luaL_getmetatable macro"
+#endif
+
+#ifndef luaL_opt
+#error "Lua 5.4 lauxlib header must expose luaL_opt macro"
+#endif
+
+#ifndef luaL_newlibtable
+#error "Lua 5.4 lauxlib header must expose luaL_newlibtable macro"
+#endif
+
+#ifndef luaL_newlib
+#error "Lua 5.4 lauxlib header must expose luaL_newlib macro"
 #endif
 
 #ifndef lua_newuserdata
@@ -199,6 +289,9 @@ static int hook_tail_vararg_ret_ftransfer = -1;
 static int hook_tail_vararg_ret_ntransfer = -1;
 static int hook_tail_vararg_ret_istailcall = -1;
 
+static int record_close(lua_State *L);
+static void push_closeable(lua_State *L, lua_CFunction closef);
+
 static void header_output_macros_compile_only(void)
 {
   lua_writestring("", 0);
@@ -220,6 +313,20 @@ typedef struct AllocCtx {
   int calls;
   int frees;
 } AllocCtx;
+
+typedef struct TrackingAllocCtx {
+  size_t live;
+  size_t peak;
+  int calls;
+} TrackingAllocCtx;
+
+typedef struct ShrinkFailAllocCtx {
+  int calls;
+  int frees;
+  int fail_shrink;
+  int shrink_fails;
+  size_t max_failed_shrink_osize;
+} ShrinkFailAllocCtx;
 
 typedef int (*RawGetI54Sig)(lua_State *L, int idx, lua_Integer n);
 typedef void (*RawSetI54Sig)(lua_State *L, int idx, lua_Integer n);
@@ -367,11 +474,80 @@ static void *counting_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
   return realloc(ptr, nsize);
 }
 
+static void *tracking_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
+{
+  TrackingAllocCtx *ctx = (TrackingAllocCtx *)ud;
+  void *np;
+  ctx->calls++;
+  if (ptr == NULL)
+    osize = 0;
+  if (nsize == 0) {
+    if (ctx->live >= osize)
+      ctx->live -= osize;
+    free(ptr);
+    return NULL;
+  }
+  np = realloc(ptr, nsize);
+  if (np != NULL) {
+    if (nsize >= osize)
+      ctx->live += nsize - osize;
+    else if (ctx->live >= osize - nsize)
+      ctx->live -= osize - nsize;
+    if (ctx->live > ctx->peak)
+      ctx->peak = ctx->live;
+  }
+  return np;
+}
+
+static void *shrink_fail_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
+{
+  ShrinkFailAllocCtx *ctx = (ShrinkFailAllocCtx *)ud;
+  ctx->calls++;
+  if (nsize == 0) {
+    ctx->frees++;
+    free(ptr);
+    return NULL;
+  }
+  if (ctx->fail_shrink && ptr != NULL && nsize < osize) {
+    ctx->shrink_fails++;
+    if (osize > ctx->max_failed_shrink_osize)
+      ctx->max_failed_shrink_osize = osize;
+    return NULL;
+  }
+  return realloc(ptr, nsize);
+}
+
+static int enable_shrink_fail_alloc(lua_State *L)
+{
+  void *ud = NULL;
+  lua_getallocf(L, &ud);
+  ((ShrinkFailAllocCtx *)ud)->fail_shrink = 1;
+  return 0;
+}
+
+static int raise_after_big_buffer(lua_State *L)
+{
+  luaL_Buffer b;
+  size_t big = (size_t)LUAL_BUFFERSIZE * 32u;
+  char *p;
+  luaL_buffinit(L, &b);
+  p = luaL_prepbuffsize(&b, big);
+  memset(p, 'm', big);
+  luaL_addsize(&b, big);
+  /* This deliberately aborts before luaL_pushresult(). Lua 5.4 keeps the
+  ** large buffer in a to-be-closed box so error unwinding releases it.
+  */
+  return luaL_error(L, "abort after luaL_Buffer growth");
+}
+
 static void test_state_allocator_api(lua_State *L)
 {
   AllocCtx ctx = { 0, 0 };
+  TrackingAllocCtx track_ctx = { 0, 0, 0 };
+  ShrinkFailAllocCtx shrink_ctx = { 0, 0, 0, 0, 0 };
   void *ud = NULL;
   lua_Alloc allocf;
+  int status;
   lua_State *T = lua_newstate(counting_alloc, &ctx);
   check(L, T != NULL, "lua_newstate custom allocator");
   check(L, lua_atpanic(T, panic_a) == NULL, "lua_atpanic initial handler");
@@ -386,6 +562,56 @@ static void test_state_allocator_api(lua_State *L)
   lua_close(T);
   check(L, ctx.calls > 0 && ctx.frees > 0,
 	"lua_close uses custom allocator");
+
+  close_call_count = 0;
+  close_nil_error_count = 0;
+  T = luaL_newstate();
+  check(L, T != NULL, "lua_close toclose state");
+  push_closeable(T, record_close);
+  lua_toclose(T, -1);
+  /* Lua 5.4 lua_close() must run active to-be-closed slots on the main
+  ** thread; os.exit(..., true) depends on the same state-close path.
+  */
+  lua_close(T);
+  check(L, close_call_count == 1 && close_nil_error_count == 1,
+	"lua_close runs to-be-closed stack slots");
+
+  T = lua_newstate(tracking_alloc, &track_ctx);
+  check(L, T != NULL, "lua_newstate tracking allocator");
+  lua_pushcfunction(T, raise_after_big_buffer);
+  status = lua_pcall(T, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_Buffer abort status");
+  lua_pop(T, 1);
+  lua_close(T);
+  check(L, track_ctx.peak > (size_t)LUAL_BUFFERSIZE * 32u,
+	"luaL_Buffer abort test must allocate a large buffer");
+  check(L, track_ctx.live == 0,
+	"luaL_Buffer large allocation is closed after error");
+
+  T = lua_newstate(shrink_fail_alloc, &shrink_ctx);
+  check(L, T != NULL, "lua_newstate shrink-fail allocator");
+  luaL_openlibs(T);
+  lua_pushcfunction(T, enable_shrink_fail_alloc);
+  lua_setglobal(T, "enable_shrink_fail_alloc");
+  status = luaL_dostring(T,
+    "local function grow(n)\n"
+    "  if n == 0 then return 0 end\n"
+    "  return grow(n - 1) + 1\n"
+    "end\n"
+    "assert(grow(600) == 600)\n"
+    "assert(#string.rep('x', 2 * 1024 * 1024) == 2 * 1024 * 1024)\n"
+    "enable_shrink_fail_alloc()\n"
+    "collectgarbage('collect')\n"
+    "collectgarbage('collect')\n"
+    "return true\n");
+  shrink_ctx.fail_shrink = 0;
+  check(L, shrink_ctx.shrink_fails > 0,
+	"allocator test must exercise shrink failure");
+  check(L, shrink_ctx.max_failed_shrink_osize > (size_t)(1024 * 1024),
+	"allocator test must exercise tmpbuf shrink failure");
+  check(L, status == LUA_OK,
+	"GC opportunistic shrink allocator failure is non-fatal");
+  lua_close(T);
 }
 
 static int checkinteger_fraction(lua_State *L)
@@ -398,6 +624,18 @@ static int checknumber_arg(lua_State *L)
 {
   luaL_checknumber(L, 1);
   return 0;
+}
+
+static int checkudata_arg(lua_State *L)
+{
+  luaL_checkudata(L, 1, "capi.ud");
+  return 0;
+}
+
+static int optnumber_arg(lua_State *L)
+{
+  lua_pushnumber(L, luaL_optnumber(L, 1, (lua_Number)3.25));
+  return 1;
 }
 
 static int raise_lua_error(lua_State *L)
@@ -416,6 +654,30 @@ static int len_meta(lua_State *L)
 {
   (void)L;
   lua_pushinteger(L, 77);
+  return 1;
+}
+
+static int len_bad_meta(lua_State *L)
+{
+  (void)L;
+  lua_pushliteral(L, "bad-len");
+  return 1;
+}
+
+static int len_fraction_meta(lua_State *L)
+{
+  (void)L;
+  lua_pushnumber(L, (lua_Number)1.5);
+  return 1;
+}
+
+static int push_fraction_len_userdata(lua_State *L)
+{
+  (void)lua_newuserdatauv(L, 1, 0);
+  lua_newtable(L);
+  lua_pushcfunction(L, len_fraction_meta);
+  lua_setfield(L, -2, "__len");
+  lua_setmetatable(L, -2);
   return 1;
 }
 
@@ -476,6 +738,15 @@ static int record_close_error(lua_State *L)
   return lua_error(L);
 }
 
+static int record_inner_close_error(lua_State *L)
+{
+  close_call_count++;
+  if (lua_gettop(L) == 2 && lua_tostring(L, 2) != NULL &&
+      strstr(lua_tostring(L, 2), "capi inner close boom") != NULL)
+    close_body_error_count++;
+  return 0;
+}
+
 static void push_closeable(lua_State *L, lua_CFunction closef)
 {
   lua_newtable(L);
@@ -483,6 +754,48 @@ static void push_closeable(lua_State *L, lua_CFunction closef)
   lua_pushcfunction(L, closef);
   lua_setfield(L, -2, "__close");
   lua_setmetatable(L, -2);
+}
+
+static void push_lua_yielding_closeable(lua_State *L, const char *yield_value,
+					const char *error_after_yield)
+{
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushfstring(L,
+    "return function(_, err) "
+    "assert(err == nil); "
+    /* Keep this generated Lua source on %s: the close-yield cases below
+    ** should exercise __close scheduling, not formatter edge cases.
+    */
+    "coroutine.yield('%s'); "
+    "%s "
+    "end",
+    yield_value,
+    error_after_yield != NULL ? error_after_yield : "return true");
+  check(L, luaL_loadstring(L, lua_tostring(L, -1)) == LUA_OK,
+	"lua yielding __close load");
+  lua_remove(L, -2);
+  lua_call(L, 0, 1);
+  lua_setfield(L, -2, "__close");
+  lua_setmetatable(L, -2);
+}
+
+static int push_closeable_userdata(lua_State *L)
+{
+  int *ud = (int *)lua_newuserdatauv(L, sizeof(int), 0);
+  *ud = 54;
+  lua_newtable(L);
+  lua_pushcfunction(L, record_close);
+  lua_setfield(L, -2, "__close");
+  lua_setmetatable(L, -2);
+  return 1;
+}
+
+static int mark_userdata_close_then_return(lua_State *L)
+{
+  push_closeable_userdata(L);
+  lua_toclose(L, -1);
+  return 0;
 }
 
 static int mark_nonclosable_slot(lua_State *L)
@@ -569,6 +882,51 @@ static int mark_close_then_return_self(lua_State *L)
   return 1;
 }
 
+static int mark_lua_close_yield_then_return(lua_State *L)
+{
+  push_lua_yielding_closeable(L, "capi close yield", NULL);
+  lua_toclose(L, -1);
+  lua_pushliteral(L, "capi return after close yield");
+  return 1;
+}
+
+static int mark_lua_close_yield_error_then_return(lua_State *L)
+{
+  push_lua_yielding_closeable(L, "capi close yield before error",
+			      "error('capi close yield boom', 0)");
+  lua_toclose(L, -1);
+  lua_pushliteral(L, "unreachable after close yield error");
+  return 1;
+}
+
+static int mark_two_lua_close_yield_then_return(lua_State *L)
+{
+  push_lua_yielding_closeable(L, "capi outer close yield", NULL);
+  lua_toclose(L, -1);
+  push_lua_yielding_closeable(L, "capi inner close yield", NULL);
+  lua_toclose(L, -1);
+  lua_pushliteral(L, "capi return after two close yields");
+  return 1;
+}
+
+static int mark_lua_close_yield_then_return_self(lua_State *L)
+{
+  push_lua_yielding_closeable(L, "capi returned close yield", NULL);
+  lua_toclose(L, -1);
+  return 1;
+}
+
+static int mark_lua_close_yield_error_with_outer_close(lua_State *L)
+{
+  push_closeable(L, record_inner_close_error);
+  lua_toclose(L, -1);
+  push_lua_yielding_closeable(L, "capi inner close yield before error",
+			      "error('capi inner close boom', 0)");
+  lua_toclose(L, -1);
+  lua_pushliteral(L, "unreachable after inner close yield error");
+  return 1;
+}
+
 static int mark_close_error_then_return(lua_State *L)
 {
   push_closeable(L, record_close_error);
@@ -599,11 +957,86 @@ static int capi_tostring_meta(lua_State *L)
   return 1;
 }
 
+static int capi_metafield_index(lua_State *L)
+{
+  (void)L;
+  lua_pushliteral(L, "indexed metafield");
+  return 1;
+}
+
 static int checkoption_arg(lua_State *L)
 {
   static const char *opts[] = { "alpha", "beta", "gamma", NULL };
   lua_pushinteger(L, luaL_checkoption(L, 1, "beta", opts));
   return 1;
+}
+
+static int laux_string_macro_arg(lua_State *L)
+{
+  const char *required = luaL_checkstring(L, 1);
+  const char *optional = luaL_optstring(L, 2, "fallback");
+  lua_pushfstring(L, "%s/%s", required, optional);
+  return 1;
+}
+
+static int laux_argcheck_fail(lua_State *L)
+{
+  /* Exercise the Lua 5.4 macro path, not only the exported luaL_argerror()
+  ** function, because embedders compile these checks into their own modules.
+  */
+  luaL_argcheck(L, 0, 1, "macro guard failed");
+  return 0;
+}
+
+static int laux_argexpected_fail(lua_State *L)
+{
+  luaL_argexpected(L, 0, 1, "macro-value");
+  return 0;
+}
+
+static int laux_argexpected_table_arg(lua_State *L)
+{
+  luaL_argexpected(L, 0, 1, "table");
+  return 0;
+}
+
+static int laux_checktype_any_arg(lua_State *L)
+{
+  luaL_checkany(L, 1);
+  luaL_checktype(L, 1, LUA_TTABLE);
+  lua_pushliteral(L, "ok");
+  return 1;
+}
+
+static int laux_checkthread_arg(lua_State *L)
+{
+  luaL_checktype(L, 1, LUA_TTHREAD);
+  return 0;
+}
+
+static int laux_opt_macro_arg(lua_State *L)
+{
+  lua_pushinteger(L, luaL_opt(L, luaL_checkinteger, 1, 77));
+  return 1;
+}
+
+static int laux_len_arg(lua_State *L)
+{
+  lua_pushinteger(L, luaL_len(L, 1));
+  return 1;
+}
+
+static int laux_checkstack_arg(lua_State *L)
+{
+  luaL_checkstack(L, LUA_MINSTACK, "laux stack guard");
+  lua_pushliteral(L, "ok");
+  return 1;
+}
+
+static int laux_checkstack_null_msg(lua_State *L)
+{
+  luaL_checkstack(L, INT_MAX, NULL);
+  return 0;
 }
 
 static int laux_error_arg(lua_State *L)
@@ -647,6 +1080,12 @@ static const luaL_Reg capi_setfuncs[] = {
   { NULL, NULL }
 };
 
+static const luaL_Reg capi_setfuncs_placeholder[] = {
+  { "upvalue", push_upvalue },
+  { "placeholder", NULL },
+  { NULL, NULL }
+};
+
 static int yield_once(lua_State *L)
 {
   return lua_yield(L, 0);
@@ -657,6 +1096,307 @@ static int yield_two(lua_State *L)
   lua_pushliteral(L, "y1");
   lua_pushliteral(L, "y2");
   return lua_yieldk_sig(L, 2, 0, NULL);
+}
+
+static int yieldk_cont_called;
+
+static int yieldk_resume_cont(lua_State *L, int status, lua_KContext ctx)
+{
+  yieldk_cont_called++;
+  check(L, status == LUA_YIELD, "lua_yieldk continuation status");
+  check(L, ctx == (lua_KContext)0x54, "lua_yieldk continuation context");
+  check_string(L, 1, "resume-arg", "lua_yieldk continuation resume arg");
+  lua_pushliteral(L, "cont-result");
+  return 1;
+}
+
+static int yield_with_cont(lua_State *L)
+{
+  lua_pushliteral(L, "yield-result");
+  return lua_yieldk_sig(L, 1, (lua_KContext)0x54, yieldk_resume_cont);
+}
+
+static int yieldk_error_cont(lua_State *L, int status, lua_KContext ctx)
+{
+  check(L, status == LUA_YIELD, "lua_yieldk error continuation status");
+  check(L, ctx == (lua_KContext)0x55, "lua_yieldk error continuation context");
+  lua_pushliteral(L, "yieldk cont boom");
+  return lua_error(L);
+}
+
+static int yield_with_error_cont(lua_State *L)
+{
+  lua_pushliteral(L, "yield-before-error");
+  return lua_yieldk_sig(L, 1, (lua_KContext)0x55, yieldk_error_cont);
+}
+
+static int yieldk_reyield_cont_called;
+
+static int yieldk_reyield_second_cont(lua_State *L, int status, lua_KContext ctx)
+{
+  yieldk_reyield_cont_called++;
+  check(L, status == LUA_YIELD, "lua_yieldk reyield second status");
+  check(L, ctx == (lua_KContext)0x57, "lua_yieldk reyield second context");
+  check_string(L, 1, "resume-2", "lua_yieldk reyield second resume arg");
+  lua_pushliteral(L, "reyield-final");
+  return 1;
+}
+
+static int yieldk_reyield_first_cont(lua_State *L, int status, lua_KContext ctx)
+{
+  yieldk_reyield_cont_called++;
+  check(L, status == LUA_YIELD, "lua_yieldk reyield first status");
+  check(L, ctx == (lua_KContext)0x56, "lua_yieldk reyield first context");
+  check_string(L, 1, "resume-1", "lua_yieldk reyield first resume arg");
+  lua_pushliteral(L, "yield-from-cont");
+  /* Lua 5.4 continuations are still yieldable C frames. Re-yielding here
+  ** catches implementations that resume the continuation through a plain
+  ** protected C call instead of preserving a VM continuation boundary.
+  */
+  return lua_yieldk_sig(L, 1, (lua_KContext)0x57, yieldk_reyield_second_cont);
+}
+
+static int yield_with_reyield_cont(lua_State *L)
+{
+  lua_pushliteral(L, "yield-before-cont");
+  return lua_yieldk_sig(L, 1, (lua_KContext)0x56, yieldk_reyield_first_cont);
+}
+
+static int capi_unexpected_cont_called;
+
+static int unexpected_capi_cont(lua_State *L, int status, lua_KContext ctx)
+{
+  (void)L;
+  (void)status;
+  (void)ctx;
+  capi_unexpected_cont_called++;
+  return 0;
+}
+
+static int callk_yield_cont_called;
+
+static int callk_yield_cont(lua_State *L, int status, lua_KContext ctx)
+{
+  callk_yield_cont_called++;
+  check(L, status == LUA_YIELD, "lua_callk yielding continuation status");
+  check(L, ctx == (lua_KContext)0x6600,
+	"lua_callk yielding continuation context");
+  check(L, lua_gettop(L) == 1, "lua_callk yielding continuation stack");
+  check_string(L, 1, "callk-resume",
+	"lua_callk yielding continuation callee result");
+  lua_pushliteral(L, "callk-cont-result");
+  return 1;
+}
+
+static int callk_yield_driver(lua_State *L)
+{
+  check(L, luaL_loadstring(L,
+	"return coroutine.yield('callk-yield')") == LUA_OK,
+	"lua_callk yielding callee load");
+  lua_callk_sig(L, 0, 1, (lua_KContext)0x6600, callk_yield_cont);
+  /* If the callee does not yield, Lua 5.4 expects the original C function to
+  ** continue normally; route through the same assertion helper with LUA_OK.
+  */
+  return callk_yield_cont(L, LUA_OK, (lua_KContext)0x6600);
+}
+
+static int pcallk_yield_cont_called;
+
+static int pcallk_yield_cont(lua_State *L, int status, lua_KContext ctx)
+{
+  pcallk_yield_cont_called++;
+  check(L, status == LUA_YIELD, "lua_pcallk yielding continuation status");
+  check(L, ctx == (lua_KContext)0x6700,
+	"lua_pcallk yielding continuation context");
+  check(L, lua_gettop(L) == 1, "lua_pcallk yielding continuation stack");
+  check_string(L, 1, "pcallk-resume",
+	"lua_pcallk yielding continuation callee result");
+  lua_pushliteral(L, "pcallk-cont-result");
+  return 1;
+}
+
+static int pcallk_yield_driver(lua_State *L)
+{
+  int status;
+  check(L, luaL_loadstring(L,
+	"return coroutine.yield('pcallk-yield')") == LUA_OK,
+	"lua_pcallk yielding callee load");
+  status = lua_pcallk_sig(L, 0, 1, 0, (lua_KContext)0x6700,
+			  pcallk_yield_cont);
+  return pcallk_yield_cont(L, status, (lua_KContext)0x6700);
+}
+
+static int pcallk_yield_error_cont_called;
+
+static int pcallk_yield_error_cont(lua_State *L, int status, lua_KContext ctx)
+{
+  pcallk_yield_error_cont_called++;
+  check(L, status == LUA_ERRRUN, "lua_pcallk yield-error continuation status");
+  check(L, ctx == (lua_KContext)0x6701,
+	"lua_pcallk yield-error continuation context");
+  check(L, lua_gettop(L) == 1, "lua_pcallk yield-error continuation stack");
+  check_string(L, 1, "pcallk-error-after-yield",
+	"lua_pcallk yield-error continuation error object");
+  lua_pushliteral(L, "pcallk-error-handled");
+  return 1;
+}
+
+static int pcallk_yield_error_driver(lua_State *L)
+{
+  int status;
+  check(L, luaL_loadstring(L,
+	"coroutine.yield('pcallk-error-yield'); "
+	"error('pcallk-error-after-yield', 0)") == LUA_OK,
+	"lua_pcallk yield-error callee load");
+  status = lua_pcallk_sig(L, 0, 1, 0, (lua_KContext)0x6701,
+			  pcallk_yield_error_cont);
+  return pcallk_yield_error_cont(L, status, (lua_KContext)0x6701);
+}
+
+static int callk_yield_error_cont_called;
+
+static int callk_yield_error_cont(lua_State *L, int status, lua_KContext ctx)
+{
+  (void)L;
+  (void)status;
+  (void)ctx;
+  callk_yield_error_cont_called++;
+  return 0;
+}
+
+static int callk_yield_error_driver(lua_State *L)
+{
+  check(L, luaL_loadstring(L,
+	"coroutine.yield('callk-error-yield'); "
+	"error('callk-error-after-yield', 0)") == LUA_OK,
+	"lua_callk yield-error callee load");
+  lua_callk_sig(L, 0, 1, (lua_KContext)0x6603, callk_yield_error_cont);
+  lua_pushliteral(L, "callk-error-unexpected-return");
+  return 1;
+}
+
+static int callk_reyield_cont_called;
+
+static int callk_reyield_second_cont(lua_State *L, int status, lua_KContext ctx)
+{
+  callk_reyield_cont_called++;
+  check(L, status == LUA_YIELD, "lua_callk reyield second status");
+  check(L, ctx == (lua_KContext)0x6602, "lua_callk reyield second context");
+  check_string(L, 1, "callk-resume-2", "lua_callk reyield second resume arg");
+  lua_pushliteral(L, "callk-reyield-final");
+  return 1;
+}
+
+static int callk_reyield_first_cont(lua_State *L, int status, lua_KContext ctx)
+{
+  callk_reyield_cont_called++;
+  check(L, status == LUA_YIELD, "lua_callk reyield first status");
+  check(L, ctx == (lua_KContext)0x6601, "lua_callk reyield first context");
+  check_string(L, 1, "callk-callee-final",
+	"lua_callk reyield first callee result");
+  lua_pushliteral(L, "callk-yield-from-cont");
+  return lua_yieldk_sig(L, 1, (lua_KContext)0x6602,
+			callk_reyield_second_cont);
+}
+
+static int callk_reyield_driver(lua_State *L)
+{
+  check(L, luaL_loadstring(L,
+	"coroutine.yield('callk-callee-yield'); return 'callk-callee-final'") ==
+	LUA_OK, "lua_callk reyield callee load");
+  lua_callk_sig(L, 0, 1, (lua_KContext)0x6601, callk_reyield_first_cont);
+  return callk_reyield_first_cont(L, LUA_OK, (lua_KContext)0x6601);
+}
+
+static int pcallk_reyield_cont_called;
+
+static int pcallk_reyield_second_cont(lua_State *L, int status, lua_KContext ctx)
+{
+  pcallk_reyield_cont_called++;
+  check(L, status == LUA_YIELD, "lua_pcallk reyield second status");
+  check(L, ctx == (lua_KContext)0x6703, "lua_pcallk reyield second context");
+  check_string(L, 1, "pcallk-resume-2",
+	"lua_pcallk reyield second resume arg");
+  lua_pushliteral(L, "pcallk-reyield-final");
+  return 1;
+}
+
+static int pcallk_reyield_first_cont(lua_State *L, int status, lua_KContext ctx)
+{
+  pcallk_reyield_cont_called++;
+  check(L, status == LUA_YIELD, "lua_pcallk reyield first status");
+  check(L, ctx == (lua_KContext)0x6702, "lua_pcallk reyield first context");
+  check_string(L, 1, "pcallk-callee-final",
+	"lua_pcallk reyield first callee result");
+  lua_pushliteral(L, "pcallk-yield-from-cont");
+  return lua_yieldk_sig(L, 1, (lua_KContext)0x6703,
+			pcallk_reyield_second_cont);
+}
+
+static int pcallk_reyield_driver(lua_State *L)
+{
+  int status;
+  check(L, luaL_loadstring(L,
+	"coroutine.yield('pcallk-callee-yield'); return 'pcallk-callee-final'") ==
+	LUA_OK, "lua_pcallk reyield callee load");
+  status = lua_pcallk_sig(L, 0, 1, 0, (lua_KContext)0x6702,
+			  pcallk_reyield_first_cont);
+  return pcallk_reyield_first_cont(L, status, (lua_KContext)0x6702);
+}
+
+static int callk_multret_cont_called;
+
+static int callk_multret_cont(lua_State *L, int status, lua_KContext ctx)
+{
+  callk_multret_cont_called++;
+  check(L, status == LUA_YIELD, "lua_callk multret continuation status");
+  check(L, ctx == (lua_KContext)0x6604,
+	"lua_callk multret continuation context");
+  check(L, lua_gettop(L) == 3, "lua_callk multret continuation stack");
+  check_string(L, 1, "callk-m1", "lua_callk multret result 1");
+  check(L, lua_isnil(L, 2), "lua_callk multret nil hole");
+  check_string(L, 3, "callk-m3", "lua_callk multret result 3");
+  lua_pushliteral(L, "callk-multret-cont");
+  return 1;
+}
+
+static int callk_multret_driver(lua_State *L)
+{
+  check(L, luaL_loadstring(L,
+	"coroutine.yield('callk-multret-yield'); "
+	"return 'callk-m1', nil, 'callk-m3'") == LUA_OK,
+	"lua_callk multret callee load");
+  lua_callk_sig(L, 0, LUA_MULTRET, (lua_KContext)0x6604,
+		callk_multret_cont);
+  return callk_multret_cont(L, LUA_OK, (lua_KContext)0x6604);
+}
+
+static int pcallk_multret_cont_called;
+
+static int pcallk_multret_cont(lua_State *L, int status, lua_KContext ctx)
+{
+  pcallk_multret_cont_called++;
+  check(L, status == LUA_YIELD, "lua_pcallk multret continuation status");
+  check(L, ctx == (lua_KContext)0x6704,
+	"lua_pcallk multret continuation context");
+  check(L, lua_gettop(L) == 3, "lua_pcallk multret continuation stack");
+  check_string(L, 1, "pcallk-m1", "lua_pcallk multret result 1");
+  check(L, lua_isnil(L, 2), "lua_pcallk multret nil hole");
+  check_string(L, 3, "pcallk-m3", "lua_pcallk multret result 3");
+  lua_pushliteral(L, "pcallk-multret-cont");
+  return 1;
+}
+
+static int pcallk_multret_driver(lua_State *L)
+{
+  int status;
+  check(L, luaL_loadstring(L,
+	"coroutine.yield('pcallk-multret-yield'); "
+	"return 'pcallk-m1', nil, 'pcallk-m3'") == LUA_OK,
+	"lua_pcallk multret callee load");
+  status = lua_pcallk_sig(L, 0, LUA_MULTRET, 0, (lua_KContext)0x6704,
+			  pcallk_multret_cont);
+  return pcallk_multret_cont(L, status, (lua_KContext)0x6704);
 }
 
 static int push_isyieldable(lua_State *L)
@@ -706,6 +1446,30 @@ static int dump_writer(lua_State *L, const void *p, size_t sz, void *ud)
   memcpy(b->data + b->len, p, sz);
   b->len += sz;
   return 0;
+}
+
+static int pushfstring_bad_format(lua_State *L)
+{
+  lua_pushfstring(L, "%Z");
+  return 1;
+}
+
+static int pushfstring_bad_modifier(lua_State *L)
+{
+  lua_pushfstring(L, "%04d", 7);
+  return 1;
+}
+
+static int pushfstring_bad_unsigned(lua_State *L)
+{
+  lua_pushfstring(L, "%u", 7);
+  return 1;
+}
+
+static int pushfstring_bad_floatfmt(lua_State *L)
+{
+  lua_pushfstring(L, "%g", (lua_Number)1.5);
+  return 1;
 }
 
 static void test_stack_and_number_api(lua_State *L)
@@ -933,6 +1697,43 @@ static void test_stack_and_number_api(lua_State *L)
 	"lua_pushliteral return value");
   lua_pop(L, 1);
 
+  ret = lua_pushfstring(L, "i=%I u=%U f=%f d=%d c=%c s=%s %%",
+			(lua_Integer)-123, (long)0x20ac,
+			(lua_Number)1.0, 7, 'A', "ok");
+  check(L, ret != NULL &&
+	   strcmp(ret, "i=-123 u=\xe2\x82\xac f=1.0 d=7 c=A s=ok %") == 0,
+	"lua_pushfstring Lua 5.4 formats");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, pushfstring_bad_format);
+  check(L, lua_pcall(L, 0, 1, 0) == LUA_ERRRUN,
+	"lua_pushfstring invalid format status");
+  check(L, strstr(lua_tostring(L, -1),
+		  "invalid option '%Z' to 'lua_pushfstring'") != NULL,
+	"lua_pushfstring invalid format message");
+  lua_pop(L, 1);
+  lua_pushcfunction(L, pushfstring_bad_modifier);
+  check(L, lua_pcall(L, 0, 1, 0) == LUA_ERRRUN,
+	"lua_pushfstring invalid modifier status");
+  check(L, strstr(lua_tostring(L, -1),
+		  "invalid option '%0' to 'lua_pushfstring'") != NULL,
+	"lua_pushfstring invalid modifier message");
+  lua_pop(L, 1);
+  lua_pushcfunction(L, pushfstring_bad_unsigned);
+  check(L, lua_pcall(L, 0, 1, 0) == LUA_ERRRUN,
+	"lua_pushfstring invalid unsigned status");
+  check(L, strstr(lua_tostring(L, -1),
+		  "invalid option '%u' to 'lua_pushfstring'") != NULL,
+	"lua_pushfstring invalid unsigned message");
+  lua_pop(L, 1);
+  lua_pushcfunction(L, pushfstring_bad_floatfmt);
+  check(L, lua_pcall(L, 0, 1, 0) == LUA_ERRRUN,
+	"lua_pushfstring invalid float format status");
+  check(L, strstr(lua_tostring(L, -1),
+		  "invalid option '%g' to 'lua_pushfstring'") != NULL,
+	"lua_pushfstring invalid float format message");
+  lua_pop(L, 1);
+
   lua_pushliteral(L, "Lua");
   lua_pushliteral(L, "5");
   lua_pushliteral(L, ".");
@@ -946,8 +1747,31 @@ static void test_stack_and_number_api(lua_State *L)
 
   check(L, lua_numbertointeger((lua_Number)42, &iv) && iv == 42,
 	"lua_numbertointeger integer");
-  check(L, !lua_numbertointeger((lua_Number)1.5, &iv),
-	"lua_numbertointeger fraction");
+  iv = 0;
+  check(L, lua_numbertointeger((lua_Number)1.5, &iv) && iv == 1,
+	"Lua 5.4 lua_numbertointeger truncates in-range fractions");
+  iv = 0;
+  check(L, !lua_numbertointeger((lua_Number)LUA_MAXINTEGER + 1.0, &iv),
+	"lua_numbertointeger rejects upper exclusive bound");
+  {
+    char nbuf[64];
+    char ibuf[64];
+    lua_number2str(nbuf, sizeof(nbuf), (lua_Number)12.5);
+    lua_integer2str(ibuf, sizeof(ibuf), (lua_Integer)-123);
+    check(L, strcmp(nbuf, "12.5") == 0, "lua_number2str 5.4 signature");
+    check(L, strcmp(ibuf, "-123") == 0, "lua_integer2str");
+    if (sizeof(lua_Integer) > sizeof(int)) {
+      lua_integer2str(ibuf, sizeof(ibuf),
+		      (lua_Integer)((lua_Unsigned)0x7fffffffu + 1u));
+      check(L, strcmp(ibuf, "2147483648") == 0,
+	    "lua_integer2str keeps 64-bit C integer width");
+    }
+    check(L, LUA_MAXUNSIGNED == (lua_Unsigned)~(lua_Unsigned)0,
+	  "LUA_MAXUNSIGNED");
+    if (sizeof(lua_Unsigned) > sizeof(unsigned int))
+      check(L, LUA_MAXUNSIGNED > (lua_Unsigned)0xffffffffu,
+	    "lua_Unsigned is not capped to unsigned int");
+  }
   lua_pushnumber(L, (lua_Number)1.5);
   check(L, lua_tointegerx(L, -1, NULL) == 0,
 	"lua_tointegerx fraction value");
@@ -1033,6 +1857,14 @@ static void test_stack_and_number_api(lua_State *L)
   check_integer(L, -1, 42, "lua_callk function pointer");
   lua_pop(L, 1);
 
+  capi_unexpected_cont_called = 0;
+  lua_pushcfunction(L, push_answer);
+  lua_callk_sig(L, 0, 1, (lua_KContext)0x6400, unexpected_capi_cont);
+  check_integer(L, -1, 42, "lua_callk non-yielding continuation result");
+  check(L, capi_unexpected_cont_called == 0,
+	"lua_callk non-yielding continuation not called");
+  lua_pop(L, 1);
+
   lua_pushcfunction(L, push_answer);
   check(L, lua_pcallk(L, 0, 1, 0, 0, NULL) == LUA_OK, "lua_pcallk macro");
   check_integer(L, -1, 42, "lua_pcallk result");
@@ -1042,6 +1874,27 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, lua_pcallk_sig(L, 0, 1, 0, 0, NULL) == LUA_OK,
 	"lua_pcallk function pointer");
   check_integer(L, -1, 42, "lua_pcallk function pointer result");
+  lua_pop(L, 1);
+
+  capi_unexpected_cont_called = 0;
+  lua_pushcfunction(L, push_answer);
+  check(L, lua_pcallk_sig(L, 0, 1, 0, (lua_KContext)0x6500,
+			  unexpected_capi_cont) == LUA_OK,
+	"lua_pcallk non-yielding continuation status");
+  check_integer(L, -1, 42, "lua_pcallk non-yielding continuation result");
+  check(L, capi_unexpected_cont_called == 0,
+	"lua_pcallk non-yielding continuation not called");
+  lua_pop(L, 1);
+
+  capi_unexpected_cont_called = 0;
+  lua_pushcfunction(L, raise_lua_error);
+  check(L, lua_pcallk_sig(L, 0, 0, 0, (lua_KContext)0x6501,
+			  unexpected_capi_cont) == LUA_ERRRUN,
+	"lua_pcallk non-yielding error continuation status");
+  check_string(L, -1, "capi raised error",
+	"lua_pcallk non-yielding error object");
+  check(L, capi_unexpected_cont_called == 0,
+	"lua_pcallk non-yielding error continuation not called");
   lua_pop(L, 1);
 
   lua_pushcfunction(L, raise_lua_error);
@@ -1135,6 +1988,124 @@ static void test_stack_and_number_api(lua_State *L)
 	"C return closes returned slot with nil error");
   lua_pop(L, 1);
 
+  co = lua_newthread(L);
+  lua_pushcfunction(co, mark_lua_close_yield_then_return);
+  {
+    int nres = -1;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_YIELD,
+	  "C return close-yield initial status");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "C return close-yield yield count");
+    check_string(co, 1, "capi close yield",
+	  "C return close-yield value");
+    lua_settop(co, 0);
+    nres = -1;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_OK,
+	  "C return close-yield final status");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "C return close-yield final count");
+    check_string(co, 1, "capi return after close yield",
+	  "C return close-yield final result");
+  }
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  lua_pushcfunction(co, mark_two_lua_close_yield_then_return);
+  {
+    int nres = -1;
+    int status = lua_resume_sig(co, L, 0, &nres);
+    check(L, status == LUA_YIELD,
+	  "C return two close-yields first status");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "C return two close-yields first count");
+    check_string(co, 1, "capi inner close yield",
+	  "C return two close-yields first value");
+    lua_settop(co, 0);
+    nres = -1;
+    status = lua_resume_sig(co, L, 0, &nres);
+    check(L, status == LUA_YIELD,
+	  "C return two close-yields second status");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "C return two close-yields second count");
+    check_string(co, 1, "capi outer close yield",
+	  "C return two close-yields second value");
+    lua_settop(co, 0);
+    nres = -1;
+    status = lua_resume_sig(co, L, 0, &nres);
+    check(L, status == LUA_OK,
+	  "C return two close-yields final status");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "C return two close-yields final count");
+    check_string(co, 1, "capi return after two close yields",
+	  "C return two close-yields final result");
+  }
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  lua_pushcfunction(co, mark_lua_close_yield_then_return_self);
+  {
+    int nres = -1;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_YIELD,
+	  "C return yielded close self initial status");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "C return yielded close self initial count");
+    check_string(co, 1, "capi returned close yield",
+	  "C return yielded close self value");
+    lua_settop(co, 0);
+    nres = -1;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_OK,
+	  "C return yielded close self final status");
+    check(L, nres == 1 && lua_gettop(co) == 1 && lua_istable(co, 1),
+	  "C return yielded close self final table");
+  }
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  lua_pushcfunction(co, mark_lua_close_yield_error_then_return);
+  {
+    int nres = -1;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_YIELD,
+	  "C return close-yield-error initial status");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "C return close-yield-error yield count");
+    check_string(co, 1, "capi close yield before error",
+	  "C return close-yield-error value");
+    lua_settop(co, 0);
+    nres = -1;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_ERRRUN,
+	  "C return close-yield-error final status");
+    check(L, nres == 0 && lua_gettop(co) == 1,
+	  "C return close-yield-error final count");
+    check_string(co, 1, "capi close yield boom",
+	  "C return close-yield-error object");
+  }
+  lua_pop(L, 1);
+
+  close_call_count = 0;
+  close_body_error_count = 0;
+  co = lua_newthread(L);
+  lua_pushcfunction(co, mark_lua_close_yield_error_with_outer_close);
+  {
+    int nres = -1;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_YIELD,
+	  "C return close-yield-error outer initial status");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "C return close-yield-error outer initial count");
+    check_string(co, 1, "capi inner close yield before error",
+	  "C return close-yield-error outer value");
+    lua_settop(co, 0);
+    nres = -1;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_ERRRUN,
+	  "C return close-yield-error outer final status");
+    check(L, nres == 0 && lua_gettop(co) == 1,
+	  "C return close-yield-error outer final count");
+    check_string(co, 1, "capi inner close boom",
+	  "C return close-yield-error outer object");
+    check(L, close_call_count == 1 && close_body_error_count == 1,
+	  "C return close-yield-error outer receives replacement error");
+  }
+  lua_pop(L, 1);
+
   close_call_count = 0;
   close_nil_error_count = 0;
   lua_pushcfunction(L, mark_close_error_then_return);
@@ -1156,6 +2127,28 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, strstr(lua_tostring(L, -1), "capi body boom") != NULL,
 	"lua error keeps body error");
   lua_pop(L, 1);
+
+  close_call_count = 0;
+  close_nil_error_count = 0;
+  lua_pushcfunction(L, push_closeable_userdata);
+  lua_setglobal(L, "capi_closeable_userdata");
+  check(L, luaL_loadstring(L,
+	"local x <close> = capi_closeable_userdata(); return true") == LUA_OK,
+	"full userdata tbc load");
+  check(L, lua_pcall(L, 0, 1, 0) == LUA_OK,
+	"full userdata tbc scope exit");
+  check(L, lua_toboolean(L, -1) == 1, "full userdata tbc result");
+  check(L, close_call_count == 1 && close_nil_error_count == 1,
+	"full userdata tbc closes with nil error");
+  lua_pop(L, 1);
+
+  close_call_count = 0;
+  close_nil_error_count = 0;
+  lua_pushcfunction(L, mark_userdata_close_then_return);
+  check(L, lua_pcall(L, 0, 0, 0) == LUA_OK,
+	"C return closes toclose userdata slot");
+  check(L, close_call_count == 1 && close_nil_error_count == 1,
+	"C return userdata close uses nil error");
 
   co = lua_newthread(L);
   check(L, lua_pushthread(co) == 0, "lua_pushthread coroutine return");
@@ -1224,6 +2217,44 @@ static void test_stack_and_number_api(lua_State *L)
   lua_pop(L, 1);
 
   co = lua_newthread(L);
+  check(L, luaL_loadstring(co,
+	"local mt={__close=function() coroutine.yield('closing') end}; "
+	"local x <close> = setmetatable({}, mt); coroutine.yield('paused')") ==
+	LUA_OK, "lua_closethread tbc close-yield load");
+  check(L, lua_resume(co, L, 0, NULL) == LUA_YIELD,
+	"lua_closethread tbc close-yield pause");
+  /* lua_closethread() is a plain C API call, so a __close metamethod that
+  ** tries to yield must become the final close error and leave no resumable
+  ** half-closed coroutine state behind.
+  */
+  check(L, lua_closethread(co, L) == LUA_ERRRUN,
+	"lua_closethread tbc close-yield return");
+  check(L, strstr(lua_tostring(co, 1), "yield across") != NULL,
+	"lua_closethread tbc close-yield error");
+  check(L, lua_status(co) == LUA_OK, "lua_closethread tbc close-yield status");
+  lua_settop(co, 0);
+  check(L, lua_closethread(co, L) == LUA_OK,
+	"lua_closethread tbc close-yield second close");
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  check(L, luaL_loadstring(co,
+	"local mt={__close=function() coroutine.yield('closing') end}; "
+	"local x <close> = setmetatable({}, mt); coroutine.yield('paused')") ==
+	LUA_OK, "lua_resetthread tbc close-yield load");
+  check(L, lua_resume(co, L, 0, NULL) == LUA_YIELD,
+	"lua_resetthread tbc close-yield pause");
+  check(L, lua_resetthread(co) == LUA_ERRRUN,
+	"lua_resetthread tbc close-yield return");
+  check(L, strstr(lua_tostring(co, 1), "yield across") != NULL,
+	"lua_resetthread tbc close-yield error");
+  check(L, lua_status(co) == LUA_OK, "lua_resetthread tbc close-yield status");
+  lua_settop(co, 0);
+  check(L, lua_resetthread(co) == LUA_OK,
+	"lua_resetthread tbc close-yield second reset");
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
   check(L, lua_closethread(co, L) == LUA_OK,
 	"lua_closethread fresh return");
   check(L, lua_status(co) == LUA_OK, "lua_closethread fresh status");
@@ -1259,6 +2290,326 @@ static void test_stack_and_number_api(lua_State *L)
   lua_pop(L, 1);
 
   co = lua_newthread(L);
+  lua_pushcfunction(L, yield_with_reyield_cont);
+  lua_xmove(L, co, 1);
+  {
+    int nres = -1;
+    yieldk_reyield_cont_called = 0;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_YIELD,
+	  "lua_yieldk reyield initial status");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_yieldk reyield initial count");
+    check_string(co, 1, "yield-before-cont",
+	  "lua_yieldk reyield initial result");
+    lua_settop(co, 0);
+    lua_pushliteral(co, "resume-1");
+    nres = -1;
+    check(L, lua_resume_sig(co, L, 1, &nres) == LUA_YIELD,
+	  "lua_yieldk reyield continuation yield status");
+    check(L, yieldk_reyield_cont_called == 1,
+	  "lua_yieldk reyield first continuation called");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_yieldk reyield continuation yield count");
+    check_string(co, 1, "yield-from-cont",
+	  "lua_yieldk reyield continuation yield result");
+    lua_settop(co, 0);
+    lua_pushliteral(co, "resume-2");
+    nres = -1;
+    check(L, lua_resume_sig(co, L, 1, &nres) == LUA_OK,
+	  "lua_yieldk reyield final status");
+    check(L, yieldk_reyield_cont_called == 2,
+	  "lua_yieldk reyield second continuation called");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_yieldk reyield final count");
+    check_string(co, 1, "reyield-final",
+	  "lua_yieldk reyield final result");
+  }
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  lua_pushcfunction(L, callk_yield_driver);
+  lua_xmove(L, co, 1);
+  {
+    int nres = -1;
+    callk_yield_cont_called = 0;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_YIELD,
+	  "lua_callk yielding initial status");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_callk yielding initial count");
+    check_string(co, 1, "callk-yield", "lua_callk yielding result");
+    lua_settop(co, 0);
+    lua_pushliteral(co, "callk-resume");
+    nres = -1;
+    check(L, lua_resume_sig(co, L, 1, &nres) == LUA_OK,
+	  "lua_callk yielding final status");
+    check(L, callk_yield_cont_called == 1,
+	  "lua_callk yielding continuation called");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_callk yielding final count");
+    check_string(co, 1, "callk-cont-result",
+	  "lua_callk yielding final result");
+  }
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  lua_pushcfunction(L, callk_reyield_driver);
+  lua_xmove(L, co, 1);
+  {
+    int nres = -1;
+    callk_reyield_cont_called = 0;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_YIELD,
+	  "lua_callk reyield initial status");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_callk reyield initial count");
+    check_string(co, 1, "callk-callee-yield",
+	  "lua_callk reyield initial result");
+    lua_settop(co, 0);
+    lua_pushliteral(co, "callk-resume-1");
+    nres = -1;
+    check(L, lua_resume_sig(co, L, 1, &nres) == LUA_YIELD,
+	  "lua_callk reyield continuation status");
+    check(L, callk_reyield_cont_called == 1,
+	  "lua_callk reyield first continuation called");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_callk reyield continuation count");
+    check_string(co, 1, "callk-yield-from-cont",
+	  "lua_callk reyield continuation result");
+    lua_settop(co, 0);
+    lua_pushliteral(co, "callk-resume-2");
+    nres = -1;
+    check(L, lua_resume_sig(co, L, 1, &nres) == LUA_OK,
+	  "lua_callk reyield final status");
+    check(L, callk_reyield_cont_called == 2,
+	  "lua_callk reyield second continuation called");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_callk reyield final count");
+    check_string(co, 1, "callk-reyield-final",
+	  "lua_callk reyield final result");
+  }
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  lua_pushcfunction(L, callk_multret_driver);
+  lua_xmove(L, co, 1);
+  {
+    int nres = -1;
+    callk_multret_cont_called = 0;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_YIELD,
+	  "lua_callk multret initial status");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_callk multret initial count");
+    check_string(co, 1, "callk-multret-yield",
+	  "lua_callk multret initial result");
+    lua_settop(co, 0);
+    nres = -1;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_OK,
+	  "lua_callk multret final status");
+    check(L, callk_multret_cont_called == 1,
+	  "lua_callk multret continuation called");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_callk multret final count");
+    check_string(co, 1, "callk-multret-cont",
+	  "lua_callk multret final result");
+  }
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  lua_pushcfunction(L, pcallk_yield_driver);
+  lua_xmove(L, co, 1);
+  {
+    int nres = -1;
+    pcallk_yield_cont_called = 0;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_YIELD,
+	  "lua_pcallk yielding initial status");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_pcallk yielding initial count");
+    check_string(co, 1, "pcallk-yield", "lua_pcallk yielding result");
+    lua_settop(co, 0);
+    lua_pushliteral(co, "pcallk-resume");
+    nres = -1;
+    check(L, lua_resume_sig(co, L, 1, &nres) == LUA_OK,
+	  "lua_pcallk yielding final status");
+    check(L, pcallk_yield_cont_called == 1,
+	  "lua_pcallk yielding continuation called");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_pcallk yielding final count");
+    check_string(co, 1, "pcallk-cont-result",
+	  "lua_pcallk yielding final result");
+  }
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  lua_pushcfunction(L, pcallk_multret_driver);
+  lua_xmove(L, co, 1);
+  {
+    int nres = -1;
+    pcallk_multret_cont_called = 0;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_YIELD,
+	  "lua_pcallk multret initial status");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_pcallk multret initial count");
+    check_string(co, 1, "pcallk-multret-yield",
+	  "lua_pcallk multret initial result");
+    lua_settop(co, 0);
+    nres = -1;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_OK,
+	  "lua_pcallk multret final status");
+    check(L, pcallk_multret_cont_called == 1,
+	  "lua_pcallk multret continuation called");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_pcallk multret final count");
+    check_string(co, 1, "pcallk-multret-cont",
+	  "lua_pcallk multret final result");
+  }
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  lua_pushcfunction(L, pcallk_reyield_driver);
+  lua_xmove(L, co, 1);
+  {
+    int nres = -1;
+    pcallk_reyield_cont_called = 0;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_YIELD,
+	  "lua_pcallk reyield initial status");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_pcallk reyield initial count");
+    check_string(co, 1, "pcallk-callee-yield",
+	  "lua_pcallk reyield initial result");
+    lua_settop(co, 0);
+    lua_pushliteral(co, "pcallk-resume-1");
+    nres = -1;
+    check(L, lua_resume_sig(co, L, 1, &nres) == LUA_YIELD,
+	  "lua_pcallk reyield continuation status");
+    check(L, pcallk_reyield_cont_called == 1,
+	  "lua_pcallk reyield first continuation called");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_pcallk reyield continuation count");
+    check_string(co, 1, "pcallk-yield-from-cont",
+	  "lua_pcallk reyield continuation result");
+    lua_settop(co, 0);
+    lua_pushliteral(co, "pcallk-resume-2");
+    nres = -1;
+    check(L, lua_resume_sig(co, L, 1, &nres) == LUA_OK,
+	  "lua_pcallk reyield final status");
+    check(L, pcallk_reyield_cont_called == 2,
+	  "lua_pcallk reyield second continuation called");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_pcallk reyield final count");
+    check_string(co, 1, "pcallk-reyield-final",
+	  "lua_pcallk reyield final result");
+  }
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  lua_pushcfunction(L, callk_yield_error_driver);
+  lua_xmove(L, co, 1);
+  {
+    int nres = -1;
+    callk_yield_error_cont_called = 0;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_YIELD,
+	  "lua_callk yield-error initial status");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_callk yield-error initial count");
+    check_string(co, 1, "callk-error-yield",
+	  "lua_callk yield-error result");
+    lua_settop(co, 0);
+    nres = -1;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_ERRRUN,
+	  "lua_callk yield-error final status");
+    check(L, callk_yield_error_cont_called == 0,
+	  "lua_callk yield-error continuation not called");
+    check(L, nres == 0 && lua_gettop(co) == 1,
+	  "lua_callk yield-error final count");
+    check_string(co, 1, "callk-error-after-yield",
+	  "lua_callk yield-error final object");
+  }
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  lua_pushcfunction(L, pcallk_yield_error_driver);
+  lua_xmove(L, co, 1);
+  {
+    int nres = -1;
+    pcallk_yield_error_cont_called = 0;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_YIELD,
+	  "lua_pcallk yield-error initial status");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_pcallk yield-error initial count");
+    check_string(co, 1, "pcallk-error-yield",
+	  "lua_pcallk yield-error result");
+    lua_settop(co, 0);
+    nres = -1;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_OK,
+	  "lua_pcallk yield-error final status");
+    check(L, pcallk_yield_error_cont_called == 1,
+	  "lua_pcallk yield-error continuation called");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_pcallk yield-error final count");
+    check_string(co, 1, "pcallk-error-handled",
+	  "lua_pcallk yield-error final result");
+  }
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  lua_pushcfunction(L, yield_with_cont);
+  lua_xmove(L, co, 1);
+  {
+    int nres = -1;
+    yieldk_cont_called = 0;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_YIELD,
+	  "lua_yieldk continuation initial yield status");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_yieldk continuation yield result count");
+    check_string(co, 1, "yield-result",
+	  "lua_yieldk continuation yield result");
+    lua_settop(co, 0);
+    lua_pushliteral(co, "resume-arg");
+    nres = -1;
+    check(L, lua_resume_sig(co, L, 1, &nres) == LUA_OK,
+	  "lua_yieldk continuation resume status");
+    check(L, yieldk_cont_called == 1, "lua_yieldk continuation called");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_yieldk continuation final result count");
+    check_string(co, 1, "cont-result",
+	  "lua_yieldk continuation final result");
+  }
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  lua_pushcfunction(L, yield_with_error_cont);
+  lua_xmove(L, co, 1);
+  {
+    int nres = -1;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_YIELD,
+	  "lua_yieldk error continuation initial yield");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_yieldk error continuation yield count");
+    lua_settop(co, 0);
+    nres = -1;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_ERRRUN,
+	  "lua_yieldk error continuation resume status");
+    check(L, nres == 0 && lua_gettop(co) == 1,
+	  "lua_yieldk error continuation error count");
+    check_string(co, 1, "yieldk cont boom",
+	  "lua_yieldk error continuation message");
+  }
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  lua_pushcfunction(L, yield_with_cont);
+  lua_xmove(L, co, 1);
+  {
+    int nres = -1;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_YIELD,
+	  "lua_yieldk continuation close setup");
+    check(L, lua_closethread(co, L) == LUA_OK,
+	  "lua_yieldk continuation closethread status");
+    check(L, lua_status(co) == LUA_OK && lua_gettop(co) == 0,
+	  "lua_yieldk continuation closethread clears state");
+  }
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
   lua_pushcfunction(L, return_two);
   lua_xmove(L, co, 1);
   {
@@ -1269,6 +2620,14 @@ static void test_stack_and_number_api(lua_State *L)
 	  "lua_resume54 return result count");
     check_string(co, 1, "r1", "lua_resume54 return result #1");
     check_string(co, 2, "r2", "lua_resume54 return result #2");
+    lua_settop(co, 0);
+    nres = -1;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_ERRRUN,
+	  "lua_resume54 dead coroutine status");
+    check(L, nres == 0 && lua_gettop(co) == 1,
+	  "lua_resume54 dead coroutine error count");
+    check(L, strstr(lua_tostring(co, 1), "dead coroutine") != NULL,
+	  "lua_resume54 dead coroutine error text");
   }
   lua_pop(L, 1);
 }
@@ -1289,6 +2648,11 @@ static void test_compare_len_arith(lua_State *L)
   check(L, lua_compare(L, -2, -1, LUA_OPLE), "lua_compare le");
   check(L, !lua_compare(L, -2, -1, LUA_OPEQ), "lua_compare eq false");
   lua_pop(L, 2);
+
+  lua_pushliteral(L, "a\0b");
+  check(L, lua_rawlen(L, -1) == 1,
+	"Lua 5.4 lua_pushliteral macro uses lua_pushstring semantics");
+  lua_pop(L, 1);
 
   lua_newtable(L);
   lua_pushliteral(L, "x");
@@ -1422,6 +2786,18 @@ static void test_uservalue_api(lua_State *L)
   check(L, lua_setiuservalue(L, -2, 3) == 0,
 	"lua_setiuservalue out of range");
   check(L, lua_gettop(L) == top, "lua_setiuservalue invalid pops value");
+  lua_newtable(L);
+  top = lua_gettop(L);
+  check(L, lua_getiuservalue(L, -1, 1) == LUA_TNONE,
+	"lua_getiuservalue non-userdata");
+  check(L, lua_gettop(L) == top,
+	"lua_getiuservalue non-userdata pushes nothing");
+  lua_pushliteral(L, "ignored");
+  check(L, lua_setiuservalue(L, -2, 1) == 0,
+	"lua_setiuservalue non-userdata");
+  check(L, lua_gettop(L) == top,
+	"lua_setiuservalue non-userdata pops value");
+  lua_pop(L, 1);
 
   alias_ud = lua_newuserdata(L, 4);
   check(L, alias_ud != NULL, "lua_newuserdata alias");
@@ -1464,6 +2840,98 @@ static void test_uservalue_api(lua_State *L)
   lua_pop(L, 2);
 }
 
+static void test_metatable_api54(lua_State *L)
+{
+  int top = lua_gettop(L);
+
+  lua_newtable(L);
+  check(L, lua_getmetatable(L, -1) == 0, "lua_getmetatable no metatable");
+  check(L, lua_gettop(L) == top + 1,
+	"lua_getmetatable no metatable pushes nothing");
+
+  lua_newtable(L);
+  lua_pushliteral(L, "lua54-mt");
+  lua_setfield(L, -2, "tag");
+  check(L, lua_setmetatable(L, -2) == 1, "lua_setmetatable table return");
+  check(L, lua_gettop(L) == top + 1, "lua_setmetatable pops metatable");
+  check(L, lua_getmetatable(L, -1) == 1, "lua_getmetatable table return");
+  lua_getfield(L, -1, "tag");
+  check_string(L, -1, "lua54-mt", "lua_getmetatable table value");
+  lua_pop(L, 2);
+
+  lua_pushnil(L);
+  check(L, lua_setmetatable(L, -2) == 1, "lua_setmetatable nil return");
+  check(L, lua_gettop(L) == top + 1,
+	"lua_setmetatable nil still pops value");
+  check(L, lua_getmetatable(L, -1) == 0, "lua_setmetatable nil removes mt");
+  lua_pop(L, 1);
+
+  check(L, lua_gettop(L) == top, "metatable api restores stack");
+}
+
+static void test_upvalue_api54(lua_State *L)
+{
+  int top = lua_gettop(L);
+  int status;
+  int f1, f2;
+  const char *name;
+  void *id1;
+  void *id2;
+
+  status = luaL_loadstring(L,
+    "local x = 'left'\n"
+    "local y = 'right'\n"
+    "return function() return x end, function() return y end");
+  check(L, status == LUA_OK, "load upvalue api probe");
+  lua_call(L, 0, 2);
+  f1 = lua_absindex(L, -2);
+  f2 = lua_absindex(L, -1);
+
+  name = lua_getupvalue(L, f1, 1);
+  check(L, name && strcmp(name, "x") == 0, "lua_getupvalue name");
+  check_string(L, -1, "left", "lua_getupvalue value");
+  lua_pop(L, 1);
+  check(L, lua_getupvalue(L, f1, 2) == NULL,
+	"lua_getupvalue invalid index");
+  check(L, lua_gettop(L) == top + 2,
+	"lua_getupvalue invalid pushes nothing");
+
+  id1 = lua_upvalueid(L, f1, 1);
+  id2 = lua_upvalueid(L, f2, 1);
+  check(L, id1 != NULL && id2 != NULL && id1 != id2,
+	"lua_upvalueid distinct closures");
+  check(L, lua_upvalueid(L, f1, 2) == NULL,
+	"lua_upvalueid invalid index");
+
+  lua_pushliteral(L, "changed");
+  name = lua_setupvalue(L, f1, 1);
+  check(L, name && strcmp(name, "x") == 0, "lua_setupvalue name");
+  check(L, lua_gettop(L) == top + 2, "lua_setupvalue pops value");
+  lua_pushvalue(L, f1);
+  lua_call(L, 0, 1);
+  check_string(L, -1, "changed", "lua_setupvalue updates closure");
+  lua_pop(L, 1);
+
+  lua_upvaluejoin(L, f1, 1, f2, 1);
+  check(L, lua_upvalueid(L, f1, 1) == lua_upvalueid(L, f2, 1),
+	"lua_upvaluejoin shared id");
+  lua_pushvalue(L, f1);
+  lua_call(L, 0, 1);
+  check_string(L, -1, "right", "lua_upvaluejoin adopts source value");
+  lua_pop(L, 1);
+
+  lua_pushliteral(L, "joined");
+  name = lua_setupvalue(L, f2, 1);
+  check(L, name && strcmp(name, "y") == 0, "lua_setupvalue source name");
+  lua_pushvalue(L, f1);
+  lua_call(L, 0, 1);
+  check_string(L, -1, "joined", "lua_upvaluejoin keeps shared slot");
+  lua_pop(L, 1);
+
+  lua_pop(L, 2);
+  check(L, lua_gettop(L) == top, "upvalue api restores stack");
+}
+
 static void test_lauxlib_api(lua_State *L)
 {
   luaL_Buffer b;
@@ -1477,6 +2945,8 @@ static void test_lauxlib_api(lua_State *L)
   int ref;
   int rtype;
   void *ud;
+  FILE *tmpf;
+  const char *tmpname = "test/lua54_capi_dofile.tmp.lua";
   CApiReaderCtx reader;
 
   stream.f = NULL;
@@ -1491,6 +2961,9 @@ static void test_lauxlib_api(lua_State *L)
   check(L, status == LUA_ERRRUN, "luaL_checkversion_ rejects wrong version");
   check(L, strstr(lua_tostring(L, -1), "version mismatch") != NULL,
 	"luaL_checkversion_ version error");
+  check(L, strstr(lua_tostring(L, -1), "503.0") != NULL &&
+	   strstr(lua_tostring(L, -1), "504.0") != NULL,
+	"luaL_checkversion_ version numbers are Lua numbers");
   lua_pop(L, 1);
 
   lua_pushcfunction(L, checkversion_bad_sizes);
@@ -1518,6 +2991,29 @@ static void test_lauxlib_api(lua_State *L)
 	"luaL_optinteger fraction error");
   lua_pop(L, 1);
 
+  lua_pushcfunction(L, optnumber_arg);
+  status = lua_pcall(L, 0, 1, 0);
+  check(L, status == LUA_OK, "luaL_optnumber default status");
+  check(L, lua_tonumber(L, -1) == (lua_Number)3.25,
+	"luaL_optnumber default");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, optnumber_arg);
+  lua_pushliteral(L, "4.5");
+  status = lua_pcall(L, 1, 1, 0);
+  check(L, status == LUA_OK, "luaL_optnumber string status");
+  check(L, lua_tonumber(L, -1) == (lua_Number)4.5,
+	"luaL_optnumber string");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, optnumber_arg);
+  lua_pushliteral(L, "nan");
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_optnumber rejects nan string");
+  check(L, strstr(lua_tostring(L, -1), "number expected") != NULL,
+	"luaL_optnumber nan error");
+  lua_pop(L, 1);
+
   lua_pushcfunction(L, checknumber_arg);
   lua_pushliteral(L, "nan");
   status = lua_pcall(L, 1, 0, 0);
@@ -1537,6 +3033,13 @@ static void test_lauxlib_api(lua_State *L)
   lua_pop(L, 1);
 
   lua_pushcfunction(L, checkoption_arg);
+  lua_pushnil(L);
+  status = lua_pcall(L, 1, 1, 0);
+  check(L, status == LUA_OK, "luaL_checkoption nil default status");
+  check_integer(L, -1, 1, "luaL_checkoption nil default index");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, checkoption_arg);
   lua_pushliteral(L, "gamma");
   status = lua_pcall(L, 1, 1, 0);
   check(L, status == LUA_OK, "luaL_checkoption explicit status");
@@ -1549,6 +3052,229 @@ static void test_lauxlib_api(lua_State *L)
   check(L, status == LUA_ERRRUN, "luaL_checkoption rejects option");
   check(L, strstr(lua_tostring(L, -1), "invalid option") != NULL,
 	"luaL_checkoption error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, checkoption_arg);
+  lua_newtable(L);
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_checkoption rejects table with default");
+  check(L, strstr(lua_tostring(L, -1), "string expected") != NULL,
+	"luaL_checkoption table error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_string_macro_arg);
+  lua_pushliteral(L, "left");
+  status = lua_pcall(L, 1, 1, 0);
+  check(L, status == LUA_OK, "luaL_checkstring/luaL_optstring default status");
+  check_string(L, -1, "left/fallback",
+	       "luaL_checkstring/luaL_optstring default");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_string_macro_arg);
+  lua_pushliteral(L, "left");
+  lua_pushliteral(L, "right");
+  status = lua_pcall(L, 2, 1, 0);
+  check(L, status == LUA_OK, "luaL_optstring explicit status");
+  check_string(L, -1, "left/right", "luaL_optstring explicit");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_string_macro_arg);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_checkstring rejects missing arg");
+  check(L, strstr(lua_tostring(L, -1), "string expected") != NULL,
+	"luaL_checkstring missing arg error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_argcheck_fail);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_argcheck macro rejects");
+  check(L, strstr(lua_tostring(L, -1), "macro guard failed") != NULL,
+	"luaL_argcheck macro error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_argexpected_fail);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_argexpected macro rejects");
+  check(L, strstr(lua_tostring(L, -1), "macro-value expected") != NULL,
+	"luaL_argexpected macro error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_argexpected_table_arg);
+  lua_pushlightuserdata(L, (void *)&status);
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN,
+	"luaL_argexpected light userdata status");
+  check(L, strstr(lua_tostring(L, -1),
+		  "table expected, got light userdata") != NULL,
+	"luaL_argexpected light userdata name");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_checktype_any_arg);
+  lua_newtable(L);
+  status = lua_pcall(L, 1, 1, 0);
+  check(L, status == LUA_OK, "luaL_checkany/luaL_checktype table status");
+  check_string(L, -1, "ok", "luaL_checkany/luaL_checktype table");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_checktype_any_arg);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_checkany rejects missing arg");
+  check(L, strstr(lua_tostring(L, -1), "value expected") != NULL,
+	"luaL_checkany missing arg error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_checktype_any_arg);
+  lua_pushliteral(L, "not-table");
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_checktype rejects wrong type");
+  check(L, strstr(lua_tostring(L, -1), "table expected") != NULL,
+	"luaL_checktype wrong type error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_checktype_any_arg);
+  lua_pushlightuserdata(L, (void *)&status);
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN,
+	"luaL_typeerror light userdata status");
+  check(L, strstr(lua_tostring(L, -1),
+		  "table expected, got light userdata") != NULL,
+	"luaL_typeerror light userdata name");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_checkthread_arg);
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushinteger(L, 123);
+  lua_setfield(L, -2, "__name");
+  lua_setmetatable(L, -2);
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_typeerror ignores numeric __name");
+  check(L, strstr(lua_tostring(L, -1), "thread expected, got table") != NULL,
+	"luaL_typeerror numeric __name fallback");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, checkudata_arg);
+  lua_pushinteger(L, 54);
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_checkudata rejects number");
+  check(L, strstr(lua_tostring(L, -1),
+		  "capi.ud expected, got number") != NULL,
+	"luaL_checkudata number typeerror");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, checkudata_arg);
+  lua_pushlightuserdata(L, (void *)&status);
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN,
+	"luaL_checkudata rejects light userdata");
+  check(L, strstr(lua_tostring(L, -1),
+		  "capi.ud expected, got light userdata") != NULL,
+	"luaL_checkudata light userdata typeerror");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, checkudata_arg);
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushliteral(L, "NamedCapiArg");
+  lua_setfield(L, -2, "__name");
+  lua_setmetatable(L, -2);
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_checkudata rejects named table");
+  check(L, strstr(lua_tostring(L, -1),
+		  "capi.ud expected, got NamedCapiArg") != NULL,
+	"luaL_checkudata __name typeerror");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, checkudata_arg);
+  lua_setglobal(L, "capi_checkudata_arg");
+  status = luaL_loadstring(L, "capi_checkudata_arg(54)");
+  check(L, status == LUA_OK, "luaL_checkudata source global load");
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_checkudata source global rejects");
+  check(L, strstr(lua_tostring(L, -1), "to 'capi_checkudata_arg'") != NULL &&
+	   strstr(lua_tostring(L, -1),
+		  "capi.ud expected, got number") != NULL,
+	"luaL_checkudata source global call name");
+  lua_pop(L, 1);
+
+  status = luaL_loadstring(L,
+    "local f = capi_checkudata_arg; f(54)");
+  check(L, status == LUA_OK, "luaL_checkudata source alias load");
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_checkudata source alias rejects");
+  check(L, strstr(lua_tostring(L, -1), "to 'f'") != NULL &&
+	   strstr(lua_tostring(L, -1),
+		  "capi.ud expected, got number") != NULL,
+	"luaL_checkudata source alias call name");
+  lua_pop(L, 1);
+  lua_pushnil(L);
+  lua_setglobal(L, "capi_checkudata_arg");
+
+  lua_pushcfunction(L, laux_opt_macro_arg);
+  status = lua_pcall(L, 0, 1, 0);
+  check(L, status == LUA_OK, "luaL_opt macro default status");
+  check_integer(L, -1, 77, "luaL_opt macro default");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_opt_macro_arg);
+  lua_pushinteger(L, 54);
+  status = lua_pcall(L, 1, 1, 0);
+  check(L, status == LUA_OK, "luaL_opt macro explicit status");
+  check_integer(L, -1, 54, "luaL_opt macro explicit");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_checkstack_arg);
+  status = lua_pcall(L, 0, 1, 0);
+  check(L, status == LUA_OK, "luaL_checkstack status");
+  check_string(L, -1, "ok", "luaL_checkstack result");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_checkstack_null_msg);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_checkstack NULL message status");
+  check(L, strstr(lua_tostring(L, -1), "stack overflow") != NULL &&
+	   strstr(lua_tostring(L, -1), "(null)") == NULL,
+	"luaL_checkstack NULL message text");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_len_arg);
+  lua_pushliteral(L, "abcd");
+  status = lua_pcall(L, 1, 1, 0);
+  check(L, status == LUA_OK, "luaL_len string status");
+  check_integer(L, -1, 4, "luaL_len string");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_len_arg);
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushcfunction(L, len_meta);
+  lua_setfield(L, -2, "__len");
+  lua_setmetatable(L, -2);
+  status = lua_pcall(L, 1, 1, 0);
+  check(L, status == LUA_OK, "luaL_len __len status");
+  check_integer(L, -1, 77, "luaL_len __len");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_len_arg);
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushcfunction(L, len_bad_meta);
+  lua_setfield(L, -2, "__len");
+  lua_setmetatable(L, -2);
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_len rejects non-integer length");
+  check(L, strstr(lua_tostring(L, -1), "object length is not an integer") != NULL,
+	"luaL_len non-integer error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, push_fraction_len_userdata);
+  lua_setglobal(L, "capi_fraction_len_userdata");
+  status = luaL_dostring(L,
+    "return table.unpack(capi_fraction_len_userdata())");
+  check(L, status != LUA_OK,
+	"table.unpack rejects non-table fractional __len");
+  check(L, strstr(lua_tostring(L, -1), "object length is not an integer") != NULL,
+	"table.unpack fractional __len error");
   lua_pop(L, 1);
 
   check(L, luaL_intop(+, LUA_MAXINTEGER, 1) == LUA_MININTEGER,
@@ -1586,12 +3312,20 @@ static void test_lauxlib_api(lua_State *L)
   lua_pop(L, 1);
   luaL_unref(L, -1, ref);
   lua_rawgeti(L, -1, ref);
-  check(L, lua_isnil(L, -1), "luaL_unref clears ref");
+  check_integer(L, -1, 0, "luaL_unref chains ref to empty freelist");
   lua_pop(L, 1);
   lua_pushnil(L);
   check(L, luaL_ref(L, -2) == LUA_REFNIL, "luaL_ref nil sentinel");
   luaL_unref(L, -1, LUA_NOREF);
   luaL_unref(L, -1, LUA_REFNIL);
+  lua_pushliteral(L, "zero-key");
+  lua_rawseti(L, -2, 0);
+  lua_pushliteral(L, "ref-after-zero");
+  ref = luaL_ref(L, -2);
+  luaL_unref(L, -1, ref);
+  lua_rawgeti(L, -1, 0);
+  check_string(L, -1, "zero-key", "luaL_ref freelist preserves key 0");
+  lua_pop(L, 1);
   lua_pop(L, 1);
 
   luaL_requiref(L, "capi.mod", require_open, 1);
@@ -1616,16 +3350,39 @@ static void test_lauxlib_api(lua_State *L)
   check_integer(L, -1, ENOENT, "luaL_fileresult errno");
   lua_pop(L, 3);
 
+  errno = 0;
+  check(L, luaL_fileresult(L, 0, NULL) == 3,
+	"luaL_fileresult errno-zero arity");
+  check(L, lua_isnil(L, -3), "luaL_fileresult errno-zero nil");
+  check_string(L, -2, "(no extra info)",
+	       "luaL_fileresult errno-zero message");
+  check_integer(L, -1, 0, "luaL_fileresult errno-zero code");
+  lua_pop(L, 3);
+
   check(L, luaL_execresult(L, 0) == 3, "luaL_execresult success arity");
   check(L, lua_toboolean(L, -3), "luaL_execresult success bool");
   check_string(L, -2, "exit", "luaL_execresult success kind");
   check_integer(L, -1, 0, "luaL_execresult success code");
   lua_pop(L, 3);
 
+  errno = EACCES;
+  check(L, luaL_execresult(L, 1) == 3,
+	"luaL_execresult errno failure arity");
+  check(L, lua_isnil(L, -3), "luaL_execresult errno failure nil");
+  check(L, strstr(lua_tostring(L, -2), strerror(EACCES)) != NULL,
+	"luaL_execresult errno failure message");
+  check_integer(L, -1, EACCES, "luaL_execresult errno failure code");
+  lua_pop(L, 3);
+
   luaL_newlib(L, capi_newlib);
   lua_getfield(L, -1, "answer");
   lua_call(L, 0, 1);
   check_integer(L, -1, 42, "luaL_newlib function");
+  lua_pop(L, 2);
+  luaL_newlibtable(L, capi_newlib);
+  check(L, lua_istable(L, -1), "luaL_newlibtable table");
+  check(L, lua_getfield(L, -1, "answer") == LUA_TNIL,
+	"luaL_newlibtable leaves functions unset");
   lua_pop(L, 2);
   test_newlib_macro_checkversion(L);
 
@@ -1635,6 +3392,21 @@ static void test_lauxlib_api(lua_State *L)
   lua_getfield(L, -1, "upvalue");
   lua_call(L, 0, 1);
   check_string(L, -1, "captured-upvalue", "luaL_setfuncs upvalue");
+  lua_pop(L, 2);
+
+  lua_newtable(L);
+  lua_pushliteral(L, "placeholder-upvalue");
+  luaL_setfuncs(L, capi_setfuncs_placeholder, 1);
+  check(L, lua_gettop(L) >= 1 && lua_istable(L, -1),
+	"luaL_setfuncs placeholder leaves table");
+  lua_getfield(L, -1, "upvalue");
+  lua_call(L, 0, 1);
+  check_string(L, -1, "placeholder-upvalue",
+	       "luaL_setfuncs placeholder keeps real closure upvalue");
+  lua_pop(L, 1);
+  check(L, lua_getfield(L, -1, "placeholder") == LUA_TBOOLEAN &&
+	   lua_toboolean(L, -1) == 0,
+	"luaL_setfuncs NULL placeholder becomes false");
   lua_pop(L, 2);
 
   check(L, luaL_newmetatable(L, "capi.ud") == 1, "luaL_newmetatable creates");
@@ -1662,8 +3434,8 @@ static void test_lauxlib_api(lua_State *L)
   lua_pushcfunction(L, capi_tostring_meta);
   lua_setfield(L, -2, "__tostring");
   lua_setmetatable(L, -2);
-  check(L, luaL_getmetafield(L, -1, "__name") == 1,
-	"luaL_getmetafield returns field");
+  check(L, luaL_getmetafield(L, -1, "__name") == LUA_TSTRING,
+	"luaL_getmetafield returns field type");
   check_string(L, -1, "CapiMeta", "luaL_getmetafield value");
   lua_pop(L, 1);
   {
@@ -1671,6 +3443,20 @@ static void test_lauxlib_api(lua_State *L)
     check(L, luaL_getmetafield(L, -1, "__missing") == 0,
 	  "luaL_getmetafield missing");
     check(L, lua_gettop(L) == top, "luaL_getmetafield missing stack");
+  }
+  {
+    int top = lua_gettop(L);
+    lua_newtable(L);
+    lua_newtable(L);
+    lua_newtable(L);
+    lua_pushcfunction(L, capi_metafield_index);
+    lua_setfield(L, -2, "__index");
+    lua_setmetatable(L, -2);
+    lua_setmetatable(L, -2);
+    check(L, luaL_getmetafield(L, -1, "__virtual") == LUA_TNIL,
+	  "luaL_getmetafield ignores metatable __index");
+    lua_pop(L, 1);
+    check(L, lua_gettop(L) == top, "luaL_getmetafield raw-missing stack");
   }
   check(L, luaL_callmeta(L, -1, "__tostring") == 1,
 	"luaL_callmeta calls metamethod");
@@ -1699,9 +3485,34 @@ static void test_lauxlib_api(lua_State *L)
   check_integer(L, -1, 12, "luaL_dostring result");
   lua_pop(L, 1);
 
+  tmpf = fopen(tmpname, "wb");
+  check(L, tmpf != NULL, "luaL_dofile temp open");
+  check(L, fputs("return 13\n", tmpf) >= 0, "luaL_dofile temp write");
+  check(L, fclose(tmpf) == 0, "luaL_dofile temp close");
+  status = luaL_dofile(L, tmpname);
+  remove(tmpname);
+  check(L, status == LUA_OK, "luaL_dofile status");
+  check_integer(L, -1, 13, "luaL_dofile result");
+  lua_pop(L, 1);
+
   lua_pushboolean(L, 1);
   luaL_tolstring(L, -1, NULL);
   check_string(L, -1, "true", "luaL_tolstring boolean");
+  lua_pop(L, 2);
+
+  lua_pushinteger(L, 1);
+  luaL_tolstring(L, -1, NULL);
+  check_string(L, -1, "1", "luaL_tolstring integer subtype");
+  lua_pop(L, 2);
+
+  lua_pushnumber(L, (lua_Number)1.0);
+  luaL_tolstring(L, -1, NULL);
+  check_string(L, -1, "1.0", "luaL_tolstring float integral subtype");
+  lua_pop(L, 2);
+
+  lua_pushnumber(L, (lua_Number)1.5);
+  luaL_tolstring(L, -1, NULL);
+  check_string(L, -1, "1.5", "luaL_tolstring float fraction subtype");
   lua_pop(L, 2);
 
   luaL_buffinit(L, &b);
@@ -1713,6 +3524,16 @@ static void test_lauxlib_api(lua_State *L)
   luaL_buffsub(&b, 1);
   luaL_pushresult(&b);
   check_string(L, -1, "abc", "luaL_buffsub result");
+  lua_pop(L, 1);
+
+  luaL_buffinit(L, &b);
+  luaL_addchar(&b, 'L');
+  luaL_addlstring(&b, "ua", 2);
+  luaL_addstring(&b, "54");
+  lua_pushliteral(L, "!");
+  luaL_addvalue(&b);
+  luaL_pushresult(&b);
+  check_string(L, -1, "Lua54!", "luaL_addchar/addstring/addvalue");
   lua_pop(L, 1);
 
   luaL_buffinit(L, &b);
@@ -1841,6 +3662,9 @@ static void test_dump_api(lua_State *L)
 static void test_warning_and_gc_api(lua_State *L)
 {
   int oldmode;
+  int oldpause;
+  int oldmul;
+  int stepdone;
   int countb;
   int status;
   lua_Number version;
@@ -1866,6 +3690,26 @@ static void test_warning_and_gc_api(lua_State *L)
   (void)lua_gc(L, LUA_GCCOUNT);
   countb = lua_gc(L, LUA_GCCOUNTB);
   check(L, countb >= 0 && countb < 1024, "LUA_GCCOUNTB byte remainder");
+  check(L, lua_gc(L, LUA_GCISRUNNING) == 1, "lua_gc initial isrunning");
+  check(L, lua_gc(L, LUA_GCSTOP) == 0, "lua_gc stop");
+  check(L, lua_gc(L, LUA_GCISRUNNING) == 0, "lua_gc stopped isrunning");
+  check(L, lua_gc(L, LUA_GCCOLLECT) == 0, "lua_gc collect while stopped");
+  check(L, lua_gc(L, LUA_GCISRUNNING) == 0,
+	"lua_gc collect must not restart stopped collector");
+  stepdone = lua_gc(L, LUA_GCSTEP, 20000);
+  check(L, stepdone == 0 || stepdone == 1, "lua_gc step boolean result");
+  check(L, lua_gc(L, LUA_GCISRUNNING) == 0,
+	"lua_gc step must not restart stopped collector");
+  check(L, lua_gc(L, LUA_GCRESTART) == 0, "lua_gc restart");
+  check(L, lua_gc(L, LUA_GCISRUNNING) == 1, "lua_gc restarted isrunning");
+  oldpause = lua_gc(L, LUA_GCSETPAUSE, 123);
+  check(L, oldpause == 200, "lua_gc setpause initial value");
+  check(L, lua_gc(L, LUA_GCSETPAUSE, oldpause) == 120,
+	"lua_gc setpause Lua 5.4 quantized old value");
+  oldmul = lua_gc(L, LUA_GCSETSTEPMUL, 321);
+  check(L, oldmul == 100, "lua_gc setstepmul initial value");
+  check(L, lua_gc(L, LUA_GCSETSTEPMUL, oldmul) == 320,
+	"lua_gc setstepmul Lua 5.4 quantized old value");
 
   oldmode = lua_gc(L, LUA_GCGEN, 0, 0);
   check(L, oldmode == LUA_GCGEN || oldmode == LUA_GCINC, "LUA_GCGEN");
@@ -1876,10 +3720,29 @@ static void test_warning_and_gc_api(lua_State *L)
 
   memset(&ar, 0, sizeof(ar));
   lua_pushcfunction(L, push_answer);
-  check(L, lua_getinfo(L, ">utr", &ar), "lua_getinfo >utr");
+  check(L, lua_getinfo(L, ">Sutr", &ar), "lua_getinfo >Sutr");
+  check(L, ar.source && ar.srclen == strlen(ar.source),
+	"lua_Debug srclen matches C source length");
   check(L, ar.nparams == 0 && ar.isvararg == 1, "lua_Debug u fields");
   check(L, ar.istailcall == 0 && ar.ftransfer == 0 && ar.ntransfer == 0,
 	"lua_Debug t/transfer fields");
+
+  memset(&ar, 0, sizeof(ar));
+  check(L, luaL_loadbuffer(L, "return 1", 8, "lua54_srclen_probe") == LUA_OK,
+	"load lua_Debug srclen probe");
+  check(L, lua_getinfo(L, ">S", &ar), "lua_getinfo >S srclen");
+  check(L, ar.source && ar.srclen == strlen("lua54_srclen_probe") &&
+	strcmp(ar.source, "lua54_srclen_probe") == 0,
+	"lua_Debug srclen matches Lua chunk source length");
+
+  lua_sethook(L, capi_transfer_hook, LUA_MASKCOUNT, 7);
+  check(L, lua_gethook(L) == capi_transfer_hook, "lua_gethook set hook");
+  check(L, lua_gethookmask(L) == LUA_MASKCOUNT, "lua_gethookmask set mask");
+  check(L, lua_gethookcount(L) == 7, "lua_gethookcount set count");
+  lua_sethook(L, NULL, 0, 0);
+  check(L, lua_gethook(L) == NULL, "lua_gethook clear hook");
+  check(L, lua_gethookmask(L) == 0, "lua_gethookmask clear mask");
+  check(L, lua_gethookcount(L) == 0, "lua_gethookcount clear count");
 
   hook_call_ftransfer = hook_call_ntransfer = -1;
   hook_ret_ftransfer = hook_ret_ntransfer = -1;
@@ -2000,6 +3863,8 @@ int main(void)
   test_stack_and_number_api(L);
   test_compare_len_arith(L);
   test_uservalue_api(L);
+  test_metatable_api54(L);
+  test_upvalue_api54(L);
   test_lauxlib_api(L);
   test_dump_api(L);
   test_warning_and_gc_api(L);

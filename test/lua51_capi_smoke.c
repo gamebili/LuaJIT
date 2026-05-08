@@ -130,6 +130,17 @@ int main(void)
 	"luaL_findtable table value");
   lua_pop(L, 2);
 
+  {
+    luaL_Buffer b;
+    luaL_buffinit(L, &b);
+    luaL_putchar(&b, '5');
+    luaL_putchar(&b, '1');
+    luaL_pushresult(&b);
+    check(L, strcmp(lua_tostring(L, -1), "51") == 0,
+	  "luaL_putchar default compatibility macro");
+    lua_pop(L, 1);
+  }
+
   lua_pushcfunction(L, capi51_typerror);
   lua_pushliteral(L, "bad");
   check(L, lua_pcall(L, 1, 0, 0) == LUA_ERRRUN,

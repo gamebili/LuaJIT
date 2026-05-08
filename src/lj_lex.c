@@ -41,6 +41,11 @@ TKDEF(TKSTR1, TKSTR2)
 
 #define LEX_EOF			(-1)
 #define lex_iseol(ls)		(ls->c == '\n' || ls->c == '\r')
+#if LJ_54
+#define lex_isident(c)		((c) == '_' || lj_char_isalnum(c))
+#else
+#define lex_isident(c)		lj_char_isident(c)
+#endif
 
 /* Get more input from reader. */
 static LJ_NOINLINE LexChar lex_more(LexState *ls)
@@ -71,6 +76,16 @@ static LJ_AINLINE void lex_save(LexState *ls, LexChar c)
   lj_buf_putb(&ls->sb, c);
 }
 
+#if LJ_54
+static void lex_save_bad_escape54(LexState *ls, const char *esc, MSize len)
+{
+  MSize i;
+  lex_save(ls, '\\');
+  for (i = 0; i < len; i++)
+    lex_save(ls, (LexChar)(uint8_t)esc[i]);
+}
+#endif
+
 /* Save previous character and get next character. */
 static LJ_AINLINE LexChar lex_savenext(LexState *ls)
 {
@@ -100,7 +115,7 @@ static void lex_number(LexState *ls, TValue *tv)
   lj_assertLS(lj_char_isdigit(ls->c), "bad usage");
   if ((c = ls->c) == '0' && (lex_savenext(ls) | 0x20) == 'x')
     xp = 'p';
-  while (lj_char_isident(ls->c) || ls->c == '.' ||
+  while (lex_isident(ls->c) || ls->c == '.' ||
 	 ((ls->c == '-' || ls->c == '+') && (c | 0x20) == xp)) {
     c = ls->c;
     lex_savenext(ls);
@@ -222,6 +237,21 @@ static void lex_string(LexState *ls, TValue *tv)
       continue;
     case '\\': {
       LexChar c = lex_next(ls);  /* Skip the '\\'. */
+#if LJ_54
+      char escbuf[32];
+      MSize escn = 0;
+#define ESC_RESET(ch) \
+  do { escn = 0; if ((ch) != LEX_EOF) escbuf[escn++] = (char)(ch); } while (0)
+#define ESC_ADD(ch) \
+  do { if ((ch) != LEX_EOF && escn < (MSize)sizeof(escbuf)) \
+    escbuf[escn++] = (char)(ch); } while (0)
+#define ESC_ERROR() \
+  do { lex_save_bad_escape54(ls, escbuf, escn); goto err_xesc; } while (0)
+#else
+#define ESC_RESET(ch)		((void)0)
+#define ESC_ADD(ch)		((void)0)
+#define ESC_ERROR()		goto err_xesc
+#endif
       switch (c) {
       case 'a': c = '\a'; break;
       case 'b': c = '\b'; break;
@@ -230,42 +260,51 @@ static void lex_string(LexState *ls, TValue *tv)
       case 'r': c = '\r'; break;
       case 't': c = '\t'; break;
       case 'v': c = '\v'; break;
-      case 'x':  /* Hexadecimal escape '\xXX'. */
-	c = (lex_next(ls) & 15u) << 4;
-	if (!lj_char_isdigit(ls->c)) {
-	  if (!lj_char_isxdigit(ls->c)) goto err_xesc;
+      case 'x': {  /* Hexadecimal escape '\xXX'. */
+	LexChar d;
+	ESC_RESET('x');
+	d = lex_next(ls); ESC_ADD(d);
+	c = (d & 15u) << 4;
+	if (!lj_char_isdigit(d)) {
+	  if (!lj_char_isxdigit(d)) ESC_ERROR();
 	  c += 9 << 4;
 	}
-	c += (lex_next(ls) & 15u);
-	if (!lj_char_isdigit(ls->c)) {
-	  if (!lj_char_isxdigit(ls->c)) goto err_xesc;
+	d = lex_next(ls); ESC_ADD(d);
+	c += (d & 15u);
+	if (!lj_char_isdigit(d)) {
+	  if (!lj_char_isxdigit(d)) ESC_ERROR();
 	  c += 9;
 	}
 	break;
+	}
       case 'u': {  /* Unicode escape '\u{XX...}'. */
 	uint32_t cp = 0;
-	if (lex_next(ls) != '{') goto err_xesc;
-	lex_next(ls);
+	ESC_RESET('u');
+	c = lex_next(ls); ESC_ADD(c);
+	if (c != '{') ESC_ERROR();
+	c = lex_next(ls); ESC_ADD(c);
 	do {
 	  uint32_t digit;
-	  if (!lj_char_isdigit(ls->c)) {
-	    if (!lj_char_isxdigit(ls->c)) goto err_xesc;
-	    digit = (ls->c & 15u) + 9u;
+	  if (!lj_char_isdigit(c)) {
+	    if (!lj_char_isxdigit(c)) ESC_ERROR();
+	    digit = (c & 15u) + 9u;
 	  } else {
-	    digit = ls->c & 15u;
+	    digit = c & 15u;
 	  }
 	  if (LJ_54) {
-	    if (cp > (0x7fffffffu >> 4)) goto err_xesc;
+	    if (cp > (0x7fffffffu >> 4)) ESC_ERROR();
 	  } else if (cp > (0x10ffffu >> 4)) {
-	    goto err_xesc;
+	    ESC_ERROR();
 	  }
 	  cp = (cp << 4) | digit;
 	  if (LJ_54) {
-	    if (cp > 0x7fffffffu) goto err_xesc;  /* Lua 5.4 max. */
+	    if (cp > 0x7fffffffu) ESC_ERROR();  /* Lua 5.4 max. */
 	  } else if (cp >= 0x110000) {
-	    goto err_xesc;  /* Out of Unicode range. */
+	    ESC_ERROR();  /* Out of Unicode range. */
 	  }
-	} while (lex_next(ls) != '}');
+	  c = lex_next(ls);
+	  if (c != '}') ESC_ADD(c);
+	} while (c != '}');
 	if (LJ_54 && cp >= 0x200000) {
 	  /* Lua 5.4 accepts extended UTF-8 escapes up to 0x7fffffff; mirror
 	  ** utf8.char() so source literals and runtime construction agree.
@@ -305,26 +344,40 @@ static void lex_string(LexState *ls, TValue *tv)
       case '\\': case '\"': case '\'': break;
       case LEX_EOF: continue;
       default:
-	if (!lj_char_isdigit(c))
-	  goto err_xesc;
+	ESC_RESET(c);
+	if (!lj_char_isdigit(c)) {
+	  ESC_ERROR();
+	}
+	{
 	c -= '0';  /* Decimal escape '\ddd'. */
 	if (lj_char_isdigit(lex_next(ls))) {
+	  ESC_ADD(ls->c);
 	  c = c*10 + (ls->c - '0');
 	  if (lj_char_isdigit(lex_next(ls))) {
+	    ESC_ADD(ls->c);
 	    c = c*10 + (ls->c - '0');
 	    if (c > 255) {
-	    err_xesc:
-	      lj_lex_error(ls, TK_string, LJ_ERR_XESC);
+#if LJ_54
+	      LexChar next = lex_next(ls);
+	      ESC_ADD(next);
+#endif
+	      ESC_ERROR();
 	    }
 	    lex_next(ls);
 	  }
 	}
 	lex_save(ls, c);
 	continue;
+	}
       }
+#undef ESC_ERROR
+#undef ESC_ADD
+#undef ESC_RESET
       lex_save(ls, c);
       lex_next(ls);
       continue;
+    err_xesc:
+      lj_lex_error(ls, TK_string, LJ_ERR_XESC);
       }
     default:
       lex_savenext(ls);
@@ -343,7 +396,7 @@ static LexToken lex_scan(LexState *ls, TValue *tv)
 {
   lj_buf_reset(&ls->sb);
   for (;;) {
-    if (lj_char_isident(ls->c)) {
+    if (lex_isident(ls->c)) {
       GCstr *s;
       if (lj_char_isdigit(ls->c)) {  /* Numeric literal. */
 	lex_number(ls, tv);
@@ -352,7 +405,7 @@ static LexToken lex_scan(LexState *ls, TValue *tv)
       /* Identifier or reserved word. */
       do {
 	lex_savenext(ls);
-      } while (lj_char_isident(ls->c));
+      } while (lex_isident(ls->c));
       s = lj_parse_keepstr(ls, ls->sb.b, sbuflen(&ls->sb));
       setstrV(ls->L, tv, s);
       if (s->reserved > 0)  /* Reserved word? */
@@ -476,7 +529,17 @@ int lj_lex_setup(lua_State *L, LexState *ls)
     lex_next(ls);
     header = 1;
   }
-  if (ls->c == '#') {  /* Skip POSIX #! header line. */
+  if (ls->c == '#' &&
+#if LJ_54
+      (ls->chunkarg[0] == '@' ||
+       (ls->chunkarg[0] == '=' && ls->chunkarg[1] == 's' &&
+	ls->chunkarg[2] == 't' && ls->chunkarg[3] == 'd' &&
+	ls->chunkarg[4] == 'i' && ls->chunkarg[5] == 'n' &&
+	ls->chunkarg[6] == '\0'))
+#else
+      1
+#endif
+  ) {  /* Skip POSIX #! header line for file-like chunks. */
     do {
       lex_next(ls);
       if (ls->c == LEX_EOF) return 0;
@@ -535,6 +598,10 @@ const char *lj_lex_token2str(LexState *ls, LexToken tok)
 {
   if (tok > TK_OFS)
     return tokennames[tok-TK_OFS-1];
+#if LJ_54
+  else if (!lj_char_isgraph((unsigned char)tok))
+    return lj_strfmt_pushf(ls->L, "<\\%d>", (unsigned char)tok);
+#endif
   else if (!lj_char_iscntrl(tok))
     return lj_strfmt_pushf(ls->L, "%c", tok);
   else

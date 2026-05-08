@@ -9,6 +9,8 @@
 #define lj_meta_c
 #define LUA_CORE
 
+#include <math.h>
+
 #include "lj_obj.h"
 #include "lj_gc.h"
 #include "lj_err.h"
@@ -23,6 +25,7 @@
 #include "lj_strscan.h"
 #include "lj_strfmt.h"
 #include "lj_lib.h"
+#include "lj_state.h"
 
 /* -- Metamethod handling ------------------------------------------------- */
 
@@ -79,6 +82,10 @@ const char *lj_meta_objtypename(lua_State *L, cTValue *o, MSize *lenp)
 {
 #if LJ_54
   GCtab *mt;
+  if (tvislightud(o)) {
+    if (lenp) *lenp = 14;
+    return "light userdata";
+  }
   if (tvistab(o))
     mt = tabref(tabV(o)->metatable);
   else if (tvisudata(o))
@@ -161,6 +168,30 @@ static TValue *mmcall(lua_State *L, ASMFunction cont, cTValue *mo,
   return top;  /* Return new base. */
 }
 
+#if LJ_54
+static TValue *mmcall_check(lua_State *L, ASMFunction cont, cTValue *mo,
+			    cTValue *a, cTValue *b, MMS mm)
+{
+  if (!tvisfunc(mo) && tvisnil(lj_meta_lookup(L, mo, MM_call))) {
+    MSize tlen;
+    const char *tname = lj_meta_objtypename(L, mo, &tlen);
+    const char *mmname = strdata(mmname_str(G(L), mm));
+    if (mmname[0] == '_' && mmname[1] == '_')
+      mmname += 2;
+    UNUSED(tlen);
+    /* The VM normally tries to call the metamethod value directly. Check the
+    ** non-callable case before entering that path so Lua 5.4 diagnostics keep
+    ** the originating metamethod name, e.g. "(metamethod 'add')".
+    */
+    lj_err_callermsg(L, lj_strfmt_pushf(L,
+      "attempt to call a %s value (metamethod '%s')", tname, mmname));
+  }
+  return mmcall(L, cont, mo, a, b);
+}
+#else
+#define mmcall_check(L, cont, mo, a, b, mm) mmcall((L), (cont), (mo), (a), (b))
+#endif
+
 /* -- C helpers for some instructions, called from assembler VM ----------- */
 
 /* Helper for TGET*. __index chain and metamethod. */
@@ -180,7 +211,7 @@ cTValue *lj_meta_tget(lua_State *L, cTValue *o, cTValue *k)
       return NULL;  /* unreachable */
     }
     if (tvisfunc(mo)) {
-      L->top = mmcall(L, lj_cont_ra, mo, o, k);
+      L->top = mmcall_check(L, lj_cont_ra, mo, o, k, MM_index);
       return NULL;  /* Trigger metamethod call. */
     }
     o = mo;
@@ -218,7 +249,7 @@ TValue *lj_meta_tset(lua_State *L, cTValue *o, cTValue *k)
       return NULL;  /* unreachable */
     }
     if (tvisfunc(mo)) {
-      L->top = mmcall(L, lj_cont_nop, mo, o, k);
+      L->top = mmcall_check(L, lj_cont_nop, mo, o, k, MM_newindex);
       /* L->top+2 = v filled in by caller. */
       return NULL;  /* Trigger metamethod call. */
     }
@@ -326,7 +357,7 @@ TValue *lj_meta_arith(lua_State *L, TValue *ra, cTValue *rb, cTValue *rc,
       ** metamethods, so an explicit string metatable method must override
       ** the fallback string-to-number conversion.
       */
-      return mmcall(L, lj_cont_ra, mo, rb, rc);
+      return mmcall_check(L, lj_cont_ra, mo, rb, rc, mm);
     }
   }
 #endif
@@ -353,7 +384,7 @@ TValue *lj_meta_arith(lua_State *L, TValue *ra, cTValue *rb, cTValue *rc,
 	return NULL;  /* unreachable */
       }
     }
-    return mmcall(L, lj_cont_ra, mo, rb, rc);
+    return mmcall_check(L, lj_cont_ra, mo, rb, rc, mm);
   }
 }
 
@@ -421,7 +452,12 @@ TValue *lj_meta_cat(lua_State *L, TValue *top, int left)
 	} else if (tvisint(o)) {
 	  lj_strfmt_putint(sb, intV(o));
 	} else {
+#if LJ_54
+	  GCstr *s = lj_strfmt_number(L, o);
+	  lj_buf_putmem(sb, strdata(s), s->len);
+#else
 	  lj_strfmt_putfnum(sb, STRFMT_G14, numV(o));
+#endif
 	}
       }
       setstrV(L, top, lj_buf_str(L, sb));
@@ -445,7 +481,7 @@ TValue * LJ_FASTCALL lj_meta_len(lua_State *L, cTValue *o)
       lj_err_optype(L, o, LJ_ERR_OPLEN);
     return NULL;
   }
-  return mmcall(L, lj_cont_ra, mo, o, LJ_52 ? o : niltv(L));
+  return mmcall_check(L, lj_cont_ra, mo, o, LJ_52 ? o : niltv(L), MM_len);
 }
 
 /* Helper for equality comparisons. __eq metamethod. */
@@ -480,6 +516,35 @@ TValue *lj_meta_equal(lua_State *L, GCobj *o1, GCobj *o2, int ne)
   return (TValue *)(intptr_t)ne;
 }
 
+#if LJ_54
+TValue * LJ_FASTCALL lj_meta_equal_lstr(lua_State *L, BCIns ins)
+{
+  BCOp op = bc_op(ins);
+  int ne = (int)op & 1;
+  int basop = (int)op & ~1;
+  TValue tv;
+  cTValue *o2, *o1 = &L->base[bc_a(ins)];
+
+  if (basop == BC_ISEQV) {
+    o2 = &L->base[bc_d(ins)];
+  } else {
+    lj_assertL(basop == BC_ISEQS, "bad bytecode op %d", op);
+    setstrV(L, &tv, gco2str(proto_kgc(curr_proto(L),
+				      ~(ptrdiff_t)bc_d(ins))));
+    o2 = &tv;
+  }
+
+  /*
+  ** Lua 5.4 only interns short strings, so different long-string GCstr
+  ** objects can still be equal. Non-primary VM backends jump here instead of
+  ** relying on pointer identity in their old string equality fast paths.
+  */
+  if (tvisstr(o1) && tvisstr(o2))
+    return (TValue *)(intptr_t)(lj_str_equal(strV(o1), strV(o2)) ^ ne);
+  return (TValue *)(intptr_t)ne;
+}
+#endif
+
 #if LJ_HASFFI
 TValue * LJ_FASTCALL lj_meta_equal_cd(lua_State *L, BCIns ins)
 {
@@ -503,7 +568,7 @@ TValue * LJ_FASTCALL lj_meta_equal_cd(lua_State *L, BCIns ins)
   }
   mo = lj_meta_lookup(L, o1mm, MM_eq);
   if (LJ_LIKELY(!tvisnil(mo)))
-    return mmcall(L, cont, mo, o1, o2);
+    return mmcall_check(L, cont, mo, o1, o2, MM_eq);
   else
     return (TValue *)(intptr_t)(bc_op(ins) & 1);
 }
@@ -517,11 +582,12 @@ TValue *lj_meta_comp(lua_State *L, cTValue *o1, cTValue *o2, int op)
     MMS mm = (op & 2) ? MM_le : MM_lt;
     cTValue *mo = lj_meta_lookup(L, tviscdata(o1) ? o1 : o2, mm);
     if (LJ_UNLIKELY(tvisnil(mo))) goto err;
-    return mmcall(L, cont, mo, o1, o2);
+    return mmcall_check(L, cont, mo, o1, o2, mm);
   } else if (LJ_52 || itype(o1) == itype(o2)) {
     /* Never called with two numbers. */
     if (tvisstr(o1) && tvisstr(o2)) {
-      int32_t res = lj_str_cmp(strV(o1), strV(o2));
+      int32_t res = LJ_54 ? lj_str_cmp_locale(strV(o1), strV(o2)) :
+			    lj_str_cmp(strV(o1), strV(o2));
       return (TValue *)(intptr_t)(((op&2) ? res <= 0 : res < 0) ^ (op&1));
     } else {
     trymt:
@@ -550,7 +616,7 @@ TValue *lj_meta_comp(lua_State *L, cTValue *o1, cTValue *o2, int op)
 	  goto err;
 #endif
 	}
-	return mmcall(L, cont, mo, o1, o2);
+	return mmcall_check(L, cont, mo, o1, o2, mm);
       }
     }
   } else if (tvisbool(o1) && tvisbool(o2)) {
@@ -574,24 +640,82 @@ void lj_meta_istype(lua_State *L, BCReg ra, BCReg tp)
   else lj_err_argtype(L, ra, lj_obj_itypename[tp]);
 }
 
+#if LJ_54
+static void lj_meta_forerror(lua_State *L, cTValue *o, const char *what)
+{
+  MSize tlen;
+  const char *tname = lj_meta_objtypename(L, o, &tlen);
+  const char *msg;
+  UNUSED(tlen);
+  msg = lj_strfmt_pushf(L,
+    "bad 'for' %s (number expected, got %s)", what, tname);
+  /* Numeric for-loop coercion happens at the FORI instruction itself. Keep the
+  ** current frame so Lua 5.4 diagnostics point at the offending for line.
+  */
+  lj_debug_addloc(L, msg, L->base-1, NULL);
+  lj_err_run(L);
+}
+#endif
+
 /* Helper for calls. __call metamethod. */
-void lj_meta_call(lua_State *L, TValue *func, TValue *top)
+int lj_meta_call(lua_State *L, TValue *func, TValue *top)
 {
   cTValue *mo = lj_meta_lookup(L, func, MM_call);
+  cTValue *chain[LJ_MAX_IDXCHAIN];
+  TValue orig;
   TValue *p;
-  if (!tvisfunc(mo))
-    lj_err_optype_call(L, func);
-  for (p = top; p > func+2*LJ_FR2; p--) copyTV(L, p, p-1);
-  if (LJ_FR2) copyTV(L, func+2, func);
+  TValue *firstarg = func + 1 + LJ_FR2;
+  int nchain = 0, nprep, i;
+  if (!tvisfunc(mo)) {
+    int loop;
+    /* Resolve callable __call chains before returning to assembler. Each
+    ** callable metamethod becomes an implicit self argument, matching Lua 5.4
+    ** without asking the VM to enter a non-function slot as code.
+    */
+    for (loop = 0; loop < LJ_MAX_IDXCHAIN && !tvisfunc(mo); loop++) {
+      chain[nchain++] = mo;
+      mo = lj_meta_lookup(L, mo, MM_call);
+    }
+    if (!tvisfunc(mo))
+      lj_err_optype_call(L, func);
+  }
+  copyTV(L, &orig, func);
+  nprep = nchain + 1;
+  if (LJ_UNLIKELY(top + nprep >= tvref(L->maxstack))) {
+    ptrdiff_t funcpos = savestack(L, func);
+    ptrdiff_t toppos = savestack(L, top);
+    L->top = top;
+    /* LuaJIT only reserved one extra __call argument. Lua 5.4 callable
+    ** chains can add many implicit self arguments, so grow before shifting
+    ** args to avoid writing into the guard area on tailcall-heavy chains.
+    */
+    lj_state_checkstack(L, (MSize)nprep);
+    func = restorestack(L, funcpos);
+    top = restorestack(L, toppos);
+    firstarg = func + 1 + LJ_FR2;
+  }
+  for (p = top + nprep - 1; p > firstarg + nprep - 1; p--)
+    copyTV(L, p, p - nprep);
+  for (i = 0; i < nchain; i++)
+    copyTV(L, firstarg + i, chain[nchain - 1 - i]);
+  copyTV(L, firstarg + nchain, &orig);
   copyTV(L, func, mo);
+  L->top = top + nprep;
+  return nprep;
 }
 
 /* Helper for FORI. Coercion. */
 void LJ_FASTCALL lj_meta_for(lua_State *L, TValue *o)
 {
+#if LJ_54
+  if (!lj_strscan_numberobj(o)) lj_meta_forerror(L, o, "initial value");
+  if (!lj_strscan_numberobj(o+1)) lj_meta_forerror(L, o+1, "limit");
+  if (!lj_strscan_numberobj(o+2)) lj_meta_forerror(L, o+2, "step");
+#else
   if (!lj_strscan_numberobj(o)) lj_err_msg(L, LJ_ERR_FORINIT);
   if (!lj_strscan_numberobj(o+1)) lj_err_msg(L, LJ_ERR_FORLIM);
   if (!lj_strscan_numberobj(o+2)) lj_err_msg(L, LJ_ERR_FORSTEP);
+#endif
   if (LJ_DUALNUM) {
 #if LJ_54
     /* Lua 5.4 uses the integer FORL path only when the initial value and step

@@ -37,11 +37,12 @@ LUALIB_API int luaL_fileresult(lua_State *L, int stat, const char *fname)
     return 1;
   } else {
     int en = errno;  /* Lua API calls may change this value. */
+    const char *msg = (LJ_54 && en == 0) ? "(no extra info)" : strerror(en);
     setnilV(L->top++);
     if (fname)
-      lua_pushfstring(L, "%s: %s", fname, strerror(en));
+      lua_pushfstring(L, "%s: %s", fname, msg);
     else
-      lua_pushfstring(L, "%s", strerror(en));
+      lua_pushfstring(L, "%s", msg);
     setintV(L->top++, en);
     lj_trace_abort(G(L));
     return 3;
@@ -50,6 +51,13 @@ LUALIB_API int luaL_fileresult(lua_State *L, int stat, const char *fname)
 
 LUALIB_API int luaL_execresult(lua_State *L, int stat)
 {
+#if LJ_54
+  if (stat != 0 && errno != 0)
+    /* Lua 5.4 treats a non-zero process status with errno set as a system
+    ** error, not as a normal "exit" result tuple.
+    */
+    return luaL_fileresult(L, 0, NULL);
+#endif
   if (stat != -1) {
 #if LJ_TARGET_POSIX
     if (WIFSIGNALED(stat)) {
@@ -151,10 +159,17 @@ LUALIB_API void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup)
 {
   luaL_checkstack(L, nup, "too many upvalues");
   for (; l->name; l++) {
-    int i;
-    for (i = 0; i < nup; i++)  /* Copy upvalues to the top. */
-      lua_pushvalue(L, -nup);
-    lua_pushcclosure(L, l->func, nup);
+    if (LJ_54 && l->func == NULL) {
+      /* Lua 5.4 uses NULL luaL_Reg entries as false placeholders; do not
+      ** consume or copy the shared upvalues for those non-functions.
+      */
+      lua_pushboolean(L, 0);
+    } else {
+      int i;
+      for (i = 0; i < nup; i++)  /* Copy upvalues to the top. */
+	lua_pushvalue(L, -nup);
+      lua_pushcclosure(L, l->func, nup);
+    }
     lua_setfield(L, -(nup + 2), l->name);
   }
   lua_pop(L, nup);  /* Remove upvalues. */
@@ -222,42 +237,90 @@ LUALIB_API const char *luaL_gsub(lua_State *L, const char *s,
 
 #define bufffree(B)	((B)->size - (B)->n)
 
-static char *resizebuffer(luaL_Buffer *B, size_t sz)
+typedef struct UBox {
+  void *box;
+  size_t bsize;
+} UBox;
+
+static void *resizebox(lua_State *L, int idx, size_t newsize)
 {
-  lua_State *L = B->L;
-  size_t need = B->n + sz;
-  size_t newsize = B->size ? B->size * 2 : LUAL_BUFFERSIZE;
-  char *newbuf;
-  if (need < B->n)
+  void *ud;
+  lua_Alloc allocf = lua_getallocf(L, &ud);
+  UBox *box = (UBox *)lua_touserdata(L, idx);
+  void *temp = allocf(ud, box->box, box->bsize, newsize);
+  if (temp == NULL && newsize > 0)
     lj_err_mem(L);
-  while (newsize < need) {
-    size_t oldsize = newsize;
-    newsize *= 2;
-    if (newsize <= oldsize) {
-      newsize = need;
-      break;
+  box->box = temp;
+  box->bsize = newsize;
+  return temp;
+}
+
+static int boxgc(lua_State *L)
+{
+  resizebox(L, 1, 0);
+  return 0;
+}
+
+static const luaL_Reg boxmt[] = {
+  {"__gc", boxgc},
+  {"__close", boxgc},
+  {NULL, NULL}
+};
+
+static void newbox(lua_State *L)
+{
+  UBox *box = (UBox *)lua_newuserdatauv(L, sizeof(UBox), 0);
+  box->box = NULL;
+  box->bsize = 0;
+  if (luaL_newmetatable(L, "_UBOX*"))
+    luaL_setfuncs(L, boxmt, 0);
+  lua_setmetatable(L, -2);
+}
+
+#define buffonstack(B)	((B)->b != (B)->init.b)
+
+static size_t newbuffsize(luaL_Buffer *B, size_t sz)
+{
+  size_t newsize = (B->size / 2) * 3;
+  if (((size_t)~(size_t)0) - sz < B->n)
+    lj_err_mem(B->L);
+  if (newsize < B->n + sz)
+    newsize = B->n + sz;
+  return newsize;
+}
+
+static char *prepbuffsize(luaL_Buffer *B, size_t sz, int boxidx)
+{
+  if (bufffree(B) >= sz) {
+    return B->b + B->n;
+  } else {
+    lua_State *L = B->L;
+    char *newbuf;
+    size_t newsize = newbuffsize(B, sz);
+    if (buffonstack(B)) {
+      newbuf = (char *)resizebox(L, boxidx, newsize);
+    } else {
+      /* Lua 5.4 keeps a growable buffer inside a to-be-closed userdata box.
+      ** If a C API caller errors before luaL_pushresult(), normal unwind or
+      ** GC still releases the side allocation instead of leaking it.
+      */
+      lua_remove(L, boxidx);
+      newbox(L);
+      lua_insert(L, boxidx);
+      lua_toclose(L, boxidx);
+      newbuf = (char *)resizebox(L, boxidx, newsize);
+      if (B->n)
+	memcpy(newbuf, B->b, B->n);
     }
+    B->b = newbuf;
+    B->size = newsize;
+    return newbuf + B->n;
   }
-  /* Lua 5.4's buffer API promises that luaL_prepbuffsize() returns a block
-  ** large enough for the requested write. LuaJIT's old fixed buffer cannot
-  ** satisfy large writes, so compat mode grows a side buffer through the Lua
-  ** allocator and frees it in luaL_pushresult().
-  */
-  newbuf = (char *)lj_mem_realloc(L, NULL, 0, (GCSize)newsize);
-  if (B->n)
-    memcpy(newbuf, B->b, B->n);
-  if (B->b != B->init.b)
-    lj_mem_realloc(L, B->b, (GCSize)B->size, 0);
-  B->b = newbuf;
-  B->size = newsize;
-  return B->b + B->n;
 }
 
 LUALIB_API char *luaL_prepbuffsize(luaL_Buffer *B, size_t sz)
 {
-  if (sz <= bufffree(B))
-    return B->b + B->n;
-  return resizebuffer(B, sz);
+  return prepbuffsize(B, sz, -1);
 }
 
 LUALIB_API char *luaL_prepbuffer(luaL_Buffer *B)
@@ -267,9 +330,11 @@ LUALIB_API char *luaL_prepbuffer(luaL_Buffer *B)
 
 LUALIB_API void luaL_addlstring(luaL_Buffer *B, const char *s, size_t l)
 {
-  char *p = luaL_prepbuffsize(B, l);
-  memcpy(p, s, l);
-  B->n += l;
+  if (l > 0) {
+    char *p = prepbuffsize(B, l, -1);
+    memcpy(p, s, l);
+    B->n += l;
+  }
 }
 
 LUALIB_API void luaL_addstring(luaL_Buffer *B, const char *s)
@@ -282,10 +347,8 @@ LUALIB_API void luaL_pushresult(luaL_Buffer *B)
   lua_State *L = B->L;
   lua_pushlstring(L, B->b, B->n);
   if (B->b != B->init.b)
-    lj_mem_realloc(L, B->b, (GCSize)B->size, 0);
-  B->b = B->init.b;
-  B->size = LUAL_BUFFERSIZE;
-  B->n = 0;
+    lua_closeslot(L, -2);
+  lua_remove(L, -2);
 }
 
 LUALIB_API void luaL_pushresultsize(luaL_Buffer *B, size_t sz)
@@ -299,7 +362,9 @@ LUALIB_API void luaL_addvalue(luaL_Buffer *B)
   lua_State *L = B->L;
   size_t vl;
   const char *s = lua_tolstring(L, -1, &vl);
-  luaL_addlstring(B, s, vl);
+  char *p = prepbuffsize(B, vl, -2);
+  memcpy(p, s, vl);
+  B->n += vl;
   lua_pop(L, 1);
 }
 
@@ -309,6 +374,7 @@ LUALIB_API void luaL_buffinit(lua_State *L, luaL_Buffer *B)
   B->b = B->init.b;
   B->size = LUAL_BUFFERSIZE;
   B->n = 0;
+  lua_pushlightuserdata(L, (void *)B);
 }
 
 LUALIB_API char *luaL_buffinitsize(lua_State *L, luaL_Buffer *B, size_t sz)
@@ -411,6 +477,28 @@ LUALIB_API void luaL_buffinit(lua_State *L, luaL_Buffer *B)
 
 /* -- Lua 5.4 auxiliary compatibility ------------------------------------ */
 
+#if LJ_54
+static void luaL_fmtversion54(char *buf, size_t sz, lua_Number n)
+{
+  size_t i;
+  if (sz == 0)
+    return;
+  snprintf(buf, sz, "%.14g", (double)n);
+  buf[sz-1] = '\0';
+  for (i = 0; buf[i] != '\0'; i++)
+    if (buf[i] == '.' || buf[i] == 'e' || buf[i] == 'E')
+      return;
+  if (i + 2 < sz) {
+    /* Lua 5.4 formats version numbers through lua_Number tostring, so an
+    ** integral float is still reported as "504.0", not as integer "504".
+    */
+    buf[i++] = '.';
+    buf[i++] = '0';
+    buf[i] = '\0';
+  }
+}
+#endif
+
 LUALIB_API void luaL_checkversion_(lua_State *L, lua_Number ver, size_t sz)
 {
   lua_Number v = *lua_version(L);
@@ -419,9 +507,18 @@ LUALIB_API void luaL_checkversion_(lua_State *L, lua_Number ver, size_t sz)
   */
   if (sz != LUAL_NUMSIZES)
     luaL_error(L, "core and library have incompatible numeric types");
-  if (v != ver)
+  if (v != ver) {
+#if LJ_54
+    char need[64], have[64];
+    luaL_fmtversion54(need, sizeof(need), ver);
+    luaL_fmtversion54(have, sizeof(have), v);
+    luaL_error(L, "version mismatch: app. needs %s, Lua core provides %s",
+	       need, have);
+#else
     luaL_error(L, "version mismatch: app. needs %d, Lua core provides %d",
 	       (int)ver, (int)v);
+#endif
+  }
 }
 
 LUALIB_API void luaL_pushfail(lua_State *L)
@@ -451,6 +548,13 @@ LUALIB_API int luaL_typeerror(lua_State *L, int narg, const char *tname)
       lua_pop(L, 1);
       typearg = luaL_typename(L, idx);
     }
+#if LJ_54
+  } else if (lua_type(L, idx) == LUA_TLIGHTUSERDATA) {
+    /* Lua 5.4 keeps lua_typename() at "userdata", but argument errors make
+    ** the light/full distinction explicit when no string __name overrides it.
+    */
+    typearg = "light userdata";
+#endif
   } else {
     typearg = luaL_typename(L, idx);
   }
@@ -503,7 +607,11 @@ LUALIB_API const char *luaL_tolstring(lua_State *L, int idx, size_t *len)
 
 /* -- Reference management ------------------------------------------------ */
 
+#if LJ_54
+#define FREELIST_REF	(LUA_RIDX_LAST + 1)
+#else
 #define FREELIST_REF	0
+#endif
 
 /* Convert a stack index to an absolute index. */
 #define abs_index(L, i) \
@@ -518,6 +626,16 @@ LUALIB_API int luaL_ref(lua_State *L, int t)
     return LUA_REFNIL;  /* `nil' has a unique fixed reference */
   }
   lua_rawgeti(L, t, FREELIST_REF);  /* get first free element */
+#if LJ_54
+  if (lua_isnil(L, -1)) {
+    /* Lua 5.4 keeps the auxiliary freelist after the registry constants.
+    ** Initialize it there so arbitrary ref tables can safely use key 0.
+    */
+    ref = 0;
+    lua_pushinteger(L, 0);
+    lua_rawseti(L, t, FREELIST_REF);
+  } else
+#endif
   ref = (int)lua_tointeger(L, -1);  /* ref = t[FREELIST_REF] */
   lua_pop(L, 1);  /* remove it from stack */
   if (ref != 0) {  /* any free element? */

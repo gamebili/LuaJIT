@@ -12,11 +12,14 @@
 #include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
+#include <ctype.h>
 
 #include "lj_obj.h"
 #include "lj_gc.h"
 #include "lj_err.h"
+#include "lj_debug.h"
 #include "lj_buf.h"
+#include "lj_frame.h"
 #include "lj_str.h"
 #include "lj_tab.h"
 #include "lj_meta.h"
@@ -33,11 +36,67 @@
 #define LJLIB_MODULE_string
 
 #if LJ_54
+#define LJ_LUA54_PACKSZ_INTEGER	4
+#define LJ_LUA54_PACKSZ_MAX	16
+#define LJ_LUA54_PACKSZ_TOTALMAX	((size_t)0x7fffffff)
+#define LJ_LUA54_PACKSZ_DIGITSTOP	((LJ_LUA54_PACKSZ_TOTALMAX - 9) / 10)
+#define LJ_LUA54_GSUB_MAXCFRAME	180
+
+static void string_check_gsub_cstack54(lua_State *L)
+{
+  void *cf = L->cframe;
+  int depth = 0;
+  while (cf != NULL) {
+    /* Recursive replacement callbacks enter Lua through C frames. Check the
+    ** cframe chain before calling back so Windows reports a Lua error instead
+    ** of exhausting the native stack guard page.
+    */
+    if (++depth > LJ_LUA54_GSUB_MAXCFRAME)
+      lj_err_callermsg(L, "C stack overflow");
+    cf = cframe_prev(cframe_raw(cf));
+  }
+}
+
+static const char *string_callname54(lua_State *L, const char *fname,
+				     const char **kindp)
+{
+  const char *name = NULL;
+  const char *kind = lj_debug_funcname(L, L->base-1, &name);
+  if (kindp) *kindp = kind;
+  if (kind && name && kind[3] == 'h')
+    return name;
+  if (kind && name) {
+    /* Direct pcall(string.xxx, ...) has no Lua call expression and falls back
+    ** to the full library name. Real source field/local/upvalue/global calls
+    ** should use the call-site name, matching Lua 5.4 diagnostics like
+    ** string.dump(true) -> 'dump' and local f = string.pack; f(nil) -> 'f'.
+    */
+    if (kind[0] == 'f' || kind[0] == 'l' || kind[0] == 'u' ||
+	kind[0] == 'g')
+      return name;
+  }
+  return fname;
+}
+
 static void string_argerror_named54(lua_State *L, int narg, const char *fname,
 				    const char *msg)
 {
+  const char *kind = NULL;
+  const char *dname = string_callname54(L, fname, &kind);
+  int showarg = narg;
+  if (narg == 1) {
+    if (kind && kind[3] == 'h') {
+      /* Match Lua 5.4's method-call diagnostic for string functions reached
+      ** through __index, e.g. table_with_string_index:sub().
+      */
+      lj_err_callermsg(L, lj_strfmt_pushf(L,
+	"calling '%s' on bad self (%s)", dname, msg));
+    }
+  }
+  if (kind && kind[3] == 'h')
+    showarg--;
   lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #%d to '%s' (%s)",
-				      narg, fname, msg));
+				      showarg, dname, msg));
 }
 
 static const char *string_argtypename54(lua_State *L, int narg)
@@ -349,6 +408,11 @@ typedef struct MatchState {
   } capture[LUA_MAXCAPTURES];
 } MatchState;
 
+typedef struct GMatchState {
+  uint32_t pos;
+  uint32_t last;
+} GMatchState;
+
 #define L_ESC		'%'
 
 static int check_capture(MatchState *ms, int l)
@@ -407,7 +471,23 @@ static int match_class(int c, int cl)
   if ((cl & 0xc0) == 0x40) {
     int t = match_class_map[(cl&0x1f)];
     if (t) {
+#if LJ_54
+      switch (t) {
+      case LJ_CHAR_ALPHA: t = isalpha(c); break;
+      case LJ_CHAR_CNTRL: t = iscntrl(c); break;
+      case LJ_CHAR_DIGIT: t = isdigit(c); break;
+      case LJ_CHAR_GRAPH: t = isgraph(c); break;
+      case LJ_CHAR_LOWER: t = islower(c); break;
+      case LJ_CHAR_PUNCT: t = ispunct(c); break;
+      case LJ_CHAR_SPACE: t = isspace(c); break;
+      case LJ_CHAR_UPPER: t = isupper(c); break;
+      case LJ_CHAR_ALNUM: t = isalnum(c); break;
+      case LJ_CHAR_XDIGIT: t = isxdigit(c); break;
+      default: t = lj_char_isa(c, t); break;
+      }
+#else
       t = lj_char_isa(c, t);
+#endif
       return (cl & 0x20) ? t : !t;
     }
     if (cl == 'z') return c == 0;
@@ -740,12 +820,19 @@ LJLIB_NOREG LJLIB_CF(string_gmatch_aux)
   const char *p = strdata(pat);
   GCstr *str = strV(lj_lib_upvalue(L, 1));
   const char *s = strdata(str);
-  TValue *tvpos = lj_lib_upvalue(L, 3);
 #if LJ_54
-  TValue *tvlast = lj_lib_upvalue(L, 4);
-  uint32_t last = tvlast->u32.lo;
+  GMatchState *gm = (GMatchState *)uddata(udataV(lj_lib_upvalue(L, 3)));
+#else
+  TValue *tvpos = lj_lib_upvalue(L, 3);
 #endif
+#if LJ_54
+  uint32_t last = gm->last;
+#endif
+#if LJ_54
+  const char *src = s + gm->pos;
+#else
   const char *src = s + tvpos->u32.lo;
+#endif
   MatchState ms;
   ms.L = L;
   ms.src_init = s;
@@ -763,8 +850,8 @@ LJLIB_NOREG LJLIB_CF(string_gmatch_aux)
       ** new empty match at that same position while still allowing the scan
       ** loop to advance and find the next real match.
       */
-      tvpos->u32.lo = pos;
-      tvlast->u32.lo = pos;
+      gm->pos = pos;
+      gm->last = pos;
       return push_captures(&ms, src, e);
     }
 #else
@@ -790,6 +877,9 @@ LJLIB_CF(string_gmatch)
 #endif
   MSize st;
 #if LJ_54
+  GMatchState *gm;
+#endif
+#if LJ_54
   string_checkstr_named54(L, 2, "string.gmatch");
 #else
   lj_lib_checkstr(L, 2);
@@ -799,13 +889,19 @@ LJLIB_CF(string_gmatch)
   st = (MSize)start;
   if (st > s->len)
     st = s->len + 1;
+#if LJ_54
+  L->top = L->base+2;
+  /* Keep the official debug shape: two string upvalues plus one userdata state.
+  ** Splitting pos/last into separate TValue upvalues exposes implementation
+  ** details and can leak an untyped internal slot through debug.getupvalue().
+  */
+  gm = (GMatchState *)lua_newuserdata(L, sizeof(GMatchState));
+  gm->pos = st;
+  gm->last = ~(uint32_t)0;
+  lj_lib_pushcc(L, lj_cf_string_gmatch_aux, FF_string_gmatch_aux, 3);
+#else
   L->top = L->base+3;
   (L->top-1)->u64 = (uint64_t)st;
-#if LJ_54
-  L->top = L->base+4;
-  (L->top-1)->u32.lo = ~(uint32_t)0;
-  lj_lib_pushcc(L, lj_cf_string_gmatch_aux, FF_string_gmatch_aux, 4);
-#else
   lj_lib_pushcc(L, lj_cf_string_gmatch_aux, FF_string_gmatch_aux, 3);
 #endif
   return 1;
@@ -835,7 +931,7 @@ static void add_s(MatchState *ms, luaL_Buffer *b, const char *s, const char *e)
   }
 }
 
-static void add_value(MatchState *ms, luaL_Buffer *b,
+static int add_value(MatchState *ms, luaL_Buffer *b,
 		      const char *s, const char *e)
 {
   lua_State *L = ms->L;
@@ -843,16 +939,22 @@ static void add_value(MatchState *ms, luaL_Buffer *b,
     case LUA_TNUMBER:
     case LUA_TSTRING: {
       add_s(ms, b, s, e);
-      return;
+      return 1;
     }
     case LUA_TFUNCTION: {
       int n;
+#if LJ_54
+      string_check_gsub_cstack54(L);
+#endif
       lua_pushvalue(L, 3);
       n = push_captures(ms, s, e);
       lua_call(L, n, 1);
       break;
     }
     case LUA_TTABLE: {
+#if LJ_54
+      string_check_gsub_cstack54(L);
+#endif
       push_onecapture(ms, 0, s, e);
       lua_gettable(L, 3);
       break;
@@ -861,10 +963,13 @@ static void add_value(MatchState *ms, luaL_Buffer *b,
   if (!lua_toboolean(L, -1)) {  /* nil or false? */
     lua_pop(L, 1);
     lua_pushlstring(L, s, (size_t)(e - s));  /* keep original text */
+    luaL_addvalue(b);
+    return 0;
   } else if (!lua_isstring(L, -1)) {
     lj_err_callerv(L, LJ_ERR_STRGSRV, luaL_typename(L, -1));
   }
   luaL_addvalue(b);  /* add result to accumulator */
+  return 1;
 }
 
 LJLIB_CF(string_gsub)
@@ -893,12 +998,15 @@ LJLIB_CF(string_gsub)
   luaL_Buffer b;
 #if LJ_54
   const char *lastmatch = NULL;
+  int changed = 0;
 #endif
   if (!(tr == LUA_TNUMBER || tr == LUA_TSTRING ||
 	tr == LUA_TFUNCTION || tr == LUA_TTABLE))
 #if LJ_54
-    string_argerror_named54(L, 3, "string.gsub",
-			    "string/function/table expected");
+    /* Lua 5.4 includes the actual replacement type in this diagnostic,
+    ** including the no-value vs explicit nil distinction.
+    */
+    string_argtype_named54(L, 3, "string.gsub", "string/function/table");
 #else
     lj_err_arg(L, 3, LJ_ERR_NOSFT);
 #endif
@@ -914,7 +1022,7 @@ LJLIB_CF(string_gsub)
 #if LJ_54
     if (e && e != lastmatch) {
       n++;
-      add_value(&ms, &b, src, e);
+      changed |= add_value(&ms, &b, src, e);
       /* Same empty-match rule as official Lua 5.4: after replacing an empty
       ** match, the next search at that same end position is ignored and the
       ** scan advances by one subject byte.
@@ -942,6 +1050,14 @@ LJLIB_CF(string_gsub)
   }
   luaL_addlstring(&b, src, (size_t)(ms.src_end-src));
   luaL_pushresult(&b);
+#if LJ_54
+  if (!changed && tvisstr(L->base)) {
+    /* Official Lua reuses the original long string object if every match kept
+    ** the original text (nil/false/table miss) or there was no match at all.
+    */
+    setstrV(L, L->top-1, strV(L->base));
+  }
+#endif
   lua_pushinteger(L, n);  /* number of substitutions */
   return 2;
 }
@@ -977,13 +1093,19 @@ static const char *string_pack_readsize(const char *fmt, size_t *szp,
 					size_t def)
 {
   size_t sz = 0;
-  int has = 0;
-  while (*fmt >= '0' && *fmt <= '9') {
-    has = 1;
+  if (!(*fmt >= '0' && *fmt <= '9')) {
+    *szp = def;
+    return fmt;
+  }
+  do {
     sz = sz * 10 + (size_t)(*fmt - '0');
     fmt++;
-  }
-  *szp = has ? sz : def;
+    /* Lua 5.4 keeps this parser in int range and deliberately leaves the
+    ** first overflowing digit to be parsed as the next format option.
+    */
+  } while (*fmt >= '0' && *fmt <= '9' &&
+	   sz <= LJ_LUA54_PACKSZ_DIGITSTOP);
+  *szp = sz;
   return fmt;
 }
 
@@ -994,30 +1116,33 @@ static uint64_t string_pack_umax(size_t sz)
 
 static void string_pack_checksize(lua_State *L, size_t sz)
 {
-  if (sz < 1 || sz > 8)
-    luaL_error(L, "integral size (%d) out of limits [1,8]", (int)sz);
+  if (sz < 1 || sz > LJ_LUA54_PACKSZ_MAX)
+    luaL_error(L, "integral size (%d) out of limits [1,16]", (int)sz);
 }
 
-static void string_pack_checkmaxalign(lua_State *L, size_t align)
+static void string_pack_checkmaxalign(lua_State *L, size_t align,
+				      const char *fname)
 {
-  if (align < 1 || align > 16)
-    luaL_argerror(L, 1, "format asks for invalid alignment");
+  string_pack_checksize(L, align);
+  UNUSED(fname);
 }
 
-static size_t string_pack_align(lua_State *L, size_t sz, size_t maxalign)
+static size_t string_pack_align(lua_State *L, size_t sz, size_t maxalign,
+				const char *fname)
 {
   size_t align = sz < maxalign ? sz : maxalign;
   if (align <= 1)
     return 1;
   if ((align & (align - 1)) != 0)
-    luaL_argerror(L, 1, "format asks for alignment not power of 2");
+    string_argerror_named54(L, 1, fname,
+			    "format asks for alignment not power of 2");
   return align;
 }
 
 static size_t string_pack_padding(lua_State *L, size_t pos, size_t sz,
-				  size_t maxalign)
+				  size_t maxalign, const char *fname)
 {
-  size_t align = string_pack_align(L, sz, maxalign);
+  size_t align = string_pack_align(L, sz, maxalign, fname);
   return align <= 1 ? 0 : ((align - (pos & (align - 1))) & (align - 1));
 }
 
@@ -1028,18 +1153,20 @@ static void string_pack_addpadding(luaL_Buffer *b, size_t pad)
 }
 
 static const char *string_pack_xsize(lua_State *L, const char *fmt,
-				     size_t *szp)
+				     size_t *szp, const char *fname)
 {
   char opt;
-  while (*fmt == ' ' || *fmt == '\f' || *fmt == '\n' ||
-	 *fmt == '\r' || *fmt == '\t' || *fmt == '\v')
-    fmt++;
   opt = *fmt++;
   switch (opt) {
   case 'b': case 'B': *szp = 1; return fmt;
   case 'h': case 'H': *szp = 2; return fmt;
   case 'l': case 'L': *szp = sizeof(long); return fmt;
-  case 'j': *szp = sizeof(lua_Integer); return fmt;
+  case 'j': case 'J':
+    /* The current Lua 5.4 compatibility layer exposes a 32 bit integer range
+    ** even though LuaJIT's C typedef remains ptrdiff_t for ABI continuity.
+    */
+    *szp = LJ_LUA54_PACKSZ_INTEGER;
+    return fmt;
   case 'T': *szp = sizeof(size_t); return fmt;
   case 'f': *szp = sizeof(float); return fmt;
   case 'd': case 'n': *szp = sizeof(double); return fmt;
@@ -1049,9 +1176,11 @@ static const char *string_pack_xsize(lua_State *L, const char *fmt,
     string_pack_checksize(L, *szp);
     return fmt;
   case 's':
-    return string_pack_readsize(fmt, szp, 4);
+    fmt = string_pack_readsize(fmt, szp, 4);
+    string_pack_checksize(L, *szp);
+    return fmt;
   default:
-    luaL_argerror(L, 1, "invalid next option for option 'X'");
+    string_argerror_named54(L, 1, fname, "invalid next option for option 'X'");
     return fmt;
   }
 }
@@ -1062,14 +1191,15 @@ static int string_pack_endian(int endian)
 }
 
 static void string_pack_writeint(luaL_Buffer *b, uint64_t u, size_t sz,
-				 int endian)
+				 int endian, int signext)
 {
-  char buf[8];
+  char buf[LJ_LUA54_PACKSZ_MAX];
   size_t i;
   int le = string_pack_endian(endian);
   for (i = 0; i < sz; i++) {
     size_t shift = le ? i : (sz - 1 - i);
-    buf[i] = (char)((u >> (shift * 8)) & 0xff);
+    buf[i] = shift < 8 ? (char)((u >> (shift * 8)) & 0xff) :
+			  (char)(signext ? 0xff : 0x00);
   }
   luaL_addlstring(b, buf, sz);
 }
@@ -1082,19 +1212,43 @@ static uint64_t string_pack_readint(const unsigned char *s, size_t sz,
   int le = string_pack_endian(endian);
   for (i = 0; i < sz; i++) {
     size_t shift = le ? i : (sz - 1 - i);
-    u |= (uint64_t)s[i] << (shift * 8);
+    if (shift < 8)
+      u |= (uint64_t)s[i] << (shift * 8);
+  }
+  return u;
+}
+
+static uint64_t string_pack_readint_ext(lua_State *L, const unsigned char *s,
+					size_t sz, int endian, int issigned)
+{
+  size_t i;
+  int le = string_pack_endian(endian);
+  uint64_t u = 0;
+  unsigned char fill;
+  if (sz <= LJ_LUA54_PACKSZ_INTEGER)
+    return string_pack_readint(s, sz, endian);
+  for (i = 0; i < LJ_LUA54_PACKSZ_INTEGER; i++) {
+    size_t idx = le ? i : (sz - 1 - i);
+    u |= (uint64_t)s[idx] << (i * 8);
+  }
+  fill = (issigned && (s[le ? LJ_LUA54_PACKSZ_INTEGER - 1 :
+		       sz - LJ_LUA54_PACKSZ_INTEGER] & 0x80)) ? 0xff : 0x00;
+  for (i = LJ_LUA54_PACKSZ_INTEGER; i < sz; i++) {
+    size_t idx = le ? i : (sz - 1 - i);
+    if (s[idx] != fill)
+      luaL_error(L, "%d-byte integer does not fit into Lua Integer", (int)sz);
   }
   return u;
 }
 
 static uint64_t string_pack_checkint(lua_State *L, int arg, size_t sz,
-				     int issigned)
+				     int issigned, const char *fname)
 {
 #if LJ_54
-  lua_Number n = string_checknum_named54(L, arg, "string.pack");
+  lua_Number n = string_checknum_named54(L, arg, fname);
   int64_t v;
   if (!(n >= -9223372036854775808.0 && n <= 9223372036854775807.0))
-    string_argerror_named54(L, arg, "string.pack",
+    string_argerror_named54(L, arg, fname,
 			    "number has no integer representation");
   v = lj_num2i64(n);
   /* Pack formats define their own signed/unsigned range. Do the exact
@@ -1102,24 +1256,34 @@ static uint64_t string_pack_checkint(lua_State *L, int arg, size_t sz,
   ** so existing Lua 5.4 pack cases such as I4/4000000000 keep working.
   */
   if ((lua_Number)v != n)
-    string_argerror_named54(L, arg, "string.pack",
+    string_argerror_named54(L, arg, fname,
 			    "number has no integer representation");
   if (issigned) {
+    if (sz > LJ_LUA54_PACKSZ_INTEGER &&
+	(v < (int64_t)INT32_MIN || v > (int64_t)INT32_MAX))
+      string_argerror_named54(L, arg, fname, "integer overflow");
     if (sz < 8) {
       int bits = (int)(sz * 8);
       int64_t minv = -(int64_t)((uint64_t)1 << (bits - 1));
       int64_t maxv = (int64_t)(((uint64_t)1 << (bits - 1)) - 1);
       if (v < minv || v > maxv)
-	string_argerror_named54(L, arg, "string.pack", "integer overflow");
+	string_argerror_named54(L, arg, fname, "integer overflow");
     }
     return (uint64_t)v;
   } else {
     uint64_t maxv = string_pack_umax(sz);
-    if (v < 0 || (uint64_t)v > maxv)
-      string_argerror_named54(L, arg, "string.pack", "unsigned overflow");
+    if (v < 0) {
+      uint64_t uv = (uint32_t)v;
+      if (sz < LJ_LUA54_PACKSZ_INTEGER && uv > maxv)
+	string_argerror_named54(L, arg, fname, "unsigned overflow");
+      return uv;
+    }
+    if ((uint64_t)v > maxv)
+      string_argerror_named54(L, arg, fname, "unsigned overflow");
     return (uint64_t)v;
   }
 #else
+  UNUSED(fname);
   lua_Integer v = luaL_checkinteger(L, arg);
   if (issigned) {
     if (sz < 8) {
@@ -1140,16 +1304,16 @@ static uint64_t string_pack_checkint(lua_State *L, int arg, size_t sz,
 }
 
 static void string_pack_writenum(luaL_Buffer *b, lua_State *L, int arg,
-				 size_t sz, int endian)
+				 size_t sz, int endian, const char *fname)
 {
   union { float f; double d; unsigned char b[8]; } u;
   char out[8];
   size_t i;
   int same = string_pack_endian(endian) == string_pack_native_little();
   if (sz == sizeof(float))
-    u.f = (float)string_checknum_named54(L, arg, "string.pack");
+    u.f = (float)string_checknum_named54(L, arg, fname);
   else
-    u.d = (double)string_checknum_named54(L, arg, "string.pack");
+    u.d = (double)string_checknum_named54(L, arg, fname);
   for (i = 0; i < sz; i++)
     out[i] = (char)(same ? u.b[i] : u.b[sz - 1 - i]);
   luaL_addlstring(b, out, sz);
@@ -1170,15 +1334,38 @@ static void string_pack_readnum(lua_State *L, const unsigned char *s,
 }
 
 static void string_pack_checkdata(lua_State *L, size_t pos, size_t need,
-				  size_t len)
+				  size_t len, const char *fname)
 {
   if (pos > len || need > len - pos)
-    luaL_argerror(L, 2, "data string too short");
+    string_argerror_named54(L, 2, fname, "data string too short");
+}
+
+static void string_pack_addsize(lua_State *L, size_t *total, size_t add,
+				const char *fname)
+{
+  if (add > LJ_LUA54_PACKSZ_TOTALMAX ||
+      *total > LJ_LUA54_PACKSZ_TOTALMAX - add)
+    string_argerror_named54(L, 1, fname, "format result too large");
+  *total += add;
+}
+
+static void string_pack_checkargpresent(lua_State *L, int arg, int nargs,
+					const char *fname, const char *xname)
+{
+  if (arg > nargs) {
+    /* luaL_buffinit() pushes an internal buffer object above the original
+    ** arguments. Missing pack values must not report that private object type.
+    */
+    string_argerror_named54(L, arg, fname,
+      lj_strfmt_pushf(L, "%s expected, got nil", xname));
+  }
 }
 
 static int lj_cf_string_pack(lua_State *L)
 {
-  const char *fmt = strdata(string_checkstr_named54(L, 1, "string.pack"));
+  const char *fname = "string.pack";
+  const char *fmt = strdata(string_checkstr_named54(L, 1, fname));
+  int nargs = lua_gettop(L);
   int endian = -1;  /* -1 means native; 1 means little; 0 means big. */
   int arg = 2;
   size_t pos = 0, maxalign = 1;
@@ -1195,51 +1382,61 @@ static int lj_cf_string_pack(lua_State *L)
     if (opt == '=') { endian = -1; continue; }
     if (opt == '!') {
       fmt = string_pack_readsize(fmt, &maxalign, 8);
-      string_pack_checkmaxalign(L, maxalign);
+      string_pack_checkmaxalign(L, maxalign, fname);
       continue;
     }
     switch (opt) {
     case 'b': case 'B': sz = 1; goto pack_int;
     case 'h': case 'H': sz = 2; goto pack_int;
     case 'l': case 'L': sz = sizeof(long); goto pack_int;
-    case 'j': sz = sizeof(lua_Integer); goto pack_int;
+    case 'j': case 'J': sz = LJ_LUA54_PACKSZ_INTEGER; goto pack_int;
     case 'T': sz = sizeof(size_t); goto pack_int;
     case 'i': case 'I':
       fmt = string_pack_readsize(fmt, &sz, 4);
       string_pack_checksize(L, sz);
     pack_int:
-      pad = string_pack_padding(L, pos, sz, maxalign);
+      pad = string_pack_padding(L, pos, sz, maxalign, fname);
       string_pack_addpadding(&b, pad);
       pos += pad;
-      string_pack_writeint(&b, string_pack_checkint(L, arg++, sz,
-			      opt == 'b' || opt == 'h' || opt == 'i' ||
-			      opt == 'l' || opt == 'j'),
-			    sz, endian);
+      {
+	int issigned = opt == 'b' || opt == 'h' || opt == 'i' ||
+		       opt == 'l' || opt == 'j';
+	string_pack_checkargpresent(L, arg, nargs, fname, "number");
+	uint64_t u = string_pack_checkint(L, arg++, sz, issigned, fname);
+	string_pack_writeint(&b, u, sz, endian, issigned && (int64_t)u < 0);
+      }
       pos += sz;
       break;
     case 'f':
       sz = sizeof(float);
-      pad = string_pack_padding(L, pos, sz, maxalign);
+      pad = string_pack_padding(L, pos, sz, maxalign, fname);
       string_pack_addpadding(&b, pad);
       pos += pad;
-      string_pack_writenum(&b, L, arg++, sizeof(float), endian);
+      string_pack_checkargpresent(L, arg, nargs, fname, "number");
+      string_pack_writenum(&b, L, arg++, sizeof(float), endian, fname);
       pos += sz;
       break;
     case 'd': case 'n':
       sz = sizeof(double);
-      pad = string_pack_padding(L, pos, sz, maxalign);
+      pad = string_pack_padding(L, pos, sz, maxalign, fname);
       string_pack_addpadding(&b, pad);
       pos += pad;
-      string_pack_writenum(&b, L, arg++, sizeof(double), endian);
+      string_pack_checkargpresent(L, arg, nargs, fname, "number");
+      string_pack_writenum(&b, L, arg++, sizeof(double), endian, fname);
       pos += sz;
       break;
     case 'c': {
       const char *s;
       size_t len, i;
+      if (!(*fmt >= '0' && *fmt <= '9'))
+	string_argerror_named54(L, 1, fname,
+				"missing size for format option 'c'");
       fmt = string_pack_readsize(fmt, &sz, 0);
-      s = string_checklstring_named54(L, arg++, &len, "string.pack");
+      string_pack_checkargpresent(L, arg, nargs, fname, "string");
+      s = string_checklstring_named54(L, arg++, &len, fname);
       if (len > sz)
-	luaL_argerror(L, arg-1, "string longer than given size");
+	string_argerror_named54(L, arg-1, fname,
+				"string longer than given size");
       luaL_addlstring(&b, s, len);
       for (i = len; i < sz; i++)
 	luaL_addchar(&b, '\0');
@@ -1249,9 +1446,11 @@ static int lj_cf_string_pack(lua_State *L)
     case 'z': {
       const char *s;
       size_t len;
-      s = string_checklstring_named54(L, arg++, &len, "string.pack");
+      string_pack_checkargpresent(L, arg, nargs, fname, "string");
+      s = string_checklstring_named54(L, arg++, &len, fname);
       if (memchr(s, '\0', len) != NULL)
-	luaL_argerror(L, arg-1, "string contains zeros");
+	string_argerror_named54(L, arg-1, fname,
+				"string contains zeros");
       luaL_addlstring(&b, s, len);
       luaL_addchar(&b, '\0');
       pos += len + 1;
@@ -1262,13 +1461,15 @@ static int lj_cf_string_pack(lua_State *L)
       size_t len;
       fmt = string_pack_readsize(fmt, &sz, 4);
       string_pack_checksize(L, sz);
-      s = string_checklstring_named54(L, arg++, &len, "string.pack");
+      string_pack_checkargpresent(L, arg, nargs, fname, "string");
+      s = string_checklstring_named54(L, arg++, &len, fname);
       if (len > string_pack_umax(sz))
-	luaL_argerror(L, arg-1, "string length does not fit in given size");
-      pad = string_pack_padding(L, pos, sz, maxalign);
+	string_argerror_named54(L, arg-1, fname,
+				"string length does not fit in given size");
+      pad = string_pack_padding(L, pos, sz, maxalign, fname);
       string_pack_addpadding(&b, pad);
       pos += pad;
-      string_pack_writeint(&b, (uint64_t)len, sz, endian);
+      string_pack_writeint(&b, (uint64_t)len, sz, endian, 0);
       pos += sz;
       luaL_addlstring(&b, s, len);
       pos += len;
@@ -1279,8 +1480,8 @@ static int lj_cf_string_pack(lua_State *L)
       pos++;
       break;
     case 'X':
-      fmt = string_pack_xsize(L, fmt, &sz);
-      pad = string_pack_padding(L, pos, sz, maxalign);
+      fmt = string_pack_xsize(L, fmt, &sz, fname);
+      pad = string_pack_padding(L, pos, sz, maxalign, fname);
       string_pack_addpadding(&b, pad);
       pos += pad;
       break;
@@ -1295,20 +1496,27 @@ static int lj_cf_string_pack(lua_State *L)
 
 static int lj_cf_string_unpack(lua_State *L)
 {
-  const char *fmt = strdata(string_checkstr_named54(L, 1, "string.unpack"));
+  const char *fname = "string.unpack";
+  const char *fmt = strdata(string_checkstr_named54(L, 1, fname));
   size_t len;
   const unsigned char *data =
     (const unsigned char *)string_checklstring_named54(L, 2, &len,
-						       "string.unpack");
-  lua_Integer init = string_optint_named54(L, 3, 1, "string.unpack");
+						       fname);
+  lua_Integer init = string_optint_named54(L, 3, 1, fname);
+  int64_t ipos;
   size_t pos;
   size_t maxalign = 1;
   int endian = -1;
   int nres = 0;
-  if (init < 1)
-    string_argerror_named54(L, 3, "string.unpack",
+  /* Lua 5.4 posrelatI treats initial position 0 as byte 1; only
+  ** negative positions are relative to the end of the string.
+  */
+  ipos = init > 0 ? (int64_t)init :
+    init == 0 ? 1 : (int64_t)len + (int64_t)init + 1;
+  if (ipos < 1 || ipos > (int64_t)len + 1)
+    string_argerror_named54(L, 3, fname,
 			    "initial position out of string");
-  pos = (size_t)init - 1;
+  pos = (size_t)ipos - 1;
   while (*fmt) {
     char opt = *fmt++;
     size_t sz;
@@ -1320,33 +1528,42 @@ static int lj_cf_string_unpack(lua_State *L)
     if (opt == '=') { endian = -1; continue; }
     if (opt == '!') {
       fmt = string_pack_readsize(fmt, &maxalign, 8);
-      string_pack_checkmaxalign(L, maxalign);
+      string_pack_checkmaxalign(L, maxalign, fname);
       continue;
     }
     switch (opt) {
     case 'b': case 'B': sz = 1; goto unpack_int;
     case 'h': case 'H': sz = 2; goto unpack_int;
     case 'l': case 'L': sz = sizeof(long); goto unpack_int;
-    case 'j': sz = sizeof(lua_Integer); goto unpack_int;
+    case 'j': case 'J': sz = LJ_LUA54_PACKSZ_INTEGER; goto unpack_int;
     case 'T': sz = sizeof(size_t); goto unpack_int;
     case 'i': case 'I':
       fmt = string_pack_readsize(fmt, &sz, 4);
       string_pack_checksize(L, sz);
     unpack_int: {
       uint64_t u;
-      pos += string_pack_padding(L, pos, sz, maxalign);
-      string_pack_checkdata(L, pos, sz, len);
-      u = string_pack_readint(data + pos, sz, endian);
+      size_t rsz = (opt == 'i' || opt == 'I' || opt == 'j' || opt == 'J') &&
+		   sz > LJ_LUA54_PACKSZ_INTEGER ? LJ_LUA54_PACKSZ_INTEGER : sz;
+      pos += string_pack_padding(L, pos, sz, maxalign, fname);
+      string_pack_checkdata(L, pos, sz, len, fname);
+      u = (opt == 'i' || opt == 'I' || opt == 'j' || opt == 'J') ?
+	  string_pack_readint_ext(L, data + pos, sz, endian,
+				  opt == 'i' || opt == 'j') :
+	  string_pack_readint(data + pos, sz, endian);
       if (opt == 'b' || opt == 'h' || opt == 'i' ||
 	  opt == 'l' || opt == 'j') {
-	if (sz < 8) {
-	  uint64_t sign = (uint64_t)1 << (sz * 8 - 1);
+	if (rsz < 8) {
+	  uint64_t sign = (uint64_t)1 << (rsz * 8 - 1);
 	  if (u & sign)
-	    u |= ~string_pack_umax(sz);
+	    u |= ~string_pack_umax(rsz);
 	}
 	lua_pushinteger(L, (lua_Integer)(int64_t)u);
       } else {
-	lua_pushinteger(L, (lua_Integer)u);
+	if ((opt == 'I' && sz > LJ_LUA54_PACKSZ_INTEGER) ||
+	    opt == 'J' || opt == 'L')
+	  lua_pushinteger(L, (lua_Integer)(int32_t)(uint32_t)u);
+	else
+	  lua_pushinteger(L, (lua_Integer)u);
       }
       pos += sz;
       nres++;
@@ -1354,23 +1571,26 @@ static int lj_cf_string_unpack(lua_State *L)
     }
     case 'f':
       sz = sizeof(float);
-      pos += string_pack_padding(L, pos, sz, maxalign);
-      string_pack_checkdata(L, pos, sz, len);
+      pos += string_pack_padding(L, pos, sz, maxalign, fname);
+      string_pack_checkdata(L, pos, sz, len, fname);
       string_pack_readnum(L, data + pos, sz, endian);
       pos += sz;
       nres++;
       break;
     case 'd': case 'n':
       sz = sizeof(double);
-      pos += string_pack_padding(L, pos, sz, maxalign);
-      string_pack_checkdata(L, pos, sz, len);
+      pos += string_pack_padding(L, pos, sz, maxalign, fname);
+      string_pack_checkdata(L, pos, sz, len, fname);
       string_pack_readnum(L, data + pos, sz, endian);
       pos += sz;
       nres++;
       break;
     case 'c':
+      if (!(*fmt >= '0' && *fmt <= '9'))
+	string_argerror_named54(L, 1, fname,
+				"missing size for format option 'c'");
       fmt = string_pack_readsize(fmt, &sz, 0);
-      string_pack_checkdata(L, pos, sz, len);
+      string_pack_checkdata(L, pos, sz, len, fname);
       lua_pushlstring(L, (const char *)data + pos, sz);
       pos += sz;
       nres++;
@@ -1380,7 +1600,8 @@ static int lj_cf_string_unpack(lua_State *L)
       while (pos < len && data[pos] != 0)
 	pos++;
       if (pos >= len)
-	luaL_argerror(L, 2, "unfinished string for format 'z'");
+	string_argerror_named54(L, 2, fname,
+				"unfinished string for format 'z'");
       lua_pushlstring(L, (const char *)data + start, pos - start);
       pos++;
       nres++;
@@ -1390,25 +1611,25 @@ static int lj_cf_string_unpack(lua_State *L)
       uint64_t slen;
       fmt = string_pack_readsize(fmt, &sz, 4);
       string_pack_checksize(L, sz);
-      pos += string_pack_padding(L, pos, sz, maxalign);
-      string_pack_checkdata(L, pos, sz, len);
+      pos += string_pack_padding(L, pos, sz, maxalign, fname);
+      string_pack_checkdata(L, pos, sz, len, fname);
       slen = string_pack_readint(data + pos, sz, endian);
       pos += sz;
       if (slen > (uint64_t)(len - pos))
-	luaL_argerror(L, 2, "data string too short");
+	string_argerror_named54(L, 2, fname, "data string too short");
       lua_pushlstring(L, (const char *)data + pos, (size_t)slen);
       pos += (size_t)slen;
       nres++;
       break;
     }
     case 'x':
-      string_pack_checkdata(L, pos, 1, len);
+      string_pack_checkdata(L, pos, 1, len, fname);
       pos++;
       break;
     case 'X':
-      fmt = string_pack_xsize(L, fmt, &sz);
-      pos += string_pack_padding(L, pos, sz, maxalign);
-      string_pack_checkdata(L, pos, 0, len);
+      fmt = string_pack_xsize(L, fmt, &sz, fname);
+      pos += string_pack_padding(L, pos, sz, maxalign, fname);
+      string_pack_checkdata(L, pos, 0, len, fname);
       break;
     default:
       luaL_error(L, "invalid format option '%c'", opt);
@@ -1421,7 +1642,8 @@ static int lj_cf_string_unpack(lua_State *L)
 
 static int lj_cf_string_packsize(lua_State *L)
 {
-  const char *fmt = strdata(string_checkstr_named54(L, 1, "string.packsize"));
+  const char *fname = "string.packsize";
+  const char *fmt = strdata(string_checkstr_named54(L, 1, fname));
   size_t total = 0;
   size_t maxalign = 1;
   while (*fmt) {
@@ -1433,43 +1655,61 @@ static int lj_cf_string_packsize(lua_State *L)
     if (opt == '<' || opt == '>' || opt == '=') continue;
     if (opt == '!') {
       fmt = string_pack_readsize(fmt, &maxalign, 8);
-      string_pack_checkmaxalign(L, maxalign);
+      string_pack_checkmaxalign(L, maxalign, fname);
       continue;
     }
     switch (opt) {
     case 'b': case 'B': sz = 1; goto size_fixed;
     case 'h': case 'H': sz = 2; goto size_fixed;
     case 'l': case 'L': sz = sizeof(long); goto size_fixed;
-    case 'j': sz = sizeof(lua_Integer); goto size_fixed;
+    case 'j': case 'J': sz = LJ_LUA54_PACKSZ_INTEGER; goto size_fixed;
     case 'T': sz = sizeof(size_t); goto size_fixed;
     case 'i': case 'I':
       fmt = string_pack_readsize(fmt, &sz, 4);
       string_pack_checksize(L, sz);
     size_fixed:
-      total += string_pack_padding(L, total, sz, maxalign);
-      total += sz;
+      string_pack_addsize(L, &total,
+			  string_pack_padding(L, total, sz, maxalign, fname),
+			  fname);
+      string_pack_addsize(L, &total, sz, fname);
       break;
     case 'f':
       sz = sizeof(float);
-      total += string_pack_padding(L, total, sz, maxalign);
-      total += sz;
+      string_pack_addsize(L, &total,
+			  string_pack_padding(L, total, sz, maxalign, fname),
+			  fname);
+      string_pack_addsize(L, &total, sz, fname);
       break;
     case 'd': case 'n':
       sz = sizeof(double);
-      total += string_pack_padding(L, total, sz, maxalign);
-      total += sz;
+      string_pack_addsize(L, &total,
+			  string_pack_padding(L, total, sz, maxalign, fname),
+			  fname);
+      string_pack_addsize(L, &total, sz, fname);
       break;
     case 'c':
+      if (!(*fmt >= '0' && *fmt <= '9'))
+	string_argerror_named54(L, 1, fname,
+				"missing size for format option 'c'");
       fmt = string_pack_readsize(fmt, &sz, 0);
-      total += sz;
+      string_pack_addsize(L, &total, sz, fname);
       break;
-    case 'x': total += 1; break;
+    case 'x': string_pack_addsize(L, &total, 1, fname); break;
     case 'X':
-      fmt = string_pack_xsize(L, fmt, &sz);
-      total += string_pack_padding(L, total, sz, maxalign);
+      fmt = string_pack_xsize(L, fmt, &sz, fname);
+      string_pack_addsize(L, &total,
+			  string_pack_padding(L, total, sz, maxalign, fname),
+			  fname);
       break;
-    case 'z': case 's':
-      luaL_argerror(L, 1, "variable-length format");
+    case 's':
+      fmt = string_pack_readsize(fmt, &sz, 4);
+      string_pack_checksize(L, sz);
+      string_argerror_named54(L, 1, fname,
+			      "variable-length format");
+      break;
+    case 'z':
+      string_argerror_named54(L, 1, fname,
+			      "variable-length format");
       break;
     default:
       luaL_error(L, "invalid format option '%c'", opt);
@@ -1541,7 +1781,7 @@ static int lj_cf_string_lower54(lua_State *L)
   char *buf = lj_buf_tmp(L, (MSize)len);
   for (i = 0; i < len; i++) {
     unsigned char c = (unsigned char)s[i];
-    buf[i] = (char)lj_char_tolower(c);
+    buf[i] = (char)tolower(c);
   }
   lua_pushlstring(L, buf, len);
   return 1;
@@ -1554,7 +1794,7 @@ static int lj_cf_string_upper54(lua_State *L)
   char *buf = lj_buf_tmp(L, (MSize)len);
   for (i = 0; i < len; i++) {
     unsigned char c = (unsigned char)s[i];
-    buf[i] = (char)lj_char_toupper(c);
+    buf[i] = (char)toupper(c);
   }
   lua_pushlstring(L, buf, len);
   return 1;

@@ -14,6 +14,17 @@
 
 #include "lua.h"
 
+/* lua.h intentionally undefines this private selector before returning; each
+** public header recomputes it for its own compatibility declarations.
+*/
+#undef LUAJIT_EXTERNAL_LUA54
+#if defined(LUAJIT_ENABLE_LUA54COMPAT) && !defined(LUA_CORE) && \
+    !defined(LUA_LIB) && !defined(LUAJIT_INTERNAL_USE)
+#define LUAJIT_EXTERNAL_LUA54 1
+#else
+#define LUAJIT_EXTERNAL_LUA54 0
+#endif
+
 
 /* extra error code for `luaL_load' */
 #define LUA_ERRFILE     (LUA_ERRERR+1)
@@ -55,6 +66,8 @@
 #endif
 #endif
 
+typedef struct luaL_Buffer luaL_Buffer;
+
 typedef struct luaL_Reg {
   const char *name;
   lua_CFunction func;
@@ -83,7 +96,7 @@ LUALIB_API void (luaL_argexpected) (lua_State *L, int cond, int arg,
                                     const char *tname);
 #else
 #define luaL_argexpected(L,cond,arg,tname) \
-  ((void)((cond) || luaL_typeerror((L), (arg), (tname))))
+  ((void)(luai_likely(cond) || luaL_typeerror((L), (arg), (tname))))
 #endif
 LUALIB_API const char *(luaL_checklstring) (lua_State *L, int numArg,
                                                           size_t *l);
@@ -174,13 +187,15 @@ LUALIB_API void (luaL_setmetatable) (lua_State *L, const char *tname);
 */
 
 #define luaL_argcheck(L, cond,numarg,extramsg)	\
-		((void)((cond) || luaL_argerror(L, (numarg), (extramsg))))
+	((void)(luai_likely(cond) || luaL_argerror(L, (numarg), (extramsg))))
 #define luaL_checkstring(L,n)	(luaL_checklstring(L, (n), NULL))
 #define luaL_optstring(L,n,d)	(luaL_optlstring(L, (n), (d), NULL))
+#if !LUAJIT_EXTERNAL_LUA54 || defined(LUA_COMPAT_APIINTCASTS)
 #define luaL_checkint(L,n)	((int)luaL_checkinteger(L, (n)))
 #define luaL_optint(L,n,d)	((int)luaL_optinteger(L, (n), (d)))
 #define luaL_checklong(L,n)	((long)luaL_checkinteger(L, (n)))
 #define luaL_optlong(L,n,d)	((long)luaL_optinteger(L, (n), (d)))
+#endif
 #if defined(LUAJIT_ENABLE_LUA54COMPAT) && defined(LUA_COMPAT_APIINTCASTS)
 #define luaL_checkunsigned(L,a)	((lua_Unsigned)luaL_checkinteger(L, (a)))
 #define luaL_optunsigned(L,a,d) \
@@ -234,7 +249,7 @@ LUALIB_API void (luaL_setmetatable) (lua_State *L, const char *tname);
 
 
 #ifdef LUAJIT_ENABLE_LUA54COMPAT
-typedef struct luaL_Buffer {
+struct luaL_Buffer {
   char *b;			/* buffer address */
   size_t size;			/* buffer size */
   size_t n;			/* number of characters in buffer */
@@ -243,14 +258,14 @@ typedef struct luaL_Buffer {
     LUAI_MAXALIGN;		/* ensure maximum alignment for buffer */
     char b[LUAL_BUFFERSIZE];	/* initial buffer */
   } init;
-} luaL_Buffer;
+};
 #else
-typedef struct luaL_Buffer {
+struct luaL_Buffer {
   char *p;			/* current position in buffer */
   int lvl;  /* number of strings in the stack (level) */
   lua_State *L;
   char buffer[LUAL_BUFFERSIZE];
-} luaL_Buffer;
+};
 #endif
 
 #ifdef LUAJIT_ENABLE_LUA54COMPAT
@@ -263,8 +278,10 @@ typedef struct luaL_Buffer {
    (*(B)->p++ = (char)(c)))
 #endif
 
+#if !LUAJIT_EXTERNAL_LUA54
 /* compatibility only */
 #define luaL_putchar(B,c)	luaL_addchar(B,c)
+#endif
 
 #ifdef LUAJIT_ENABLE_LUA54COMPAT
 #define luaL_addsize(B,sz_)	((B)->n += (sz_))
@@ -310,5 +327,7 @@ LUALIB_API void (luaL_pushresult) (luaL_Buffer *B);
 
 
 /* }====================================================== */
+
+#undef LUAJIT_EXTERNAL_LUA54
 
 #endif

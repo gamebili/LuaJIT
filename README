@@ -14,3 +14,11 @@ Please point your favorite browser to:
 
  doc/luajit.html
 
+Lua 5.4 compatibility builds
+----------------------------
+
+This checkout can be built with LUAJIT_ENABLE_LUA54COMPAT to expose the
+project's Lua 5.4 compatibility surface. The VM still uses LuaJIT bytecode:
+string.dump() and lua_dump() write LuaJIT bytecode, load(..., "b") accepts
+LuaJIT bytecode, and official PUC-Rio Lua 5.4 binary chunks are intentionally
+rejected as incompatible bytecode.

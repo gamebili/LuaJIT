@@ -24,7 +24,11 @@ ERRDEF(NEXTIDX,	"invalid key to " LUA_QL("next"))
 
 /* Metamethod resolving. */
 ERRDEF(BADCALL,	"attempt to call a %s value")
+#if LJ_54
+ERRDEF(BADOPRT,	"attempt to %s a %s value (%s " LUA_QS ")")
+#else
 ERRDEF(BADOPRT,	"attempt to %s %s " LUA_QS " (a %s value)")
+#endif
 ERRDEF(BADOPRV,	"attempt to %s a %s value")
 ERRDEF(BADCMPT,	"attempt to compare %s with %s")
 ERRDEF(BADCMPV,	"attempt to compare two %s values")
@@ -125,11 +129,21 @@ ERRDEF(XSTR,	"unfinished string")
 ERRDEF(XESC,	"invalid escape sequence")
 ERRDEF(XLDELIM,	"invalid long string delimiter")
 ERRDEF(XTOKEN,	LUA_QS " expected")
+#if LJ_54
+ERRDEF(XNAME,	"<name> expected")
+#endif
 ERRDEF(XJUMP,	"control structure too long")
+#if LJ_54
+ERRDEF(XSLOTS,	"too many registers")
+ERRDEF(XLIMC,	"chunk has too many local variables (limit is %d)")
+ERRDEF(XLIMM,	"main function has too many %s (limit is %d)")
+ERRDEF(XLIMF,	"function at line %d has too many %s (limit is %d)")
+#else
 ERRDEF(XSLOTS,	"function or expression too complex")
 ERRDEF(XLIMC,	"chunk has more than %d local variables")
 ERRDEF(XLIMM,	"main function has more than %d %s")
 ERRDEF(XLIMF,	"function at line %d has more than %d %s")
+#endif
 ERRDEF(XMATCH,	LUA_QS " expected (to close " LUA_QS " at line %d)")
 ERRDEF(XFIXUP,	"function too long for return fixup")
 ERRDEF(XPARAM,	"<name> or " LUA_QL("...") " expected")
@@ -144,9 +158,15 @@ ERRDEF(XATTRIB,	"unknown attribute " LUA_QS)
 ERRDEF(XCONST,	"attempt to assign to const variable " LUA_QS)
 ERRDEF(XCLOSE,	"multiple to-be-closed variables in local list")
 ERRDEF(XFOR,	LUA_QL("=") " or " LUA_QL("in") " expected")
+#if LJ_54
+ERRDEF(XBREAK,	"break outside loop at line %d")
+ERRDEF(XLUNDEF,	"no visible label " LUA_QS " for <goto> at line %d")
+ERRDEF(XLDUP,	"label " LUA_QS " already defined on line %d")
+#else
 ERRDEF(XBREAK,	"no loop to break")
 ERRDEF(XLUNDEF,	"undefined label " LUA_QS)
 ERRDEF(XLDUP,	"duplicate label " LUA_QS)
+#endif
 ERRDEF(XGSCOPE,	"<goto %s> jumps into the scope of local " LUA_QS)
 
 /* Bytecode reader errors. */

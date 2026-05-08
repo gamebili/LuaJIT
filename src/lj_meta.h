@@ -30,10 +30,13 @@ LJ_FUNCA TValue *lj_meta_arith(lua_State *L, TValue *ra, cTValue *rb,
 LJ_FUNCA TValue *lj_meta_cat(lua_State *L, TValue *top, int left);
 LJ_FUNCA TValue * LJ_FASTCALL lj_meta_len(lua_State *L, cTValue *o);
 LJ_FUNCA TValue *lj_meta_equal(lua_State *L, GCobj *o1, GCobj *o2, int ne);
+#if LJ_54
+LJ_FUNCA TValue * LJ_FASTCALL lj_meta_equal_lstr(lua_State *L, BCIns ins);
+#endif
 LJ_FUNCA TValue * LJ_FASTCALL lj_meta_equal_cd(lua_State *L, BCIns ins);
 LJ_FUNCA TValue *lj_meta_comp(lua_State *L, cTValue *o1, cTValue *o2, int op);
 LJ_FUNCA void lj_meta_istype(lua_State *L, BCReg ra, BCReg tp);
-LJ_FUNCA void lj_meta_call(lua_State *L, TValue *func, TValue *top);
+LJ_FUNCA int lj_meta_call(lua_State *L, TValue *func, TValue *top);
 LJ_FUNCA void LJ_FASTCALL lj_meta_for(lua_State *L, TValue *o);
 
 #endif

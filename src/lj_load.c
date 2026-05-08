@@ -86,6 +86,17 @@ LUA_API int lua_loadx(lua_State *L, lua_Reader reader, void *data,
   return status;
 }
 
+#if LJ_54
+LUA_API int lua_load54(lua_State *L, lua_Reader reader, void *data,
+		       const char *chunkname, const char *mode)
+{
+  /* Keep LuaJIT's internal lua_load/lua_loadx ABI stable while external
+  ** Lua 5.4 modules see the official five-argument lua_load surface.
+  */
+  return lua_loadx(L, reader, data, chunkname, mode);
+}
+#endif
+
 LUA_API int lua_load(lua_State *L, lua_Reader reader, void *data,
 		     const char *chunkname)
 {
@@ -95,16 +106,47 @@ LUA_API int lua_load(lua_State *L, lua_Reader reader, void *data,
 typedef struct FileReaderCtx {
   FILE *fp;
   char buf[LUAL_BUFFERSIZE];
+  size_t n;
+  size_t pos;
 } FileReaderCtx;
 
 static const char *reader_file(lua_State *L, void *ud, size_t *size)
 {
   FileReaderCtx *ctx = (FileReaderCtx *)ud;
   UNUSED(L);
+  if (ctx->pos < ctx->n) {
+    const char *p = ctx->buf + ctx->pos;
+    *size = ctx->n - ctx->pos;
+    ctx->pos = ctx->n;
+    return p;
+  }
   if (feof(ctx->fp)) return NULL;
   *size = fread(ctx->buf, 1, sizeof(ctx->buf), ctx->fp);
   return *size > 0 ? ctx->buf : NULL;
 }
+
+#if LJ_54
+static int loadfile_skipbom(FILE *fp)
+{
+  int c = getc(fp);
+  if (c == 0xef && getc(fp) == 0xbb && getc(fp) == 0xbf)
+    return getc(fp);
+  return c;
+}
+
+static int loadfile_skipcomment(FILE *fp, int *cp)
+{
+  int c = *cp = loadfile_skipbom(fp);
+  if (c == '#') {
+    do {
+      c = getc(fp);
+    } while (c != EOF && c != '\n');
+    *cp = getc(fp);
+    return 1;
+  }
+  return 0;
+}
+#endif
 
 LUALIB_API int luaL_loadfilex(lua_State *L, const char *filename,
 			      const char *mode)
@@ -113,6 +155,10 @@ LUALIB_API int luaL_loadfilex(lua_State *L, const char *filename,
   int status;
   const char *chunkname;
   int err = 0;
+#if LJ_54
+  int c;
+  int skipped;
+#endif
   if (filename) {
     chunkname = lua_pushfstring(L, "@%s", filename);
     ctx.fp = fopen(filename, "rb");
@@ -125,6 +171,20 @@ LUALIB_API int luaL_loadfilex(lua_State *L, const char *filename,
     ctx.fp = stdin;
     chunkname = "=stdin";
   }
+  ctx.n = ctx.pos = 0;
+#if LJ_54
+  skipped = loadfile_skipcomment(ctx.fp, &c);
+  if (skipped)
+    ctx.buf[ctx.n++] = '\n';
+  /* Lua 5.4 accepts a first-line # comment before binary chunks. LuaJIT opens
+  ** files in binary mode already, so just drop the line-number padding before
+  ** feeding the bytecode signature to the loader.
+  */
+  if (c == BCDUMP_HEAD1)
+    ctx.n = 0;
+  if (c != EOF)
+    ctx.buf[ctx.n++] = (char)c;
+#endif
   status = lua_loadx(L, reader_file, &ctx, chunkname, mode);
   if (ferror(ctx.fp)) err = errno;
   if (filename) {

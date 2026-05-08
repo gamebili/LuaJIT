@@ -32,6 +32,9 @@ VERSION= $(MMVERSION).$(RELVER)
 #
 export PREFIX= /usr/local
 export MULTILIB= lib
+LUA54_SRC_DIR?= D:/p4_gl2/pristine/tools/lua/lua-5.4.8-src/lua-5.4.8
+LUA54_TESTES_DIR?= $(LUA54_SRC_DIR)/testes
+CXX?= g++
 ##############################################################################
 
 DPREFIX= $(DESTDIR)$(PREFIX)
@@ -178,38 +181,116 @@ smoketest:
 smoketest-lua54compat:
 	$(MAKE) clean
 	$(MAKE) XCFLAGS='-DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2'
+	./src/luajit test/lua54_cstack_regress.lua
+	./src/luajit test/lua54_gc_regress.lua
+	./src/luajit test/lua54_jit_regress.lua
+	./src/luajit test/lua54_tpack_regress.lua
+	./src/luajit test/lua54_vm_backend_static.lua
+	./src/luajit test/lua54_vm_backend_dynasm.lua
 	./src/luajit test/smoke.lua lua54compat
+	$(MAKE) run-official-lua54compat
 	out=$$(./src/luajit -e 'warn("@on"); warn("lua54 ", "warning")' 2>&1 >/dev/null) && test "$$out" = "Lua warning: lua54 warning"
 	out=$$(./src/luajit -W -e 'warn("lua54 -W warning")' 2>&1 >/dev/null) && test "$$out" = "Lua warning: lua54 -W warning"
+	out=$$(./src/luajit -e 'warn("lua54 before -W")' -W 2>&1 >/dev/null) && test "$$out" = ""
+	out=$$(./src/luajit -W -e 'warn("lua54 after -W")' 2>&1 >/dev/null) && test "$$out" = "Lua warning: lua54 after -W"
+	out=$$(./src/luajit -e 'warn("lua54 hidden")' -W -e 'warn("lua54 visible")' 2>&1 >/dev/null) && test "$$out" = "Lua warning: lua54 visible"
+	out=$$(./src/luajit -e 'warn("@on"); warn("@off", "XXX", "@off"); warn("@off")' 2>&1 >/dev/null) && test "$$out" = "Lua warning: @offXXX@off"
 	out=$$(./src/luajit -e 'warn("@on"); do local t=setmetatable({}, { __gc=function() error("lua54 gc boom", 0) end }); t=nil end; collectgarbage(); collectgarbage()' 2>&1 >/dev/null) && test "$$out" = "Lua warning: error in __gc (lua54 gc boom)"
 	LUA_INIT='error("wrong init")' LUA_INIT_5_4='lua54_init_marker=54' ./src/luajit -e 'assert(lua54_init_marker == 54)'
 	LUA_PATH='old/?.lua' LUA_PATH_5_4='v54/?.lua' LUA_CPATH='old/?.dll' LUA_CPATH_5_4='v54/?.dll' ./src/luajit -e 'assert(package.path:match("^v54/%?%.lua")); assert(package.cpath:match("^v54/%?%.dll"))'
 	LUA_INIT_5_4='error("noenv init")' LUA_PATH_5_4='bad/?.lua' LUA_CPATH_5_4='bad/?.dll' ./src/luajit -E -e 'assert(not package.path:match("^bad/")); assert(not package.cpath:match("^bad/"))'
 	./src/luajit -E -e 'local p,c,sep=package.path,package.cpath,package.config:sub(1,1); if sep=="\\" then assert(p:find("\\lua\\?.lua",1,true)); assert(p:find("\\lua\\?\\init.lua",1,true)); assert(p:find("..\\share\\lua\\5.4\\?.lua",1,true)); assert(p:find(".\\?\\init.lua",1,true)); assert(c:find("..\\lib\\lua\\5.4\\?.dll",1,true)); assert(c:find(".\\?.dll",1,true)); else assert(p:find("/share/lua/5.4/?.lua",1,true)); assert(p:find("/share/lua/5.4/?/init.lua",1,true)); assert(c:find("/lib/lua/5.4/?.so",1,true)); end'
+	LUA_PATH=';' ./src/luajit -e 'assert(package.path == ";")'
+	LUA_PATH=';;' ./src/luajit -e 'local p=package.path; assert(p:sub(1,1) ~= ";" and p:sub(-1) ~= ";", p)'
+	LUA_PATH=';;b' ./src/luajit -e 'local p=package.path; assert(p:sub(1,1) ~= ";" and p:sub(-2) == ";b", p)'
+	LUA_PATH='a;;' ./src/luajit -e 'local p=package.path; assert(p:sub(1,2) == "a;" and p:sub(-1) ~= ";", p)'
+	LUA_PATH='a;b;;c' ./src/luajit -e 'local p=package.path; assert(p:sub(1,4) == "a;b;" and p:sub(-2) == ";c", p)'
 	./src/luajit -e 'assert(arg[-1] == nil); assert(arg[0]:match("luajit")); assert(arg[1] == "-e"); assert(arg[2]:match("arg%[0%]"))'
 	tmp=test/lua54_arg_smoke.tmp; printf 'assert(arg[-1]:match("luajit")); assert(arg[0]:match("lua54_arg_smoke")); assert(arg[1] == "a"); assert(arg[2] == "b")\n' > $$tmp && ./src/luajit $$tmp a b && rm -f $$tmp
 	tmp=test/lua54_arg_smoke.tmp; printf 'assert(arg[-2]:match("luajit")); assert(arg[-1] == "--"); assert(arg[0]:match("lua54_arg_smoke")); assert(arg[1] == "a"); assert(arg[2] == "b")\n' > $$tmp && ./src/luajit -- $$tmp a b && rm -f $$tmp
 	printf 'assert(arg[-1]:match("luajit")); assert(arg[0] == "-"); assert(arg[1] == "a"); assert(arg[2] == "b")\n' | ./src/luajit - a b
 	./src/luajit -l lua54math=math -e 'assert(lua54math.type(1) == "integer")'
+	tmp=test/lua54_loption_mod.lua; other=test/lua54_loption_other.lua; out=test/lua54_loption.out; norm=test/lua54_loption.norm; expect=test/lua54_loption.expect; printf 'print(1); a=2; return {x=15}\n' > $$tmp; printf 'print(a); print(_G.lua54_loption_mod.x)\n' > $$other; LUA_PATH='test/?.lua;;' ./src/luajit -l lua54_loption_mod -llua54_loption_other -e '' > $$out; status=$$?; if test $$status -eq 0; then tr -d '\r' < $$out > $$norm; printf '1\n2\n15\n' > $$expect; cmp -s $$expect $$norm; status=$$?; fi; rm -f $$tmp $$other $$out $$norm $$expect; exit $$status
+	tmp=test/lua54_loption_mod.lua; printf 'return {x=16}\n' > $$tmp; LUA_PATH='test/?.lua;;' ./src/luajit -l alias54=lua54_loption_mod -e 'assert(alias54.x == 16 and _G.lua54_loption_mod == nil)'; status=$$?; rm -f $$tmp; exit $$status
+	tmp=test/lua54_loption_v2-v2.lua; printf 'return {x=17}\n' > $$tmp; LUA_PATH='test/?.lua;;' ./src/luajit -l lua54_loption_v2-v2 -e 'assert(lua54_loption_v2.x == 17 and _G["lua54_loption_v2-v2"] == nil)'; status=$$?; rm -f $$tmp; exit $$status
 	out=$$(printf 'os.exit()\n' | ./src/luajit -i 2>&1) && case "$$out" in *"JIT:"*) exit 1;; esac
+	@out=test/lua54_interactive_expr.out; printf '10\n' | ./src/luajit -e '_PROMPT="" _PROMPT2=""' -i >$$out 2>&1; grep -Fx "10" $$out >/dev/null || { cat $$out; rm -f $$out; exit 1; }; rm -f $$out
+	@out=test/lua54_interactive_print_error.out; printf '10\n' | ./src/luajit -e 'print=nil' -i > /dev/null 2>$$out; grep -F "error calling 'print'" $$out >/dev/null || { cat $$out; rm -f $$out; exit 1; }; rm -f $$out
+	@out=test/lua54_interactive_multiline.out; printf '(6*2-6) -- ===\na =\n10\nprint(a)\na\n' | ./src/luajit -e '_PROMPT="" _PROMPT2=""' -i >$$out 2>&1; grep -Fx "6" $$out >/dev/null && test $$(grep -Fx "10" $$out | wc -l) -ge 2 && ! grep -F "unexpected symbol" $$out >/dev/null && ! grep -Fx "nil" $$out >/dev/null || { cat $$out; rm -f $$out; exit 1; }; rm -f $$out
+	@out=test/lua54_interactive_longstring.out; printf 'a = [[b\nc\nd\ne]]\n=a\n' | ./src/luajit -e '_PROMPT="" _PROMPT2=""' -i >$$out 2>&1; grep -Fx "b" $$out >/dev/null && grep -Fx "c" $$out >/dev/null && grep -Fx "d" $$out >/dev/null && grep -Fx "e" $$out >/dev/null && ! grep -F "syntax error" $$out >/dev/null && ! grep -F "unfinished long string" $$out >/dev/null || { cat $$out; rm -f $$out; exit 1; }; rm -f $$out
+	@out=test/lua54_interactive_prompt_meta.out; printf ' --\na = 2\n' | ./src/luajit -e 'local C=0; _PROMPT=setmetatable({},{__tostring=function() C=C+1; return C end})' -i >$$out 2>&1; grep -Fx "123" $$out >/dev/null && ! grep -F "> > >" $$out >/dev/null || { cat $$out; rm -f $$out; exit 1; }; rm -f $$out
+	@out=test/lua54_interactive_interrupt.out; printf 'a.\n' | ./src/luajit -i > /dev/null 2>$$out; grep -F "<name> expected near <eof>" $$out >/dev/null && ! grep -F "'<name>' expected" $$out >/dev/null || { cat $$out; rm -f $$out; exit 1; }; rm -f $$out
+	@out=test/lua54_version.out; ./src/luajit -v -e "print'hello'" >$$out; grep -F "Lua 5.4.8" $$out >/dev/null && grep -F "PUC-Rio" $$out >/dev/null && grep -Fx "hello" $$out >/dev/null || { cat $$out; rm -f $$out; exit 1; }; rm -f $$out
+	@for opt in -h --- -Ex -vv -iv; do out=test/lua54_bad_option.out; if ./src/luajit $$opt >$$out 2>&1; then cat $$out; rm -f $$out; exit 1; fi; grep -F "unrecognized option '$$opt'" $$out >/dev/null || { cat $$out; rm -f $$out; exit 1; }; rm -f $$out; done
+	@for opt in -e -l; do out=test/lua54_bad_option.out; if ./src/luajit $$opt >$$out 2>&1; then cat $$out; rm -f $$out; exit 1; fi; grep -F "'$$opt' needs argument" $$out >/dev/null || { cat $$out; rm -f $$out; exit 1; }; rm -f $$out; done
+	@out=test/lua54_bad_option.out; if ./src/luajit -e -v >$$out 2>&1; then cat $$out; rm -f $$out; exit 1; fi; grep -F "'-e' needs argument" $$out >/dev/null || { cat $$out; rm -f $$out; exit 1; }; rm -f $$out
+	@out=test/lua54_bad_option.out; if ./src/luajit -l -e >$$out 2>&1; then cat $$out; rm -f $$out; exit 1; fi; grep -F "'-l' needs argument" $$out >/dev/null || { cat $$out; rm -f $$out; exit 1; }; rm -f $$out
+	@out=test/lua54_bad_option.out; if ./src/luajit -e a >$$out 2>&1; then cat $$out; rm -f $$out; exit 1; fi; grep -F "syntax error" $$out >/dev/null || { cat $$out; rm -f $$out; exit 1; }; rm -f $$out
+	@out=test/lua54_arg_not_table.out; if printf '\n' | ./src/luajit -e 'arg = 1' - >$$out 2>&1; then cat $$out; rm -f $$out; exit 1; fi; grep -F "'arg' is not a table" $$out >/dev/null || { cat $$out; rm -f $$out; exit 1; }; rm -f $$out
+	@out=test/lua54_error_object.out; tmp=test/lua54_error_object.tmp; printf 'error({})\n' > $$tmp; if ./src/luajit $$tmp >$$out 2>&1; then cat $$out; rm -f $$tmp $$out; exit 1; fi; grep -F "(error object is a table value)" $$out >/dev/null || { cat $$out; rm -f $$tmp $$out; exit 1; }; rm -f $$tmp $$out
+	@out=test/lua54_error_object.out; tmp=test/lua54_error_object.tmp; printf 'error(false)\n' > $$tmp; if ./src/luajit $$tmp >$$out 2>&1; then cat $$out; rm -f $$tmp $$out; exit 1; fi; grep -F "(error object is a boolean value)" $$out >/dev/null || { cat $$out; rm -f $$tmp $$out; exit 1; }; rm -f $$tmp $$out
+	@out=test/lua54_error_object.out; tmp=test/lua54_error_object.tmp; printf 'error(nil)\n' > $$tmp; if ./src/luajit $$tmp >$$out 2>&1; then cat $$out; rm -f $$tmp $$out; exit 1; fi; grep -F "(error object is a nil value)" $$out >/dev/null || { cat $$out; rm -f $$tmp $$out; exit 1; }; rm -f $$tmp $$out
+	@out=test/lua54_error_object.out; tmp=test/lua54_error_object.tmp; printf 'error(setmetatable({}, {__tostring=function() return "OBJ54" end}))\n' > $$tmp; if ./src/luajit $$tmp >$$out 2>&1; then cat $$out; rm -f $$tmp $$out; exit 1; fi; grep -F "OBJ54" $$out >/dev/null || { cat $$out; rm -f $$tmp $$out; exit 1; }; rm -f $$tmp $$out
+	@out=test/lua54_error_object.out; tmp=test/lua54_error_object.tmp; printf 'debug = require "debug"\nm = {x=0}\nsetmetatable(m, {__tostring = function(x)\n  return tostring(debug.getinfo(4).currentline + x.x)\nend})\nerror(m)\n' > $$tmp; if ./src/luajit $$tmp >$$out 2>&1; then cat $$out; rm -f $$tmp $$out; exit 1; fi; grep -F ": 6" $$out >/dev/null || { cat $$out; rm -f $$tmp $$out; exit 1; }; rm -f $$tmp $$out
+	@out=test/lua54_warn_error.out; ./src/luajit -e 'warn("@on"); local ok = pcall(warn, "SHOULD NOT APPEAR", {}); assert(not ok); warn("VISIBLE")' > /dev/null 2>$$out; grep -Fx "Lua warning: VISIBLE" $$out >/dev/null && ! grep -F "SHOULD NOT APPEAR" $$out >/dev/null || { cat $$out; rm -f $$out; exit 1; }; rm -f $$out
+	@out=test/lua54_print_tolstring.out; ./src/luajit -e 'local old=tostring; tostring=nil; print(setmetatable({}, {__tostring=function() return "PRINT54" end})); tostring=function() return {} end; print("RAW54"); tostring=old' >$$out 2>&1; grep -Fx "PRINT54" $$out >/dev/null && grep -Fx "RAW54" $$out >/dev/null || { cat $$out; rm -f $$out; exit 1; }; rm -f $$out
+	tmp=test/lua54_os_exit_close.tmp; out=test/lua54_os_exit_close.out; norm=test/lua54_os_exit_close.norm; printf 'local x <close> = setmetatable({}, {__close = function (self, err) assert(err == nil); print("Ok") end})\nlocal e1 <close> = setmetatable({}, {__close = function () print(120) end})\nos.exit(true, true)\n' > $$tmp; ./src/luajit $$tmp > $$out; status=$$?; if test $$status -eq 0; then tr -d '\r' < $$out > $$norm; printf '120\nOk\n' | cmp -s - $$norm; status=$$?; fi; rm -f $$tmp $$out $$norm; exit $$status
+	tmp=test/lua54_close_finalizer_reentry.tmp; out=test/lua54_close_finalizer_reentry.out; norm=test/lua54_close_finalizer_reentry.norm; printf 'setmetatable({}, {__gc = function () print(1) end})\nsetmetatable({}, {__gc = function ()\n  print(2)\n  setmetatable({}, {__gc = function () print(3) end})\n  print(collectgarbage())\n  os.exit(0, true)\nend})\n' > $$tmp; ./src/luajit $$tmp > $$out; status=$$?; if test $$status -eq 0; then tr -d '\r' < $$out > $$norm; printf '2\nnil\n1\n' | cmp -s - $$norm; status=$$?; fi; rm -f $$tmp $$out $$norm; exit $$status
+
+run-official-lua54compat:
+	./src/luajit test/lua54_official_matrix.lua "$(LUA54_TESTES_DIR)"
+
+smoketest-official-lua54compat:
+	$(MAKE) clean
+	$(MAKE) XCFLAGS='-DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2'
+	$(MAKE) run-official-lua54compat
 
 smoketest-capi-lua54compat: smoketest-lua54compat
+	gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -I src -c test/lua54_luaconf_guard_smoke.c -o src/lua54_luaconf_guard_smoke.o
+	rm -f src/lua54_luaconf_guard_smoke.o
+	gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -I src -c test/lua54_luaconf_extra_reject.c -o src/lua54_luaconf_extra_reject.o
+	rm -f src/lua54_luaconf_extra_reject.o
+	gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -I src -c test/lua54_luaconf_apicheck_smoke.c -o src/lua54_luaconf_apicheck_smoke.o
+	rm -f src/lua54_luaconf_apicheck_smoke.o
 	gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -I src -c test/lua54_lua_header_smoke.c -o src/lua54_lua_header_smoke.o
 	rm -f src/lua54_lua_header_smoke.o
+	gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -I src -c test/lua54_lua_guard_smoke.c -o src/lua54_lua_guard_smoke.o
+	rm -f src/lua54_lua_guard_smoke.o
+	gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -I src -c test/lua54_lauxlib_header_smoke.c -o src/lua54_lauxlib_header_smoke.o
+	rm -f src/lua54_lauxlib_header_smoke.o
+	gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -I src -c test/lua54_lauxlib_guard_smoke.c -o src/lua54_lauxlib_guard_smoke.o
+	rm -f src/lua54_lauxlib_guard_smoke.o
 	gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -I src -c test/lua54_lualib_header_smoke.c -o src/lua54_lualib_header_smoke.o
 	rm -f src/lua54_lualib_header_smoke.o
+	gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -I src -c test/lua54_lualib_guard_smoke.c -o src/lua54_lualib_guard_smoke.o
+	rm -f src/lua54_lualib_guard_smoke.o
+	$(CXX) -DLUAJIT_ENABLE_LUA54COMPAT -std=c++11 -I src -c test/lua54_lu.hpp_header_smoke.cpp -o src/lua54_lu.hpp_header_smoke.o
+	rm -f src/lua54_lu.hpp_header_smoke.o
+	./src/luajit test/lua54_header_static.lua
+	./src/luajit test/lua54_header_macro_audit.lua "$(LUA54_SRC_DIR)"
 	gcc -DLUAJIT_ENABLE_LUA54COMPAT -I src -x c test/lua54_capi_smoke.c -x none src/lua51.dll -o src/lua54_capi_smoke.exe
 	./src/lua54_capi_smoke.exe
 	rm -f src/lua54_capi_smoke.exe
+	gcc -DLUAJIT_ENABLE_LUA54COMPAT -I src -x c test/lua54_capi_warning_null_smoke.c -x none src/lua51.dll -o src/lua54_capi_warning_null_smoke.exe
+	./src/lua54_capi_warning_null_smoke.exe 2>src/lua54_capi_warning_null_smoke.err
+	test ! -s src/lua54_capi_warning_null_smoke.err
+	rm -f src/lua54_capi_warning_null_smoke.exe src/lua54_capi_warning_null_smoke.err
 	gcc -DLUAJIT_ENABLE_LUA54COMPAT -DLUA_COMPAT_APIINTCASTS -I src -x c test/lua54_capi_intcasts_smoke.c -x none src/lua51.dll -o src/lua54_capi_intcasts_smoke.exe
 	./src/lua54_capi_intcasts_smoke.exe
 	rm -f src/lua54_capi_intcasts_smoke.exe
+	@if gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -Werror=implicit-function-declaration -I src -c test/lua54_capi_intcasts_reject.c -o src/lua54_capi_intcasts_reject.o 2>src/lua54_capi_intcasts_reject.err; then echo "deprecated intcast macros unexpectedly visible without LUA_COMPAT_APIINTCASTS"; rm -f src/lua54_capi_intcasts_reject.o src/lua54_capi_intcasts_reject.err; exit 1; else grep -E "luaL_(checkint|optint|checklong|optlong|checkunsigned|optunsigned)|lua_(pushunsigned|tounsignedx|tounsigned)" src/lua54_capi_intcasts_reject.err >/dev/null; rm -f src/lua54_capi_intcasts_reject.o src/lua54_capi_intcasts_reject.err; fi
+	@for sym in PUSHUNSIGNED TOUNSIGNEDX TOUNSIGNED CHECKUNSIGNED OPTUNSIGNED CHECKINT OPTINT CHECKLONG OPTLONG; do if gcc -DLUAJIT_ENABLE_LUA54COMPAT -DLUA_COMPAT_APIINTCASTS -DLUA54_REJECT_$$sym -std=c99 -I src -c test/lua54_capi_intcasts_macroonly_reject.c -o src/lua54_capi_intcasts_macroonly_reject.o 2>src/lua54_capi_intcasts_macroonly_reject.err; then echo "LUA_COMPAT_APIINTCASTS macro-only API $$sym unexpectedly has a function address"; rm -f src/lua54_capi_intcasts_macroonly_reject.o src/lua54_capi_intcasts_macroonly_reject.err; exit 1; else grep -E "luaL_|lua_" src/lua54_capi_intcasts_macroonly_reject.err >/dev/null; rm -f src/lua54_capi_intcasts_macroonly_reject.o src/lua54_capi_intcasts_macroonly_reject.err; fi; done
 	@if gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -Werror=implicit-function-declaration -I src -c test/lua54_capi_legacy_reject.c -o src/lua54_capi_legacy_reject.o 2>src/lua54_capi_legacy_reject.err; then echo "legacy lauxlib API unexpectedly visible in Lua 5.4 headers"; rm -f src/lua54_capi_legacy_reject.o src/lua54_capi_legacy_reject.err; exit 1; else grep -E "luaL_(openlib|register|pushmodule)" src/lua54_capi_legacy_reject.err >/dev/null; rm -f src/lua54_capi_legacy_reject.o src/lua54_capi_legacy_reject.err; fi
+	@if gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -Werror=implicit-function-declaration -I src -c test/lua54_capi_legacy_lua_api_reject.c -o src/lua54_capi_legacy_lua_api_reject.o 2>src/lua54_capi_legacy_lua_api_reject.err; then echo "legacy Lua 5.1 C API unexpectedly visible in Lua 5.4 headers"; rm -f src/lua54_capi_legacy_lua_api_reject.o src/lua54_capi_legacy_lua_api_reject.err; exit 1; else grep -E "lua_(equal|lessthan|objlen|cpcall|getfenv|setfenv)" src/lua54_capi_legacy_lua_api_reject.err >/dev/null; rm -f src/lua54_capi_legacy_lua_api_reject.o src/lua54_capi_legacy_lua_api_reject.err; fi
+	@if gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -Werror=implicit-function-declaration -I src -c test/lua54_capi_loadx_reject.c -o src/lua54_capi_loadx_reject.o 2>src/lua54_capi_loadx_reject.err; then echo "lua_loadx unexpectedly visible in Lua 5.4 headers"; rm -f src/lua54_capi_loadx_reject.o src/lua54_capi_loadx_reject.err; exit 1; else grep "lua_loadx" src/lua54_capi_loadx_reject.err >/dev/null; rm -f src/lua54_capi_loadx_reject.o src/lua54_capi_loadx_reject.err; fi
 	@if gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -Werror=implicit-function-declaration -I src -c test/lua54_capi_typerror_reject.c -o src/lua54_capi_typerror_reject.o 2>src/lua54_capi_typerror_reject.err; then echo "luaL_typerror unexpectedly visible in Lua 5.4 headers"; rm -f src/lua54_capi_typerror_reject.o src/lua54_capi_typerror_reject.err; exit 1; else grep "luaL_typerror" src/lua54_capi_typerror_reject.err >/dev/null; rm -f src/lua54_capi_typerror_reject.o src/lua54_capi_typerror_reject.err; fi
 	@if gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -Werror=implicit-function-declaration -I src -c test/lua54_capi_findtable_reject.c -o src/lua54_capi_findtable_reject.o 2>src/lua54_capi_findtable_reject.err; then echo "luaL_findtable unexpectedly visible in Lua 5.4 headers"; rm -f src/lua54_capi_findtable_reject.o src/lua54_capi_findtable_reject.err; exit 1; else grep "luaL_findtable" src/lua54_capi_findtable_reject.err >/dev/null; rm -f src/lua54_capi_findtable_reject.o src/lua54_capi_findtable_reject.err; fi
+	@if gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -Werror=implicit-function-declaration -I src -c test/lua54_capi_putchar_reject.c -o src/lua54_capi_putchar_reject.o 2>src/lua54_capi_putchar_reject.err; then echo "luaL_putchar unexpectedly visible in Lua 5.4 headers"; rm -f src/lua54_capi_putchar_reject.o src/lua54_capi_putchar_reject.err; exit 1; else grep "luaL_putchar" src/lua54_capi_putchar_reject.err >/dev/null; rm -f src/lua54_capi_putchar_reject.o src/lua54_capi_putchar_reject.err; fi
 	@if gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -Werror=implicit-function-declaration -I src -c test/lua54_capi_setlevel_reject.c -o src/lua54_capi_setlevel_reject.o 2>src/lua54_capi_setlevel_reject.err; then echo "lua_setlevel unexpectedly visible in Lua 5.4 headers"; rm -f src/lua54_capi_setlevel_reject.o src/lua54_capi_setlevel_reject.err; exit 1; else grep "lua_setlevel" src/lua54_capi_setlevel_reject.err >/dev/null; rm -f src/lua54_capi_setlevel_reject.o src/lua54_capi_setlevel_reject.err; fi
-	@for sym in PREPBUFFER ARGEXPECTED PUSHFAIL LOADFILE LOADBUFFER; do if gcc -DLUAJIT_ENABLE_LUA54COMPAT -DLUA54_REJECT_$$sym -std=c99 -I src -c test/lua54_capi_lauxlib_macroonly_reject.c -o src/lua54_capi_lauxlib_macroonly_reject.o 2>src/lua54_capi_lauxlib_macroonly_reject.err; then echo "lauxlib macro-only API $$sym unexpectedly has a function address in Lua 5.4 headers"; rm -f src/lua54_capi_lauxlib_macroonly_reject.o src/lua54_capi_lauxlib_macroonly_reject.err; exit 1; else grep "luaL_" src/lua54_capi_lauxlib_macroonly_reject.err >/dev/null; rm -f src/lua54_capi_lauxlib_macroonly_reject.o src/lua54_capi_lauxlib_macroonly_reject.err; fi; done
-	@for sym in BIT JIT FFI STRING_BUFFER; do if gcc -DLUAJIT_ENABLE_LUA54COMPAT -DLUA54_REJECT_$$sym -std=c99 -Werror=implicit-function-declaration -I src -c test/lua54_lualib_extra_reject.c -o src/lua54_lualib_extra_reject.o 2>src/lua54_lualib_extra_reject.err; then echo "LuaJIT lualib API $$sym unexpectedly visible in Lua 5.4 headers"; rm -f src/lua54_lualib_extra_reject.o src/lua54_lualib_extra_reject.err; exit 1; else grep "luaopen_" src/lua54_lualib_extra_reject.err >/dev/null; rm -f src/lua54_lualib_extra_reject.o src/lua54_lualib_extra_reject.err; fi; done
+	@for sym in CALL PCALL YIELD; do if gcc -DLUAJIT_ENABLE_LUA54COMPAT -DLUA54_REJECT_$$sym -std=c99 -I src -c test/lua54_capi_call_macroonly_reject.c -o src/lua54_capi_call_macroonly_reject.o 2>src/lua54_capi_call_macroonly_reject.err; then echo "Lua 5.4 macro-only call API $$sym unexpectedly has a function address"; rm -f src/lua54_capi_call_macroonly_reject.o src/lua54_capi_call_macroonly_reject.err; exit 1; else grep "lua_" src/lua54_capi_call_macroonly_reject.err >/dev/null; rm -f src/lua54_capi_call_macroonly_reject.o src/lua54_capi_call_macroonly_reject.err; fi; done
+	@for sym in GETEXTRASPACE UPVALUEINDEX TONUMBER TOINTEGER NUMBERTOINTEGER PUSHGLOBALTABLE INSERT REMOVE REPLACE NEWUSERDATA GETUSERVALUE SETUSERVALUE POP NEWTABLE REGISTER PUSHCFUNCTION PUSHLITERAL TOSTRING ISFUNCTION ISTABLE ISLIGHTUSERDATA ISNIL ISBOOLEAN ISTHREAD ISNONE ISNONEORNIL; do if gcc -DLUAJIT_ENABLE_LUA54COMPAT -DLUA54_REJECT_$$sym -std=c99 -I src -c test/lua54_capi_macroonly_reject.c -o src/lua54_capi_macroonly_reject.o 2>src/lua54_capi_macroonly_reject.err; then echo "Lua 5.4 macro-only API $$sym unexpectedly has a function address"; rm -f src/lua54_capi_macroonly_reject.o src/lua54_capi_macroonly_reject.err; exit 1; else grep "lua_" src/lua54_capi_macroonly_reject.err >/dev/null; rm -f src/lua54_capi_macroonly_reject.o src/lua54_capi_macroonly_reject.err; fi; done
+	@for sym in PREPBUFFER ADDCHAR ADDSIZE BUFFADDR BUFFLEN BUFFSUB ARGCHECK ARGEXPECTED PUSHFAIL CHECKSTRING OPTSTRING TYPENAME LOADFILE LOADBUFFER DOFILE DOSTRING GETMETATABLE OPT CHECKVERSION INTOP NEWLIBTABLE NEWLIB WRITESTRING WRITELINE WRITESTRINGERROR ASSERT; do if gcc -DLUAJIT_ENABLE_LUA54COMPAT -DLUA54_REJECT_$$sym -std=c99 -I src -c test/lua54_capi_lauxlib_macroonly_reject.c -o src/lua54_capi_lauxlib_macroonly_reject.o 2>src/lua54_capi_lauxlib_macroonly_reject.err; then echo "lauxlib macro-only API $$sym unexpectedly has a function address in Lua 5.4 headers"; rm -f src/lua54_capi_lauxlib_macroonly_reject.o src/lua54_capi_lauxlib_macroonly_reject.err; exit 1; else grep -E "luaL_|lua_" src/lua54_capi_lauxlib_macroonly_reject.err >/dev/null; rm -f src/lua54_capi_lauxlib_macroonly_reject.o src/lua54_capi_lauxlib_macroonly_reject.err; fi; done
+	@for sym in BIT BASE54 JIT FFI STRING_BUFFER; do if gcc -DLUAJIT_ENABLE_LUA54COMPAT -DLUA54_REJECT_$$sym -std=c99 -Werror=implicit-function-declaration -I src -c test/lua54_lualib_extra_reject.c -o src/lua54_lualib_extra_reject.o 2>src/lua54_lualib_extra_reject.err; then echo "LuaJIT lualib API $$sym unexpectedly visible in Lua 5.4 headers"; rm -f src/lua54_lualib_extra_reject.o src/lua54_lualib_extra_reject.err; exit 1; else grep "luaopen_" src/lua54_lualib_extra_reject.err >/dev/null; rm -f src/lua54_lualib_extra_reject.o src/lua54_lualib_extra_reject.err; fi; done
 
 smoketest-perf-lua54compat:
 	$(MAKE) clean
@@ -218,12 +299,17 @@ smoketest-perf-lua54compat:
 	./src/luajit test/lua54_perf.lua jit_off
 
 smoketest-capi-default: smoketest
+	$(CXX) -std=c++11 -I src -c test/lua51_lu.hpp_header_smoke.cpp -o src/lua51_lu.hpp_header_smoke.o
+	rm -f src/lua51_lu.hpp_header_smoke.o
 	gcc -I src -x c test/lua51_capi_smoke.c -x none src/lua51.dll -o src/lua51_capi_smoke.exe
 	./src/lua51_capi_smoke.exe
 	rm -f src/lua51_capi_smoke.exe
 
-test: smoketest-capi-default smoketest-capi-lua54compat smoketest-perf-lua54compat
+test:
+	$(MAKE) smoketest-capi-default
+	$(MAKE) smoketest-capi-lua54compat
+	$(MAKE) smoketest-perf-lua54compat
 
-.PHONY: all install amalg clean smoketest smoketest-lua54compat smoketest-capi-default smoketest-capi-lua54compat smoketest-perf-lua54compat test
+.PHONY: all install amalg clean smoketest smoketest-lua54compat run-official-lua54compat smoketest-official-lua54compat smoketest-capi-default smoketest-capi-lua54compat smoketest-perf-lua54compat test
 
 ##############################################################################

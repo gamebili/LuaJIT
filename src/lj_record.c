@@ -13,6 +13,7 @@
 #include "lj_err.h"
 #include "lj_str.h"
 #include "lj_tab.h"
+#include "lj_gc.h"
 #include "lj_meta.h"
 #include "lj_frame.h"
 #if LJ_HASFFI
@@ -43,6 +44,58 @@
 
 /* Emit raw IR without passing through optimizations. */
 #define emitir_raw(ot, a, b)	(lj_ir_set(J, (ot), (a), (b)), lj_ir_emit(J))
+
+#if LJ_54
+static int rec_is_longstr(cTValue *o)
+{
+  return tvisstr(o) && strV(o)->len > LJ_STR_MAXSHORT;
+}
+
+static int rec_lua54_strcmp_locale(GCstr *a, GCstr *b, IROp op)
+{
+  int32_t res = lj_str_cmp_locale(a, b);
+  switch (op) {
+  case IR_LT: return (res < 0);
+  case IR_GE: return (res >= 0);
+  case IR_LE: return (res <= 0);
+  case IR_GT: return (res > 0);
+  default: lj_assertX(0, "bad IR op %d", op); return 0;
+  }
+}
+
+static TRef rec_lua54_lstr_storebits(jit_State *J, TRef val, cTValue *valv,
+				     IRType *storetype)
+{
+#if LJ_GC64
+  if (tref_isint(val)) {
+    TRef raw = emitir(IRT(IR_CONV, IRT_U64), val,
+		      (IRT_INT|(IRT_U64<<IRCONV_DSH)));
+    *storetype = IRT_U64;
+    return emitir(IRT(IR_BOR, IRT_U64), raw,
+		  lj_ir_kint64(J, ((uint64_t)LJ_TISNUM) << 47));
+  } else if (tref_isnum(val)) {
+    *storetype = IRT_NUM;
+    return val;
+  } else if (tref_isbool(val)) {
+    *storetype = IRT_U64;
+    return lj_ir_kint64(J, valv->u64);
+  } else if (tref_isgcv(val)) {
+    TRef raw = emitir(IRT(IR_CONV, IRT_U64), val,
+		      (tref_type(val)|(IRT_U64<<IRCONV_DSH)));
+    *storetype = IRT_U64;
+    /* XSTORE writes the raw TValue slot returned by lj_tab_getstr(). GC
+    ** values therefore need the GC64 tag bits here; the table write barrier is
+    ** emitted by the caller after the store.
+    */
+    return emitir(IRT(IR_BOR, IRT_U64), raw,
+		  lj_ir_kint64(J, ((uint64_t)irt_toitype_(tref_type(val))) << 47));
+  }
+#else
+  UNUSED(J); UNUSED(val); UNUSED(valv); UNUSED(storetype);
+#endif
+  return 0;
+}
+#endif
 
 /* -- Sanity checks ------------------------------------------------------- */
 
@@ -232,6 +285,22 @@ int lj_record_objcmp(jit_State *J, TRef a, TRef b, cTValue *av, cTValue *bv)
   if (!tref_isk2(a, b)) {  /* Shortcut, also handles primitives. */
     IRType ta = tref_isinteger(a) ? IRT_INT : tref_type(a);
     IRType tb = tref_isinteger(b) ? IRT_INT : tref_type(b);
+#if LJ_54
+    if ((rec_is_longstr(av) || rec_is_longstr(bv)) &&
+	(ta == IRT_STR || tb == IRT_STR)) {
+      TRef eq;
+      if (ta != tb)
+	return 2;  /* Two different types are never equal. */
+      /* Runtime Lua 5.4 long strings are not interned. Compare bytes through
+      ** the shared helper instead of guarding on the first pair of GC objects
+      ** seen by the recorder; hot loops may rotate through many equal long
+      ** strings with distinct identities.
+      */
+      eq = lj_ir_call(J, IRCALL_lj_str_equal, a, b);
+      emitir(IRTG(diff ? IR_EQ : IR_NE, IRT_INT), eq, lj_ir_kint(J, 0));
+      return diff;
+    }
+#endif
     if (ta != tb) {
       /* Widen mixed number/int comparisons to number/number comparison. */
       if (ta == IRT_INT && tb == IRT_NUM) {
@@ -256,7 +325,15 @@ TRef lj_record_constify(jit_State *J, cTValue *o)
   else if (tvisint(o))
     return lj_ir_kint(J, intV(o));
   else if (tvisnum(o))
+#if LJ_54 && LJ_DUALNUM
+    /* Lua 5.4 exposes integer vs. float as observable subtypes.  Keep a
+    ** runtime float TValue as KNUM even when its value is integral, otherwise
+    ** hot traces can turn expressions such as i+0.0 back into integers.
+    */
+    return lj_ir_knum(J, numV(o));
+#else
     return lj_ir_knumint(J, numV(o));
+#endif
   else if (tvisbool(o))
     return TREF_PRI(itype2irt(o));
   else
@@ -411,6 +488,15 @@ static TRef fori_arg(jit_State *J, const BCIns *fori, BCReg slot,
 }
 
 #if LJ_54 && LJ_DUALNUM
+static int rec_for_lua54_intmode(cTValue *tv)
+{
+  /* Lua 5.4 keeps a numeric for loop in integer mode only when both the
+  ** initial value and step are tagged integers after FORI coercion. The JIT
+  ** must not re-narrow integral-looking float loops, or math.type(i) changes.
+  */
+  return tvisint(&tv[FORL_IDX]) && tvisint(&tv[FORL_STEP]);
+}
+
 static int rec_for_allint(cTValue *tv)
 {
   return tvisint(&tv[FORL_IDX]) && tvisint(&tv[FORL_STOP]) &&
@@ -490,8 +576,16 @@ static void rec_for_loop(jit_State *J, const BCIns *fori, ScEvEntry *scev,
   BCReg ra = bc_a(*fori);
   cTValue *tv = &J->L->base[ra];
   TRef idx = J->base[ra+FORL_IDX];
+#if LJ_54 && LJ_DUALNUM
+  int intmode = rec_for_lua54_intmode(tv);
+  IRType t = idx ? tref_type(idx) :
+	     intmode ? lj_opt_narrow_forl(J, tv) : IRT_NUM;
+  if (!intmode)
+    t = IRT_NUM;
+#else
   IRType t = idx ? tref_type(idx) :
 	     (init || LJ_DUALNUM) ? lj_opt_narrow_forl(J, tv) : IRT_NUM;
+#endif
 #if LJ_54 && LJ_DUALNUM
   if (t != IRT_INT && rec_for_allint(tv))
     lj_trace_err(J, LJ_TRERR_GFAIL);  /* Keep boundary int loops correct. */
@@ -517,6 +611,8 @@ static void rec_for_loop(jit_State *J, const BCIns *fori, ScEvEntry *scev,
     J->base[ra+FORL_STOP] = stop;
     J->base[ra+FORL_STEP] = step;
   }
+  if (idx)
+    idx = fori_conv(J, idx, t);
   if (!idx)
     idx = fori_load(J, ra+FORL_IDX, t,
 		    IRSLOAD_INHERIT + tc + (J->scev.start << 16));
@@ -560,8 +656,12 @@ static LoopEvent rec_for(jit_State *J, const BCIns *fori, int isforl)
   } else {  /* Handle FORI/JFORI opcodes. */
     BCReg i;
     lj_meta_for(J->L, tv);
+#if LJ_54 && LJ_DUALNUM
+    t = rec_for_lua54_intmode(tv) ? lj_opt_narrow_forl(J, tv) : IRT_NUM;
+#else
     t = (LJ_DUALNUM || tref_isint(tr[FORL_IDX])) ? lj_opt_narrow_forl(J, tv) :
 						   IRT_NUM;
+#endif
 #if LJ_54 && LJ_DUALNUM
     if (t != IRT_INT && rec_for_allint(tv))
       lj_trace_err(J, LJ_TRERR_GFAIL);
@@ -1555,6 +1655,30 @@ static int nommstr(jit_State *J, TRef key)
   return 1;  /* CANNOT be a metamethod name. */
 }
 
+#if LJ_54
+static int rec_tab_isweak(jit_State *J, GCtab *t)
+{
+  GCtab *mt = tabref(t->metatable);
+  cTValue *mode;
+  GCstr *s;
+  MSize i;
+  if (t->marked & LJ_GC_WEAK)
+    return 1;
+  if (!mt)
+    return 0;
+  mode = lj_meta_fastg(J2G(J), mt, MM_mode);
+  if (!(mode && tvisstr(mode)))
+    return 0;
+  s = strV(mode);
+  for (i = 0; i < s->len; i++) {
+    char c = strdata(s)[i];
+    if (c == 'k' || c == 'v')
+      return 1;
+  }
+  return 0;
+}
+#endif
+
 /* Record indexed load/store. */
 TRef lj_record_idx(jit_State *J, RecordIndex *ix)
 {
@@ -1615,6 +1739,92 @@ TRef lj_record_idx(jit_State *J, RecordIndex *ix)
       return TREF_NIL;
     }
   }
+
+#if LJ_54
+  if (rec_is_longstr(&ix->keyv)) {
+    if (!ix->val) {
+      TRef xref, trnil;
+      cTValue *oldv = lj_tab_get(J->L, tabV(&ix->tabv), &ix->keyv);
+      if (rec_tab_isweak(J, tabV(&ix->tabv)))
+	/* Weak-table slots may disappear between trace iterations. The helper
+	** lookup is bytewise-correct for Lua 5.4 long strings, but it still must
+	** not record weak-table lifetime assumptions into a trace.
+	*/
+	lj_trace_err(J, LJ_TRERR_NYIWEAK);
+      xref = lj_ir_call(J, IRCALL_lj_tab_getstr, ix->tab, ix->key);
+      trnil = lj_ir_kkptr(J, NULL);
+      if (oldv == niltvg(J2G(J))) {
+	emitir(IRTG(IR_EQ, IRT_PGC), xref, trnil);
+	if (ix->idxchain && lj_record_mm_lookup(J, ix, MM_index))
+	  goto handlemm;
+	return TREF_NIL;
+      } else {
+	TRef bits, res = lj_record_constify(J, oldv);
+	if (!res)
+	  lj_trace_err(J, LJ_TRERR_NYILSTR);
+	/* Runtime Lua 5.4 long strings are not interned, so table lookup must
+	** compare bytes, not GC object identity. The side-effect call keeps the
+	** lookup tied to the current table/key contents and returns the matching
+	** value slot. Guard the slot's raw TValue bits and then constify the
+	** observed value; if the table value changes, the trace exits before it
+	** can reuse a stale specialized result.
+	*/
+	emitir(IRTG(IR_NE, IRT_PGC), xref, trnil);
+#if LJ_32
+	lj_needsplit(J);
+#endif
+	bits = emitir(IRT(IR_XLOAD, IRT_I64), xref, 0);
+	emitir(IRTG(IR_EQ, IRT_I64), bits, lj_ir_kint64(J, oldv->u64));
+	return res;
+      }
+    } else {
+      TRef xref, bits;
+      IRType storetype = IRT__MAX;
+      cTValue *oldv = lj_tab_get(J->L, tabV(&ix->tabv), &ix->keyv);
+      if (rec_tab_isweak(J, tabV(&ix->tabv)))
+	lj_trace_err(J, LJ_TRERR_NYIWEAK);
+      if (oldv == niltvg(J2G(J)) && ix->idxchain &&
+	  lj_record_mm_lookup(J, ix, MM_newindex))
+	goto handlemm;
+      bits = rec_lua54_lstr_storebits(J, ix->val, &ix->valv, &storetype);
+      if (!bits)
+	lj_trace_err(J, LJ_TRERR_NYILSTR);
+      /* Runtime Lua 5.4 long strings are byte-equal table keys, not interned
+      ** identities. Re-run a bytewise helper on every trace iteration and
+      ** raw-store compact TValue bits into the returned slot. Missing keys go
+      ** through lj_tab_setstr() so rehash and key write-barrier semantics stay
+      ** centralized in the table layer instead of duplicating NEWREF logic in
+      ** the recorder.
+      */
+      if (oldv == niltvg(J2G(J))) {
+	xref = lj_ir_call(J, IRCALL_lj_tab_setstr, ix->tab, ix->key);
+      } else {
+	TRef trnil = lj_ir_kkptr(J, NULL);
+	xref = lj_ir_call(J, IRCALL_lj_tab_getstr, ix->tab, ix->key);
+	emitir(IRTG(IR_NE, IRT_PGC), xref, trnil);
+      }
+      emitir(IRT(IR_XSTORE, storetype), xref, bits);
+      if (tref_isgcv(ix->val))
+	emitir(IRT(IR_TBAR, IRT_NIL), ix->tab, 0);
+      if (!nommstr(J, ix->key)) {
+	TRef fref = emitir(IRT(IR_FREF, IRT_PGC), ix->tab, IRFL_TAB_NOMM);
+	emitir(IRT(IR_FSTORE, IRT_U8), fref, lj_ir_kint(J, 0));
+      }
+      J->needsnap = 1;
+      return 0;
+    }
+    /* Any long-string table access not handled above would need bytewise key
+    ** lookup plus correct NEWREF/barrier semantics. Keep it in the interpreter
+    ** until dedicated long-string-aware IR exists.
+    */
+    lj_trace_err(J, LJ_TRERR_NYILSTR);
+  }
+
+  if (!ix->val && rec_tab_isweak(J, tabV(&ix->tabv)))
+    /* GC may clear weak slots between loop iterations. Do not record a table
+    ** load that the optimizer can treat as stable across collector progress. */
+    lj_trace_err(J, LJ_TRERR_NYIWEAK);
+#endif
 
   /* Record the key lookup. */
   xref = rec_idx_key(J, ix, &rbref, &rbguard);
@@ -1836,8 +2046,10 @@ static TRef rec_upvalue(jit_State *J, uint32_t uv, TRef val)
       return tr;
   }
 noconstify:
-  /* Note: this effectively limits LJ_MAX_UPVAL to 127. */
-  uv = (uv << 8) | (hashrot(uvp->dhash, uvp->dhash + HASH_BIAS) & 0xff);
+  /* IRMlit operands must stay below REF_BIAS. Keep a 7 bit alias hash so
+  ** Lua 5.4 high-index upvalues (128..199) remain recordable.
+  */
+  uv = IRUREF_ENCODE(uv, hashrot(uvp->dhash, uvp->dhash + HASH_BIAS));
   if (!uvp->closed) {
     /* In current stack? */
     if (uvval(uvp) >= tvref(J->L->stack) &&
@@ -2367,7 +2579,11 @@ void lj_record_ins(jit_State *J)
   case BCMnum: { cTValue *tv = proto_knumtv(J->pt, rc);
     copyTV(J->L, rcv, tv); ix.key = rc = tvisint(tv) ? lj_ir_kint(J, intV(tv)) :
     tv->u32.hi == LJ_KEYINDEX ? (lj_ir_kint(J, 0) | TREF_KEYINDEX) :
+#if LJ_54 && LJ_DUALNUM
+    lj_ir_knum(J, numV(tv)); } break;
+#else
     lj_ir_knumint(J, numV(tv)); } break;
+#endif
   case BCMstr: { GCstr *s = gco2str(proto_kgc(J->pt, ~(ptrdiff_t)rc));
     setstrV(J->L, rcv, s); ix.key = rc = lj_ir_kstr(J, s); } break;
   default: break;  /* Handled later. */
@@ -2413,10 +2629,22 @@ void lj_record_ins(jit_State *J)
 	if (!lj_ir_numcmp(numberVnum(rav), numberVnum(rcv), (IROp)irop))
 	  irop ^= 1;
       } else if (ta == IRT_STR) {
+#if LJ_54
+	/* Lua 5.4 string ordering is locale-dependent through strcoll().
+	** Record a side-effect call so the compare is re-run under the active
+	** C locale and cannot be CSEd across os.setlocale() changes.
+	*/
+	if (!rec_lua54_strcmp_locale(strV(rav), strV(rcv), (IROp)irop))
+	  irop ^= 1;
+	ra = lj_ir_call(J, IRCALL_lj_str_cmp_locale, ra, rc);
+	rc = lj_ir_kint(J, 0);
+	ta = IRT_INT;
+#else
 	if (!lj_ir_strcmp(strV(rav), strV(rcv), (IROp)irop)) irop ^= 1;
 	ra = lj_ir_call(J, IRCALL_lj_str_cmp, ra, rc);
 	rc = lj_ir_kint(J, 0);
 	ta = IRT_INT;
+#endif
       } else {
 	rec_mm_comp(J, &ix, (int)op);
 	break;
@@ -2511,11 +2739,22 @@ void lj_record_ins(jit_State *J)
   case BC_ADDVN: case BC_SUBVN: case BC_MULVN: case BC_DIVVN:
   case BC_ADDVV: case BC_SUBVV: case BC_MULVV: case BC_DIVVV: {
     MMS mm = bcmode_mm(op);
-    if (tref_isnumber_str(rb) && tref_isnumber_str(rc))
+    if (tref_isnumber_str(rb) && tref_isnumber_str(rc)) {
+#if LJ_54 && LJ_DUALNUM
+      IROp irop = (int)mm - (int)MM_add + (int)IR_ADD;
+      if (irop <= IR_MUL && tref_isinteger(rb) && tref_isinteger(rc)) {
+	/* Current Lua 5.4 compat exposes a 32-bit lua_Integer surface, where
+	** integer +, - and * wrap instead of widening to float on overflow.
+	*/
+	rc = emitir(IRTI(irop), rb, rc);
+	break;
+      }
+#endif
       rc = lj_opt_narrow_arith(J, rb, rc, rbv, rcv,
 			       (int)mm - (int)MM_add + (int)IR_ADD);
-    else
+    } else {
       rc = rec_mm_arith(J, &ix, mm);
+    }
     break;
     }
 

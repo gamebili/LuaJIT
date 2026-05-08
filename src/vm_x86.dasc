@@ -507,6 +507,44 @@ static void build_subroutines(BuildCtx *ctx)
   |  add RD, 1				// RD = nresults+1
   |  jz ->vm_unwind_yield
   |  mov MULTRES, RD
+#if LJ_54
+  |.if not X64
+  |  mov L:RB, SAVE_L
+  |  cmp aword L:RB->closelist, 0
+  |  je ->vm_returnc_closed
+  |  // Lua 5.4 closes C API to-be-closed slots before return values are
+  |  // relocated. Route x86 through the same protected continuation bridge as
+  |  // x64/ARM64 so __close can yield and later resume the original C return.
+  |  mov L:RB->base, BASE
+  |  lea RC, [BASE+RA]
+  |  mov KBASE, RD
+  |  shl KBASE, 3
+  |  sub KBASE, 8
+  |  add RC, KBASE
+  |  mov L:RB->top, RC
+  |  mov ARG2, RD
+  |  mov ARG1, L:RB
+  |  call extern lj_close_prepare_cframe_pcall
+  |  mov RA, RC
+  |  mov L:RB, SAVE_L
+  |  mov BASE, L:RB->base
+  |  mov PC, [BASE-4]
+  |  mov DISPATCH, L:RB->glref
+  |  add DISPATCH, GG_G2DISP
+  |  test RA, RA
+  |  jnz ->vm_call_close
+  |  mov RD, L:RB->close_cframe_nres1
+  |  mov dword L:RB->close_cframe_nres1, 0
+  |  mov MULTRES, RD
+  |  mov RA, L:RB->top
+  |  sub RA, BASE
+  |  mov KBASE, RD
+  |  shl KBASE, 3
+  |  sub KBASE, 8
+  |  sub RA, KBASE			// RA = result offset.
+  |.endif
+#endif
+  |->vm_returnc_closed:
   |  test PC, FRAME_TYPE
   |  jz ->BC_RET_Z			// Handle regular return to Lua.
   |
@@ -641,9 +679,67 @@ static void build_subroutines(BuildCtx *ctx)
   |  mov DISPATCH, L:RB->glref		// Setup pointer to dispatch table.
   |  add DISPATCH, GG_G2DISP
   |  mov PC, [BASE-4]			// Fetch PC of previous frame.
-  |  mov dword [BASE-4], LJ_TFALSE	// Prepend false to error message.
   |  set_vmstate INTERP
+#if LJ_54
+  |.if not X64
+  |  cmp aword L:RB->closelist, 0
+  |  je >8
+  |  cmp byte L:RB->close_defer, 0
+  |  jz >8
+  |  mov byte L:RB->close_defer, 0
+  |  mov RC, PC
+  |  and RC, FRAME_TYPE
+  |  cmp RC, FRAME_CONT
+  |  je >8
+  |  test RC, RC
+  |  jnz >9
+  |  // Error-unwind close calls must be yieldable for Lua callers. Prepare
+  |  // pcall(__close, value, err) and resume through LJ_CONT_CLOSE.
+  |  mov KBASE, PC
+  |  mov ARG1, L:RB
+  |  call extern lj_close_prepare_pcall
+  |  mov RA, RC
+  |  mov RD, 1+1
+  |  mov L:RB, SAVE_L
+  |  mov BASE, L:RB->base
+  |  mov PC, KBASE
+  |  mov DISPATCH, L:RB->glref
+  |  add DISPATCH, GG_G2DISP
+  |  test RA, RA
+  |  jz >8
+  |  jmp ->vm_call_close
+  |9:
+  |  // Non-Lua callers cannot resume through a normal continuation frame; keep
+  |  // the old non-yieldable bridge for shapes such as coroutine.create(pcall).
+  |  mov KBASE, PC
+  |  mov ARG1, L:RB
+  |  call extern lj_close_unwind_pcall
+  |  mov RD, 1+1
+  |  mov L:RB, SAVE_L
+  |  mov BASE, L:RB->base
+  |  mov PC, KBASE
+  |  mov DISPATCH, L:RB->glref
+  |  add DISPATCH, GG_G2DISP
+  |8:
+  |.endif
+#endif
+  |->vm_unwind_ff_closed:
+  |  mov dword [BASE-4], LJ_TFALSE	// Prepend false to error message.
   |  jmp ->vm_returnc			// Increments RD/MULTRES and returns.
+
+#if LJ_54
+  |.if not X64
+  |->vm_call_close:
+  |  mov [RA-12], PC			// [cont|PC]
+  |  lea PC, [RA+FRAME_CONT]
+  |  sub PC, BASE
+  |  mov LFUNC:RB, [RA-8]
+  |  mov NARGS:RD, 3+1			// pcall(__close, value, err).
+  |  mov L:KBASE, SAVE_L
+  |  mov L:KBASE->base, RA
+  |  jmp ->vm_call_dispatch_f
+  |.endif
+#endif
   |
   |.if WIN and not X64
   |->vm_rtlunwind@16:			// Thin layer around RtlUnwind.
@@ -871,6 +967,14 @@ static void build_subroutines(BuildCtx *ctx)
   |  add RAa, KBASEa
   |.else
   |  mov RA, dword [RB-16]
+#if LJ_54
+  |.if not X64
+  |  cmp RA, LJ_CONT_CLOSE
+  |  je ->cont_close
+  |  cmp RA, LJ_CONT_CLOSE_CFRAME
+  |  je ->cont_close_cframe
+  |.endif
+#endif
   |.if FFI
   |  cmp RA, 1
   |  jbe >1
@@ -1078,6 +1182,60 @@ static void build_subroutines(BuildCtx *ctx)
   |->cont_nop:				// BASE = base, (RC = result)
   |  ins_next
   |
+#if LJ_54
+  |.if not X64
+  |->cont_close:			// BASE = base, RB = close call base.
+  |  mov ARG2, RB
+  |  mov ARG3, RC
+  |  mov KBASE, MULTRES
+  |  mov ARG4, KBASE
+  |  mov L:RB, SAVE_L
+  |  mov L:RB->base, BASE
+  |  mov ARG1, L:RB
+  |  mov KBASE, PC
+  |  call extern lj_close_continue_pcall
+  |  mov RA, RC
+  |  mov L:RB, SAVE_L
+  |  mov RD, 1+1
+  |  mov BASE, L:RB->base
+  |  mov PC, KBASE
+  |  mov DISPATCH, L:RB->glref
+  |  add DISPATCH, GG_G2DISP
+  |  test RA, RA
+  |  jz ->vm_unwind_ff_closed
+  |  jmp ->vm_call_close
+  |
+  |->cont_close_cframe:		// BASE = base, RB = close call base.
+  |  mov ARG2, RB
+  |  mov ARG3, RC
+  |  mov KBASE, MULTRES
+  |  mov ARG4, KBASE
+  |  mov L:RB, SAVE_L
+  |  mov L:RB->base, BASE
+  |  mov ARG1, L:RB
+  |  mov KBASE, PC
+  |  call extern lj_close_continue_cframe_pcall
+  |  mov RA, RC
+  |  mov L:RB, SAVE_L
+  |  mov BASE, L:RB->base
+  |  mov PC, KBASE
+  |  mov DISPATCH, L:RB->glref
+  |  add DISPATCH, GG_G2DISP
+  |  test RA, RA
+  |  jnz ->vm_call_close
+  |  mov RD, L:RB->close_cframe_nres1	// RD = nresults+1.
+  |  mov dword L:RB->close_cframe_nres1, 0
+  |  mov MULTRES, RD
+  |  mov RA, L:RB->top
+  |  sub RA, BASE
+  |  mov KBASE, RD
+  |  shl KBASE, 3
+  |  sub KBASE, 8
+  |  sub RA, KBASE			// RA = result offset.
+  |  jmp ->vm_returnc_closed
+  |.endif
+#endif
+  |
   |3:  // Call __newindex metamethod.
   |  // BASE = base, L->top = new base, stack = cont/func/t/k/(v)
   |  mov RA, L:RB->top
@@ -1219,6 +1377,19 @@ static void build_subroutines(BuildCtx *ctx)
   |  // 0/1 or TValue * (metamethod) returned in eax (RC).
   |  jmp <3
   |.endif
+  |
+  |->vmeta_equal_lstr:
+#if LJ_54
+  |  sub PC, 4
+  |  mov L:RB, SAVE_L
+  |  mov L:RB->base, BASE
+  |  mov FCARG1, L:RB
+  |  mov FCARG2, dword [PC-4]
+  |  mov SAVE_PC, PC
+  |  call extern lj_meta_equal_lstr@8	// (lua_State *L, BCIns ins)
+  |  // 0/1 returned in eax (RC).
+  |  jmp <3
+#endif
   |
   |->vmeta_istype:
   |.if X64
@@ -1363,11 +1534,11 @@ static void build_subroutines(BuildCtx *ctx)
   |.endif
   |  mov SAVE_PC, PC
   |  call extern lj_meta_call	// (lua_State *L, TValue *func, TValue *top)
+  |  add TMP1, eax			// lj_meta_call may prepend a __call chain.
   |  mov BASE, L:RB->base
   |  mov RA, TMP2
   |  mov NARGS:RD, TMP1
   |  mov LFUNC:RB, [RA-8]
-  |  add NARGS:RD, 1
   |  // This is fragile. L->base must not move, KBASE must always be defined.
   |.if X64
   |  cmp KBASEa, rdx			// Continue with CALLT if flag set.
@@ -1966,7 +2137,9 @@ static void build_subroutines(BuildCtx *ctx)
   |  mov dword [BASE-4], LJ_TFALSE	// Prepend false to results.
   |  mov RA, L:PC->top
   |  sub RA, 8
+#if !LJ_54
   |  mov L:PC->top, RA			// Clear error from coroutine stack.
+#endif
   |  // Copy error message.
   |.if X64
   |  mov RDa, [RA]
@@ -2037,7 +2210,11 @@ static void build_subroutines(BuildCtx *ctx)
   |  cmp dword [BASE+4], LJ_TISNUM; jne >2
   |  mov RB, dword [BASE]
   |  cmp RB, 0; jns ->fff_resi
+#if LJ_54
+  |  neg RB; js ->fff_resi
+#else
   |  neg RB; js >1
+#endif
   |->fff_resbit:
   |->fff_resi:
   |  mov PC, [BASE-4]
@@ -3681,6 +3858,10 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
       |  mov RD, [BASE+RD*8]
       |  cmp RA, RD
       |  je <1				// Same GCobjs or pvalues?
+#if LJ_54
+      |  cmp RB, LJ_TSTR
+      |  je ->vmeta_equal_lstr		// Long strings need bytewise equality.
+#endif
       |  cmp RB, LJ_TISTABUD
       |  ja <2				// Different objects and not table/ud?
       |.if X64
@@ -3722,6 +3903,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  cmp RB, LJ_TSTR; jne >3
     |  mov RA, [BASE+RA*8]
     |  cmp RA, [KBASE+RD*4]
+#if LJ_54
+    |  jne ->vmeta_equal_lstr		// Lua 5.4 long strings are not interned.
+#endif
   iseqne_test:
     if (vk) {
       |  jne >2
@@ -3861,7 +4045,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  mov RB, [BASE+RD*8]
     |  neg RB
     |  jz >3
+#if !LJ_54
     |  jo >4
+#endif
     |  mov dword [BASE+RA*8+4], LJ_TISNUM
     |8:
     |  mov dword [BASE+RA*8], RB
@@ -3870,10 +4056,12 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |3:
     |  mov dword [BASE+RA*8+4], 0x80000000  // -0.
     |  jmp <8
+#if !LJ_54
     |4:
     |  mov dword [BASE+RA*8+4], 0x41e00000  // 2^31.
     |  mov dword [BASE+RA*8], 0
     |  jmp <9
+#endif
     |5:
     |  ja ->vmeta_unm
     |.else
@@ -4434,6 +4622,10 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |5:  // String key?
     |  checkstr RC, ->vmeta_tgetv
     |  mov STR:RC, [BASE+RC*8]
+#if LJ_54
+    |  cmp dword STR:RC->len, LJ_STR_MAXSHORT
+    |  ja ->vmeta_tgetv		// Long strings are not interned; use byte-key lookup.
+#endif
     |  jmp ->BC_TGETS_Z
     break;
   case BC_TGETS:
@@ -4443,6 +4635,10 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  checktab RB, ->vmeta_tgets
     |  mov TAB:RB, [BASE+RB*8]
     |->BC_TGETS_Z:	// RB = GCtab *, RC = GCstr *, refetches PC_RA.
+#if LJ_54
+    |  cmp dword STR:RC->len, LJ_STR_MAXSHORT
+    |  ja ->vmeta_tgets		// Long string constants need byte-key lookup.
+#endif
     |  mov RA, TAB:RB->hmask
     |  and RA, STR:RC->sid
     |  imul RA, #NODE
@@ -4600,6 +4796,10 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |5:  // String key?
     |  checkstr RC, ->vmeta_tsetv
     |  mov STR:RC, [BASE+RC*8]
+#if LJ_54
+    |  cmp dword STR:RC->len, LJ_STR_MAXSHORT
+    |  ja ->vmeta_tsetv		// Long strings are not interned; use byte-key lookup.
+#endif
     |  jmp ->BC_TSETS_Z
     |
     |7:  // Possible table write barrier for the value. Skip valiswhite check.
@@ -4614,6 +4814,10 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  checktab RB, ->vmeta_tsets
     |  mov TAB:RB, [BASE+RB*8]
     |->BC_TSETS_Z:	// RB = GCtab *, RC = GCstr *, refetches PC_RA.
+#if LJ_54
+    |  cmp dword STR:RC->len, LJ_STR_MAXSHORT
+    |  ja ->vmeta_tsets		// Long string constants need byte-key lookup.
+#endif
     |  mov RA, TAB:RB->hmask
     |  and RA, STR:RC->sid
     |  imul RA, #NODE

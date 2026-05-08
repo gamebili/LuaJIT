@@ -585,9 +585,23 @@ static void gc_clearweak(global_State *g, GCobj *o)
       for (i = 0; i <= hmask; i++) {
 	Node *n = &node[i];
 	/* Clear hash slot when key or value is about to be collected. */
+#if LJ_54
+	if (!tvisnil(&n->val)) {
+	  int clear = ((t->marked & LJ_GC_WEAKVAL) && gc_mayclear(&n->val, 1));
+	  /* For weak-kv tables, a dead value clears the entry. Check it before
+	  ** key liveness, otherwise a string key would be marked even though its
+	  ** entry is about to disappear.
+	  */
+	  if (!clear && (t->marked & LJ_GC_WEAKKEY))
+	    clear = gc_mayclear(&n->key, 0);
+	  if (clear)
+	    setnilV(&n->val);
+	}
+#else
 	if (!tvisnil(&n->val) && (gc_mayclear(&n->key, 0) ||
 				  gc_mayclear(&n->val, 1)))
 	  setnilV(&n->val);
+#endif
       }
     }
     o = gcref(t->gclist);
@@ -875,12 +889,23 @@ int LJ_FASTCALL lj_gc_step(lua_State *L)
   do {
     lim -= (GCSize)gc_onestep(L);
     if (g->gc.state == GCSpause) {
+#if LJ_54
+      if (g->gc.fin_check != 0) {
+	g->gc.fin_check--;
+	g->gc.threshold = g->gc.total;
+      } else
+#endif
       g->gc.threshold = (g->gc.estimate/100) * g->gc.pause;
       g->vmstate = ostate;
       return 1;  /* Finished a GC cycle. */
     }
   } while (sizeof(lim) == 8 ? ((int64_t)lim > 0) : ((int32_t)lim > 0));
   if (g->gc.debt < GCSTEPSIZE) {
+#if LJ_54
+    if (g->gc.fin_check != 0)
+      g->gc.threshold = g->gc.total;
+    else
+#endif
     g->gc.threshold = g->gc.total + GCSTEPSIZE;
     g->vmstate = ostate;
     return -1;
@@ -1014,6 +1039,25 @@ void *lj_mem_realloc(lua_State *L, void *p, GCSize osz, GCSize nsz)
 	     "allocated memory address %p outside required range", p);
   g->gc.total = (g->gc.total - osz) + nsz;
   return p;
+}
+
+/* Non-throwing realloc for opportunistic memory trims.
+** Lua 5.4 lets these shrinks fail; callers must leave their logical state
+** unchanged when NULL is returned.
+*/
+void *lj_mem_realloc_noerr(lua_State *L, void *p, GCSize osz, GCSize nsz)
+{
+  global_State *g = G(L);
+  void *np;
+  lj_assertG((osz == 0) == (p == NULL), "realloc API violation");
+  np = g->allocf(g->allocd, p, osz, nsz);
+  if (np == NULL && nsz > 0)
+    return NULL;
+  lj_assertG((nsz == 0) == (np == NULL), "allocf API violation");
+  lj_assertG(checkptrGC(np),
+	     "allocated memory address %p outside required range", np);
+  g->gc.total = (g->gc.total - osz) + nsz;
+  return np;
 }
 
 /* Allocate new GC object and link it to the root set. */

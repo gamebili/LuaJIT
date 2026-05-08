@@ -152,9 +152,19 @@ typedef struct CCallInfo {
 /* Function definitions for CALL* instructions. */
 #define IRCALLDEF(_) \
   _(ANY,	lj_str_cmp,		2,  FN, INT, CCI_NOFPRCLOBBER) \
+  _(ANY,	lj_str_cmp_locale,	2,  FS, INT, CCI_NOFPRCLOBBER) \
+  _(ANY,	lj_str_equal,		2,  FN, INT, CCI_NOFPRCLOBBER) \
   _(ANY,	lj_str_find,		4,   N, PGC, 0) \
   _(ANY,	lj_str_new,		3,   S, STR, CCI_L|CCI_T) \
   _(ANY,	lj_strscan_num,		2,  FN, INT, 0) \
+  _(ANY,	lj_strscan_numtype54,	1,  FN, INT, 0) \
+  _(ANY,	lj_strscan_numtype54s,	1,  FS, INT, 0) \
+  _(ANY,	lj_strscan_toint54,	1,  FN, INT, 0) \
+  _(ANY,	lj_strscan_tonum54s,	1,  FS, NUM, 0) \
+  _(ANY,	lj_strscan_tocheckintok54, 1, FN, INT, 0) \
+  _(ANY,	lj_strscan_tocheckint54, 1, FN, INT, 0) \
+  _(ANY,	lj_strscan_tobaseintok54, 2,  FN, INT, 0) \
+  _(ANY,	lj_strscan_tobaseintvalue54, 2, FN, INT, 0) \
   _(ANY,	lj_strfmt_int,		2,  FN, STR, CCI_L|CCI_T) \
   _(ANY,	lj_strfmt_num,		2,  FN, STR, CCI_L|CCI_T) \
   _(ANY,	lj_strfmt_char,		2,  FN, STR, CCI_L|CCI_T) \
@@ -187,6 +197,8 @@ typedef struct CCallInfo {
   _(ANY,	lj_tab_dup,		2,  FA, TAB, CCI_L|CCI_T) \
   _(ANY,	lj_tab_clear,		1,  FS, NIL, 0) \
   _(ANY,	lj_tab_newkey,		3,   S, PGC, CCI_L|CCI_T) \
+  _(ANY,	lj_tab_getstr,		2,   S, PGC, 0) \
+  _(ANY,	lj_tab_setstr,		3,   S, PGC, CCI_L|CCI_T) \
   _(ANY,	lj_tab_keyindex,	2,  FL, INT, 0) \
   _(ANY,	lj_vm_next,		2,  FL, PTR, 0) \
   _(ANY,	lj_tab_len,		1,  FL, INT, 0) \
@@ -194,6 +206,9 @@ typedef struct CCallInfo {
   _(ANY,	lj_gc_step_jit,		2,  FS, NIL, CCI_L) \
   _(ANY,	lj_gc_barrieruv,	2,  FS, NIL, 0) \
   _(ANY,	lj_mem_newgco,		2,  FA, PGC, CCI_L|CCI_T) \
+  _(ANY,	lj_prng_num_random54,	1,  FS, NUM, 0) \
+  _(ANY,	lj_prng_i32_random54,	1,  FS, INT, 0) \
+  _(ANY,	lj_prng_int_random54,	3,   S, INT, 0) \
   _(ANY,	lj_prng_u64d,		1,  FS, NUM, CCI_CASTU64) \
   _(ANY,	lj_vm_modi,		2,  FN, INT, 0) \
   _(ANY,	log10,			1,   N, NUM, XA_FP) \

@@ -60,6 +60,67 @@ LJ_NOINLINE uint64_t LJ_FASTCALL lj_prng_u64d(PRNGState *rs)
   return (r & U64x(000fffff,ffffffff)) | U64x(3ff00000,00000000);
 }
 
+/* Lua 5.4 math.random() uses xoshiro256** and a rejection projection. Keep
+** this shared with the JIT recorder so traced random samples cannot fall back
+** to the old LuaJIT PRNG algorithm.
+*/
+static LJ_AINLINE uint64_t lj_prng_rotl64(uint64_t x, int n)
+{
+  return (x << n) | (x >> (64 - n));
+}
+
+static uint64_t lj_prng_u64_random54(PRNGState *rs)
+{
+  uint64_t state0 = rs->u[0];
+  uint64_t state1 = rs->u[1];
+  uint64_t state2 = rs->u[2] ^ state0;
+  uint64_t state3 = rs->u[3] ^ state1;
+  uint64_t res = lj_prng_rotl64(state1 * 5u, 7) * 9u;
+  rs->u[0] = state0 ^ state3;
+  rs->u[1] = state1 ^ state2;
+  rs->u[2] = state2 ^ (state1 << 17);
+  rs->u[3] = lj_prng_rotl64(state3, 45);
+  return res;
+}
+
+LJ_NOINLINE lua_Number LJ_FASTCALL lj_prng_num_random54(PRNGState *rs)
+{
+  return (lua_Number)(lj_prng_u64_random54(rs) >> 11) *
+	 (1.0 / 9007199254740992.0);
+}
+
+LJ_NOINLINE int32_t LJ_FASTCALL lj_prng_i32_random54(PRNGState *rs)
+{
+  return (int32_t)(uint32_t)lj_prng_u64_random54(rs);
+}
+
+static uint32_t lj_prng_project_random54(PRNGState *rs,
+					 uint32_t ran, uint32_t n)
+{
+  if ((n & (n + 1u)) == 0) {
+    return ran & n;
+  } else {
+    uint32_t lim = n;
+    lim |= (lim >> 1);
+    lim |= (lim >> 2);
+    lim |= (lim >> 4);
+    lim |= (lim >> 8);
+    lim |= (lim >> 16);
+    while ((ran &= lim) > n)
+      ran = (uint32_t)lj_prng_u64_random54(rs);
+    return ran;
+  }
+}
+
+LJ_NOINLINE int32_t lj_prng_int_random54(PRNGState *rs,
+					 int32_t low, int32_t up)
+{
+  uint64_t rv = lj_prng_u64_random54(rs);
+  uint32_t p = lj_prng_project_random54(rs, (uint32_t)rv,
+					(uint32_t)up - (uint32_t)low);
+  return (int32_t)(p + (uint32_t)low);
+}
+
 /* Condition seed: ensure k[i] MSB of u[i] are non-zero. */
 static LJ_AINLINE void lj_prng_condition(PRNGState *rs)
 {
