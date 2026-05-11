@@ -30,7 +30,6 @@ if "%LUA54_SRC_DIR%"=="" if exist "H:\p4\gl_home_u4\pristine\tools\lua\source\lu
 if "%LUA54_TESTES_DIR%"=="" if not "%LUA54_SRC_DIR%"=="" if exist "%LUA54_SRC_DIR%\testes\all.lua" (
   set "LUA54_TESTES_DIR=%LUA54_SRC_DIR%\testes"
 )
-if "%LUA_PATH_5_4%"=="" set "LUA_PATH_5_4=./src/?.lua;./src/?/init.lua;;"
 
 if exist "%UCRT_BIN%\gcc.exe" (
   set "PATH=%UCRT_BIN%;%MSYS_BIN%;%MINGW64_BIN%;%PATH%"

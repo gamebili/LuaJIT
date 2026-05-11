@@ -183,11 +183,11 @@ smoketest-lua54compat:
 	$(MAKE) XCFLAGS='-DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2'
 	./src/luajit test/lua54_cstack_regress.lua
 	./src/luajit test/lua54_gc_regress.lua
-	./src/luajit test/lua54_jit_regress.lua
+	LUA_PATH_5_4='./src/?.lua;./src/?/init.lua;;' ./src/luajit test/lua54_jit_regress.lua
 	./src/luajit test/lua54_tpack_regress.lua
 	./src/luajit test/lua54_vm_backend_static.lua
 	./src/luajit test/lua54_vm_backend_dynasm.lua
-	./src/luajit test/smoke.lua lua54compat
+	LUA_PATH_5_4='./src/?.lua;./src/?/init.lua;;' ./src/luajit test/smoke.lua lua54compat
 	$(MAKE) run-official-lua54compat
 	out=$$(./src/luajit -e 'warn("@on"); warn("lua54 ", "warning")' 2>&1 >/dev/null) && test "$$out" = "Lua warning: lua54 warning"
 	out=$$(./src/luajit -W -e 'warn("lua54 -W warning")' 2>&1 >/dev/null) && test "$$out" = "Lua warning: lua54 -W warning"
