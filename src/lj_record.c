@@ -1428,11 +1428,15 @@ static void rec_mm_comp(jit_State *J, RecordIndex *ix, int op)
   nomatch:
     /* Lookup failed. Retry with  __lt and swapped operands. */
     if (!(op & 2)) break;  /* Already at __lt. Interpreter will throw. */
+#if LJ_54 && !defined(LUA_COMPAT_LT_LE)
+    break;
+#else
     ix->tab = ix->key; ix->key = ix->val; ix->val = ix->tab;
     copyTV(J->L, &ix->tabv, &ix->keyv);
     copyTV(J->L, &ix->keyv, &ix->valv);
     copyTV(J->L, &ix->valv, &ix->tabv);
     op ^= 3;
+#endif
   }
 }
 

@@ -22,4 +22,28 @@ local mantissa, exponent = math.frexp(8)
 assert(mantissa == 0.5 and exponent == 4)
 assert(math.ldexp(mantissa, exponent) == 8)
 
+do
+  local calls = 0
+  local mt = {
+    __lt = function(a, b)
+      calls = calls + 1
+      return a.x < b.x
+    end,
+  }
+  local a = setmetatable({ x = 1 }, mt)
+  local b = setmetatable({ x = 2 }, mt)
+  assert(a <= b)
+  assert(calls == 1)
+
+  jit.opt.start("hotloop=1", "hotexit=1")
+  local function compat_le_loop(n)
+    local ok = true
+    for _ = 1, n do
+      ok = ok and (a <= b)
+    end
+    return ok
+  end
+  assert(compat_le_loop(20))
+end
+
 print("lua54_compat53_runtime.lua OK")

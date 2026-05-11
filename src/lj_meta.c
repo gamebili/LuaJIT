@@ -602,7 +602,7 @@ TValue *lj_meta_comp(lua_State *L, cTValue *o1, cTValue *o2, int op)
 	if (tvisnil(mo) || !lj_obj_equal(mo, mo2))
 #endif
 	{
-#if LJ_54
+#if LJ_54 && !defined(LUA_COMPAT_LT_LE)
 	  /* Lua 5.4 removed the old fallback that emulated __le with __lt.
 	  ** Keep the legacy retry only outside the 5.4 compatibility mode.
 	  */
