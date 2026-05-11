@@ -1409,6 +1409,37 @@ do
     end
     assert(n == 80)
   end, "Lua 5.4 hides standard C closure upvalues")
+
+  assert_records_trace(function()
+    local co = coroutine.create(function()
+      local x = 1
+      coroutine.yield()
+      return x
+    end)
+    assert(coroutine.resume(co))
+    local n = 0
+    for _ = 1, 80 do
+      local ok_get, err_get = pcall(debug.getlocal, 999, 1)
+      local ok_set, err_set = pcall(debug.setlocal, 999, 1, true)
+      local ok_tget, err_tget = pcall(debug.getlocal, co, 999, 1)
+      local ok_tset, err_tset = pcall(debug.setlocal, co, 999, 1, true)
+      if not ok_get and
+	 err_get:find("bad argument #1 to 'debug.getlocal'",
+		      1, true) and
+	 not ok_set and
+	 err_set:find("bad argument #1 to 'debug.setlocal'",
+		      1, true) and
+	 not ok_tget and
+	 err_tget:find("bad argument #2 to 'debug.getlocal'",
+		       1, true) and
+	 not ok_tset and
+	 err_tset:find("bad argument #2 to 'debug.setlocal'",
+		       1, true) then
+	n = n + 1
+      end
+    end
+    assert(n == 80)
+  end, "Lua 5.4 debug local level error names")
 end
 
 do

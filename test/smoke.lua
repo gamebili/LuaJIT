@@ -649,6 +649,25 @@ do
   expect_bad_integer(debug.setuservalue, io.stdout, {}, 1.2)
   expect_bad_integer(debug.setcstacklimit, 1.2)
   assert(debug.getinfo("1", "n") ~= nil)
+
+  local function expect_level_error(fn, fname, narg, ...)
+    local ok, err = pcall(fn, ...)
+    assert(ok == false and type(err) == "string" and
+           err:find("bad argument #" .. narg .. " to '" .. fname ..
+                    "' (level out of range)", 1, true) ~= nil)
+  end
+  expect_level_error(debug.getlocal, "debug.getlocal", 1, 999, 1)
+  expect_level_error(debug.setlocal, "debug.setlocal", 1, 999, 1, true)
+  do
+    local co = coroutine.create(function()
+      local x = 1
+      coroutine.yield()
+      return x
+    end)
+    assert(coroutine.resume(co) == true)
+    expect_level_error(debug.getlocal, "debug.getlocal", 2, co, 999, 1)
+    expect_level_error(debug.setlocal, "debug.setlocal", 2, co, 999, 1, true)
+  end
 end
 do
   local function result_count(...)

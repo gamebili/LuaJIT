@@ -354,10 +354,11 @@ LJLIB_CF(debug_getlocal)
   if (!lua_getstack(L1,
 		    debug_checkint_named54(L, arg+1, "debug.getlocal"),
 		    &ar))
+    debug_argerror_named54(L, arg+1, "debug.getlocal", "level out of range");
 #else
   if (!lua_getstack(L1, lj_lib_checkint(L, arg+1), &ar))
-#endif
     lj_err_arg(L, arg+1, LJ_ERR_LVLRNG);
+#endif
   name = lua_getlocal(L1, &ar, slot);
   if (name) {
     lua_xmove(L1, L, 1);
@@ -380,10 +381,11 @@ LJLIB_CF(debug_setlocal)
   if (!lua_getstack(L1,
 		    debug_checkint_named54(L, arg+1, "debug.setlocal"),
 		    &ar))
+    debug_argerror_named54(L, arg+1, "debug.setlocal", "level out of range");
 #else
   if (!lua_getstack(L1, lj_lib_checkint(L, arg+1), &ar))
-#endif
     lj_err_arg(L, arg+1, LJ_ERR_LVLRNG);
+#endif
 #if LJ_54
   tv = debug_checkany_named54(L, arg+3, "debug.setlocal");
 #else
