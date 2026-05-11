@@ -34,6 +34,14 @@
 #define LJ_LUA54_EXTERNAL_HEADER 0
 #endif
 
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+#if defined(LUA_COMPAT_5_3)
+#define LUA_COMPAT_MATHLIB
+#define LUA_COMPAT_APIINTCASTS
+#define LUA_COMPAT_LT_LE
+#endif
+#endif
+
 /* Default path for loading Lua and C modules with require(). */
 #if defined(_WIN32)
 /*
