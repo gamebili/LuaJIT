@@ -3651,12 +3651,15 @@ do
   assert(close_n == 1 and closed == true)
   assert(coroutine.status(co) == "dead")
   assert(select(1, coroutine.resume(co)) == false)
-  assert(select(1, pcall(coroutine.close, coroutine.running())) == false)
+  do
+    local ok_close, err_close = pcall(coroutine.close, coroutine.running())
+    assert(ok_close == false and err_close == "cannot close a running coroutine")
+  end
   do
     local main = coroutine.running()
     local checker = coroutine.create(function()
       local ok_close, err_close = pcall(coroutine.close, main)
-      assert(ok_close == false and err_close:match("normal coroutine", 1, true) ~= nil)
+      assert(ok_close == false and err_close == "cannot close a normal coroutine")
     end)
     assert(coroutine.resume(checker) == true)
   end

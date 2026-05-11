@@ -1227,6 +1227,24 @@ do
     assert(n == 80)
   end, "Lua 5.4 coroutine close suspended")
 
+  local main_thread = coroutine.running()
+  assert_records_trace(function()
+    local n = 0
+    for _ = 1, 80 do
+      local ok_run, err_run = pcall(coroutine.close, coroutine.running())
+      local co = coroutine.create(function()
+	return pcall(coroutine.close, main_thread)
+      end)
+      local ok_resume, ok_norm, err_norm = coroutine.resume(co)
+      if not ok_run and err_run == "cannot close a running coroutine" and
+	 ok_resume and not ok_norm and
+	 err_norm == "cannot close a normal coroutine" then
+	n = n + 1
+      end
+    end
+    assert(n == 80)
+  end, "Lua 5.4 coroutine close state errors")
+
   local close_marker = {}
   assert_records_trace(function()
     local n = 0
