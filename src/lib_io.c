@@ -99,7 +99,11 @@ static IOFileUD *io_file_open(lua_State *L, const char *mode)
   IOFileUD *iof = io_file_new(L);
   iof->fp = fopen(fname, mode);
   if (iof->fp == NULL)
+#if LJ_54
+    luaL_error(L, "cannot open file '%s' (%s)", fname, strerror(errno));
+#else
     luaL_argerror(L, 1, lj_strfmt_pushf(L, "%s: %s", fname, strerror(errno)));
+#endif
   return iof;
 }
 

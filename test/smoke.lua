@@ -4293,6 +4293,15 @@ assert(assert(load([[
   ok, err = pcall(io.lines, true)
   assert(ok == false and tostring(err):find("to 'io.lines'", 1, true) and
 	 tostring(err):find("string expected", 1, true))
+  do
+    local missing_io_path = "__lua54_missing_dir__/__no_such_file__"
+    for _, f in ipairs({ io.input, io.output, io.lines }) do
+      ok, err = pcall(f, missing_io_path)
+      assert(ok == false and
+	     tostring(err):find("cannot open file '" .. missing_io_path .. "'",
+				1, true), tostring(err))
+    end
+  end
   ok, err = pcall(io.open, true, "r")
   assert(ok == false and tostring(err):find("to 'io.open'", 1, true) and
 	 tostring(err):find("string expected", 1, true))
