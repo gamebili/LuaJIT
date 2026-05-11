@@ -47,6 +47,7 @@ do
   for _, f in ipairs({ pack, packsize, unpack }) do
     local ok, err = pcall(f, "c", "")
     assert(ok == false and tostring(err):find("missing size", 1, true))
+    assert(not tostring(err):find("bad argument", 1, true))
   end
 end
 

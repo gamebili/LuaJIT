@@ -1429,8 +1429,7 @@ static int lj_cf_string_pack(lua_State *L)
       const char *s;
       size_t len, i;
       if (!(*fmt >= '0' && *fmt <= '9'))
-	string_argerror_named54(L, 1, fname,
-				"missing size for format option 'c'");
+	luaL_error(L, "missing size for format option 'c'");
       fmt = string_pack_readsize(fmt, &sz, 0);
       string_pack_checkargpresent(L, arg, nargs, fname, "string");
       s = string_checklstring_named54(L, arg++, &len, fname);
@@ -1587,8 +1586,7 @@ static int lj_cf_string_unpack(lua_State *L)
       break;
     case 'c':
       if (!(*fmt >= '0' && *fmt <= '9'))
-	string_argerror_named54(L, 1, fname,
-				"missing size for format option 'c'");
+	luaL_error(L, "missing size for format option 'c'");
       fmt = string_pack_readsize(fmt, &sz, 0);
       string_pack_checkdata(L, pos, sz, len, fname);
       lua_pushlstring(L, (const char *)data + pos, sz);
@@ -1689,8 +1687,7 @@ static int lj_cf_string_packsize(lua_State *L)
       break;
     case 'c':
       if (!(*fmt >= '0' && *fmt <= '9'))
-	string_argerror_named54(L, 1, fname,
-				"missing size for format option 'c'");
+	luaL_error(L, "missing size for format option 'c'");
       fmt = string_pack_readsize(fmt, &sz, 0);
       string_pack_addsize(L, &total, sz, fname);
       break;

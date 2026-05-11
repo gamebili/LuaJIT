@@ -1829,8 +1829,12 @@ do
       if not ok and err:find("string contains zeros", 1, true) then n = n + 1 end
       local ok_num, err_num = pcall(string.pack, "i1")
       local ok_str, err_str = pcall(string.pack, "c1")
+      local ok_cfmt, err_cfmt = pcall(string.pack, "c", "x")
       if not ok_num and err_num:find("number expected, got nil", 1, true) and
-	 not ok_str and err_str:find("string expected, got nil", 1, true) then
+	 not ok_str and err_str:find("string expected, got nil", 1, true) and
+	 not ok_cfmt and
+	 err_cfmt:find("missing size for format option 'c'", 1, true) and
+	 not err_cfmt:find("bad argument", 1, true) then
 	n = n + 1
       end
     end
@@ -1866,7 +1870,9 @@ do
       local ok_var, err_var = pcall(string.packsize, "z")
       local ok_c, err_c = pcall(string.packsize, "c")
       if not ok_var and err_var:find("variable%-length format") and
-	 not ok_c and err_c:find("missing size for format option 'c'", 1, true) then
+	 not ok_c and
+	 err_c:find("missing size for format option 'c'", 1, true) and
+	 not err_c:find("bad argument", 1, true) then
 	n = n + 1
       end
     end
