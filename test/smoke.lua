@@ -2552,6 +2552,8 @@ do
     assert(ok_cap == false and err_cap:match("invalid capture index %%1") ~= nil)
     ok_cap, err_cap = pcall(string.gsub, "alo", ".", "%x")
     assert(ok_cap == false and err_cap:match("invalid use of '%%'") ~= nil)
+    ok_cap, err_cap = pcall(string.gsub, "alo", ".", "%")
+    assert(ok_cap == false and err_cap:match("invalid use of '%%'") ~= nil)
     ok_cap, err_cap = pcall(string.find, "a", "%b")
     assert(ok_cap == false and
       err_cap:match("missing arguments to '%%b'") ~= nil)

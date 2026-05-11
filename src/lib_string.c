@@ -916,6 +916,9 @@ static void add_s(MatchState *ms, luaL_Buffer *b, const char *s, const char *e)
       luaL_addchar(b, news[i]);
     } else {
       i++;  /* skip ESC */
+      if (LJ_54 && i == l)
+	luaL_error(ms->L, "invalid use of '%c' in replacement string",
+		   L_ESC);
       if (!lj_char_isdigit(uchar(news[i]))) {
 	if (LJ_54 && lj_char_isalnum(uchar(news[i])))
 	  luaL_error(ms->L, "invalid use of '%c' in replacement string",

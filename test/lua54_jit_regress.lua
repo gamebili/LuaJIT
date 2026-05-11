@@ -1812,14 +1812,16 @@ do
 	local f = string.gsub
 	return f("abc", "a", true)
       end)
+      local ok_pct, err_pct = pcall(string.gsub, "abc", "a", "%")
       if not ok_missing and
 	 err_missing:find("got no value", 1, true) and
 	 not ok_nil and err_nil:find("got nil", 1, true) and
-	 not ok_bool and err_bool:find("got boolean", 1, true) then
-	n = n + 3
+	 not ok_bool and err_bool:find("got boolean", 1, true) and
+	 not ok_pct and err_pct:find("invalid use of '%'", 1, true) then
+	n = n + 4
       end
     end
-    assert(n == 640)
+    assert(n == 720)
   end, "Lua 5.4 string.gsub empty match")
 end
 

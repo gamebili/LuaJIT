@@ -191,7 +191,7 @@
 - [x] `string.gmatch` 的 `init` 参数和空匹配推进语义。
   - 当前状态：第三个 `init` 参数已按 Lua 5.4 规则处理正数、负数和越界起点。
   - 当前进展：`string.gsub` / `string.gmatch` 已按官方 Lua 5.4 的 `lastmatch` 规则处理空匹配，避免在上一轮空匹配的同一结束位置立刻再次匹配；`"a b cd"` + `" *"` 和 `()%s*()` 用例已进入 smoke。
-  - 当前进展：replacement 字符串中的非法 capture 会报具体 `%0/%1/%2`，`%x` 这类字母 escape 会报 `invalid use of '%' in replacement string`；`%b` 缺少两个参数时报 `malformed pattern (missing arguments to '%b')`。
+  - 当前进展：replacement 字符串中的非法 capture 会报具体 `%0/%1/%2`，孤立结尾 `%` 和 `%x` 这类字母 escape 会报 `invalid use of '%' in replacement string`；`%b` 缺少两个参数时报 `malformed pattern (missing arguments to '%b')`。
   - 已覆盖：正数 init、负数 init、越界 init、带捕获和无捕获模式、空匹配推进、replacement capture 错误文本、`%b` 缺参数错误文本；本机 Lua 5.4.8 对照的负数起点探针和官方 `testes/pm.lua` 非长字符串身份部分已确认一致。
 
 - [x] `warn()` 参数转换规则。
@@ -383,7 +383,7 @@
   - 当前进展：Lua 5.4 兼容模式下 `getmetatable()` 无参数已报 value error，并保留 `__metatable` 保护返回值。
   - 当前进展：debug 库整数边界已按 Lua 5.4 收紧，覆盖 stack level、local/upvalue index、hook count、traceback level、uservalue slot 和 `setcstacklimit`。
   - 当前进展：string / utf8 库的常见整数参数已按 Lua 5.4 收紧，覆盖 `string.byte`、`char`、`sub`、`rep`、`find`、`match`、`gmatch`、`gsub`、`pack`、`unpack` 以及 `utf8.char`、`codepoint`、`len`、`offset`，都会拒绝无整数表示的 number。
-  - 当前进展：pattern/replacement 的常见 Lua 5.4 错误文本已继续收紧，覆盖 `string.gsub` replacement 缺参/显式 nil/非法 boolean 的 `got no value` / `got nil` / `got boolean` 细节、invalid capture index `%0/%1/%2`、replacement 中非法 `%` 用法，以及 `%b` 缺参数。
+  - 当前进展：pattern/replacement 的常见 Lua 5.4 错误文本已继续收紧，覆盖 `string.gsub` replacement 缺参/显式 nil/非法 boolean 的 `got no value` / `got nil` / `got boolean` 细节、invalid capture index `%0/%1/%2`、replacement 中孤立结尾 `%` 或非法 `%x` 用法，以及 `%b` 缺参数。
   - 当前进展：`string.char()` 的越界错误文本已收紧为 Lua 5.4 风格的 `value out of range`。
   - 当前进展：`utf8.char()` 对整数可表示但超出 0..0x7fffffff 扩展码点范围的输入，也已按 Lua 5.4 报 `value out of range`。
   - 当前进展：`string.format()` 的整数格式转换错误、整数格式的 number 类型错误以及 `%q` 无 Lua 字面量形式的错误，均已带可恢复的官方调用名，不再在内部格式化 helper 中显示为 `?`；direct `pcall(string.format, ...)` 报 `string.format`，源码字段调用报 `format`，局部 alias 报 alias 名；非法格式文本已区分未知转换和非法规格，`%3.1p` / `%#p` 等合法转换的非法规格会报 `invalid conversion specification: '...'`，并且 tail-position Lua wrapper 会保留调用点位置。
