@@ -527,7 +527,7 @@ LJLIB_CF(debug_upvaluejoin)
     if ((uint32_t)n >= fn[i]->l.nupvalues)
 #if LJ_54
       debug_argerror_named54(L, 2*i+2, "debug.upvaluejoin",
-			     "index out of range");
+			     "invalid upvalue index");
 #else
       lj_err_arg(L, 2*i+2, LJ_ERR_IDXRNG);
 #endif
@@ -544,7 +544,7 @@ LJLIB_CF(debug_upvaluejoin)
       if (!tvistab(tv))
 #if LJ_54
 	debug_argerror_named54(L, 4, "debug.upvaluejoin",
-			       "index out of range");
+			       "invalid upvalue index");
 #else
 	lj_err_arg(L, 4, LJ_ERR_IDXRNG);
 #endif
