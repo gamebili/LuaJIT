@@ -3,9 +3,18 @@ setlocal EnableExtensions EnableDelayedExpansion
 
 rem Convenience wrapper for the local MSYS2 GNU make toolchain. The LuaJIT
 rem top-level Makefile drives src/Makefile and the smoke/C API tests.
-if "%MSYS_ROOT%"=="" set "MSYS_ROOT=D:\p4_gl2\pristine\ruby\Ruby33-x64\msys64"
+if "%MSYS_ROOT%"=="" (
+  if exist "H:\p4\gl_home_u4\pristine\ruby\msys64\usr\bin\make.exe" (
+    set "MSYS_ROOT=H:\p4\gl_home_u4\pristine\ruby\msys64"
+  ) else if exist "H:\p4\gl_home_u4\pristine\msys64\usr\bin\make.exe" (
+    set "MSYS_ROOT=H:\p4\gl_home_u4\pristine\msys64"
+  ) else (
+    set "MSYS_ROOT=D:\p4_gl2\pristine\ruby\Ruby33-x64\msys64"
+  )
+)
 set "MSYS_BIN=%MSYS_ROOT%\usr\bin"
 set "UCRT_BIN=%MSYS_ROOT%\ucrt64\bin"
+set "MINGW64_BIN=%MSYS_ROOT%\mingw64\bin"
 if "%GNUMAKE%"=="" set "GNUMAKE=%MSYS_BIN%\make.exe"
 
 if not exist "%GNUMAKE%" (
@@ -14,7 +23,22 @@ if not exist "%GNUMAKE%" (
   exit /b 1
 )
 
-set "PATH=%MSYS_BIN%;%UCRT_BIN%;%PATH%"
+if not exist "%MSYS_ROOT%\tmp" mkdir "%MSYS_ROOT%\tmp" >nul 2>nul
+if "%LUA54_SRC_DIR%"=="" if exist "H:\p4\gl_home_u4\pristine\tools\lua\source\lua-5.4.8\lua.h" (
+  set "LUA54_SRC_DIR=H:\p4\gl_home_u4\pristine\tools\lua\source\lua-5.4.8"
+)
+if "%LUA54_TESTES_DIR%"=="" if not "%LUA54_SRC_DIR%"=="" if exist "%LUA54_SRC_DIR%\testes\all.lua" (
+  set "LUA54_TESTES_DIR=%LUA54_SRC_DIR%\testes"
+)
+if "%LUA_PATH_5_4%"=="" set "LUA_PATH_5_4=./src/?.lua;./src/?/init.lua;;"
+
+if exist "%UCRT_BIN%\gcc.exe" (
+  set "PATH=%UCRT_BIN%;%MSYS_BIN%;%MINGW64_BIN%;%PATH%"
+) else if exist "%MINGW64_BIN%\gcc.exe" (
+  set "PATH=%MINGW64_BIN%;%MSYS_BIN%;%UCRT_BIN%;%PATH%"
+) else (
+  set "PATH=%MSYS_BIN%;%UCRT_BIN%;%MINGW64_BIN%;%PATH%"
+)
 
 set "CPU_CORES="
 set "DEFAULT_BUILD_JOBS="
