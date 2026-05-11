@@ -4159,6 +4159,15 @@ do
 end
 
 do
+  local tmp = os.tmpname()
+  assert(type(tmp) == "string" and tmp ~= "")
+  local f = assert(io.open(tmp, "w"))
+  f:write("tmp")
+  assert(f:close())
+  assert(os.remove(tmp))
+end
+
+do
   warn("@off")
   warn("ignored warning")
   warn("@on")

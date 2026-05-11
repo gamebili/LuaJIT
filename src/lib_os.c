@@ -33,6 +33,10 @@
 #include <unistd.h>
 #else
 #include <stdio.h>
+#if LJ_TARGET_WINDOWS && !LJ_TARGET_XBOXONE && !LJ_TARGET_UWP
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 #endif
 
 #if !LJ_TARGET_PSVITA
@@ -264,9 +268,19 @@ LJLIB_CF(os_tmpname)
   else
     lj_err_caller(L, LJ_ERR_OSUNIQF);
 #else
+#if LJ_TARGET_WINDOWS && !LJ_TARGET_XBOXONE && !LJ_TARGET_UWP
+  char tpath[MAX_PATH+1];
+  char buf[MAX_PATH+1];
+  DWORD len = GetTempPathA((DWORD)sizeof(tpath), tpath);
+  if (len == 0 || len >= (DWORD)sizeof(tpath) ||
+      GetTempFileNameA(tpath, "lua", 0, buf) == 0 ||
+      DeleteFileA(buf) == 0)
+    lj_err_caller(L, LJ_ERR_OSUNIQF);
+#else
   char buf[L_tmpnam];
   if (tmpnam(buf) == NULL)
     lj_err_caller(L, LJ_ERR_OSUNIQF);
+#endif
 #endif
   lua_pushstring(L, buf);
   return 1;
