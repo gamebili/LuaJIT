@@ -670,7 +670,11 @@ LJLIB_CF(select)		LJLIB_REC(.)
 #endif
     if (i < 0) i = n + i; else if (i > n) i = n;
     if (i < 1)
+#if LJ_54
+      base_argerror_named54(L, 1, "select", "index out of range");
+#else
       lj_err_arg(L, 1, LJ_ERR_IDXRNG);
+#endif
     return n - i;
   }
 }

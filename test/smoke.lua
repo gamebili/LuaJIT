@@ -163,6 +163,11 @@ end
 assert(select(1, pcall(getmetatable)) == false)
 assert(select(1, pcall(select, 1.2, "a", "b")) == false)
 assert(select(1, pcall(select, -1.2, "a", "b")) == false)
+do
+  local ok, err = pcall(select, 0, "a")
+  assert(ok == false and err:find("bad argument #1 to 'select'", 1, true) and
+	 err:find("index out of range", 1, true))
+end
 assert(select("1", "a", "b") == "a")
 do
   local ok, err = pcall(assert)

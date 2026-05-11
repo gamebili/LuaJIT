@@ -1078,7 +1078,11 @@ do
     local n = 0
     for _ = 1, 80 do
       local ok, err = pcall(select, 1.2, "a")
-      if not ok and err:find("integer representation", 1, true) then
+      local ok_zero, err_zero = pcall(select, 0, "a")
+      if not ok and err:find("integer representation", 1, true) and
+	 not ok_zero and
+	 err_zero:find("bad argument #1 to 'select'", 1, true) and
+	 err_zero:find("index out of range", 1, true) then
 	n = n + 1
       end
     end
