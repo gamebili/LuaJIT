@@ -237,6 +237,11 @@ smoketest-lua54compat:
 	tmp=test/lua54_os_exit_close.tmp; out=test/lua54_os_exit_close.out; norm=test/lua54_os_exit_close.norm; printf 'local x <close> = setmetatable({}, {__close = function (self, err) assert(err == nil); print("Ok") end})\nlocal e1 <close> = setmetatable({}, {__close = function () print(120) end})\nos.exit(true, true)\n' > $$tmp; ./src/luajit $$tmp > $$out; status=$$?; if test $$status -eq 0; then tr -d '\r' < $$out > $$norm; printf '120\nOk\n' | cmp -s - $$norm; status=$$?; fi; rm -f $$tmp $$out $$norm; exit $$status
 	tmp=test/lua54_close_finalizer_reentry.tmp; out=test/lua54_close_finalizer_reentry.out; norm=test/lua54_close_finalizer_reentry.norm; printf 'setmetatable({}, {__gc = function () print(1) end})\nsetmetatable({}, {__gc = function ()\n  print(2)\n  setmetatable({}, {__gc = function () print(3) end})\n  print(collectgarbage())\n  os.exit(0, true)\nend})\n' > $$tmp; ./src/luajit $$tmp > $$out; status=$$?; if test $$status -eq 0; then tr -d '\r' < $$out > $$norm; printf '2\nnil\n1\n' | cmp -s - $$norm; status=$$?; fi; rm -f $$tmp $$out $$norm; exit $$status
 
+smoketest-lua54compat53:
+	$(MAKE) clean
+	$(MAKE) XCFLAGS='-DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2 -DLUA_COMPAT_5_3'
+	./src/luajit test/lua54_compat53_runtime.lua
+
 run-official-lua54compat:
 	./src/luajit test/lua54_official_matrix.lua "$(LUA54_TESTES_DIR)"
 

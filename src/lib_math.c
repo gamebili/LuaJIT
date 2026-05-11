@@ -470,6 +470,73 @@ static int lj_cf_math_rad54(lua_State *L)
   return 1;
 }
 
+#if LJ_54 && defined(LUA_COMPAT_MATHLIB)
+static int lj_cf_math_atan2_compat54(lua_State *L)
+{
+  lua_Number y = math_checknum_named54(L, 1, "math.atan2");
+  lua_Number x = (L->base+1 < L->top && !tvisnil(L->base+1)) ?
+		 math_checknum_named54(L, 2, "math.atan2") : 1.0;
+  setnumV(L->top++, atan2(y, x));
+  return 1;
+}
+
+static int lj_cf_math_pow_compat54(lua_State *L)
+{
+  lua_Number x = math_checknum_named54(L, 1, "math.pow");
+  lua_Number y = math_checknum_named54(L, 2, "math.pow");
+  setnumV(L->top++, pow(x, y));
+  return 1;
+}
+
+static int lj_cf_math_log10_compat54(lua_State *L)
+{
+  setnumV(L->top++, log10(math_checknum_named54(L, 1, "math.log10")));
+  return 1;
+}
+
+static int lj_cf_math_sinh_compat54(lua_State *L)
+{
+  setnumV(L->top++, sinh(math_checknum_named54(L, 1, "math.sinh")));
+  return 1;
+}
+
+static int lj_cf_math_cosh_compat54(lua_State *L)
+{
+  setnumV(L->top++, cosh(math_checknum_named54(L, 1, "math.cosh")));
+  return 1;
+}
+
+static int lj_cf_math_tanh_compat54(lua_State *L)
+{
+  setnumV(L->top++, tanh(math_checknum_named54(L, 1, "math.tanh")));
+  return 1;
+}
+
+static int lj_cf_math_frexp_compat54(lua_State *L)
+{
+  int e;
+  setnumV(L->top++, frexp(math_checknum_named54(L, 1, "math.frexp"), &e));
+  setintV(L->top++, e);
+  return 2;
+}
+
+static int lj_cf_math_ldexp_compat54(lua_State *L)
+{
+  int32_t ep;
+  int isnum;
+  lua_Number x = math_checknum_named54(L, 1, "math.ldexp");
+  if (!math_toint32(L, 2, &ep, &isnum)) {
+    if (isnum)
+      lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #2 to '%s' "
+	"(number has no integer representation)",
+	math_argname54(L, "math.ldexp")));
+    math_argtype_named54(L, 2, "math.ldexp", "number");
+  }
+  setnumV(L->top++, ldexp(x, ep));
+  return 1;
+}
+#endif
+
 static int lj_cf_math_ult(lua_State *L)
 {
   int32_t a, b;
@@ -699,6 +766,7 @@ LUALIB_API int luaopen_math(lua_State *L)
   lj_prng_seed_fixed(rs);
   LJ_LIB_REG(L, LUA_MATHLIBNAME, math);
 #if LJ_54
+#if !defined(LUA_COMPAT_MATHLIB)
   /* These Lua 5.1/LuaJIT aliases are not part of the Lua 5.4 math library. */
   lua_pushnil(L); lua_setfield(L, -2, "atan2");
   lua_pushnil(L); lua_setfield(L, -2, "pow");
@@ -708,6 +776,24 @@ LUALIB_API int luaopen_math(lua_State *L)
   lua_pushnil(L); lua_setfield(L, -2, "tanh");
   lua_pushnil(L); lua_setfield(L, -2, "frexp");
   lua_pushnil(L); lua_setfield(L, -2, "ldexp");
+#else
+  lua_pushcfunction(L, lj_cf_math_atan2_compat54);
+  lua_setfield(L, -2, "atan2");
+  lua_pushcfunction(L, lj_cf_math_pow_compat54);
+  lua_setfield(L, -2, "pow");
+  lua_pushcfunction(L, lj_cf_math_log10_compat54);
+  lua_setfield(L, -2, "log10");
+  lua_pushcfunction(L, lj_cf_math_sinh_compat54);
+  lua_setfield(L, -2, "sinh");
+  lua_pushcfunction(L, lj_cf_math_cosh_compat54);
+  lua_setfield(L, -2, "cosh");
+  lua_pushcfunction(L, lj_cf_math_tanh_compat54);
+  lua_setfield(L, -2, "tanh");
+  lua_pushcfunction(L, lj_cf_math_frexp_compat54);
+  lua_setfield(L, -2, "frexp");
+  lua_pushcfunction(L, lj_cf_math_ldexp_compat54);
+  lua_setfield(L, -2, "ldexp");
+#endif
   lua_pushcfunction(L, lj_cf_math_type);
   lua_setfield(L, -2, "type");
   lua_pushcfunction(L, lj_cf_math_tointeger);
