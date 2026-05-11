@@ -4489,7 +4489,11 @@ assert(assert(load([[
     assert(ok == false and tostring(err):find("default output file is closed", 1, true))
     io.output(io.stdout)
   end
-  os.remove(fname)
+  if not os.remove(fname) then
+    collectgarbage()
+    collectgarbage()
+    assert(os.remove(fname))
+  end
   return true
 ]]))())
 

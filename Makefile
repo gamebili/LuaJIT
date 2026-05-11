@@ -172,6 +172,7 @@ amalg:
 
 clean:
 	$(MAKE) -C src clean
+	$(RM) lua54_valid_open_mode.tmp lua54_invalid_open_mode.tmp
 
 smoketest:
 	$(MAKE) clean
