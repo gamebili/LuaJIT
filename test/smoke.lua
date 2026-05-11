@@ -4161,7 +4161,21 @@ do
   ok, err = pcall(os.time, { year = 1000, month = 1, day = 1, hour = 1.5 })
   assert(ok == false and err:match("field 'hour' is not an integer") ~= nil)
   ok, err = pcall(os.time, { hour = 12 })
+  assert(ok == false and err:match("field 'year' missing") ~= nil)
+  ok, err = pcall(os.time, { year = 2020 })
+  assert(ok == false and err:match("field 'month' missing") ~= nil)
+  ok, err = pcall(os.time, { year = 2020, month = 1 })
   assert(ok == false and err:match("field 'day' missing") ~= nil)
+  ok, err = pcall(os.time, {
+    year = 2020, month = 1, day = 1, hour = true, min = true, sec = true
+  })
+  assert(ok == false and err:match("field 'hour' is not an integer") ~= nil)
+  ok, err = pcall(os.time, {
+    year = 2020, month = 1, day = 1, min = true, sec = true
+  })
+  assert(ok == false and err:match("field 'min' is not an integer") ~= nil)
+  ok, err = pcall(os.time, { year = 2020, month = 1, day = 1, sec = true })
+  assert(ok == false and err:match("field 'sec' is not an integer") ~= nil)
   ok, err = pcall(os.time, { year = 4000, month = 1, day = 1 })
   assert(ok == false and err:match("time result cannot be represented") ~= nil)
   local stamp = os.time({ year = 2020, month = 5, day = 7,

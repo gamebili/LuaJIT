@@ -579,12 +579,12 @@ LJLIB_CF(os_time)
 #endif
     lua_settop(L, 1);  /* make sure table is at the top */
 #if LJ_54
-    ts.tm_sec = getfield(L, "sec", 0, 0);
-    ts.tm_min = getfield(L, "min", 0, 0);
-    ts.tm_hour = getfield(L, "hour", 12, 0);
-    ts.tm_mday = getfield(L, "day", -1, 0);
-    ts.tm_mon = getfield(L, "month", -1, 1);
     ts.tm_year = getfield(L, "year", -1, 1900);
+    ts.tm_mon = getfield(L, "month", -1, 1);
+    ts.tm_mday = getfield(L, "day", -1, 0);
+    ts.tm_hour = getfield(L, "hour", 12, 0);
+    ts.tm_min = getfield(L, "min", 0, 0);
+    ts.tm_sec = getfield(L, "sec", 0, 0);
 #else
     ts.tm_sec = getfield(L, "sec", 0);
     ts.tm_min = getfield(L, "min", 0);

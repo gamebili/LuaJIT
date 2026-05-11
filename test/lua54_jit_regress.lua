@@ -1559,6 +1559,14 @@ do
       local ok_time_repr, err_time_repr = pcall(os.time, {
 	year = 4000, month = 1, day = 1
       })
+      local ok_time_year, err_time_year = pcall(os.time, { hour = 12 })
+      local ok_time_month, err_time_month = pcall(os.time, { year = 2020 })
+      local ok_time_day, err_time_day = pcall(os.time, {
+	year = 2020, month = 1
+      })
+      local ok_time_min, err_time_min = pcall(os.time, {
+	year = 2020, month = 1, day = 1, min = true, sec = true
+      })
       if not ok_time and
 	 err_time:find("field 'hour' is not an integer", 1, true) and
 	 not ok_date and err_date:find("to 'os.date'", 1, true) and
@@ -1577,7 +1585,15 @@ do
 	 not ok_date_huge and
 	 err_date_huge:find("date result cannot be represented", 1, true) and
 	 not ok_time_repr and
-	 err_time_repr:find("time result cannot be represented", 1, true) then
+	 err_time_repr:find("time result cannot be represented", 1, true) and
+	 not ok_time_year and
+	 err_time_year:find("field 'year' missing", 1, true) and
+	 not ok_time_month and
+	 err_time_month:find("field 'month' missing", 1, true) and
+	 not ok_time_day and
+	 err_time_day:find("field 'day' missing", 1, true) and
+	 not ok_time_min and
+	 err_time_min:find("field 'min' is not an integer", 1, true) then
 	n = n + 1
       end
     end
