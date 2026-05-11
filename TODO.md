@@ -309,6 +309,7 @@
   - 需要补内存分配语义：继续核对 allocator shrink 失败在 table resize、parser 精确数组收缩、JIT buffer 等非 GC-opportunistic 路径中的回滚/报错契约，避免把可忽略失败和必须改变逻辑尺寸的收缩混为一类。
   - 当前进展：已补默认构建 C API smoke，覆盖旧 LuaJIT 5.1 头文件宏和 ABI 入口仍可编译、链接、运行。
   - 需要补测试：更完整 ABI 兼容测试，以及更多旧 LuaJIT API 在默认构建下不受影响的覆盖。
+  - 当前进展：默认 LuaJIT 5.1 C API smoke 已继续补旧 ABI 覆盖：`lua_cpcall`、`lua_setfenv`、`lua_equal`、`lua_lessthan` 和 LuaJIT-only `lua_loadx` 均在默认构建下编译/运行验证，防止 Lua 5.4 外部头收紧时误伤默认 ABI。
 
 - [ ] Lua 5.4 auxiliary library / lauxlib 兼容。
   - 当前状态：`lauxlib.h` 仍以 Lua 5.1/LuaJIT 接口为主，只补了部分 5.2+ 辅助函数。
@@ -501,6 +502,7 @@
 
 ## 当前验证结果
 
+- `cmd /c build.bat default` 已通过，覆盖默认 LuaJIT smoke、默认 C++ `lua.hpp` gate，以及新增默认 C API 旧 ABI 覆盖。
 - `cmd /c build.bat lua54compat53` 已通过，覆盖 `LUA_COMPAT_5_3` runtime 构建下的 deprecated math library 兼容入口和 `LUA_COMPAT_LT_LE` 的 `__le`/`__lt` fallback；随后 `cmd /c build.bat lua54` 已通过，确认默认 Lua 5.4 compat 仍隐藏这些旧入口、禁用旧比较 fallback，并通过 C API/官方矩阵。
 - `cmd /c build.bat lua54` 已通过，覆盖新增 `LUA_COMPAT_5_3` 外部头兼容 smoke、Lua 5.4 compat smoke/C API/C++ `lua.hpp` gate、官方 Lua 5.4.8 矩阵和 C API 运行 smoke。
 - `cmd /c build.bat smoke54` 和 `cmd /c build.bat test` 已通过；`build.bat` 默认识别 `H:\p4\gl_home_u4\pristine\ruby\msys64`，`make` 并发保持当前物理核心数/2（本机 `-j8`），并默认填充 `LUA54_SRC_DIR` / `LUA54_TESTES_DIR`；覆盖 Windows/UCRT `os.tmpname()` 回归、官方 Lua 5.4.8 矩阵和 Lua 5.4 perf/memory smoke。

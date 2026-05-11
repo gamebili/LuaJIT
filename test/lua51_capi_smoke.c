@@ -67,6 +67,31 @@ static int capi51_typerror(lua_State *L)
   return luaL_typerror(L, 1, "number");
 }
 
+static int capi51_cpcall(lua_State *L)
+{
+  lua_pushstring(L, (const char *)lua_touserdata(L, 1));
+  lua_setglobal(L, "__lua51_cpcall");
+  return 0;
+}
+
+typedef struct Capi51ReaderCtx {
+  const char *chunk;
+  int done;
+} Capi51ReaderCtx;
+
+static const char *capi51_reader(lua_State *L, void *data, size_t *size)
+{
+  Capi51ReaderCtx *ctx = (Capi51ReaderCtx *)data;
+  (void)L;
+  if (ctx->done) {
+    *size = 0;
+    return NULL;
+  }
+  ctx->done = 1;
+  *size = strlen(ctx->chunk);
+  return ctx->chunk;
+}
+
 static const luaL_Reg capi51_reg[] = {
   { "answer", capi51_answer },
   { NULL, NULL }
@@ -93,6 +118,16 @@ int main(void)
   check(L, lua_objlen(L, -1) == 2, "lua_objlen default API");
   lua_pop(L, 1);
 
+  lua_pushinteger(L, 1);
+  lua_pushinteger(L, 1);
+  check(L, lua_equal(L, -1, -2), "lua_equal default API");
+  lua_pop(L, 2);
+
+  lua_pushinteger(L, 1);
+  lua_pushinteger(L, 2);
+  check(L, lua_lessthan(L, -2, -1), "lua_lessthan default API");
+  lua_pop(L, 2);
+
   lua_getregistry(L);
   check(L, lua_istable(L, -1), "lua_getregistry default macro");
   lua_pop(L, 1);
@@ -102,6 +137,36 @@ int main(void)
   lua_getfenv(L, -1);
   check(L, lua_istable(L, -1), "lua_getfenv default API");
   lua_pop(L, 2);
+
+  lua_pushthread(L);
+  lua_newtable(L);
+  lua_pushliteral(L, "threadenv");
+  lua_setfield(L, -2, "marker");
+  check(L, lua_setfenv(L, -2) == 1, "lua_setfenv default API");
+  lua_getfenv(L, -1);
+  lua_getfield(L, -1, "marker");
+  check(L, strcmp(lua_tostring(L, -1), "threadenv") == 0,
+	"lua_setfenv thread environment");
+  lua_pop(L, 3);
+
+  {
+    const char marker[] = "cpcall";
+    check(L, lua_cpcall(L, capi51_cpcall, (void *)marker) == LUA_OK,
+	  "lua_cpcall default API status");
+    lua_getglobal(L, "__lua51_cpcall");
+    check(L, strcmp(lua_tostring(L, -1), marker) == 0,
+	  "lua_cpcall default API userdata");
+    lua_pop(L, 1);
+  }
+
+  {
+    Capi51ReaderCtx ctx = { "return 40 + 2", 0 };
+    check(L, lua_loadx(L, capi51_reader, &ctx, "=lua51_loadx", "t") == LUA_OK,
+	  "lua_loadx default API status");
+    lua_call(L, 0, 1);
+    check(L, lua_tointeger(L, -1) == 42, "lua_loadx default API result");
+    lua_pop(L, 1);
+  }
 
   luaL_register(L, "capi51", capi51_reg);
   lua_getfield(L, -1, "answer");
