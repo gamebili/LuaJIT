@@ -189,6 +189,7 @@ smoketest-lua54compat:
 	./src/luajit test/lua54_vm_backend_static.lua
 	./src/luajit test/lua54_vm_backend_dynasm.lua
 	LUA_PATH_5_4='./src/?.lua;./src/?/init.lua;;' ./src/luajit test/smoke.lua lua54compat
+	./src/luajit test/lua54_standalone_regress.lua ./src/luajit
 	$(MAKE) run-official-lua54compat
 	out=$$(./src/luajit -e 'warn("@on"); warn("lua54 ", "warning")' 2>&1 >/dev/null) && test "$$out" = "Lua warning: lua54 warning"
 	out=$$(./src/luajit -W -e 'warn("lua54 -W warning")' 2>&1 >/dev/null) && test "$$out" = "Lua warning: lua54 -W warning"
