@@ -110,6 +110,7 @@ if /I "%~1"=="all" goto :FORWARD
 if /I "%~1"=="test" goto :TEST
 if /I "%~1"=="default" goto :DEFAULT
 if /I "%~1"=="lua54" goto :LUA54
+if /I "%~1"=="lua54nogc64" goto :LUA54_NOGC64
 if /I "%~1"=="lua54compat53" goto :LUA54COMPAT53
 if /I "%~1"=="lua54perf" goto :LUA54PERF
 if /I "%~1"=="official54" goto :OFFICIAL54
@@ -133,6 +134,7 @@ echo   build       Build LuaJIT only.
 echo   test        Run default and Lua 5.4 C API smoke tests. This is default.
 echo   default     Run the default compatibility smoke and C API smoke.
 echo   lua54       Run the Lua 5.4 compatibility smoke and C API smoke.
+echo   lua54nogc64 Run the Lua 5.4 x64 non-GC64 JIT smoke.
 echo   lua54compat53 Run the Lua 5.4 LUA_COMPAT_5_3 runtime smoke.
 echo   lua54perf   Run Lua 5.4 perf/memory smoke with fixed jit.opt profiles and JIT off.
 echo   official54  Run the current official Lua 5.4.8 compatibility matrix.
@@ -179,6 +181,11 @@ exit /b !ERRORLEVEL!
 :LUA54
 call :SET_REST %*
 call :RUN smoketest-capi-lua54compat%REST_ARGS%
+exit /b !ERRORLEVEL!
+
+:LUA54_NOGC64
+call :SET_REST %*
+call :RUN smoketest-lua54compat-nogc64%REST_ARGS%
 exit /b !ERRORLEVEL!
 
 :LUA54COMPAT53

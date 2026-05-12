@@ -63,38 +63,6 @@ static int rec_lua54_strcmp_locale(GCstr *a, GCstr *b, IROp op)
   }
 }
 
-static TRef rec_lua54_lstr_storebits(jit_State *J, TRef val, cTValue *valv,
-				     IRType *storetype)
-{
-#if LJ_GC64
-  if (tref_isint(val)) {
-    TRef raw = emitir(IRT(IR_CONV, IRT_U64), val,
-		      (IRT_INT|(IRT_U64<<IRCONV_DSH)));
-    *storetype = IRT_U64;
-    return emitir(IRT(IR_BOR, IRT_U64), raw,
-		  lj_ir_kint64(J, ((uint64_t)LJ_TISNUM) << 47));
-  } else if (tref_isnum(val)) {
-    *storetype = IRT_NUM;
-    return val;
-  } else if (tref_isbool(val)) {
-    *storetype = IRT_U64;
-    return lj_ir_kint64(J, valv->u64);
-  } else if (tref_isgcv(val)) {
-    TRef raw = emitir(IRT(IR_CONV, IRT_U64), val,
-		      (tref_type(val)|(IRT_U64<<IRCONV_DSH)));
-    *storetype = IRT_U64;
-    /* XSTORE writes the raw TValue slot returned by lj_tab_getstr(). GC
-    ** values therefore need the GC64 tag bits here; the table write barrier is
-    ** emitted by the caller after the store.
-    */
-    return emitir(IRT(IR_BOR, IRT_U64), raw,
-		  lj_ir_kint64(J, ((uint64_t)irt_toitype_(tref_type(val))) << 47));
-  }
-#else
-  UNUSED(J); UNUSED(val); UNUSED(valv); UNUSED(storetype);
-#endif
-  return 0;
-}
 #endif
 
 /* -- Sanity checks ------------------------------------------------------- */
@@ -1782,23 +1750,20 @@ TRef lj_record_idx(jit_State *J, RecordIndex *ix)
 	return res;
       }
     } else {
-      TRef xref, bits;
-      IRType storetype = IRT__MAX;
+      TRef xref;
       cTValue *oldv = lj_tab_get(J->L, tabV(&ix->tabv), &ix->keyv);
       if (rec_tab_isweak(J, tabV(&ix->tabv)))
 	lj_trace_err(J, LJ_TRERR_NYIWEAK);
       if (oldv == niltvg(J2G(J)) && ix->idxchain &&
 	  lj_record_mm_lookup(J, ix, MM_newindex))
 	goto handlemm;
-      bits = rec_lua54_lstr_storebits(J, ix->val, &ix->valv, &storetype);
-      if (!bits)
-	lj_trace_err(J, LJ_TRERR_NYILSTR);
       /* Runtime Lua 5.4 long strings are byte-equal table keys, not interned
       ** identities. Re-run a bytewise helper on every trace iteration and
-      ** raw-store compact TValue bits into the returned slot. Missing keys go
-      ** through lj_tab_setstr() so rehash and key write-barrier semantics stay
+      ** store through the regular TValue store path. Missing keys go through
+      ** lj_tab_setstr() so rehash and key write-barrier semantics stay
       ** centralized in the table layer instead of duplicating NEWREF logic in
-      ** the recorder.
+      ** the recorder. This keeps the same trace path valid for both GC64 and
+      ** non-GC64 TValue layouts.
       */
       if (oldv == niltvg(J2G(J))) {
 	xref = lj_ir_call(J, IRCALL_lj_tab_setstr, ix->tab, ix->key);
@@ -1807,7 +1772,9 @@ TRef lj_record_idx(jit_State *J, RecordIndex *ix)
 	xref = lj_ir_call(J, IRCALL_lj_tab_getstr, ix->tab, ix->key);
 	emitir(IRTG(IR_NE, IRT_PGC), xref, trnil);
       }
-      emitir(IRT(IR_XSTORE, storetype), xref, bits);
+      if (!LJ_DUALNUM && tref_isinteger(ix->val))
+	ix->val = emitir(IRTN(IR_CONV), ix->val, IRCONV_NUM_INT);
+      emitir(IRT(IR_HSTORE, tref_type(ix->val)), xref, ix->val);
       if (tref_isgcv(ix->val))
 	emitir(IRT(IR_TBAR, IRT_NIL), ix->tab, 0);
       if (!nommstr(J, ix->key)) {

@@ -244,6 +244,12 @@ smoketest-lua54compat53:
 	$(MAKE) XCFLAGS='-DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2 -DLUA_COMPAT_5_3'
 	./src/luajit test/lua54_compat53_runtime.lua
 
+smoketest-lua54compat-nogc64:
+	$(MAKE) clean
+	$(MAKE) XCFLAGS='-DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2 -DLUAJIT_DISABLE_GC64'
+	./src/luajit -e 'assert(_VERSION == "Lua 5.4"); assert(require("jit").lua54compat == true)'
+	LUA_PATH_5_4='./src/?.lua;./src/?/init.lua;;' ./src/luajit test/lua54_jit_regress.lua
+
 run-official-lua54compat:
 	./src/luajit test/lua54_official_matrix.lua "$(LUA54_TESTES_DIR)"
 
@@ -320,6 +326,6 @@ test:
 	$(MAKE) smoketest-capi-lua54compat
 	$(MAKE) smoketest-perf-lua54compat
 
-.PHONY: all install amalg clean smoketest smoketest-lua54compat run-official-lua54compat smoketest-official-lua54compat smoketest-capi-default smoketest-capi-lua54compat smoketest-perf-lua54compat test
+.PHONY: all install amalg clean smoketest smoketest-lua54compat smoketest-lua54compat-nogc64 run-official-lua54compat smoketest-official-lua54compat smoketest-capi-default smoketest-capi-lua54compat smoketest-perf-lua54compat test
 
 ##############################################################################

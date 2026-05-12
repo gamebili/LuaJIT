@@ -728,12 +728,12 @@ struct lua_State {
   GCHeader;
   uint8_t dummy_ffid;	/* Fake FF_C for curr_funcisL() on dummy frames. */
   uint8_t status;	/* Thread status. */
+  MRef glref;		/* Link to global state. */
+  GCRef gclist;		/* GC chain. */
 #if LJ_54
   uint8_t close_defer;	/* Current fast pcall landing must close TBC slots. */
   uint8_t close_pcall;	/* Hide compiler-internal close pcall in debug stack. */
 #endif
-  MRef glref;		/* Link to global state. */
-  GCRef gclist;		/* GC chain. */
   TValue *base;		/* Base of currently executing function. */
   TValue *top;		/* First free slot in the stack. */
   MRef maxstack;	/* Last free slot in the stack. */
