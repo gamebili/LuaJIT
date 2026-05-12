@@ -497,10 +497,11 @@ SBuf *lj_strfmt_putfnum_uint(SBuf *sb, SFormat sf, lua_Number n)
 }
 
 #if LJ_54
-static const char *strfmt_callname54(lua_State *L)
+static const char *strfmt_callname54(lua_State *L, const char **kindp)
 {
   const char *name = NULL;
   const char *kind = lj_debug_funcname(L, L->base-1, &name);
+  if (kindp) *kindp = kind;
   /* Direct pcall(string.format, ...) has no Lua call expression to name; keep
   ** the public fallback there, but use field/local/upvalue names when source
   ** code actually called the formatter.
@@ -512,8 +513,11 @@ static const char *strfmt_callname54(lua_State *L)
 
 static void strfmt_argerror_named54(lua_State *L, int arg, const char *msg)
 {
+  const char *kind = NULL;
+  const char *name = strfmt_callname54(L, &kind);
+  int showarg = kind && kind[3] == 'h' ? arg - 1 : arg;
   lj_err_callermsg(L, lua_pushfstring(L,
-    "bad argument #%d to '%s' (%s)", arg, strfmt_callname54(L), msg));
+    "bad argument #%d to '%s' (%s)", showarg, name, msg));
 }
 
 static void strfmt_argtype_named54(lua_State *L, int arg, const char *xname)

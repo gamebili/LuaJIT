@@ -2546,9 +2546,13 @@ do
     local function tail_find_method(s)
       return s:find({})
     end
+    local function tail_format_method(s)
+      return s:format(true)
+    end
     -- String method syntax hides the self argument from Lua 5.4 diagnostics.
     -- Tail calls must keep the caller frame or the C fallback reports
-    -- string.byte/string.find with the hidden self counted as argument #1.
+    -- string.byte/string.find/string.format with the hidden self counted as
+    -- argument #1.
     local ok_method, err_method = pcall(tail_byte_method, "abc")
     assert(ok_method == false and
 	   err_method:find("test/smoke.lua:", 1, true) and
@@ -2558,6 +2562,11 @@ do
     assert(ok_method == false and
 	   err_method:find("test/smoke.lua:", 1, true) and
 	   err_method:find("bad argument #1 to 'find' (string expected, got table)",
+			   1, true))
+    ok_method, err_method = pcall(tail_format_method, "%d")
+    assert(ok_method == false and
+	   err_method:find("test/smoke.lua:", 1, true) and
+	   err_method:find("bad argument #1 to 'format' (number expected, got boolean)",
 			   1, true))
   end
   assert(string.gsub("a b cd", " *", "-") == "-a-b-c-d-")
