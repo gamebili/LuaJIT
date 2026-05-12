@@ -818,11 +818,15 @@ LJLIB_ASM(tostring)		LJLIB_REC(.)
     copyTV(L, L->top++, mo);
     copyTV(L, L->top++, o);
     lua_call(L, 1, 1);
-    /* Lua 5.4's tostring() requires __tostring to return an actual string;
-    ** do not leak arbitrary metamethod results as the tostring result.
+    /* Lua 5.4 follows luaL_tolstring(): __tostring may return a string or
+    ** number, but other values are a hard error.
     */
-    if (!tvisstr(L->top-1))
+    if (tvisnumber(L->top-1)) {
+      GCstr *s = lj_strfmt_obj(L, L->top-1);
+      setstrV(L, L->top-1, s);
+    } else if (!tvisstr(L->top-1)) {
       lj_err_callermsg(L, "'__tostring' must return a string");
+    }
     copyTV(L, L->base-1-LJ_FR2, L->top-1);
     return FFH_RES(1);
 #else

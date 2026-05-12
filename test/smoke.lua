@@ -1988,6 +1988,8 @@ do
   assert(type(named) == "table")
   assert(tostring(named):match("^Lua54Smoke: ") ~= nil)
   assert(tostring(nonstr):match("^table: ") ~= nil)
+  assert(tostring(setmetatable({}, { __tostring = function() return 1 end })) == "1")
+  assert(tostring(setmetatable({}, { __tostring = function() return 1.0 end })) == "1.0")
   local badtostring = setmetatable({}, { __tostring = function() return {} end })
   local ok, err = pcall(tostring, badtostring)
   assert(ok == false and err:match("'__tostring' must return a string") ~= nil)

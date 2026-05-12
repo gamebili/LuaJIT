@@ -160,12 +160,12 @@
   - 当前状态：`tostring(setmetatable({}, {__name="Foo"}))` 已显示 `Foo: ...`；参数类型错误也会使用 `__name` 字符串。
   - 当前进展：`luaL_newmetatable()` 在 Lua 5.4 兼容模式下会把注册类型名写入 `__name`。
   - 当前进展：`luaL_tolstring()` 已使用 `__name` 作为默认对象前缀，C API smoke 已覆盖 lauxlib 路径。
-  - 当前进展：`tostring()` 已按 Lua 5.4 校验 `__tostring` 返回值必须是 string，返回 table 等非 string 值时会报 `'__tostring' must return a string`。
+  - 当前进展：`tostring()` 已按 Lua 5.4 校验 `__tostring` 返回值必须可作为 string，返回 string 或 number 会成功并保留 integer/float 文本，返回 table/boolean/nil 等其它值时会报 `'__tostring' must return a string`。
   - 当前进展：`coroutine.resume()` / `coroutine.close()` 的 Lua 5.4 兼容路径已改用通用 `thread expected, got <__name>` 类型错误；`coroutine.close()` 对 running / normal coroutine 的状态错误会按官方区分 direct `pcall(coroutine.close, ...)` 的裸错误文本和源码调用的用户调用点位置，不再泄露内部 Lua wrapper chunk；默认 LuaJIT 构建仍保留旧 `coroutine expected` 文本。
   - 当前进展：`coroutine.isyieldable([co])` 已支持 Lua 5.4 可选 thread 参数；挂起或死亡的非主 coroutine 返回 true，非 thread 参数使用 Lua 5.4 风格函数名和 `__name` 类型文本。
   - 当前进展：`coroutine.create()` / `resume()` / `status()` / `wrap()` / `close()` 的 direct `pcall(coroutine.xxx, ...)` 基础参数错误会带 `coroutine.xxx` fallback 函数名，并使用 Lua 5.4 的 `function/thread expected` 文本；普通源码调用和局部别名调用下，`status` / `create` / `wrap` / `isyieldable` 已能按 Lua 5.4 恢复调用点名，例如报到 `status` 或局部 `f`，且显式 `nil` 参数也已进入回归覆盖；`resume` / `close` 外层 wrapper 也已保留真实参数个数，缺参报 `got no value`、显式 `nil` 报 `got nil`，普通源码调用、局部别名调用以及 tail-position `return coroutine.xxx(nil)` / `return f()` 会报到 `status` / `isyieldable` / `create` / `wrap` / `resume` / `close` / `f`。
   - 当前进展：主线程直接 `coroutine.yield()` 会按 Lua 5.4 报 `attempt to yield from outside a coroutine`；其他不可 yield 的 C 边界仍保留 LuaJIT 现有错误路径。
-  - 已覆盖：`tostring`、`type` 不受 `__name` 影响、非字符串 `__name` 被忽略、`math.abs` 参数类型错误、`coroutine.resume` / `coroutine.close` / `coroutine.isyieldable` 线程类型错误、`coroutine.isyieldable([co])` 可选 thread 参数、`coroutine` 基础参数错误函数名、普通源码调用和局部别名调用下的 `status` / `create` / `wrap` / `isyieldable` / `resume` / `close` 调用点名、`status` / `create` / `wrap` / `isyieldable` / `resume` / `close` tail-position 源码调用和局部别名调用点名、`resume` / `close` wrapper 缺参 vs 显式 nil 区分、`coroutine.close()` 成功路径单返回值、running / normal coroutine 状态错误文本、`luaL_tolstring`。
+  - 已覆盖：`tostring`、`type` 不受 `__name` 影响、非字符串 `__name` 被忽略、`__tostring` 返回 string/number 成功和返回 table 等其它值失败、`math.abs` 参数类型错误、`coroutine.resume` / `coroutine.close` / `coroutine.isyieldable` 线程类型错误、`coroutine.isyieldable([co])` 可选 thread 参数、`coroutine` 基础参数错误函数名、普通源码调用和局部别名调用下的 `status` / `create` / `wrap` / `isyieldable` / `resume` / `close` 调用点名、`status` / `create` / `wrap` / `isyieldable` / `resume` / `close` tail-position 源码调用和局部别名调用点名、`resume` / `close` wrapper 缺参 vs 显式 nil 区分、`coroutine.close()` 成功路径单返回值、running / normal coroutine 状态错误文本、`luaL_tolstring`。
   - 说明：其他函数名/逐字错误文本继续归入“标准库错误消息与边界参数完全对齐”。
 
 - [ ] `tonumber` 和 `string.format` 的 Lua 5.4 数值格式规则。

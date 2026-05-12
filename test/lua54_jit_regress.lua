@@ -1046,6 +1046,17 @@ do
   end
   assert(n == 80)
 
+  local numstr = setmetatable({ value = 1.0 }, {
+    __tostring = function(self) return self.value end
+  })
+  assert_records_trace(function()
+    local m = 0
+    for _ = 1, 80 do
+      if tostring(numstr) == "1.0" then m = m + 1 end
+    end
+    assert(m == 80)
+  end, "Lua 5.4 tostring numeric __tostring")
+
   local bad = setmetatable({}, { __tostring = function() return {} end })
   assert_records_trace(function()
     local n = 0
