@@ -549,11 +549,13 @@ end
 local function debug_helpers(n)
   local sum = 0
   local fn = function() end
+  local old_cstack = debug.setcstacklimit(200)
   for _ = 1, n do
     if select("#", debug.upvalueid(fn, 0)) == 1 and
        debug.upvalueid(fn, 0) == nil then
       sum = sum + 1
     end
+    if debug.setcstacklimit(200) == 200 then sum = sum + 1 end
     if select("#", debug.gethook()) == 1 and debug.gethook() == nil then
       sum = sum + 1
     end
@@ -573,6 +575,7 @@ local function debug_helpers(n)
       sum = sum + 1
     end
   end
+  debug.setcstacklimit(old_cstack)
   return sum
 end
 
@@ -1332,7 +1335,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_debug = timeit(mode_name..":debug_helpers",
 			    debug_helpers, iter_n)
-  assert(r_debug == iter_n * 5)
+  assert(r_debug == iter_n * 6)
 
   local _, r_many_upvalue = timeit(mode_name..":many_upvalue_helpers",
 				   many_upvalue_helpers, iter_n)

@@ -1491,6 +1491,18 @@ do
     assert(n == 80)
   end, "Lua 5.4 debug.gethook absent hook nil result")
 
+  do
+    local old = debug.setcstacklimit(200)
+    assert_records_trace(function()
+      local n = 0
+      for _ = 1, 80 do
+	if debug.setcstacklimit(200) == 200 then n = n + 1 end
+      end
+      assert(n == 80)
+    end, "Lua 5.4 debug.setcstacklimit hot path")
+    debug.setcstacklimit(old)
+  end
+
   assert_records_trace(function()
     local fn = function() end
     local n = 0
