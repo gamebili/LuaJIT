@@ -74,6 +74,7 @@ local value_meta = {
 }
 local value_object = setmetatable({ label = "value" }, value_meta)
 local named_value_object = setmetatable({}, { __name = "Lua54Name" })
+local load_mode_binary = string.dump(function() return 54 end)
 local protected_marker = {}
 
 local function set_global_abs_alias()
@@ -323,6 +324,14 @@ local function base_value_helpers(n)
       end)
     if not ok_table_rhs_assign_read and
        err_table_rhs_assign_read:find("bad argument #1 to 'n'", 1, true) then
+      sum = sum + 1
+    end
+    local text_fn, text_err = load("return 54", "lua54-load-text", "b")
+    local bin_fn, bin_err = load(load_mode_binary, "lua54-load-bin", "t")
+    if text_fn == nil and
+       text_err:find("attempt to load a text chunk (mode is 'b')", 1, true) and
+       bin_fn == nil and
+       bin_err:find("attempt to load a binary chunk (mode is 't')", 1, true) then
       sum = sum + 1
     end
   end
@@ -1337,7 +1346,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_value = timeit(mode_name..":base_value_helpers",
 			    base_value_helpers, iter_n)
-  assert(r_value == iter_n * 21)
+  assert(r_value == iter_n * 22)
 
   local _, r_protected = timeit(mode_name..":protected_call_helpers",
 				protected_call_helpers, iter_n)

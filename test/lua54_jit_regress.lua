@@ -1195,6 +1195,24 @@ do
     end
     assert(n == 80)
   end, "Lua 5.4 assert non-string error object")
+
+  local binary = string.dump(function() return 54 end)
+  assert_records_trace(function()
+    local n = 0
+    for _ = 1, 80 do
+      local text_fn, text_err = load("return 54", "lua54-load-text", "b")
+      local bin_fn, bin_err = load(binary, "lua54-load-bin", "t")
+      if text_fn == nil and
+	 text_err:find("attempt to load a text chunk (mode is 'b')",
+		       1, true) and
+	 bin_fn == nil and
+	 bin_err:find("attempt to load a binary chunk (mode is 't')",
+		      1, true) then
+	n = n + 1
+      end
+    end
+    assert(n == 80)
+  end, "Lua 5.4 load mode errors")
 end
 
 do
