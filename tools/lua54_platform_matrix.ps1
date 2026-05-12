@@ -28,19 +28,35 @@ function Add-Result {
 }
 
 function Add-LocalMsysPath {
-  $candidates = @()
-  if ($env:LUAJIT_MSYS2_UCRT64_BIN) {
-    $candidates += $env:LUAJIT_MSYS2_UCRT64_BIN
+  $roots = @()
+  foreach ($name in @("LUAJIT_MSYS2_ROOT", "MSYS_ROOT")) {
+    $value = [Environment]::GetEnvironmentVariable($name)
+    if ($value -and (Test-Path $value)) {
+      $roots += $value
+    }
   }
-  $candidates += "D:\p4_gl2\pristine\ruby\Ruby33-x64\msys64\ucrt64\bin"
+  $roots += "H:\p4\gl_home_u4\pristine\ruby\msys64"
+  $roots += "H:\p4\gl_home_u4\pristine\msys64"
+  $roots += "D:\p4_gl2\pristine\ruby\Ruby33-x64\msys64"
 
-  foreach ($candidate in $candidates) {
-    if ($candidate -and (Test-Path $candidate)) {
-      if (($env:PATH -split ";") -notcontains $candidate) {
+  foreach ($root in $roots) {
+    if (-not ($root -and (Test-Path $root))) {
+      continue
+    }
+    foreach ($subdir in @("usr\bin", "ucrt64\bin", "mingw64\bin")) {
+      $candidate = Join-Path $root $subdir
+      if ($candidate -and (Test-Path $candidate) -and
+          (($env:PATH -split ";") -notcontains $candidate)) {
         $env:PATH = "$candidate;$env:PATH"
       }
-      return
     }
+    return
+  }
+
+  if ($env:LUAJIT_MSYS2_UCRT64_BIN -and
+      (Test-Path $env:LUAJIT_MSYS2_UCRT64_BIN) -and
+      (($env:PATH -split ";") -notcontains $env:LUAJIT_MSYS2_UCRT64_BIN)) {
+    $env:PATH = "$env:LUAJIT_MSYS2_UCRT64_BIN;$env:PATH"
   }
 }
 
