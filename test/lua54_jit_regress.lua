@@ -1057,6 +1057,21 @@ end
 do
   assert_records_trace(function()
     local n = 0
+    for i = 1, 80 do
+      local t = table.pack("a", nil, i)
+      if t.n == 3 and t[1] == "a" and t[2] == nil and t[3] == i then
+	n = n + 1
+      end
+      local empty = table.pack()
+      if empty.n == 0 and empty[1] == nil then n = n + 1 end
+    end
+    assert(n == 160)
+  end, "Lua 5.4 table.pack nil holes")
+end
+
+do
+  assert_records_trace(function()
+    local n = 0
     for _ = 1, 80 do
       if tostring(123) == "123" and tostring(nil) == "nil" and
 	 tostring(1.0) == "1.0" then

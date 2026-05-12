@@ -238,6 +238,11 @@ local function base_value_helpers(n)
     sum = sum + select("#", "a", nil, "c")
     local a, b = select("2", "a", "b", "c")
     if a == "b" and b == "c" then sum = sum + 1 end
+    local packed = table.pack("a", nil, "c")
+    if packed.n == 3 and packed[1] == "a" and packed[2] == nil and
+       packed[3] == "c" then
+      sum = sum + 1
+    end
     if assert(true, "ok") == true then sum = sum + 1 end
     local ok_abs, err_abs = pcall(function()
       return lua54_perf_global_abs_alias(true)
@@ -1307,7 +1312,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_value = timeit(mode_name..":base_value_helpers",
 			    base_value_helpers, iter_n)
-  assert(r_value == iter_n * 20)
+  assert(r_value == iter_n * 21)
 
   local _, r_protected = timeit(mode_name..":protected_call_helpers",
 				protected_call_helpers, iter_n)
