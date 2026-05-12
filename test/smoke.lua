@@ -233,6 +233,19 @@ do
     assert(co(1) == "done")
     assert(seen[1] == 30 and seen[2] == 20 and seen[3] == 10 and #seen == 3)
   end
+  do
+    ok, err = pcall(function() for _ in nil do end end)
+    assert(ok == false and
+	   err:find("attempt to call a nil value (for iterator 'for iterator')",
+		    1, true))
+    ok, err = pcall(function()
+      for _ in pairs(setmetatable({}, { __pairs = function() return true end })) do
+      end
+    end)
+    assert(ok == false and
+	   err:find("attempt to call a boolean value (for iterator 'for iterator')",
+		    1, true))
+  end
   for _, name in ipairs({ "create", "resume", "status", "wrap", "close" }) do
     ok, err = pcall(coroutine[name])
     assert(ok == false and err:match("coroutine%."..name) ~= nil)

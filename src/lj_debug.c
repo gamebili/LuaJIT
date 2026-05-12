@@ -407,6 +407,10 @@ const char *lj_debug_slotname(GCproto *pt, const BCIns *ip, BCReg slot,
 #if LJ_54
   const BCIns *origin = ip;
   const char *kind;
+  if (bc_op(*origin) == BC_ITERC && slot == bc_a(*origin)) {
+    *name = "for iterator";
+    return "for iterator";
+  }
 #endif
 restart:
   lname = debug_varname(pt, proto_bcpos(pt, ip), slot);
