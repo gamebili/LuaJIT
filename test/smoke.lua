@@ -2923,6 +2923,24 @@ do
   assert(select(1, pcall(utf8.offset, s, 1.2)) == false)
   assert(select(1, pcall(utf8.offset, s, 1, 1.2)) == false)
   do
+    local ok_direct, err_direct = pcall(function()
+      return utf8.codes("\128")
+    end)
+    local ok_field, err_field = pcall(assert(load([[
+      return utf8.codes("\128")
+    ]])))
+    local ok_alias, err_alias = pcall(assert(load([[
+      local f = utf8.codes
+      return f("\128")
+    ]])))
+    assert(ok_direct == false and
+           err_direct:match("bad argument #1 to 'codes'", 1, true))
+    assert(ok_field == false and
+           err_field:match("bad argument #1 to 'codes'", 1, true))
+    assert(ok_alias == false and
+           err_alias:match("bad argument #1 to 'f'", 1, true))
+  end
+  do
     local ok_len_i, err_len_i = pcall(utf8.len, "abc", 0, 2)
     local ok_len_j, err_len_j = pcall(utf8.len, "abc", 1, 4)
     local ok_off, err_off = pcall(utf8.offset, "abc", 1, 5)

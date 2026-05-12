@@ -423,7 +423,7 @@ static int utf8_codes(lua_State *L)
   const unsigned char *s = (const unsigned char *)
     utf8_checklstring_named(L, 1, &len, "utf8.codes");
   if (len > 0 && utf8_iscont(s[0]))
-    return luaL_error(L, "invalid UTF-8 code");
+    utf8_argerror_named(L, 1, "utf8.codes", "invalid UTF-8 code");
   lua_pushboolean(L, lua_toboolean(L, 2));
   lua_pushcclosure(L, utf8_codes_iter, 1);
   lua_pushvalue(L, 1);
