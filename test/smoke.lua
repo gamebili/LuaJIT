@@ -340,12 +340,40 @@ do
     local t = { f = setmetatable({}, { __call = true }) }
     return t.f()
   end)
+  check("field '?'", function()
+    local t = { f = setmetatable({}, { __call = true }) }
+    local k = "f"
+    return t[k]()
+  end)
+  check("global '?'", function()
+    _G.lua54_dynamic_call_chain_bad = setmetatable({}, { __call = true })
+    local k = "lua54_dynamic_call_chain_bad"
+    local ok, res = pcall(function()
+      return _ENV[k]()
+    end)
+    _G.lua54_dynamic_call_chain_bad = nil
+    if not ok then error(res, 0) end
+    return res
+  end)
   check("local 'f'", function()
     local f = setmetatable({}, {
       __call = setmetatable({}, { __call = true }),
     })
     return f()
   end)
+  do
+    local function run(label, fn)
+      local ok, err = pcall(fn)
+      assert(label == "preserve" and ok == false and type(err) == "string")
+      return err
+    end
+    local err = run("preserve", function()
+      local t = { f = setmetatable({}, { __call = true }) }
+      local k = "f"
+      return t[k]()
+    end)
+    assert(err:find("attempt to call a boolean value (field '?')", 1, true))
+  end
   do
     local f = setmetatable({}, { __call = true })
     local ok, err = pcall(f)

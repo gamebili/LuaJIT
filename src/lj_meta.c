@@ -209,7 +209,9 @@ static void mmcall_call_error(lua_State *L, cTValue *bad, TValue *func)
     const char *oname = NULL;
     const char *kind = lj_debug_slotname(pt, pc, (BCReg)(func-L->base),
 					 &oname);
-    const char *msg = kind ?
+    const char *msg;
+    L->top = curr_topL(L);
+    msg = kind ?
       lj_strfmt_pushf(L, "attempt to call a %s value (%s '%s')",
 		      tname, kind, oname) :
       lj_strfmt_pushf(L, "attempt to call a %s value", tname);
