@@ -179,6 +179,43 @@ int main(void)
     lua_pop(L, 1);
   }
 
+  {
+    const char fname[] = "lua51_capi_loadfile.tmp";
+    FILE *fp = fopen(fname, "wb");
+    check(L, fp != NULL, "luaL_loadfile fixture open");
+    check(L, fputs("return 43", fp) >= 0, "luaL_loadfile fixture write");
+    check(L, fclose(fp) == 0, "luaL_loadfile fixture close");
+    check(L, luaL_loadfile(L, fname) == LUA_OK,
+	  "luaL_loadfile default API status");
+    lua_call(L, 0, 1);
+    check(L, lua_tointeger(L, -1) == 43, "luaL_loadfile default API result");
+    lua_pop(L, 1);
+    check(L, luaL_dofile(L, fname) == LUA_OK,
+	  "luaL_dofile default macro status");
+    check(L, lua_tointeger(L, -1) == 43, "luaL_dofile default macro result");
+    lua_pop(L, 1);
+    check(L, remove(fname) == 0, "luaL_loadfile fixture remove");
+  }
+
+  check(L, luaL_loadbuffer(L, "return 44", strlen("return 44"),
+			   "=lua51_loadbuffer") == LUA_OK,
+	"luaL_loadbuffer default API status");
+  lua_call(L, 0, 1);
+  check(L, lua_tointeger(L, -1) == 44, "luaL_loadbuffer default API result");
+  lua_pop(L, 1);
+
+  check(L, luaL_dostring(L, "return 45") == LUA_OK,
+	"luaL_dostring default macro status");
+  check(L, lua_tointeger(L, -1) == 45, "luaL_dostring default macro result");
+  lua_pop(L, 1);
+
+  lua_pushinteger(L, 42);
+  check(L, luaL_checkint(L, -1) == 42, "luaL_checkint default macro");
+  check(L, luaL_checklong(L, -1) == 42L, "luaL_checklong default macro");
+  check(L, luaL_optint(L, 2, 77) == 77, "luaL_optint default macro");
+  check(L, luaL_optlong(L, 2, 78L) == 78L, "luaL_optlong default macro");
+  lua_pop(L, 1);
+
   lua_newtable(L);
   lua_pushliteral(L, "ref-value");
   {
