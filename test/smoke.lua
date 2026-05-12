@@ -1326,6 +1326,29 @@ do
   end
   do
     assert(assert(load([[
+      local function func2close(f)
+        return setmetatable({}, { __close = f })
+      end
+      local co = coroutine.create(function()
+        local x <close> = func2close(function(_, err)
+          assert(err == nil)
+          coroutine.yield("dynamic closing")
+          error("dynamic close boom", 0)
+        end)
+        return (function()
+          return "head", nil, "tail"
+        end)()
+      end)
+      local ok, value = coroutine.resume(co)
+      assert(ok == true and value == "dynamic closing")
+      local a, b, c, d = coroutine.resume(co)
+      assert(a == false and b == "dynamic close boom" and c == nil and d == nil)
+      assert(coroutine.status(co) == "dead")
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
       local ok, err = pcall(function()
         local x <close> = setmetatable({}, {
           __close = function()
