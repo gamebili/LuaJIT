@@ -349,8 +349,7 @@
   - 当前进展：Lua 层 `string.dump(f, strip)` 已进入 smoke，覆盖 full/stripped LuaJIT bytecode 写出、`mode="b"` 回读执行，以及 binary chunk 被 `mode="t"` 拒绝。
   - 当前进展：已将官方 Lua 5.4.8 dump 的加载失败固化为 smoke；兼容构建会明确拒绝官方 Lua 5.4 binary chunk，并保留 `mode="t"` 的 binary chunk 拒绝错误。
   - 当前进展：LuaJIT dump 回读时，带真实 upvalue 的函数会按 Lua 5.4 `load` 规则把第一个 upvalue 初始化为当前全局环境；带第 4 个 env 参数时会初始化为指定 env，且真实 upvalue 槽支持 table / number / false / nil 这类非 table 值。
-  - 当前进展：LuaJIT stripped dump 回读后的 debug upvalue 枚举已避免把无真实 upvalue 的 plain dump 误暴露为 `_ENV`，带真实 upvalue 的 stripped dump 也不再额外插入伪 `_ENV`；使用全局名的 stripped dump 会保留真实首个 env upvalue，名称按 LuaJIT stripped 规则为空字符串。
-  - 已知差异：官方 Lua 5.4 stripped dump 的 upvalue 名称为 `(no name)`；LuaJIT stripped bytecode 继续用空字符串表示 stripped upvalue name。
+  - 当前进展：LuaJIT stripped dump 回读后的 debug upvalue 枚举已避免把无真实 upvalue 的 plain dump 误暴露为 `_ENV`，带真实 upvalue 的 stripped dump 也不再额外插入伪 `_ENV`；使用全局名的 stripped dump 会保留真实首个 env upvalue，且 stripped upvalue 名称已按官方 Lua 5.4 表面显示为 `(no name)`。
   - 已覆盖/文档：mode=`"b"`/`"t"` 基础错误消息、LuaJIT bytecode 回读、官方 Lua 5.4 binary chunk 明确拒绝，以及 README 中的“compat 构建仍只支持 LuaJIT bytecode”边界说明。
 
 ## P2：继续做一致性回归的边缘面
