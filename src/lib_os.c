@@ -498,7 +498,11 @@ LJLIB_CF(os_date)
 #endif
   } else if (
 #if LJ_54
-	     slen == 2 && s[0] == '*' && s[1] == 't'
+	     /* Match Lua 5.4's strcmp(s, "*t") check: an embedded NUL right
+	     ** after "*t" still selects table mode, while "*tx" does not.
+	     */
+	     slen >= 2 && s[0] == '*' && s[1] == 't' &&
+	     (slen == 2 || s[2] == '\0')
 #else
 	     strcmp(s, "*t") == 0
 #endif

@@ -4405,6 +4405,14 @@ do
   assert(os.date("!") == "")
   assert(os.date("\0\0") == "\0\0")
   assert(os.date("!\0\0") == "\0\0")
+  do
+    local t = os.date("*t\0ignored", 0)
+    assert(type(t) == "table" and type(t.year) == "number")
+    t = os.date("!*t\0ignored", 0)
+    assert(type(t) == "table" and t.year == 1970 and
+	   t.month == 1 and t.day == 1)
+    assert(os.date("*tx", 0) == "*tx")
+  end
   if package.config:sub(1, 1) == "\\" then
     assert(os.date("%c", 0) == os.date("%x %X", 0))
     assert(os.date("!%c", 0) == os.date("!%x %X", 0))
