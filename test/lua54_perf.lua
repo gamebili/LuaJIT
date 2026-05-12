@@ -196,6 +196,7 @@ end
 
 local function base_raw_helpers(n)
   local sum = 0
+  local p = pairs
   for _ = 1, n do
     if getmetatable(raw_meta_subject) == "locked" then sum = sum + 1 end
     sum = sum + rawlen(raw_meta_subject)
@@ -208,6 +209,16 @@ local function base_raw_helpers(n)
     do
       local iter, state, index = ipairs({})
       if select("#", iter(state, index)) == 1 and iter(state, index) == nil then
+	sum = sum + 1
+      end
+    end
+    do
+      local ok_pairs, err_pairs = pcall(function()
+	local iter, state, key = p(nil)
+	return iter(state, key)
+      end)
+      if not ok_pairs and
+	 err_pairs:find("bad argument #1 to 'iter'", 1, true) then
 	sum = sum + 1
       end
     end
@@ -1252,7 +1263,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_base = timeit(mode_name..":base_raw_helpers",
 			   base_raw_helpers, iter_n)
-  assert(r_base == iter_n * 14)
+  assert(r_base == iter_n * 15)
 
   local _, r_value = timeit(mode_name..":base_value_helpers",
 			    base_value_helpers, iter_n)

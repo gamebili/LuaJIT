@@ -380,6 +380,52 @@ do
 end
 
 do
+  local p = pairs
+  assert_no_trace(function()
+    local n = 0
+    for _ = 1, 80 do
+      local ok_direct, err_direct = pcall(function()
+	local iter, state, key = pairs(nil)
+	return iter(state, key)
+      end)
+      local ok_alias, err_alias = pcall(function()
+	local iter, state, key = p(nil)
+	return iter(state, key)
+      end)
+      local ok_iter_alias, err_iter_alias = pcall(function()
+	local iter, state, key = pairs(nil)
+	local f = iter
+	return f(state, key)
+      end)
+      local ok_global, err_global = pcall(function()
+	lua54_jit_pairs_global_it = pairs(nil)
+	return lua54_jit_pairs_global_it(nil, nil)
+      end)
+      local ok_field, err_field = pcall(function()
+	local holder = {}
+	holder.iter = pairs(nil)
+	return holder.iter(nil, nil)
+      end)
+      lua54_jit_pairs_global_it = nil
+      if not ok_direct and
+	 err_direct:find("bad argument #1 to 'iter'", 1, true) and
+	 not ok_alias and
+	 err_alias:find("bad argument #1 to 'iter'", 1, true) and
+	 not ok_iter_alias and
+	 err_iter_alias:find("bad argument #1 to 'f'", 1, true) and
+	 not ok_global and
+	 err_global:find("bad argument #1 to 'lua54_jit_pairs_global_it'",
+			 1, true) and
+	 not ok_field and
+	 err_field:find("bad argument #1 to 'iter'", 1, true) then
+	n = n + 1
+      end
+    end
+    assert(n == 80)
+  end, "Lua 5.4 pairs iterator call names")
+end
+
+do
   assert_records_trace(function()
     local n = 0
     for _ = 1, 80 do
