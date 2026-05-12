@@ -138,7 +138,7 @@ static void table_argerror_named54(lua_State *L, int narg, const char *fname,
   ** -> 'f'. Calls routed through pcall/C frames and internal comparator calls
   ** have no useful caller slot, so keep the stable table.* fallback.
   */
-  if (kind && dname && !(dname[0] == '?' && dname[1] == '\0'))
+  if (kind && dname)
     fname = dname;
   lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #%d to '%s' (%s)",
 				      narg, fname, msg));

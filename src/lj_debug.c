@@ -380,6 +380,12 @@ static int debug_is_lua54_env_source(const char *kind, const char *name)
 	 strcmp(name, "_ENV") == 0;
 }
 
+static int debug_lua54_keyslot_is_temp(GCproto *pt, const BCIns *ip,
+				       BCReg slot)
+{
+  return debug_varname(pt, proto_bcpos(pt, ip), slot) == NULL;
+}
+
 static int debug_lua54_name_skipped_by_jmp(GCproto *pt, const BCIns *origin,
 					   const BCIns *candidate)
 {
@@ -464,7 +470,8 @@ restart:
 	  ** large chunk pushes the field name outside TGETS' 8-bit constant slot.
 	  ** Preserve debug.getinfo(..., "n") names for hooks and errors.
 	  */
-	  if (bc_op(insp) == BC_KSTR && bc_a(insp) == bc_c(ins)) {
+	  if (bc_op(insp) == BC_KSTR && bc_a(insp) == bc_c(ins) &&
+	      debug_lua54_keyslot_is_temp(pt, ip, bc_c(ins))) {
 	    *name = strdata(gco2str(proto_kgc(pt, ~(ptrdiff_t)bc_d(insp))));
 	    kind = lj_debug_slotname(pt, ip, bc_b(ins), &lname);
 	    if (debug_is_lua54_env_source(kind, lname))
@@ -478,7 +485,9 @@ restart:
 	    return "field";
 	  }
 	}
-	break;
+	*name = "?";
+	kind = lj_debug_slotname(pt, ip, bc_b(ins), &lname);
+	return debug_is_lua54_env_source(kind, lname) ? "global" : "field";
 #endif
       case BC_UGET:
 #if LJ_54
@@ -623,12 +632,14 @@ const char *lj_debug_callname54(lua_State *L, const char *fallback,
   size_t prefixlen = prefix ? strlen(prefix) : 0;
   int hasprefix = prefix && strncmp(fallback, prefix, prefixlen) == 0 &&
 		  fallback[prefixlen] == '.';
-  if (kind && name && !(name[0] == '?' && name[1] == '\0')) {
+  if (kind && name) {
     /* Direct pcall(lib.fn, ...) has no bytecode field/local call site. Keep the
     ** full fallback name there, but use source-level names for real calls.
     */
     if (direct_pcall && strcmp(kind, "function") == 0)
       return fallback;
+    if (name[0] == '?' && name[1] == '\0')
+      return name;
     if (!direct_pcall && hasprefix &&
 	strncmp(name, fallback, strlen(fallback)+1) == 0)
       return fallback + prefixlen + 1;

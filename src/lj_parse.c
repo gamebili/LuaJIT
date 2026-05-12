@@ -1218,11 +1218,13 @@ static VarIndex lua54_reg_table_source(FuncState *fs, BCReg reg, BCPos pc)
       if (pc > 0) {
 	BCIns key = fs->bcbase[pc - 1].ins;
 	if (bc_op(key) == BC_KSTR && bc_a(key) == bc_c(ins) &&
+	    bc_c(ins) >= fs->nactvar &&
 	    lua54_reg_is_env_or_global_table(fs, bc_b(ins), pc - 1)) {
 	  GCstr *field = bcemit_lua54_const_str_by_slot(fs, bc_d(key));
 	  return lua54_global_table_alias(fs, field);
 	}
-	if (bc_op(key) == BC_KSTR && bc_a(key) == bc_c(ins)) {
+	if (bc_op(key) == BC_KSTR && bc_a(key) == bc_c(ins) &&
+	    bc_c(ins) >= fs->nactvar) {
 	  GCstr *field = bcemit_lua54_const_str_by_slot(fs, bc_d(key));
 	  VarIndex table = lua54_reg_table_source(fs, bc_b(ins), pc - 1);
 	  return lua54_table_field_alias(fs, table, field);
@@ -1687,7 +1689,8 @@ static int bcemit_lua54_is_lines_iterator_result(FuncState *fs, BCPos callpc)
     }
     if (op == BC_TGETV && pos >= 1) {
       BCIns key = fs->bcbase[pos - 1].ins;
-      if (bc_op(key) == BC_KSTR && bc_a(key) == bc_c(ins)) {
+      if (bc_op(key) == BC_KSTR && bc_a(key) == bc_c(ins) &&
+	  bc_c(ins) >= fs->nactvar) {
 	GCstr *field = bcemit_lua54_const_str_by_slot(fs, bc_d(key));
 	return bcemit_lua54_streq(field, "lines", 5);
       }
@@ -1727,7 +1730,8 @@ static int bcemit_lua54_is_private_helper_call(FuncState *fs, ExpDesc *e)
       }
       if (op == BC_TGETV && bc_b(ins) == base && pos >= 1) {
 	BCIns key = fs->bcbase[pos - 1].ins;
-	if (bc_op(key) == BC_KSTR && bc_a(key) == bc_c(ins)) {
+	if (bc_op(key) == BC_KSTR && bc_a(key) == bc_c(ins) &&
+	    bc_c(ins) >= fs->nactvar) {
 	  GCstr *field = bcemit_lua54_const_str_by_slot(fs, bc_d(key));
 	  return bcemit_lua54_is_helper_name(field) ||
 		 bcemit_lua54_is_known_lib_wrapper_call(fs, pos, field,
@@ -2549,7 +2553,8 @@ static int lua54_callbase_notailcall(FuncState *fs, ExpDesc *e)
     }
     if (op == BC_TGETV && pc > 0) {
       BCIns key = fs->bcbase[pc - 1].ins;
-      if (bc_op(key) == BC_KSTR && bc_a(key) == bc_c(ins)) {
+      if (bc_op(key) == BC_KSTR && bc_a(key) == bc_c(ins) &&
+	  bc_c(ins) >= fs->nactvar) {
 	GCstr *field = bcemit_lua54_const_str_by_slot(fs, bc_d(key));
 	return bcemit_lua54_is_helper_name(field) ||
 	       bcemit_lua54_is_known_lib_wrapper_call(fs, pc, field, pc - 1) ||
@@ -2559,6 +2564,7 @@ static int lua54_callbase_notailcall(FuncState *fs, ExpDesc *e)
 	       bcemit_lua54_is_marked_table_notail_call(fs, pc, field,
 							pc - 1);
       }
+      return 1;
     }
     break;
   }
@@ -2595,7 +2601,8 @@ static int lua54_slot_helper_init_range(FuncState *fs, BCReg slot,
 	     bcemit_lua54_is_marked_table_notail_call(fs, pc, field, pc);
     } else if (op == BC_TGETV && pc > startpc) {
       BCIns key = fs->bcbase[pc - 1].ins;
-      if (bc_op(key) == BC_KSTR && bc_a(key) == bc_c(ins)) {
+      if (bc_op(key) == BC_KSTR && bc_a(key) == bc_c(ins) &&
+	  bc_c(ins) >= fs->nactvar) {
 	GCstr *field = bcemit_lua54_const_str_by_slot(fs, bc_d(key));
 	return bcemit_lua54_is_helper_name(field) ||
 	       bcemit_lua54_is_known_lib_wrapper_call(fs, pc, field, pc - 1) ||
@@ -2605,6 +2612,7 @@ static int lua54_slot_helper_init_range(FuncState *fs, BCReg slot,
 	       bcemit_lua54_is_marked_table_notail_call(fs, pc, field,
 							pc - 1);
       }
+      return 1;
     }
     return 0;
   }
@@ -2737,6 +2745,8 @@ static GCstr *lua54_indexed_const_field(FuncState *fs, ExpDesc *var,
     if (var->u.s.aux <= BCMAX_C && rhspc > lhspc) {
       BCReg key = (BCReg)var->u.s.aux;
       BCPos pc = rhspc;
+      if (key < fs->nactvar)
+	return NULL;
       /* Fields whose string constant index no longer fits TGETS/TSETS are
       ** emitted as `KSTR key; TGETV/TSETV ... key`. Treat only that static
       ** KSTR shape as a constant field; real dynamic keys must stay dynamic.

@@ -675,6 +675,88 @@ do
     local f = assert
     expect_public_tail_callname(function() return f() end, "f")
   end
+  do
+    local function expect_dynamic_callname(fn)
+      local ok, err = pcall(fn)
+      assert(ok == false and
+             err:find("test/smoke.lua:", 1, true) ~= nil and
+             err:find("to '?'", 1, true) ~= nil)
+    end
+    expect_dynamic_callname(function()
+      local k = "rawget"
+      return _G[k]()
+    end)
+    expect_dynamic_callname(function()
+      local k = "concat"
+      return table[k](nil)
+    end)
+    expect_dynamic_callname(function()
+      local k = "byte"
+      return string[k](nil)
+    end)
+    expect_dynamic_callname(function()
+      local k = "format"
+      return string[k](nil)
+    end)
+    expect_dynamic_callname(function()
+      local k = "abs"
+      return math[k](true)
+    end)
+    expect_dynamic_callname(function()
+      local k = "date"
+      return os[k]({})
+    end)
+    expect_dynamic_callname(function()
+      local k = "getinfo"
+      return debug[k](true)
+    end)
+    expect_dynamic_callname(function()
+      local k = "len"
+      return utf8[k](true)
+    end)
+    expect_dynamic_callname(function()
+      local k = "searchpath"
+      return package[k]({}, "?.lua")
+    end)
+    do
+      local ok, err = pcall(function()
+        local t = { f = true }
+        local k = "f"
+        return t[k]()
+      end)
+      assert(ok == false and
+             err:find("attempt to call a boolean value (field '?')",
+                      1, true) ~= nil)
+    end
+    do
+      local ok, err = pcall(function()
+        _G.lua54_dynamic_call_bad = true
+        local k = "lua54_dynamic_call_bad"
+        return _ENV[k]()
+      end)
+      _G.lua54_dynamic_call_bad = nil
+      assert(ok == false and
+             err:find("attempt to call a boolean value (global '?')",
+                      1, true) ~= nil)
+    end
+    do
+      local ok, err = pcall(function()
+        local k = "abs"
+        local f = math[k]
+        return f(true)
+      end)
+      assert(ok == false and
+             err:find("bad argument #1 to 'f'", 1, true) ~= nil)
+    end
+    do
+      local k = "abs"
+      local ok, inner_ok, err = pcall(function()
+        return pcall(math[k], true)
+      end)
+      assert(ok == true and inner_ok == false and
+             err:find("bad argument #1 to 'math.abs'", 1, true) ~= nil)
+    end
+  end
 end
 do
   local function expect_bad_integer(f, ...)
