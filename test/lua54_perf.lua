@@ -1160,6 +1160,12 @@ local function utf8_helpers(n)
     if seen == 3 then sum = sum + 1 end
     local len, badpos = utf8.len("\255")
     if len == nil and badpos == 1 then sum = sum + 1 end
+    local ok_codes, err_codes = pcall(function()
+      for _ in utf8.codes("\128") do end
+    end)
+    if not ok_codes and err_codes:find("invalid UTF-8 code", 1, true) then
+      sum = sum + 1
+    end
   end
   return sum
 end
@@ -1412,7 +1418,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   assert(r_string == string_n * 205)
 
   local _, r_utf8 = timeit(mode_name..":utf8_helpers", utf8_helpers, utf8_n)
-  assert(r_utf8 == utf8_n * 13)
+  assert(r_utf8 == utf8_n * 14)
 
   local _, r_sort = timeit(mode_name..":table_sort_helpers",
 			   table_sort_helpers, sort_n)

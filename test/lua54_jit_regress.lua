@@ -2108,9 +2108,13 @@ do
     for _ = 1, 80 do
       local ok_char, err_char = pcall(utf8.char, 0x80000000)
       local ok_offset, err_offset = pcall(utf8.offset, "abc", 1.2)
+      local ok_codes, err_codes = pcall(function()
+	for _ in utf8.codes("\128") do end
+      end)
       local len, badpos = utf8.len("\255")
       if not ok_char and err_char:find("value out of range", 1, true) and
 	 not ok_offset and err_offset:find("integer representation", 1, true) and
+	 not ok_codes and err_codes:find("invalid UTF-8 code", 1, true) and
 	 len == nil and badpos == 1 then
 	n = n + 1
       end
