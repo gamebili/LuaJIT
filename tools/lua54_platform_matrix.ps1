@@ -73,6 +73,47 @@ function Invoke-Checked {
   }
 }
 
+function Get-HalfCoreJobCap {
+  $cores = 0
+  try {
+    foreach ($cpu in (Get-CimInstance Win32_Processor)) {
+      $cores += [int]$cpu.NumberOfCores
+    }
+  } catch {
+    $cores = 0
+  }
+  if ($cores -le 0) {
+    $cores = [Environment]::ProcessorCount
+  }
+  $jobs = [int][Math]::Floor($cores / 2)
+  if ($jobs -lt 1) {
+    $jobs = 1
+  }
+  return $jobs
+}
+
+function Get-MakeJobCount {
+  $cap = Get-HalfCoreJobCap
+  $jobs = $cap
+  if ($env:BUILD_JOBS -and $env:BUILD_JOBS -match '^\d+$') {
+    $requested = [int]$env:BUILD_JOBS
+    if ($requested -lt 1) {
+      $requested = 1
+    }
+    if ($requested -lt $cap) {
+      $jobs = $requested
+    }
+  }
+  return $jobs
+}
+
+$script:MakeJobArgs = @("-j$(Get-MakeJobCount)")
+
+function Invoke-MakeChecked {
+  param([string[]]$Arguments = @())
+  Invoke-Checked $Make ($script:MakeJobArgs + $Arguments)
+}
+
 function Assert-PeAmd64Artifact {
   param([string]$Artifact)
 
@@ -114,8 +155,8 @@ function Invoke-PcX64 {
   }
 
   try {
-    Invoke-Checked $Make @("clean")
-    Invoke-Checked $Make @()
+    Invoke-MakeChecked -Arguments @("clean")
+    Invoke-MakeChecked
     $exe = Join-Path $RepoRoot "src\luajit.exe"
     $arch = Assert-PeAmd64Artifact $exe
     Invoke-Checked $exe @("test/smoke.lua", "default")
@@ -126,8 +167,8 @@ function Invoke-PcX64 {
   }
 
   try {
-    Invoke-Checked $Make @("clean")
-    Invoke-Checked $Make @("XCFLAGS=-DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2")
+    Invoke-MakeChecked -Arguments @("clean")
+    Invoke-MakeChecked -Arguments @("XCFLAGS=-DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2")
     $exe = Join-Path $RepoRoot "src\luajit.exe"
     $arch = Assert-PeAmd64Artifact $exe
     Invoke-Checked $exe @("test/smoke.lua", "lua54compat")
@@ -320,8 +361,8 @@ function Invoke-AndroidArm64 {
   }
 
   try {
-    Invoke-Checked $Make @("clean")
-    Invoke-Checked $Make @(
+    Invoke-MakeChecked -Arguments @("clean")
+    Invoke-MakeChecked -Arguments @(
       "HOST_CC=gcc",
       "TARGET_SYS=Linux",
       "CC=$($clang.FullName)",
@@ -394,8 +435,8 @@ function Invoke-IosArm64 {
   $targetFlags = "-arch arm64 -isysroot $sdkPath -miphoneos-version-min=$minVersion"
 
   try {
-    Invoke-Checked $Make @("clean")
-    Invoke-Checked $Make @(
+    Invoke-MakeChecked -Arguments @("clean")
+    Invoke-MakeChecked -Arguments @(
       "HOST_CC=cc",
       "TARGET_SYS=iOS",
       "CC=$clang",
