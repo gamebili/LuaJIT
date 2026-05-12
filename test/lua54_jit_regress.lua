@@ -594,6 +594,22 @@ do
 
   assert_records_trace(function()
     local n = 0
+    for i = "1", "80" do
+      if math.type(i) == "float" then n = n + i end
+    end
+    assert(n == 3240.0 and math.type(n) == "float")
+  end, "Lua 5.4 numeric for string init")
+
+  assert_records_trace(function()
+    local n = 0
+    for i = 1, 80, "1" do
+      if math.type(i) == "float" then n = n + i end
+    end
+    assert(n == 3240.0 and math.type(n) == "float")
+  end, "Lua 5.4 numeric for string step")
+
+  assert_records_trace(function()
+    local n = 0
     for _ = 1, 80 do
       n = n + assert(math.tointeger("123"))
       assert(math.tointeger(1.5) == nil)

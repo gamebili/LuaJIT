@@ -1481,6 +1481,23 @@ for i = 1, "x" do end]], "bad 'for' limit", "got string"):match(":2:", 1, true) 
     c = c + 1
   end
   assert(c == 10)
+  local function fortypes(init, limit, step)
+    local out = {}
+    if step == nil then
+      for i = init, limit do
+	out[#out+1] = math.type(i)..":"..tostring(i)
+      end
+    else
+      for i = init, limit, step do
+	out[#out+1] = math.type(i)..":"..tostring(i)
+      end
+    end
+    return table.concat(out, ",")
+  end
+  assert(fortypes("1", 3, 1) == "float:1.0,float:2.0,float:3.0")
+  assert(fortypes(1, "3", 1) == "integer:1,integer:2,integer:3")
+  assert(fortypes(1, 3, "1") == "float:1.0,float:2.0,float:3.0")
+  assert(fortypes("0x1", "0x3") == "float:1.0,float:2.0,float:3.0")
   if jit and jit.opt and jit.opt.start then
     local function check_jit_float_for(init, limit, step)
       local n = 0
@@ -1502,6 +1519,8 @@ for i = 1, "x" do end]], "bad 'for' limit", "got string"):match(":2:", 1, true) 
     end
     assert(check_jit_float_for(1.0, 10, 1) == 10)
     assert(check_jit_float_for(-1, -10, -1.0) == 10)
+    assert(check_jit_float_for("1", 10, 1) == 10)
+    assert(check_jit_float_for(1, 10, "1") == 10)
   end
 end
 do

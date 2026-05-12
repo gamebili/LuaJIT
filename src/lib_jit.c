@@ -584,6 +584,8 @@ static int lj_cf_jit__lua54_forstep(lua_State *L)
   if (tvisstr(o)) {
     if (!lj_strscan_number(strV(o), &tmp))
       lua54_forerror(L, o, "step");
+    if (tvisint(&tmp))
+      setnumV(&tmp, (lua_Number)intV(&tmp));
     o = &tmp;
   } else if (!tvisnumber(o)) {
     lua54_forerror(L, o, "step");

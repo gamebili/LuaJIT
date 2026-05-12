@@ -108,6 +108,7 @@
   - 当前状态：当前 32 位整数兼容表面下，Lua 5.4 数值 for 已不再主要沿用旧 LuaJIT 窄化规则；完整 64 位 `lua_Integer` 边界仍归入“完整 Lua 5.4 64 位整数语义”大项。
   - 当前进展：Lua 5.4 兼容模式已把常量 `0` / `0.0` step 从编译期错误改为运行期 `FORI` 前 helper 错误，和动态变量 `0`、字符串 `"0"` 一样在执行时统一报 `'for' step is zero`，可被官方 `checkerror(function() for ... do end end)` 捕获。
   - 当前进展：init/step 为 float 的循环会保持 float 控制变量；init/step 为 integer 且 limit 为 float 时会按步长方向取整，超出当前 32 位 integer 表面时裁剪或切回 float 比较以保持跳过语义；官方 `testes/nextvar.lua` 当前已跑到 `OK`。
+  - 当前进展：init 或 step 原始表达式为字符串时，即使字符串内容可表示为当前 integer，也会按 Lua 5.4 保持 float 控制变量；只有 limit 为字符串且 init/step 已是 integer 时，仍沿 integer FORL 路径。解释器和热循环 trace 均已加入回归。
   - 当前进展：JIT recorder 对接近当前 32 位 integer 边界、可能溢出的 integer numeric for 不再改录为 float trace，避免 `math.type(i)` 在热循环后从 `integer` 变成 `float`；同时低 `jit.opt` hotloop 配置下也不会把 `1.0, 10` 或 `-1, -10, -1.0` 这类 float 模式循环重新窄化成 integer trace。
   - 已知差异：完整 64 位 `math.maxinteger` / `math.mininteger` 循环、不回绕边界和跨 32 位以上整数循环仍归入 64 位 integer/TValue 批次。
   - 已覆盖：正/负步长边界、`math.maxinteger` / `math.mininteger` 附近、整数和浮点控制变量的类型、低 hotloop JIT trace 下 float 控制变量不被重新窄化，以及官方 Lua 5.4.8 `testes/nextvar.lua`。

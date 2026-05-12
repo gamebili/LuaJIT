@@ -708,6 +708,8 @@ int lj_meta_call(lua_State *L, TValue *func, TValue *top)
 void LJ_FASTCALL lj_meta_for(lua_State *L, TValue *o)
 {
 #if LJ_54
+  int initstr = tvisstr(o);
+  int stepstr = tvisstr(o+2);
   if (!lj_strscan_numberobj(o)) lj_meta_forerror(L, o, "initial value");
   if (!lj_strscan_numberobj(o+1)) lj_meta_forerror(L, o+1, "limit");
   if (!lj_strscan_numberobj(o+2)) lj_meta_forerror(L, o+2, "step");
@@ -722,7 +724,7 @@ void LJ_FASTCALL lj_meta_for(lua_State *L, TValue *o)
     ** are tagged integers. A float limit is rounded toward the loop direction,
     ** but a float init/step must keep the loop variable floating.
     */
-    if (tvisint(o) && tvisint(o+2)) {
+    if (!initstr && !stepstr && tvisint(o) && tvisint(o+2)) {
       if (!tvisint(o+1)) {
 	lua_Number n = numV(o+1);
 	lua_Number ni = intV(o+2) < 0 ? -lj_vm_floor(-n) : lj_vm_floor(n);
