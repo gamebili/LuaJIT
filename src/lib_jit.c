@@ -356,16 +356,45 @@ static cTValue *lua54_getmetafield(lua_State *L, cTValue *o, GCstr *mm)
   return NULL;
 }
 
+static void lua54_mm_callerror(lua_State *L, cTValue *o, const char *mmname)
+{
+  MSize tlen;
+  const char *tname = lj_meta_objtypename(L, o, &tlen);
+  if (mmname[0] == '_' && mmname[1] == '_')
+    mmname += 2;
+  UNUSED(tlen);
+  lj_err_callermsg(L, lj_strfmt_pushf(L,
+    "attempt to call a %s value (metamethod '%s')", tname, mmname));
+}
+
+static cTValue *lua54_bad_call_chain(lua_State *L, cTValue *mo)
+{
+  cTValue *bad = mo;
+  int loop;
+  for (loop = 0; loop < LJ_MAX_IDXCHAIN && !tvisfunc(mo); loop++) {
+    cTValue *next = lj_meta_lookup(L, mo, MM_call);
+    if (tvisnil(next))
+      return bad;
+    bad = next;
+    mo = next;
+  }
+  return tvisfunc(mo) ? NULL : bad;
+}
+
 static int lua54_callbinmeta(lua_State *L, const char *mmname, int unary)
 {
   GCstr *mm = lj_str_newz(L, mmname);
   cTValue *mo = lua54_getmetafield(L, L->base, mm);
+  cTValue *bad;
   const char *oldmm;
   GCfunc *oldmmfunc;
   if (!mo && !unary && L->base+1 < L->top)
     mo = lua54_getmetafield(L, L->base+1, mm);
   if (!mo)
     return 0;
+  bad = lua54_bad_call_chain(L, mo);
+  if (bad)
+    lua54_mm_callerror(L, bad, mmname);
   /* The operators are currently lowered to helper calls; explicitly calling
   ** the Lua 5.4 metamethod here preserves the language surface.
   */

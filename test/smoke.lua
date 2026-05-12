@@ -1836,6 +1836,23 @@ do
     _G.__lua54_meta_rhs = nil
     _G.__lua54_meta_reverse = nil
   end
+  do
+    local badcall = setmetatable({}, { __call = true })
+    local function check(name, fn)
+      local ok, err = pcall(fn)
+      assert(ok == false and
+             err:match("attempt to call a boolean value", 1, true) and
+             err:match("metamethod '"..name.."'", 1, true))
+    end
+    check("idiv", function() return setmetatable({}, { __idiv = badcall }) // 1 end)
+    check("mod", function() return setmetatable({}, { __mod = badcall }) % 1 end)
+    check("band", function() return setmetatable({}, { __band = badcall }) & 1 end)
+    check("bor", function() return setmetatable({}, { __bor = badcall }) | 1 end)
+    check("bxor", function() return setmetatable({}, { __bxor = badcall }) ~ 1 end)
+    check("bnot", function() return ~setmetatable({}, { __bnot = badcall }) end)
+    check("shl", function() return setmetatable({}, { __shl = badcall }) << 1 end)
+    check("shr", function() return setmetatable({}, { __shr = badcall }) >> 1 end)
+  end
 end
 do
   local function lua54_iterator_name_probe()
