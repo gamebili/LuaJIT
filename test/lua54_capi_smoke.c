@@ -320,6 +320,13 @@ typedef struct TrackingAllocCtx {
   int calls;
 } TrackingAllocCtx;
 
+typedef struct SwitchAllocCtx {
+  int calls;
+  int allocs;
+  int reallocs;
+  int frees;
+} SwitchAllocCtx;
+
 typedef struct ShrinkFailAllocCtx {
   int calls;
   int frees;
@@ -499,6 +506,23 @@ static void *tracking_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
   return np;
 }
 
+static void *switching_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
+{
+  SwitchAllocCtx *ctx = (SwitchAllocCtx *)ud;
+  (void)osize;
+  ctx->calls++;
+  if (nsize == 0) {
+    ctx->frees++;
+    free(ptr);
+    return NULL;
+  }
+  if (ptr == NULL)
+    ctx->allocs++;
+  else
+    ctx->reallocs++;
+  return realloc(ptr, nsize);
+}
+
 static void *shrink_fail_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
 {
   ShrinkFailAllocCtx *ctx = (ShrinkFailAllocCtx *)ud;
@@ -543,6 +567,7 @@ static int raise_after_big_buffer(lua_State *L)
 static void test_state_allocator_api(lua_State *L)
 {
   AllocCtx ctx = { 0, 0 };
+  SwitchAllocCtx switch_ctx = { 0, 0, 0, 0 };
   TrackingAllocCtx track_ctx = { 0, 0, 0 };
   ShrinkFailAllocCtx shrink_ctx = { 0, 0, 0, 0, 0 };
   void *ud = NULL;
@@ -559,9 +584,23 @@ static void test_state_allocator_api(lua_State *L)
   allocf = lua_getallocf(T, &ud);
   check(L, allocf == counting_alloc && ud == &ctx,
 	"lua_setallocf preserves allocator");
+  lua_setallocf(T, switching_alloc, &switch_ctx);
+  allocf = lua_getallocf(T, &ud);
+  check(L, allocf == switching_alloc && ud == &switch_ctx,
+	"lua_setallocf switches allocator and userdata");
+  luaL_openlibs(T);
+  status = luaL_dostring(T,
+    "local t = {}\n"
+    "for i = 1, 512 do t[i] = ('allocator-switch-' .. i):rep(2) end\n"
+    "_G.lua54_alloc_switch_t = t\n"
+    "return true\n");
+  check(L, status == LUA_OK, "switched allocator handles later allocations");
   lua_close(T);
   check(L, ctx.calls > 0 && ctx.frees > 0,
 	"lua_close uses custom allocator");
+  check(L, switch_ctx.calls > 0 && switch_ctx.allocs > 0 &&
+	   switch_ctx.frees > 0,
+	"lua_close uses switched allocator");
 
   close_call_count = 0;
   close_nil_error_count = 0;
