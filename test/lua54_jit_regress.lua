@@ -1429,6 +1429,29 @@ do
   end, "Lua 5.4 hides standard C closure upvalues")
 
   assert_records_trace(function()
+    local up
+    local fn = function() return up end
+    local n = 0
+    for _ = 1, 80 do
+      local ok_first, err_first = pcall(debug.upvaluejoin,
+					print, 1, print, 1)
+      local ok_second, err_second = pcall(debug.upvaluejoin,
+					  fn, 1, print, 1)
+      if not ok_first and
+	 err_first:find("bad argument #2 to 'debug.upvaluejoin'",
+			1, true) and
+	 err_first:find("invalid upvalue index", 1, true) and
+	 not ok_second and
+	 err_second:find("bad argument #4 to 'debug.upvaluejoin'",
+			 1, true) and
+	 err_second:find("invalid upvalue index", 1, true) then
+	n = n + 1
+      end
+    end
+    assert(n == 80)
+  end, "Lua 5.4 debug.upvaluejoin C function index errors")
+
+  assert_records_trace(function()
     local co = coroutine.create(function()
       local x = 1
       coroutine.yield()

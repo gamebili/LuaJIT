@@ -363,7 +363,15 @@ do
   assert(ok == false and err:find("bad argument #2 to 'debug.upvaluejoin'",
 				  1, true) and
 	 err:find("invalid upvalue index", 1, true))
+  ok, err = pcall(debug.upvaluejoin, print, 1, print, 1)
+  assert(ok == false and err:find("bad argument #2 to 'debug.upvaluejoin'",
+				  1, true) and
+	 err:find("invalid upvalue index", 1, true))
   ok, err = pcall(debug.upvaluejoin, h, 2, function() end, 1)
+  assert(ok == false and err:find("bad argument #4 to 'debug.upvaluejoin'",
+				  1, true) and
+	 err:find("invalid upvalue index", 1, true))
+  ok, err = pcall(debug.upvaluejoin, h, 2, print, 1)
   assert(ok == false and err:find("bad argument #4 to 'debug.upvaluejoin'",
 				  1, true) and
 	 err:find("invalid upvalue index", 1, true))

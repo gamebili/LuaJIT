@@ -501,22 +501,7 @@ LJLIB_CF(debug_upvaluejoin)
     int32_t n;
 #if LJ_54
     fn[i] = debug_checkfunc_named54(L, 2*i+1, "debug.upvaluejoin");
-#else
-    fn[i] = lj_lib_checkfunc(L, 2*i+1);
-#endif
-    if (!isluafunc(fn[i]))
-#if LJ_54
-      debug_argerror_named54(L, 2*i+1, "debug.upvaluejoin",
-			     "Lua function expected");
-#else
-      lj_err_arg(L, 2*i+1, LJ_ERR_NOLFUNC);
-#endif
-#if LJ_54
     n = debug_checkint_named54(L, 2*i+2, "debug.upvaluejoin");
-#else
-    n = lj_lib_checkint(L, 2*i+2);
-#endif
-#if LJ_54
     if (lj_debug_hasenvuv(fn[i])) {
       if (n == 1) {
 	envuv[i] = 1;
@@ -524,16 +509,30 @@ LJLIB_CF(debug_upvaluejoin)
       }
       n--;
     }
-#endif
+    {
+      int islua = isluafunc(fn[i]);
+      uint32_t nup = islua ? fn[i]->l.nupvalues :
+		     (debug_hide_internal_cfuncuv54(fn[i]) ? 0 :
+		      fn[i]->c.nupvalues);
+      n--;
+      if ((uint32_t)n >= nup)
+	debug_argerror_named54(L, 2*i+2, "debug.upvaluejoin",
+			       "invalid upvalue index");
+      if (!islua)
+	debug_argerror_named54(L, 2*i+1, "debug.upvaluejoin",
+			       "Lua function expected");
+      p[i] = &fn[i]->l.uvptr[n];
+    }
+#else
+    fn[i] = lj_lib_checkfunc(L, 2*i+1);
+    if (!isluafunc(fn[i]))
+      lj_err_arg(L, 2*i+1, LJ_ERR_NOLFUNC);
+    n = lj_lib_checkint(L, 2*i+2);
     n--;
     if ((uint32_t)n >= fn[i]->l.nupvalues)
-#if LJ_54
-      debug_argerror_named54(L, 2*i+2, "debug.upvaluejoin",
-			     "invalid upvalue index");
-#else
       lj_err_arg(L, 2*i+2, LJ_ERR_IDXRNG);
-#endif
     p[i] = &fn[i]->l.uvptr[n];
+#endif
   }
 #if LJ_54
   if (envuv[0]) {
