@@ -161,7 +161,7 @@
   - 当前进展：`luaL_newmetatable()` 在 Lua 5.4 兼容模式下会把注册类型名写入 `__name`。
   - 当前进展：`luaL_tolstring()` 已使用 `__name` 作为默认对象前缀，C API smoke 已覆盖 lauxlib 路径。
   - 当前进展：`tostring()` 已按 Lua 5.4 校验 `__tostring` 返回值必须是 string，返回 table 等非 string 值时会报 `'__tostring' must return a string`。
-  - 当前进展：`coroutine.resume()` / `coroutine.close()` 的 Lua 5.4 兼容路径已改用通用 `thread expected, got <__name>` 类型错误；`coroutine.close()` 对 running / normal coroutine 的状态错误会按官方返回裸错误文本，不再泄露内部 Lua wrapper chunk；默认 LuaJIT 构建仍保留旧 `coroutine expected` 文本。
+  - 当前进展：`coroutine.resume()` / `coroutine.close()` 的 Lua 5.4 兼容路径已改用通用 `thread expected, got <__name>` 类型错误；`coroutine.close()` 对 running / normal coroutine 的状态错误会按官方区分 direct `pcall(coroutine.close, ...)` 的裸错误文本和源码调用的用户调用点位置，不再泄露内部 Lua wrapper chunk；默认 LuaJIT 构建仍保留旧 `coroutine expected` 文本。
   - 当前进展：`coroutine.isyieldable([co])` 已支持 Lua 5.4 可选 thread 参数；挂起或死亡的非主 coroutine 返回 true，非 thread 参数使用 Lua 5.4 风格函数名和 `__name` 类型文本。
   - 当前进展：`coroutine.create()` / `resume()` / `status()` / `wrap()` / `close()` 的 direct `pcall(coroutine.xxx, ...)` 基础参数错误会带 `coroutine.xxx` fallback 函数名，并使用 Lua 5.4 的 `function/thread expected` 文本；普通源码调用和局部别名调用下，`status` / `create` / `wrap` / `isyieldable` 已能按 Lua 5.4 恢复调用点名，例如报到 `status` 或局部 `f`，且显式 `nil` 参数也已进入回归覆盖；`resume` / `close` 外层 wrapper 也已保留真实参数个数，缺参报 `got no value`、显式 `nil` 报 `got nil`，普通源码调用、局部别名调用以及 tail-position `return coroutine.xxx(nil)` / `return f()` 会报到 `status` / `isyieldable` / `create` / `wrap` / `resume` / `close` / `f`。
   - 当前进展：主线程直接 `coroutine.yield()` 会按 Lua 5.4 报 `attempt to yield from outside a coroutine`；其他不可 yield 的 C 边界仍保留 LuaJIT 现有错误路径。

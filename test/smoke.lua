@@ -3681,12 +3681,22 @@ do
   do
     local ok_close, err_close = pcall(coroutine.close, coroutine.running())
     assert(ok_close == false and err_close == "cannot close a running coroutine")
+    ok_close, err_close = pcall(function()
+      return coroutine.close(coroutine.running())
+    end)
+    assert(ok_close == false and err_close ~= "cannot close a running coroutine" and
+	   err_close:find(": cannot close a running coroutine", 1, true))
   end
   do
     local main = coroutine.running()
     local checker = coroutine.create(function()
       local ok_close, err_close = pcall(coroutine.close, main)
       assert(ok_close == false and err_close == "cannot close a normal coroutine")
+      ok_close, err_close = pcall(function()
+	return coroutine.close(main)
+      end)
+      assert(ok_close == false and err_close ~= "cannot close a normal coroutine" and
+	     err_close:find(": cannot close a normal coroutine", 1, true))
     end)
     assert(coroutine.resume(checker) == true)
   end
