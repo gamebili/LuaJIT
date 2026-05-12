@@ -149,6 +149,17 @@ int main(void)
 	"lua_setfenv thread environment");
   lua_pop(L, 3);
 
+  check(L, luaL_loadstring(L, "return marker") == LUA_OK,
+	"luaL_loadstring default API status");
+  lua_newtable(L);
+  lua_pushliteral(L, "lua-func-env");
+  lua_setfield(L, -2, "marker");
+  check(L, lua_setfenv(L, -2) == 1, "lua_setfenv Lua function");
+  lua_call(L, 0, 1);
+  check(L, strcmp(lua_tostring(L, -1), "lua-func-env") == 0,
+	"lua_getfenv Lua function environment");
+  lua_pop(L, 1);
+
   {
     const char marker[] = "cpcall";
     check(L, lua_cpcall(L, capi51_cpcall, (void *)marker) == LUA_OK,
@@ -167,6 +178,30 @@ int main(void)
     check(L, lua_tointeger(L, -1) == 42, "lua_loadx default API result");
     lua_pop(L, 1);
   }
+
+  lua_newtable(L);
+  lua_pushliteral(L, "ref-value");
+  {
+    int ref = luaL_ref(L, -2);
+    check(L, ref > 0, "luaL_ref default API ref");
+    lua_rawgeti(L, -1, ref);
+    check(L, strcmp(lua_tostring(L, -1), "ref-value") == 0,
+	  "luaL_ref default API value");
+    lua_pop(L, 1);
+    luaL_unref(L, -1, ref);
+    lua_rawgeti(L, -1, ref);
+    check(L, lua_isnil(L, -1), "luaL_unref default API clears value");
+    lua_pop(L, 1);
+    lua_rawgeti(L, -1, 0);
+    check(L, lua_tointeger(L, -1) == ref,
+	  "luaL_unref default API freelist key");
+    lua_pop(L, 1);
+  }
+  lua_pushnil(L);
+  check(L, luaL_ref(L, -2) == LUA_REFNIL, "luaL_ref default API nil");
+  luaL_unref(L, -1, LUA_NOREF);
+  luaL_unref(L, -1, LUA_REFNIL);
+  lua_pop(L, 1);
 
   luaL_register(L, "capi51", capi51_reg);
   lua_getfield(L, -1, "answer");
