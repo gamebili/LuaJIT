@@ -219,12 +219,17 @@ LUALIB_API void (luaL_setmetatable) (lua_State *L, const char *tname);
   luaL_checkversion_(L, LUA_VERSION_NUM, LUAL_NUMSIZES)
 
 #ifdef LUAJIT_ENABLE_LUA54COMPAT
-/* LuaJIT still typedefs lua_Integer as ptrdiff_t, while this compatibility
-** layer exposes the current 32 bit integer range. Cast through int so
-** luaL_intop() wraps on that public range instead of the host pointer width.
+#if !defined(LUA_CORE) && !defined(LUA_LIB) && !defined(LUAJIT_INTERNAL_USE)
+#define luaL_intop(op,v1,v2) \
+  ((lua_Integer)((lua_Unsigned)(v1) op (lua_Unsigned)(v2)))
+#else
+/* The core runtime still exposes the current 32 bit integer subtype. Cast
+** through int internally so luaL_intop() follows that range while the external
+** Lua 5.4 header ABI can use the full public lua_Integer width above.
 */
 #define luaL_intop(op,v1,v2) \
   ((lua_Integer)(int)((lua_Unsigned)(v1) op (lua_Unsigned)(v2)))
+#endif
 #endif
 
 /* From Lua 5.2. */

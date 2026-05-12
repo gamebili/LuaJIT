@@ -34,6 +34,12 @@ CAPI_STATIC_ASSERT(lua_unsigned_matches_public_type,
   sizeof(LUA_UNSIGNED) == sizeof(lua_Unsigned));
 CAPI_STATIC_ASSERT(lua_unsigned_matches_integer_width,
   sizeof(lua_Unsigned) == sizeof(lua_Integer));
+CAPI_STATIC_ASSERT(lua_maxinteger_matches_public_width,
+  sizeof(lua_Integer) <= sizeof(int) ||
+  LUA_MAXINTEGER > (lua_Integer)0x7fffffffu);
+CAPI_STATIC_ASSERT(lua_mininteger_matches_public_width,
+  sizeof(lua_Integer) <= sizeof(int) ||
+  LUA_MININTEGER < (lua_Integer)(-2147483647 - 1));
 #endif
 
 #ifdef LUA_GLOBALSINDEX
@@ -1790,6 +1796,16 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, lua_numbertointeger((lua_Number)1.5, &iv) && iv == 1,
 	"Lua 5.4 lua_numbertointeger truncates in-range fractions");
   iv = 0;
+  if (sizeof(lua_Integer) > sizeof(int)) {
+    check(L, LUA_MAXINTEGER > (lua_Integer)0x7fffffffu,
+	  "LUA_MAXINTEGER follows external lua_Integer width");
+    check(L, LUA_MININTEGER < (lua_Integer)(-2147483647 - 1),
+	  "LUA_MININTEGER follows external lua_Integer width");
+    check(L, lua_numbertointeger((lua_Number)2147483648.0, &iv) &&
+	     iv == (lua_Integer)((lua_Unsigned)0x7fffffffu + 1u),
+	  "lua_numbertointeger accepts external 64-bit header range");
+    iv = 0;
+  }
   check(L, !lua_numbertointeger((lua_Number)LUA_MAXINTEGER + 1.0, &iv),
 	"lua_numbertointeger rejects upper exclusive bound");
   {
