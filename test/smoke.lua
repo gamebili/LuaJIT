@@ -4645,6 +4645,17 @@ do
       return bad_reader() or "return "
     end)
     assert(f == nil and err:find(": reader function must return a string", 1, true))
+    do
+      local nread = 0
+      f, err = load(function()
+	nread = nread + 1
+	if nread == 1 then return "return " end
+	return true
+      end)
+      assert(f == nil and
+	     err:find(": reader function must return a string", 1, true) and
+	     not err:find("concatenate", 1, true))
+    end
     local ok, wrapped_f, wrapped_err = pcall(function()
       return load(once(true))
     end)

@@ -932,11 +932,56 @@ LJLIB_CF(loadfile)
   return load_aux(L, status, 3, hasenv);
 }
 
+#if LJ_54
+typedef struct LoadReaderCtx {
+  MSize func;
+  MSize chunk;
+  MSize where;
+} LoadReaderCtx;
+#endif
+
 static const char *reader_func(lua_State *L, void *ud, size_t *size)
 {
+#if LJ_54
+  LoadReaderCtx *ctx = (LoadReaderCtx *)ud;
+#endif
   luaL_checkstack(L, 2, "too many nested functions");
+#if LJ_54
+  if (ctx != NULL)
+    copyTV(L, L->top++, tvref(L->stack) + ctx->func);
+  else
+#endif
   copyTV(L, L->top++, L->base);
   lua_call(L, 0, 1);  /* Call user-supplied function. */
+#if LJ_54
+  if (ctx != NULL) {
+    TValue *o = L->top-1;
+    if (tvisnil(o)) {
+      L->top--;
+      *size = 0;
+      return NULL;
+    } else if (tvisstr(o) || tvisnumber(o)) {
+      GCstr *s;
+      if (tvisstr(o)) {
+	s = strV(o);
+      } else {
+	s = lj_strfmt_number(L, o);
+      }
+      setstrV(L, tvref(L->stack) + ctx->chunk, s);
+      L->top--;
+      *size = s->len;
+      return strdata(s);
+    } else {
+      TValue *where = tvref(L->stack) + ctx->where;
+      if (tvisstr(where)) {
+	lj_strfmt_pushf(L, "%s%s", strVdata(where), err2msg(LJ_ERR_RDRSTR));
+	lua_error(L);
+      }
+      lj_err_caller(L, LJ_ERR_RDRSTR);
+      return NULL;
+    }
+  }
+#endif
   L->top--;
   if (tvisnil(L->top)) {
     *size = 0;
@@ -999,8 +1044,16 @@ LJLIB_CF(load)
     luaL_where(L, 1);
     copyTV(L, L->base+5, L->top-1);
     L->top--;
-    status = lua_loadx(L, reader_func, (void *)L, name ? strdata(name) : "=(load)",
+    {
+      LoadReaderCtx ctx;
+      TValue *stack = tvref(L->stack);
+      ctx.func = (MSize)(L->base - stack);
+      ctx.chunk = ctx.func + 4;
+      ctx.where = ctx.func + 5;
+      status = lua_loadx(L, reader_func, (void *)&ctx,
+		       name ? strdata(name) : "=(load)",
 		       mode ? strdata(mode) : NULL);
+    }
 #else
     lua_settop(L, 5);  /* Reserve a slot for the string from the reader. */
     status = lua_loadx(L, reader_func, NULL, name ? strdata(name) : "=(load)",
