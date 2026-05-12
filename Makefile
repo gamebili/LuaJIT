@@ -324,6 +324,7 @@ smoketest-capi-default: smoketest
 test:
 	$(MAKE) smoketest-capi-default
 	$(MAKE) smoketest-capi-lua54compat
+	$(MAKE) smoketest-lua54compat-nogc64
 	$(MAKE) smoketest-perf-lua54compat
 
 .PHONY: all install amalg clean smoketest smoketest-lua54compat smoketest-lua54compat-nogc64 run-official-lua54compat smoketest-official-lua54compat smoketest-capi-default smoketest-capi-lua54compat smoketest-perf-lua54compat test

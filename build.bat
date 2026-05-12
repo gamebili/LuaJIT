@@ -131,7 +131,7 @@ echo Usage: build.bat [target or make args]
 echo.
 echo Common targets:
 echo   build       Build LuaJIT only.
-echo   test        Run default and Lua 5.4 C API smoke tests. This is default.
+echo   test        Run default, Lua 5.4 and non-GC64 smoke tests. This is default.
 echo   default     Run the default compatibility smoke and C API smoke.
 echo   lua54       Run the Lua 5.4 compatibility smoke and C API smoke.
 echo   lua54nogc64 Run the Lua 5.4 x64 non-GC64 JIT smoke.
@@ -238,6 +238,8 @@ call :SET_REST %*
 call :RUN smoketest-capi-default%REST_ARGS%
 if errorlevel 1 exit /b !ERRORLEVEL!
 call :RUN smoketest-capi-lua54compat%REST_ARGS%
+if errorlevel 1 exit /b !ERRORLEVEL!
+call :RUN smoketest-lua54compat-nogc64%REST_ARGS%
 if errorlevel 1 exit /b !ERRORLEVEL!
 call :RUN smoketest-perf-lua54compat%REST_ARGS%
 exit /b !ERRORLEVEL!
