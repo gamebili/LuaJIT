@@ -217,6 +217,45 @@ do
   ok, err = pcall(iter, state, key)
   assert(ok == false and err:match("to 'next'") ~= nil)
   do
+    local function check_pairs_iter_name(name, fn)
+      local ok, err = pcall(fn)
+      assert(ok == false and
+	     tostring(err):find("bad argument #1 to '"..name.."'", 1, true))
+    end
+    check_pairs_iter_name("iter", function()
+      local iter, state, key = pairs(nil)
+      return iter(state, key)
+    end)
+    check_pairs_iter_name("iter", function()
+      local p = pairs
+      local iter, state, key = p(nil)
+      return iter(state, key)
+    end)
+    do
+      local p = pairs
+      check_pairs_iter_name("iter", function()
+	local iter, state, key = p(nil)
+	return iter(state, key)
+      end)
+    end
+    check_pairs_iter_name("f", function()
+      local iter, state, key = pairs(nil)
+      local f = iter
+      return f(state, key)
+    end)
+    lua54_pairs_iter = nil
+    check_pairs_iter_name("lua54_pairs_iter", function()
+      lua54_pairs_iter = pairs(nil)
+      return lua54_pairs_iter(nil, nil)
+    end)
+    lua54_pairs_iter = nil
+    check_pairs_iter_name("iter", function()
+      local holder = {}
+      holder.iter = pairs(nil)
+      return holder.iter(nil, nil)
+    end)
+  end
+  do
     local t = setmetatable({ 10, 20, 30 }, { __pairs = function(obj)
       local inc = coroutine.yield("lua54-pairs-yield")
       return function(state, i)
@@ -4763,6 +4802,16 @@ assert(assert(load([[
 					    1, true) and
 	   tostring(err):find("string expected, got table", 1, true))
     bad_closing:close()
+    do
+      local lines = io.lines
+      local it_alias, _, _, closing_alias = lines(fname, {})
+      ok, err = pcall(function() return it_alias() end)
+      assert(ok == false and
+	     tostring(err):find("bad argument #2 to 'it_alias'",
+				1, true) and
+	     tostring(err):find("string expected, got table", 1, true))
+      closing_alias:close()
+    end
     do
       local iter2, _, _, closing2 = io.lines(fname, {})
       local it2 = iter2
