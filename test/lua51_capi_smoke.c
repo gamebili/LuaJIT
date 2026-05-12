@@ -7,6 +7,7 @@
 
 #include "lua.h"
 #include "lauxlib.h"
+#include "lualib.h"
 
 #ifdef LUAJIT_ENABLE_LUA54COMPAT
 #error "default C API smoke must not be compiled with Lua 5.4 compatibility"
@@ -256,6 +257,10 @@ int main(void)
 
   luaL_pushmodule(L, "capi51.push", 1);
   check(L, lua_istable(L, -1), "luaL_pushmodule default API");
+  lua_pop(L, 1);
+
+  luaopen_string_buffer(L);
+  check(L, lua_istable(L, -1), "luaopen_string_buffer default API");
   lua_pop(L, 1);
 
   check(L, luaL_findtable(L, LUA_REGISTRYINDEX, "__lua51.findtable", 1) == NULL,
