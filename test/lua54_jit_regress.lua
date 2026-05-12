@@ -2310,6 +2310,64 @@ do
   end, "Lua 5.4 table.sort proxy")
 end
 
+do
+  local slots = {}
+  local oldmt = debug.getmetatable(0)
+  debug.setmetatable(0, {
+    __len = function(self)
+      return #slots[self]
+    end,
+    __index = function(self, k)
+      return slots[self][k]
+    end,
+    __newindex = function(self, k, v)
+      slots[self][k] = v
+    end,
+  })
+  assert_records_trace(function()
+    local n = 0
+    for _ = 1, 80 do
+      slots[0] = { "a", "b" }
+      if table.concat(0, ",") == "a,b" then n = n + 1 end
+
+      slots[0] = { "b", "c" }
+      table.insert(0, 1, "a")
+      if slots[0][1] == "a" and slots[0][3] == "c" then n = n + 1 end
+      if table.remove(0, 2) == "b" and slots[0][2] == "c" then n = n + 1 end
+
+      slots[0] = { 3, 1, 2 }
+      table.sort(0)
+      if slots[0][1] == 1 and slots[0][3] == 3 then n = n + 1 end
+    end
+    assert(n == 80 * 4)
+  end, "Lua 5.4 table helpers non-table proxy")
+  debug.setmetatable(0, oldmt)
+
+  slots = {}
+  oldmt = debug.getmetatable(0)
+  debug.setmetatable(0, {
+    __index = function(self, k)
+      return slots[self][k]
+    end,
+    __newindex = function(self, k, v)
+      slots[self][k] = v
+    end,
+  })
+  assert_records_trace(function()
+    local n = 0
+    for _ = 1, 80 do
+      slots[0] = { "x", "y" }
+      slots[1] = {}
+      local target = table.move(0, 1, 2, 3, 1)
+      if target == 1 and slots[1][3] == "x" and slots[1][4] == "y" then
+	n = n + 1
+      end
+    end
+    assert(n == 80)
+  end, "Lua 5.4 table.move non-table proxy")
+  debug.setmetatable(0, oldmt)
+end
+
 jitmod.flush()
 jitmod.on()
 jit.opt.start("hotloop=1", "hotexit=1")

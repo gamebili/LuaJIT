@@ -1168,6 +1168,19 @@ local function table_sort_helpers(n)
       proxy_base[k] = v
     end
   })
+  local number_slots = {}
+  local old_number_mt = debug.getmetatable(0)
+  debug.setmetatable(0, {
+    __len = function(self)
+      return #number_slots[self]
+    end,
+    __index = function(self, k)
+      return number_slots[self][k]
+    end,
+    __newindex = function(self, k, v)
+      number_slots[self][k] = v
+    end,
+  })
   for _ = 1, n do
     nums[1], nums[2], nums[3] = 3, 1, 2
     table.sort(nums)
@@ -1182,7 +1195,28 @@ local function table_sort_helpers(n)
     proxy_base[1], proxy_base[2], proxy_base[3] = 3, 2, 1
     table.sort(proxy)
     sum = sum + proxy_base[1] * 100 + proxy_base[2] * 10 + proxy_base[3]
+
+    number_slots[0] = { "a", "b" }
+    if table.concat(0, ",") == "a,b" then sum = sum + 1 end
+    number_slots[0] = { "b", "c" }
+    table.insert(0, 1, "a")
+    if number_slots[0][1] == "a" and number_slots[0][3] == "c" then
+      sum = sum + 1
+    end
+    if table.remove(0, 2) == "b" and number_slots[0][2] == "c" then
+      sum = sum + 1
+    end
+    number_slots[0] = { 3, 1, 2 }
+    table.sort(0)
+    sum = sum + number_slots[0][1] * 100 +
+		number_slots[0][2] * 10 + number_slots[0][3]
+    number_slots[0] = { "x", "y" }
+    number_slots[1] = {}
+    if table.move(0, 1, 2, 3, 1) == 1 and number_slots[1][4] == "y" then
+      sum = sum + 1
+    end
   end
+  debug.setmetatable(0, old_number_mt)
   return sum
 end
 
@@ -1356,7 +1390,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_sort = timeit(mode_name..":table_sort_helpers",
 			   table_sort_helpers, sort_n)
-  assert(r_sort == sort_n * 252)
+  assert(r_sort == sort_n * 379)
 
   assert(timeit(mode_name..":hook_churn", hook_churn, hook_n))
 end

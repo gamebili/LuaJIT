@@ -508,6 +508,7 @@
   - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 `coroutine.status(nil)` / `coroutine.isyieldable(nil)` / `coroutine.create(nil)` / `coroutine.wrap(nil)` 的 tail-position 源码调用点名纳入 JIT on/off 覆盖，固定这类 wrapper 错误不能退回 `coroutine.xxx` fallback 名。
   - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把字符串库方法语法 tail-position 诊断纳入 JIT on/off 覆盖，固定 `s:byte({})` / `s:find({})` 必须保留短方法名 `byte` / `find` 和公开参数 `#1`。
   - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 `pairs(nil)` 返回的 iterator 在 direct/local/upvalue/global/table-field alias 后的 tail-position 调用点名纳入 JIT on/off 覆盖，固定这类后续 `next()` 参数错误不能退回 `next` fallback 名。
+  - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 table 库非 table 代理对象纳入热路径覆盖，固定 `table.concat` / `insert` / `remove` / `sort` 和无 `__len` 的 `table.move` 不能退回旧 raw table 假设。
   - 剩余边界：`io.lines` iterator 或标准库 C 函数经过当前解析路径可静态定位的 table 字段 alias、global table alias、table-field table alias 链、静态 table 构造器字段 alias 和 RHS table-field alias 后再 tail-position 调用时已可保留字段名；复杂 table 重赋值、构造器内动态 key、跨 chunk/module 的运行期全局赋值或其它动态传播后再 tail-position 调用时，调用点名传播仍需归入更通用的 debug frame metadata / notail 标记传播批次处理。
   - 需要补测试：继续扩展到更多 Lua 5.4 helper 路径，并在 unsupported trace 路径上补退出或 recorder。
 
