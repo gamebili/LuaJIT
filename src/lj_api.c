@@ -149,6 +149,16 @@ LUA_API int lua_status(lua_State *L)
   return L->status;
 }
 
+LUA_API void lua_setlevel(lua_State *from, lua_State *to)
+{
+  /* Lua 5.1 kept this exported as a debug-library compatibility hook. LuaJIT
+  ** does not expose Lua's old C-call depth counter, but default ABI users still
+  ** need the symbol to link.
+  */
+  UNUSED(from);
+  UNUSED(to);
+}
+
 LUA_API int lua_checkstack(lua_State *L, int size)
 {
   if (size > LUAI_MAXCSTACK || (L->top - L->base + size) > LUAI_MAXCSTACK) {

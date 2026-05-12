@@ -132,6 +132,7 @@ int main(void)
   check(L, lua_istable(L, -1), "lua_getregistry default macro");
   lua_pop(L, 1);
   check(L, lua_getgccount(L) >= 0, "lua_getgccount default macro");
+  lua_setlevel(L, L);
 
   lua_pushthread(L);
   lua_getfenv(L, -1);
