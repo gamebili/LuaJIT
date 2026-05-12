@@ -241,9 +241,10 @@ static MMS mmcall_frame_mm(lua_State *L, TValue *func)
   pc = frame_contpc(func);
 #endif
   if (cont == lj_cont_ra || cont == lj_cont_nop ||
-      cont == lj_cont_condt || cont == lj_cont_condf) {
+      cont == lj_cont_condt || cont == lj_cont_condf ||
+      cont == lj_cont_cat) {
     mm = mmcall_bc_mm(bc_op(*pc));
-    if (mm == MM____ && (cont == lj_cont_condt || cont == lj_cont_condf))
+    if (mm == MM____)
       mm = mmcall_bc_mm(bc_op(pc[-1]));
     return mm;
   }

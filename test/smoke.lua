@@ -1722,6 +1722,23 @@ do
     assert((with_le <= with_le) == true)
   end
   do
+    local badcall = setmetatable({}, { __call = true })
+    local function check(name, fn)
+      local ok, err = pcall(fn)
+      assert(ok == false and
+             err:match("attempt to call a boolean value", 1, true) and
+             err:match("metamethod '"..name.."'", 1, true))
+    end
+    check("add", function() return setmetatable({}, { __add = badcall }) + 1 end)
+    check("unm", function() return -setmetatable({}, { __unm = badcall }) end)
+    check("len", function() return #setmetatable({}, { __len = badcall }) end)
+    check("lt", function() return setmetatable({}, { __lt = badcall }) < {} end)
+    check("le", function() return setmetatable({}, { __le = badcall }) <= {} end)
+    check("concat", function()
+      return setmetatable({}, { __concat = badcall }) .. "x"
+    end)
+  end
+  do
     local log = {}
     local left_mt = {
       __eq = function(a, b)
