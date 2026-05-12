@@ -2023,20 +2023,22 @@ do
   end
   do
     local badcall = setmetatable({}, { __call = true })
-    local function check(name, fn)
-      local ok, err = pcall(fn)
+    _G.__lua54_badcall = badcall
+    local function check(name, src)
+      local ok, err = pcall(assert(load(src)))
       assert(ok == false and
              err:match("attempt to call a boolean value", 1, true) and
              err:match("metamethod '"..name.."'", 1, true))
     end
-    check("idiv", function() return setmetatable({}, { __idiv = badcall }) // 1 end)
-    check("mod", function() return setmetatable({}, { __mod = badcall }) % 1 end)
-    check("band", function() return setmetatable({}, { __band = badcall }) & 1 end)
-    check("bor", function() return setmetatable({}, { __bor = badcall }) | 1 end)
-    check("bxor", function() return setmetatable({}, { __bxor = badcall }) ~ 1 end)
-    check("bnot", function() return ~setmetatable({}, { __bnot = badcall }) end)
-    check("shl", function() return setmetatable({}, { __shl = badcall }) << 1 end)
-    check("shr", function() return setmetatable({}, { __shr = badcall }) >> 1 end)
+    check("idiv", "return setmetatable({}, { __idiv = __lua54_badcall }) // 1")
+    check("mod", "return setmetatable({}, { __mod = __lua54_badcall }) % 1")
+    check("band", "return setmetatable({}, { __band = __lua54_badcall }) & 1")
+    check("bor", "return setmetatable({}, { __bor = __lua54_badcall }) | 1")
+    check("bxor", "return setmetatable({}, { __bxor = __lua54_badcall }) ~ 1")
+    check("bnot", "return ~setmetatable({}, { __bnot = __lua54_badcall })")
+    check("shl", "return setmetatable({}, { __shl = __lua54_badcall }) << 1")
+    check("shr", "return setmetatable({}, { __shr = __lua54_badcall }) >> 1")
+    _G.__lua54_badcall = nil
   end
 end
 do

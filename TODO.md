@@ -511,6 +511,7 @@
 
 ## 当前验证结果
 
+- `cmd /c build.bat test` 已通过，覆盖默认构建 smoke/C API/C++ `lua.hpp` gate、Lua 5.4 compat smoke/C API/C++ `lua.hpp` gate、官方 Lua 5.4.8 可执行矩阵、VM 后端静态/DynASM 门禁，以及 Lua 5.4 perf/memory smoke；本轮同时固定 Lua 5.4 专用 bitwise/idiv metamethod bad-call smoke 必须通过 `load()` 字符串承载，避免默认构建在执行开头兼容性检查前解析失败。
 - `cmd /c build.bat default` 已通过，覆盖默认 LuaJIT smoke、默认 C++ `lua.hpp` gate，以及新增默认 C API 旧 ABI 覆盖。
 - `cmd /c build.bat smoke54` 已通过，确认 Lua 5.4 IO mode smoke 不再留下 `lua54_valid_open_mode.tmp`，且 `make clean` 会兜底清理旧版本残留的 Lua54 IO 临时文件。
 - `cmd /c build.bat lua54compat53` 已通过，覆盖 `LUA_COMPAT_5_3` runtime 构建下的 deprecated math library 兼容入口和 `LUA_COMPAT_LT_LE` 的 `__le`/`__lt` fallback；随后 `cmd /c build.bat lua54` 已通过，确认默认 Lua 5.4 compat 仍隐藏这些旧入口、禁用旧比较 fallback，并通过 C API/官方矩阵。
