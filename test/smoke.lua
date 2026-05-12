@@ -321,6 +321,42 @@ do
   assert(callable() == 54)
 end
 do
+  local function check(name, fn)
+    local ok, err = pcall(fn)
+    assert(ok == false and
+           err:match("attempt to call a boolean value", 1, true) and
+           err:match(name, 1, true))
+  end
+  check("local 'f'", function()
+    local f = setmetatable({}, { __call = true })
+    return f()
+  end)
+  check("local 'g'", function()
+    local f = setmetatable({}, { __call = true })
+    local g = f
+    return g()
+  end)
+  check("field 'f'", function()
+    local t = { f = setmetatable({}, { __call = true }) }
+    return t.f()
+  end)
+  check("local 'f'", function()
+    local f = setmetatable({}, {
+      __call = setmetatable({}, { __call = true }),
+    })
+    return f()
+  end)
+  do
+    local f = setmetatable({}, { __call = true })
+    local ok, err = pcall(f)
+    assert(ok == false and
+           err:match("attempt to call a boolean value", 1, true))
+    ok, err = xpcall(f, function(e) return tostring(e) end)
+    assert(ok == false and
+           err:match("attempt to call a boolean value", 1, true))
+  end
+end
+do
   local n = 10000
   local callable
   callable = function()

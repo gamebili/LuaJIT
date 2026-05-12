@@ -198,6 +198,28 @@ static void mmcall_error_current(lua_State *L, cTValue *mo, MMS mm)
   lj_err_run(L);
 }
 
+static void mmcall_call_error(lua_State *L, cTValue *bad, TValue *func)
+{
+  MSize tlen;
+  const char *tname = lj_meta_objtypename(L, bad, &tlen);
+  UNUSED(tlen);
+  if (curr_funcisL(L)) {
+    GCproto *pt = curr_proto(L);
+    const BCIns *pc = cframe_Lpc(L) - 1;
+    const char *oname = NULL;
+    const char *kind = lj_debug_slotname(pt, pc, (BCReg)(func-L->base),
+					 &oname);
+    const char *msg = kind ?
+      lj_strfmt_pushf(L, "attempt to call a %s value (%s '%s')",
+		      tname, kind, oname) :
+      lj_strfmt_pushf(L, "attempt to call a %s value", tname);
+    lj_debug_addloc(L, msg, L->base-1, NULL);
+    lj_err_run(L);
+  }
+  copyTV(L, func, bad);
+  lj_err_optype_call(L, func);
+}
+
 static TValue *mmcall_check(lua_State *L, ASMFunction cont, cTValue *mo,
 			    cTValue *a, cTValue *b, MMS mm)
 {
@@ -750,6 +772,8 @@ int lj_meta_call(lua_State *L, TValue *func, TValue *top)
       MMS mm = mmcall_frame_mm(L, func);
       if (mm != MM____)
 	mmcall_error_current(L, badfunc, mm);
+      if (badfunc != func)
+	mmcall_call_error(L, badfunc, func);
 #endif
       lj_err_optype_call(L, func);
     }
