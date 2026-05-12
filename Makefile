@@ -248,6 +248,7 @@ smoketest-lua54compat-nogc64:
 	$(MAKE) clean
 	$(MAKE) XCFLAGS='-DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2 -DLUAJIT_DISABLE_GC64'
 	./src/luajit -e 'assert(_VERSION == "Lua 5.4"); assert(require("jit").lua54compat == true)'
+	LUA_PATH_5_4='./src/?.lua;./src/?/init.lua;;' ./src/luajit test/smoke.lua lua54compat
 	LUA_PATH_5_4='./src/?.lua;./src/?/init.lua;;' ./src/luajit test/lua54_jit_regress.lua
 
 run-official-lua54compat:

@@ -497,6 +497,16 @@ static void build_subroutines(BuildCtx *ctx)
   |
   |  // Return from pcall or xpcall fast func.
   |  and PC, -8
+#if LJ_54
+  |  // pcall/xpcall synthesize a C return after the protected Lua frame is
+  |  // gone. Preserve the first public result slot for the return hook before
+  |  // PC is replaced by the caller PC.
+  |  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], 1
+  |  cmp PC, 8
+  |  je >8
+  |  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], 3
+  |8:
+#endif
   |  sub BASE, PC			// Restore caller base.
   |  lea RAa, [RA+PC-8]			// Rebase RA and prepend one result.
   |  mov PC, [BASE-4]			// Fetch PC of previous frame.
@@ -542,9 +552,74 @@ static void build_subroutines(BuildCtx *ctx)
   |  shl KBASE, 3
   |  sub KBASE, 8
   |  sub RA, KBASE			// RA = result offset.
+  |  mov RD, RA
+  |  sar RD, 3
+  |  add RD, 1
+  |  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], RDW
+  |  mov RD, MULTRES
   |.endif
 #endif
   |->vm_returnc_closed:
+#if LJ_54
+  |  test PC, FRAME_TYPE
+  |  jnz >9
+  |  test byte [DISPATCH+DISPATCH_GL(hookmask)], LUA_MASKRET
+  |  jz ->BC_RET_Z			// Handle regular return to Lua.
+  |  // C return hooks need the result range before results are moved down.
+  |  // Recompute RA/RD afterwards because the hook is a regular C call.
+  |  mov L:RB, SAVE_L
+  |  // The hook can inspect the returning C frame and call back into Lua. Keep
+  |  // the public stack window consistent before entering it; protected-call
+  |  // returns otherwise still point L->base at the unwound inner frame.
+  |  mov L:RB->base, BASE
+  |  mov RD, MULTRES
+  |  mov KBASE, RD
+  |  shl KBASE, 3
+  |  sub KBASE, 8
+  |  add KBASE, RA
+  |  add KBASE, BASE
+  |  mov L:RB->top, KBASE
+  |  mov TMP1, RA
+  |.if X64
+  |  mov CARG3d, RD
+  |  sub CARG3d, 1			// CARG3 = nresults.
+  |  xor CARG2d, CARG2d
+  |  test CARG3d, CARG3d
+  |  jz >8
+  |  movzx CARG2d, word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)]
+  |8:
+  |  mov CARG1d, L:RB
+  |  call extern lj_dispatch_ceret
+  |.else
+  |  mov ARG3, RD
+  |  sub ARG3, 1			// ARG3 = nresults.
+  |  xor FCARG2, FCARG2
+  |  cmp ARG3, 0
+  |  jz >8
+  |  movzx FCARG2, word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)]
+  |8:
+  |  mov FCARG1, L:RB
+  |  call extern lj_dispatch_ceret@12
+  |.endif
+  |  mov RD, eax			// RD = nresults+1.
+  |  mov BASE, L:RB->base
+  |  mov PC, [BASE-4]			// Hook may have called back into Lua.
+  |  mov MULTRES, RD
+  |  cmp TMP1, -8
+  |  jne >7
+  |  mov RA, TMP1
+  |  jmp >8
+  |7:
+  |  mov RA, L:RB->top
+  |  sub RA, BASE
+  |  mov KBASE, RD
+  |  shl KBASE, 3
+  |  sub KBASE, 8
+  |  sub RA, KBASE			// RA = result offset.
+  |8:
+  |  jmp ->BC_RET_Z
+  |9:
+#endif
   |  test PC, FRAME_TYPE
   |  jz ->BC_RET_Z			// Handle regular return to Lua.
   |
@@ -681,7 +756,6 @@ static void build_subroutines(BuildCtx *ctx)
   |  mov PC, [BASE-4]			// Fetch PC of previous frame.
   |  set_vmstate INTERP
 #if LJ_54
-  |.if not X64
   |  cmp aword L:RB->closelist, 0
   |  je >8
   |  cmp byte L:RB->close_defer, 0
@@ -696,7 +770,11 @@ static void build_subroutines(BuildCtx *ctx)
   |  // Error-unwind close calls must be yieldable for Lua callers. Prepare
   |  // pcall(__close, value, err) and resume through LJ_CONT_CLOSE.
   |  mov KBASE, PC
+  |.if X64
+  |  mov CARG1d, L:RB
+  |.else
   |  mov ARG1, L:RB
+  |.endif
   |  call extern lj_close_prepare_pcall
   |  mov RA, RC
   |  mov RD, 1+1
@@ -712,7 +790,11 @@ static void build_subroutines(BuildCtx *ctx)
   |  // Non-Lua callers cannot resume through a normal continuation frame; keep
   |  // the old non-yieldable bridge for shapes such as coroutine.create(pcall).
   |  mov KBASE, PC
+  |.if X64
+  |  mov CARG1d, L:RB
+  |.else
   |  mov ARG1, L:RB
+  |.endif
   |  call extern lj_close_unwind_pcall
   |  mov RD, 1+1
   |  mov L:RB, SAVE_L
@@ -721,14 +803,52 @@ static void build_subroutines(BuildCtx *ctx)
   |  mov DISPATCH, L:RB->glref
   |  add DISPATCH, GG_G2DISP
   |8:
-  |.endif
 #endif
   |->vm_unwind_ff_closed:
+#if LJ_54
+  |  mov L:RB, SAVE_L
+  |  mov dword L:RB->tailcall_ci, 0
+  |  mov dword L:RB->tailcall_ci2, 0
+  |  test byte [DISPATCH+DISPATCH_GL(hookmask)], LUA_MASKRET
+  |  jz >7
+  |  // The pcall frame is still intact here. Fire the synthetic C return hook
+  |  // before false+error overwrite the function/PC slots below.
+  |  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], 3
+  |  mov CFUNC:RB, [BASE-8]
+  |  cmp byte CFUNC:RB->ffid, FF_xpcall_N
+  |  jne >6
+  |  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], 5
+  |6:
+  |  mov L:RB, SAVE_L
+  |  mov L:RB->base, BASE
+  |.if X64
+  |  movzx CARG2d, word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)]
+  |  mov CARG3d, 2
+  |  mov CARG1d, L:RB
+  |  call extern lj_dispatch_ceret
+  |.else
+  |  movzx FCARG2, word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)]
+  |  mov ARG3, 2
+  |  mov FCARG1, L:RB
+  |  call extern lj_dispatch_ceret@12
+  |.endif
+  |  mov BASE, L:RB->base
+  |7:
+  |  mov RAa, -8			// Results start at BASE+RA = BASE-8.
+  |  mov PC, [BASE-4]
+  |  mov dword [BASE-4], LJ_TFALSE	// Prepend false to error message.
+  |  mov RD, 1+1
+  |  add RD, 1				// false + error, already adjusted.
+  |  mov MULTRES, RD
+  |  test PC, FRAME_TYPE
+  |  jnz ->vm_return
+  |  jmp ->BC_RET_Z
+#else
   |  mov dword [BASE-4], LJ_TFALSE	// Prepend false to error message.
   |  jmp ->vm_returnc			// Increments RD/MULTRES and returns.
+#endif
 
 #if LJ_54
-  |.if not X64
   |->vm_call_close:
   |  mov [RA-12], PC			// [cont|PC]
   |  lea PC, [RA+FRAME_CONT]
@@ -738,7 +858,6 @@ static void build_subroutines(BuildCtx *ctx)
   |  mov L:KBASE, SAVE_L
   |  mov L:KBASE->base, RA
   |  jmp ->vm_call_dispatch_f
-  |.endif
 #endif
   |
   |.if WIN and not X64
@@ -959,6 +1078,12 @@ static void build_subroutines(BuildCtx *ctx)
   |  mov PC, [RB-12]			// Restore PC from [cont|PC].
   |.if X64
   |  movsxd RAa, dword [RB-16]		// May be negative on WIN64 with debug.
+#if LJ_54
+  |  cmp RA, LJ_CONT_CLOSE
+  |  je ->cont_close
+  |  cmp RA, LJ_CONT_CLOSE_CFRAME
+  |  je ->cont_close_cframe
+#endif
   |.if FFI
   |  cmp RA, 1
   |  jbe >1
@@ -1183,8 +1308,16 @@ static void build_subroutines(BuildCtx *ctx)
   |  ins_next
   |
 #if LJ_54
-  |.if not X64
   |->cont_close:			// BASE = base, RB = close call base.
+  |.if X64
+  |  mov L:CARG1d, SAVE_L
+  |  mov L:CARG1d->base, BASE
+  |  mov CARG2d, RB
+  |  mov CARG3d, RC
+  |  mov CARG4d, MULTRES
+  |  mov KBASE, PC
+  |  call extern lj_close_continue_pcall
+  |.else
   |  mov ARG2, RB
   |  mov ARG3, RC
   |  mov KBASE, MULTRES
@@ -1194,6 +1327,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  mov ARG1, L:RB
   |  mov KBASE, PC
   |  call extern lj_close_continue_pcall
+  |.endif
   |  mov RA, RC
   |  mov L:RB, SAVE_L
   |  mov RD, 1+1
@@ -1206,6 +1340,15 @@ static void build_subroutines(BuildCtx *ctx)
   |  jmp ->vm_call_close
   |
   |->cont_close_cframe:		// BASE = base, RB = close call base.
+  |.if X64
+  |  mov L:CARG1d, SAVE_L
+  |  mov L:CARG1d->base, BASE
+  |  mov CARG2d, RB
+  |  mov CARG3d, RC
+  |  mov CARG4d, MULTRES
+  |  mov KBASE, PC
+  |  call extern lj_close_continue_cframe_pcall
+  |.else
   |  mov ARG2, RB
   |  mov ARG3, RC
   |  mov KBASE, MULTRES
@@ -1215,6 +1358,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  mov ARG1, L:RB
   |  mov KBASE, PC
   |  call extern lj_close_continue_cframe_pcall
+  |.endif
   |  mov RA, RC
   |  mov L:RB, SAVE_L
   |  mov BASE, L:RB->base
@@ -1232,8 +1376,12 @@ static void build_subroutines(BuildCtx *ctx)
   |  shl KBASE, 3
   |  sub KBASE, 8
   |  sub RA, KBASE			// RA = result offset.
+  |  mov RD, RA
+  |  sar RD, 3
+  |  add RD, 1
+  |  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], RDW
+  |  mov RD, MULTRES
   |  jmp ->vm_returnc_closed
-  |.endif
 #endif
   |
   |3:  // Call __newindex metamethod.
@@ -1515,8 +1663,16 @@ static void build_subroutines(BuildCtx *ctx)
   |  lea RA, [BASE+RA*8+8]
   |->vmeta_call:			// Resolve and call __call metamethod.
   |  // BASE = old base, RA = new base, RC = nargs+1, PC = return
-  |  mov TMP2, RA			// Save RA, RC for us.
-  |  mov TMP1, NARGS:RD
+  |  mov TMP1, NARGS:RD		// Save RC for us.
+  |  mov TMP2, 0
+  |.if X64
+  |  cmp KBASEa, rdx
+  |.else
+  |  cmp KBASE, BASE
+  |.endif
+  |  jne >1
+  |  mov TMP2, 1			// Preserve CALLT flag across stack growth.
+  |1:
   |  sub RA, 8
   |.if X64
   |  mov L:RB, SAVE_L
@@ -1536,7 +1692,18 @@ static void build_subroutines(BuildCtx *ctx)
   |  call extern lj_meta_call	// (lua_State *L, TValue *func, TValue *top)
   |  add TMP1, eax			// lj_meta_call may prepend a __call chain.
   |  mov BASE, L:RB->base
-  |  mov RA, TMP2
+  |  cmp TMP2, 0
+  |  je >1
+  |.if X64
+  |  mov KBASEa, rdx
+  |.else
+  |  mov KBASE, BASE
+  |.endif
+  |1:
+  |  mov NARGS:RD, TMP1
+  |  mov RA, L:RB->top
+  |  lea RD, [NARGS:RD*8-8]
+  |  sub RA, RD
   |  mov NARGS:RD, TMP1
   |  mov LFUNC:RB, [RA-8]
   |  // This is fragile. L->base must not move, KBASE must always be defined.
@@ -1575,15 +1742,42 @@ static void build_subroutines(BuildCtx *ctx)
   |
   |.macro .ffunc, name
   |->ff_ .. name:
+#if LJ_54
+  |  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], RDW
+  |  mov CFUNC:RB, [BASE-8]
+  |.if X64
+  |  mov aword [DISPATCH+DISPATCH_GL(hook_cfunc)], RBa
+  |.else
+  |  mov [DISPATCH+DISPATCH_GL(hook_cfunc)], CFUNC:RB
+  |.endif
+#endif
   |.endmacro
   |
   |.macro .ffunc_1, name
   |->ff_ .. name:
+#if LJ_54
+  |  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], RDW
+  |  mov CFUNC:RB, [BASE-8]
+  |.if X64
+  |  mov aword [DISPATCH+DISPATCH_GL(hook_cfunc)], RBa
+  |.else
+  |  mov [DISPATCH+DISPATCH_GL(hook_cfunc)], CFUNC:RB
+  |.endif
+#endif
   |  cmp NARGS:RD, 1+1;  jb ->fff_fallback
   |.endmacro
   |
   |.macro .ffunc_2, name
   |->ff_ .. name:
+#if LJ_54
+  |  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], RDW
+  |  mov CFUNC:RB, [BASE-8]
+  |.if X64
+  |  mov aword [DISPATCH+DISPATCH_GL(hook_cfunc)], RBa
+  |.else
+  |  mov [DISPATCH+DISPATCH_GL(hook_cfunc)], CFUNC:RB
+  |.endif
+#endif
   |  cmp NARGS:RD, 2+1;  jb ->fff_fallback
   |.endmacro
   |
@@ -2244,6 +2438,42 @@ static void build_subroutines(BuildCtx *ctx)
   |->fff_res:
   |  mov MULTRES, RD
   |->fff_res_:
+#if LJ_54
+  |  test byte [DISPATCH+DISPATCH_GL(hookmask)], LUA_MASKRET
+  |  jz >4
+  |  test PC, FRAME_TYPE
+  |  jnz >4
+  |  mov SAVE_PC, PC
+  |  mov L:RB, SAVE_L
+  |  mov L:RB->base, BASE
+  |.if X64
+  |  mov CARG3d, RD
+  |  sub CARG3d, 1			// CARG3 = nresults.
+  |  xor CARG2d, CARG2d
+  |  test CARG3d, CARG3d
+  |  jz >3
+  |  movzx CARG2d, word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)]
+  |3:
+  |  mov CARG1d, L:RB
+  |  call extern lj_dispatch_fferet
+  |.else
+  |  mov FCARG2, RD
+  |  sub FCARG2, 1			// ARG3 = nresults.
+  |  mov ARG3, FCARG2
+  |  xor FCARG2, FCARG2
+  |  cmp ARG3, 0
+  |  jz >3
+  |  movzx FCARG2, word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)]
+  |3:
+  |  mov FCARG1, L:RB
+  |  call extern lj_dispatch_fferet@12
+  |.endif
+  |  mov RD, eax			// RD = nresults+1.
+  |  mov MULTRES, RD
+  |  mov BASE, L:RB->base
+  |  mov PC, SAVE_PC
+  |4:
+#endif
   |  test PC, FRAME_TYPE
   |  jnz >7
   |5:
@@ -3871,6 +4101,14 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
       |
       |  // Different tables or userdatas. Need to check __eq metamethod.
       |  // Field metatable must be at same offset for GCtab and GCudata!
+#if LJ_54
+      if (vk) {
+	|  xor RB, RB			// ne = 0
+      } else {
+	|  mov RB, 1			// ne = 1
+      }
+      |  jmp ->vmeta_equal		// Lua 5.4 checks either side's __eq.
+#else
       |  mov TAB:RB, TAB:RA->metatable
       |  test TAB:RB, TAB:RB
       |  jz <2				// No metatable?
@@ -3882,6 +4120,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
 	|  mov RB, 1			// ne = 1
       }
       |  jmp ->vmeta_equal		// Handle __eq metamethod.
+#endif
     } else {
       |.if FFI
       |3:
@@ -5089,6 +5328,27 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  mov LFUNC:RB, [BASE-8]
     |3:
     |  mov NARGS:RD, MULTRES
+#if LJ_54
+    |  cmp byte LFUNC:RB->ffid, FF_LUA
+    |  jne >9
+    |  // BC_CALLT replaces the caller frame with the callee. Preserve that
+    |  // fact out-of-band for Lua 5.4 debug.getinfo(..., "t") and tail hooks.
+    |  mov L:RA, SAVE_L
+    |  mov KBASE, BASE
+    |  sub KBASE, L:RA->stack
+    |  sar KBASE, 3
+    |  sub KBASE, 1
+    |  mov NARGS:RD, dword L:RA->tailcall_ci
+    |  test NARGS:RD, NARGS:RD
+    |  jz >8
+    |  cmp NARGS:RD, KBASE
+    |  je >8
+    |  mov dword L:RA->tailcall_ci2, NARGS:RD
+    |8:
+    |  mov dword L:RA->tailcall_ci, KBASE
+    |  mov NARGS:RD, MULTRES
+    |9:
+#endif
     |  cmp byte LFUNC:RB->ffid, 1	// (> FF_C) Calling a fast function?
     |  ja >5
     |4:
@@ -5360,6 +5620,25 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
       |  shl RA, 3
     }
     |1:
+#if LJ_54
+    |  // Tail-called Lua frames reuse their caller frame. Clear the side
+    |  // marker when that frame really returns so later ordinary calls at the
+    |  // same stack offset are not reported as tail calls.
+    |  mov L:RB, SAVE_L
+    |  mov KBASE, BASE
+    |  sub KBASE, L:RB->stack
+    |  sar KBASE, 3
+    |  sub KBASE, 1
+    |  cmp dword L:RB->tailcall_ci, KBASE
+    |  jne >8
+    |  mov dword L:RB->tailcall_ci, 0
+    |  jmp >9
+    |8:
+    |  cmp dword L:RB->tailcall_ci2, KBASE
+    |  jne >9
+    |  mov dword L:RB->tailcall_ci2, 0
+    |9:
+#endif
     |  mov PC, [BASE-4]
     |  mov MULTRES, RD			// Save nresults+1.
     |  test PC, FRAME_TYPE		// Check frame type marker.
@@ -5781,6 +6060,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  mov CFUNC:RB, [BASE-8]
     |  mov KBASEa, CFUNC:RB->f
     |  mov L:RB, SAVE_L
+#if LJ_54
+    |  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], RDW
+#endif
     |  lea RD, [BASE+NARGS:RD*8-8]
     |  mov L:RB->base, BASE
     |  lea RA, [RD+8*LUA_MINSTACK]
@@ -5816,6 +6098,14 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  lea RA, [BASE+RD*8]
     |  neg RA
     |  add RA, L:RB->top		// RA = (L->top-(L->base+nresults))*8
+#if LJ_54
+    |  mov MULTRES, RD
+    |  mov RD, RA
+    |  sar RD, 3
+    |  add RD, 1
+    |  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], RDW
+    |  mov RD, MULTRES
+#endif
     |  mov PC, [BASE-4]			// Fetch PC of caller.
     |  jmp ->vm_returnc
     break;

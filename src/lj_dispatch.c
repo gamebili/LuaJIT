@@ -502,14 +502,19 @@ uint32_t LJ_FASTCALL lj_dispatch_fferet(lua_State *L, uint32_t ftransfer,
   uint32_t i, nres1;
   if (ntransfer == 0)
     ftransfer = 0;
-  pub = frame + ftransfer + LJ_FR2 - 1;
+  pub = frame + ftransfer;
   L->top = pub + ntransfer;
   lj_state_checkstack(L, LUA_MINSTACK);
   frame = L->base - 1;
   res = frame - LJ_FR2;
-  pub = frame + ftransfer + LJ_FR2 - 1;
-  for (i = 0; i < ntransfer; i++)
-    copyTV(L, pub + i, res + i);
+  pub = frame + ftransfer;
+  if (pub > res && pub < res + ntransfer) {
+    for (i = ntransfer; i > 0; i--)
+      copyTV(L, pub + i - 1, res + i - 1);
+  } else {
+    for (i = 0; i < ntransfer; i++)
+      copyTV(L, pub + i, res + i);
+  }
   if (fn)
     setfuncV(L, res, fn);
   setframe_pc(frame, pc);
@@ -517,7 +522,7 @@ uint32_t LJ_FASTCALL lj_dispatch_fferet(lua_State *L, uint32_t ftransfer,
   nres1 = lj_dispatch_ceret(L, ftransfer, ntransfer);
   frame = L->base - 1;
   res = frame - LJ_FR2;
-  pub = frame + ftransfer + LJ_FR2 - 1;
+  pub = frame + ftransfer;
   for (i = 0; i < ntransfer; i++)
     copyTV(L, res + i, pub + i);
   return nres1;

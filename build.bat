@@ -134,7 +134,7 @@ echo   build       Build LuaJIT only.
 echo   test        Run default, Lua 5.4 and non-GC64 smoke tests. This is default.
 echo   default     Run the default compatibility smoke and C API smoke.
 echo   lua54       Run the Lua 5.4 compatibility smoke and C API smoke.
-echo   lua54nogc64 Run the Lua 5.4 x64 non-GC64 JIT smoke.
+echo   lua54nogc64 Run the Lua 5.4 x64 non-GC64 full smoke and JIT smoke.
 echo   lua54compat53 Run the Lua 5.4 LUA_COMPAT_5_3 runtime smoke.
 echo   lua54perf   Run Lua 5.4 perf/memory smoke with fixed jit.opt profiles and JIT off.
 echo   official54  Run the current official Lua 5.4.8 compatibility matrix.
