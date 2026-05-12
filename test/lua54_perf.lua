@@ -1146,6 +1146,18 @@ local function utf8_helpers(n)
       if cp == 97 or cp == 0x200000 or cp == 122 then sum = sum + 1 end
     end
     if #utf8.char(97, 0x200000) == 6 then sum = sum + 1 end
+    if utf8_subject:match("^"..utf8.charpattern..utf8.charpattern..
+			  utf8.charpattern.."$") == utf8_subject then
+      sum = sum + 1
+    end
+    local seen = 0
+    for ch in utf8_subject:gmatch(utf8.charpattern) do
+      seen = seen + 1
+      if ch == "a" or ch == utf8_extended or ch == "z" then
+	sum = sum + 1
+      end
+    end
+    if seen == 3 then sum = sum + 1 end
     local len, badpos = utf8.len("\255")
     if len == nil and badpos == 1 then sum = sum + 1 end
   end
@@ -1400,7 +1412,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   assert(r_string == string_n * 205)
 
   local _, r_utf8 = timeit(mode_name..":utf8_helpers", utf8_helpers, utf8_n)
-  assert(r_utf8 == utf8_n * 8)
+  assert(r_utf8 == utf8_n * 13)
 
   local _, r_sort = timeit(mode_name..":table_sort_helpers",
 			   table_sort_helpers, sort_n)

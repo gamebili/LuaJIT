@@ -2089,8 +2089,18 @@ do
 	if cp == 97 or cp == 0x200000 or cp == 122 then n = n + 1 end
       end
       if #utf8.char(97, 0x200000) == 6 then n = n + 1 end
+      if subject:match("^"..utf8.charpattern..utf8.charpattern..
+		       utf8.charpattern.."$") == subject then
+	n = n + 1
+      end
+      local seen = 0
+      for ch in subject:gmatch(utf8.charpattern) do
+	seen = seen + 1
+	if ch == "a" or ch == extended or ch == "z" then n = n + 1 end
+      end
+      if seen == 3 then n = n + 1 end
     end
-    assert(n == 560)
+    assert(n == 960)
   end, "Lua 5.4 utf8 lax helpers")
 
   assert_records_trace(function()
