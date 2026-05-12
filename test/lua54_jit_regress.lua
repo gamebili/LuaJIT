@@ -2338,8 +2338,15 @@ do
       slots[0] = { 3, 1, 2 }
       table.sort(0)
       if slots[0][1] == 1 and slots[0][3] == 3 then n = n + 1 end
+
+      slots[0] = { "u", "v" }
+      local a, b = table.unpack(0)
+      if a == "u" and b == "v" then n = n + 1 end
+      slots[0] = { "x", nil, "z" }
+      local c, d, e = table.unpack(0, 1, 3)
+      if c == "x" and d == nil and e == "z" then n = n + 1 end
     end
-    assert(n == 80 * 4)
+    assert(n == 80 * 6)
   end, "Lua 5.4 table helpers non-table proxy")
   debug.setmetatable(0, oldmt)
 

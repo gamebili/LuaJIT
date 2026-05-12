@@ -1210,6 +1210,12 @@ local function table_sort_helpers(n)
     table.sort(0)
     sum = sum + number_slots[0][1] * 100 +
 		number_slots[0][2] * 10 + number_slots[0][3]
+    number_slots[0] = { "u", "v" }
+    local a, b = table.unpack(0)
+    if a == "u" and b == "v" then sum = sum + 1 end
+    number_slots[0] = { 10, nil, 30 }
+    local c, d, e = table.unpack(0, 1, 3)
+    if c == 10 and d == nil and e == 30 then sum = sum + 60 end
     number_slots[0] = { "x", "y" }
     number_slots[1] = {}
     if table.move(0, 1, 2, 3, 1) == 1 and number_slots[1][4] == "y" then
@@ -1390,7 +1396,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_sort = timeit(mode_name..":table_sort_helpers",
 			   table_sort_helpers, sort_n)
-  assert(r_sort == sort_n * 379)
+  assert(r_sort == sort_n * 440)
 
   assert(timeit(mode_name..":hook_churn", hook_churn, hook_n))
 end
