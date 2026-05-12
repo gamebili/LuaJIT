@@ -1516,6 +1516,18 @@ do
   end, "Lua 5.4 debug.upvalueid missing upvalue nil result")
 
   assert_records_trace(function()
+    local fn = function() end
+    local n = 0
+    for _ = 1, 80 do
+      if select("#", debug.setupvalue(fn, 1, "hidden")) == 0 and
+	 select("#", debug.setupvalue(print, 1, "hidden")) == 0 then
+	n = n + 1
+      end
+    end
+    assert(n == 80)
+  end, "Lua 5.4 debug.setupvalue missing upvalue no result")
+
+  assert_records_trace(function()
     local n = 0
     for _ = 1, 80 do
       if select("#", debug.getupvalue(print, 1)) == 0 and

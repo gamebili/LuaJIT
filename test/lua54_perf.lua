@@ -555,6 +555,10 @@ local function debug_helpers(n)
        debug.upvalueid(fn, 0) == nil then
       sum = sum + 1
     end
+    if select("#", debug.setupvalue(fn, 1, "hidden")) == 0 and
+       select("#", debug.setupvalue(print, 1, "hidden")) == 0 then
+      sum = sum + 1
+    end
     if debug.setcstacklimit(200) == 200 then sum = sum + 1 end
     if select("#", debug.gethook()) == 1 and debug.gethook() == nil then
       sum = sum + 1
@@ -1353,7 +1357,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_debug = timeit(mode_name..":debug_helpers",
 			    debug_helpers, iter_n)
-  assert(r_debug == iter_n * 6)
+  assert(r_debug == iter_n * 7)
 
   local _, r_many_upvalue = timeit(mode_name..":many_upvalue_helpers",
 				   many_upvalue_helpers, iter_n)
