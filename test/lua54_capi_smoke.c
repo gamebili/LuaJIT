@@ -3461,7 +3461,14 @@ static void test_lauxlib_api(lua_State *L)
   check(L, luaL_callmeta(L, -1, "__tostring") == 1,
 	"luaL_callmeta calls metamethod");
   check_string(L, -1, "meta tostring", "luaL_callmeta result");
-  lua_pop(L, 2);
+  lua_pop(L, 1);
+  {
+    int top = lua_gettop(L);
+    check(L, luaL_callmeta(L, -1, "__missing") == 0,
+	  "luaL_callmeta missing");
+    check(L, lua_gettop(L) == top, "luaL_callmeta missing stack");
+  }
+  lua_pop(L, 1);
 
   luaL_where(L, 0);
   check(L, lua_isstring(L, -1), "luaL_where pushes string");
