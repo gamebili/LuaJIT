@@ -273,6 +273,43 @@ int main(void)
 	"luaL_findtable table value");
   lua_pop(L, 2);
 
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushcfunction(L, capi51_answer);
+  lua_setfield(L, -2, "__capi51");
+  lua_setmetatable(L, -2);
+  check(L, luaL_getmetafield(L, -1, "__capi51") == 1,
+	"luaL_getmetafield default API");
+  lua_call(L, 0, 1);
+  check(L, lua_tointeger(L, -1) == 51,
+	"luaL_getmetafield default API value");
+  lua_pop(L, 1);
+  check(L, luaL_callmeta(L, -1, "__capi51") == 1,
+	"luaL_callmeta default API");
+  check(L, lua_tointeger(L, -1) == 51, "luaL_callmeta default API value");
+  lua_pop(L, 1);
+  check(L, luaL_callmeta(L, -1, "__missing") == 0,
+	"luaL_callmeta missing default API");
+  lua_pop(L, 1);
+
+  {
+    void *ud = lua_newuserdata(L, sizeof(int));
+    check(L, luaL_newmetatable(L, "capi51.ud") == 1,
+	  "luaL_newmetatable default API creates");
+    lua_pushliteral(L, "ud-meta");
+    lua_setfield(L, -2, "marker");
+    lua_setmetatable(L, -2);
+    check(L, luaL_newmetatable(L, "capi51.ud") == 0,
+	  "luaL_newmetatable default API reuses");
+    lua_getfield(L, -1, "marker");
+    check(L, strcmp(lua_tostring(L, -1), "ud-meta") == 0,
+	  "luaL_newmetatable default API value");
+    lua_pop(L, 2);
+    check(L, luaL_checkudata(L, -1, "capi51.ud") == ud,
+	  "luaL_checkudata default API");
+    lua_pop(L, 1);
+  }
+
   {
     luaL_Buffer b;
     luaL_buffinit(L, &b);
