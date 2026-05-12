@@ -213,7 +213,7 @@
   - 当前进展：`utf8.charpattern` 保持官方内嵌 NUL 常量；string pattern 引擎已改为按 pattern end 指针解析，`find` / `match` / `gmatch` / `gsub` 可处理模式串中间的 `\0`。
   - 已覆盖：超过 `0x10ffff` 的扩展码点、surrogate 字节序列、严格模式报错、lax 模式成功返回码点、内嵌 NUL `charpattern`、官方 Lua 5.4.8 `testes/utf8.lua`；本机 Lua 5.4.8 对照探针已确认一致。
 
-- [ ] 字符串对象身份和 locale 语义。
+- [x] 字符串对象身份和 locale 语义。
   - 当前状态：PC x64 Lua 5.4 compat 构建已按官方短/长字符串边界分流，`LJ_STR_MAXSHORT=40` 以下继续内化，运行期长字符串会保留独立 `GCstr` 对象；源码常量和 chunk 内长字符串 literal 仍通过 `lj_str_new_intern()` 共享，满足官方 literal reuse 规则。
   - 当前进展：新增 `lj_str_equal()` 作为非内化长字符串的字节相等接口，`lj_obj_equal()`、table 字符串 key、x64/ARM64 `ISEQV` / `ISEQS` 字符串比较以及 x64/ARM64 长字符串 table 访问慢路径已接入；同内容长字符串的 `==` 和 table key 命中按字节一致，`string.format("%p")` 可观察到不同对象身份。
   - 当前进展：`string.gsub` 已区分“实际替换生成新字符串”和“所有匹配都保留原文/没有匹配”的对象身份；实际生成同内容长字符串时会得到新对象，未替换时复用原对象，符合官方 `pm.lua` 对 `%p` 的断言。
