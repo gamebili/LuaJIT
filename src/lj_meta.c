@@ -169,24 +169,85 @@ static TValue *mmcall(lua_State *L, ASMFunction cont, cTValue *mo,
 }
 
 #if LJ_54
+static const char *mmcall_errmsg(lua_State *L, cTValue *mo, MMS mm)
+{
+  MSize tlen;
+  const char *tname = lj_meta_objtypename(L, mo, &tlen);
+  const char *mmname = strdata(mmname_str(G(L), mm));
+  if (mmname[0] == '_' && mmname[1] == '_')
+    mmname += 2;
+  UNUSED(tlen);
+  /* The VM normally tries to call the metamethod value directly. Check the
+  ** non-callable case before entering that path so Lua 5.4 diagnostics keep
+  ** the originating metamethod name, e.g. "(metamethod 'add')".
+  */
+  return lj_strfmt_pushf(L,
+    "attempt to call a %s value (metamethod '%s')", tname, mmname);
+}
+
+static void mmcall_error(lua_State *L, cTValue *mo, MMS mm)
+{
+  lj_err_callermsg(L, mmcall_errmsg(L, mo, mm));
+}
+
+static void mmcall_error_current(lua_State *L, cTValue *mo, MMS mm)
+{
+  if (curr_funcisL(L))
+    L->top = curr_topL(L);
+  mmcall_errmsg(L, mo, mm);
+  lj_err_run(L);
+}
+
 static TValue *mmcall_check(lua_State *L, ASMFunction cont, cTValue *mo,
 			    cTValue *a, cTValue *b, MMS mm)
 {
-  if (!tvisfunc(mo) && tvisnil(lj_meta_lookup(L, mo, MM_call))) {
-    MSize tlen;
-    const char *tname = lj_meta_objtypename(L, mo, &tlen);
-    const char *mmname = strdata(mmname_str(G(L), mm));
-    if (mmname[0] == '_' && mmname[1] == '_')
-      mmname += 2;
-    UNUSED(tlen);
-    /* The VM normally tries to call the metamethod value directly. Check the
-    ** non-callable case before entering that path so Lua 5.4 diagnostics keep
-    ** the originating metamethod name, e.g. "(metamethod 'add')".
-    */
-    lj_err_callermsg(L, lj_strfmt_pushf(L,
-      "attempt to call a %s value (metamethod '%s')", tname, mmname));
-  }
+  if (!tvisfunc(mo) && tvisnil(lj_meta_lookup(L, mo, MM_call)))
+    mmcall_error(L, mo, mm);
   return mmcall(L, cont, mo, a, b);
+}
+
+static MMS mmcall_bc_mm(BCOp op)
+{
+  if (op >= BC_ISEQV && op <= BC_ISNEP)
+    return MM_eq;
+  if (op == BC_ISLT || op == BC_ISGE)
+    return MM_lt;
+  if (op == BC_ISLE || op == BC_ISGT)
+    return MM_le;
+  if (op >= BC_ADDVN && op <= BC_MODVV)
+    return (MMS)(MM_add + ((op - BC_ADDVN) % 5));
+  if (op == BC_POW)
+    return MM_pow;
+  if (op == BC_UNM)
+    return MM_unm;
+  if (op == BC_LEN)
+    return MM_len;
+  if (op == BC_CAT)
+    return MM_concat;
+  return MM____;
+}
+
+static MMS mmcall_frame_mm(lua_State *L, TValue *func)
+{
+  ASMFunction cont;
+  const BCIns *pc;
+  MMS mm;
+  UNUSED(L);
+#if LJ_FR2
+  cont = (ASMFunction)(uintptr_t)(func-2)->u64;
+  pc = (const BCIns *)(uintptr_t)(func-1)->u64;
+#else
+  cont = frame_contf(func);
+  pc = frame_contpc(func);
+#endif
+  if (cont == lj_cont_ra || cont == lj_cont_nop ||
+      cont == lj_cont_condt || cont == lj_cont_condf) {
+    mm = mmcall_bc_mm(bc_op(*pc));
+    if (mm == MM____ && (cont == lj_cont_condt || cont == lj_cont_condf))
+      mm = mmcall_bc_mm(bc_op(pc[-1]));
+    return mm;
+  }
+  return MM____;
 }
 #else
 #define mmcall_check(L, cont, mo, a, b, mm) mmcall((L), (cont), (mo), (a), (b))
@@ -668,16 +729,29 @@ int lj_meta_call(lua_State *L, TValue *func, TValue *top)
   int nchain = 0, nprep, i;
   if (!tvisfunc(mo)) {
     int loop;
+#if LJ_54
+    cTValue *badfunc = func;
+#endif
     /* Resolve callable __call chains before returning to assembler. Each
     ** callable metamethod becomes an implicit self argument, matching Lua 5.4
     ** without asking the VM to enter a non-function slot as code.
     */
     for (loop = 0; loop < LJ_MAX_IDXCHAIN && !tvisfunc(mo); loop++) {
+#if LJ_54
+      if (!tvisnil(mo))
+	badfunc = mo;
+#endif
       chain[nchain++] = mo;
       mo = lj_meta_lookup(L, mo, MM_call);
     }
-    if (!tvisfunc(mo))
+    if (!tvisfunc(mo)) {
+#if LJ_54
+      MMS mm = mmcall_frame_mm(L, func);
+      if (mm != MM____)
+	mmcall_error_current(L, badfunc, mm);
+#endif
       lj_err_optype_call(L, func);
+    }
   }
   copyTV(L, &orig, func);
   nprep = nchain + 1;

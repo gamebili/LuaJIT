@@ -1746,6 +1746,17 @@ do
     assert((right == left) == false)
     assert(table.concat(log, ",") ==
       "left:left:raw,left:raw:left,left:left:right,right:right:left")
+    do
+      local bad = setmetatable({}, { __eq = true })
+      local ok, err = pcall(function() return bad == {} end)
+      assert(ok == false and
+             err:match("attempt to call a boolean value", 1, true) and
+             err:match("metamethod 'eq'", 1, true))
+      ok, err = pcall(function() return {} == bad end)
+      assert(ok == false and
+             err:match("attempt to call a boolean value", 1, true) and
+             err:match("metamethod 'eq'", 1, true))
+    end
   end
   do
     local lhs = setmetatable({}, {

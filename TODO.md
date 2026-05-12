@@ -130,6 +130,7 @@
 
 - [x] `__eq` 元方法按 Lua 5.4 接受单侧定义。
   - 当前状态：table/userdata 的 `==` / `~=` 在对象不同且任一侧有 `__eq` 时，会按官方 Lua 5.4.8 `lvm.c` 的顺序先查左操作数，左侧没有再查右操作数；不再要求两侧 metatable 暴露同一个 `__eq` 函数。
+  - 当前进展：`__eq` 元方法存在但不是函数/不可调用时，错误文本已保留 Lua 5.4 的 `metamethod 'eq'` 来源标注。
   - 已覆盖：左侧元方法、右侧 fallback、左右两侧 `__eq` 不同函数时的左侧优先、`~=` 反向结果，以及开启 JIT 后的热循环 recorder 路径。
   - 官方验证：`testes/events.lua` 中 `Set{...} == rawSet{...}` 和 `rawSet{...} == Set{...}` 已通过；`testC` userdata 块仍因当前未启用官方 testC harness 跳过。
 
