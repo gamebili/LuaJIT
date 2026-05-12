@@ -295,6 +295,25 @@ static void lua54_binop_error(lua_State *L, const char *opname)
     "attempt to %s a '%s' with a '%s'", opname, at, bt));
 }
 
+static void lua54_arith_error(lua_State *L, int narg)
+{
+  cTValue *o = L->base + narg-1;
+  MSize tlen;
+  const char *tname, *oname = NULL;
+  const char *what;
+  if (o >= L->top)
+    o = niltv(L);
+  tname = lj_meta_objtypename(L, o, &tlen);
+  UNUSED(tlen);
+  what = lua54_operand_source(L, narg, &oname);
+  if (what)
+    lj_err_callermsg(L, lj_strfmt_pushf(L,
+      "attempt to perform arithmetic on a %s value (%s '%s')",
+      tname, what, oname));
+  lj_err_callermsg(L, lj_strfmt_pushf(L,
+    "attempt to perform arithmetic on a %s value", tname));
+}
+
 static int lua54_tonumop(lua_State *L, int narg, int *isint, int32_t *ip,
 			 double *np)
 {
@@ -456,17 +475,20 @@ static int lj_cf_jit__lua54_idiv(lua_State *L)
 
 static int lj_cf_jit__lua54_mod(lua_State *L)
 {
-  int ia, ib;
+  int ia, ib, oka, okb;
   int32_t a = 0, b = 0;
   double na, nb;
   if ((tvisstr(L->base) || tvisstr(L->base+1)) &&
       lua54_callbinmeta(L, "__mod", 0))
     return 1;
-  if (!lua54_tonumop(L, 1, &ia, &a, &na) ||
-      !lua54_tonumop(L, 2, &ib, &b, &nb)) {
+  oka = lua54_tonumop(L, 1, &ia, &a, &na);
+  okb = lua54_tonumop(L, 2, &ib, &b, &nb);
+  if (!oka || !okb) {
     if (lua54_callbinmeta(L, "__mod", 0))
       return 1;
-    lua54_binop_error(L, "mod");
+    if (tvisstr(L->base) || tvisstr(L->base+1))
+      lua54_binop_error(L, "mod");
+    lua54_arith_error(L, oka ? 2 : 1);
   }
   if (ia && ib) {
     if (b == 0)

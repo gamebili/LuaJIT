@@ -1586,6 +1586,18 @@ do
       a, b = 5, 0
       local ok, err = pcall(function() return a % b end)
       assert(ok == false and err:match("n%%0") ~= nil)
+      ok, err = pcall(assert(load([[return {} % 1]])))
+      assert(ok == false and err:match("perform arithmetic") ~= nil and
+             err:match("mod") == nil)
+      ok, err = pcall(assert(load([[return 1 % true]])))
+      assert(ok == false and err:match("perform arithmetic") ~= nil and
+             err:match("boolean value") ~= nil and err:match("mod") == nil)
+      ok, err = pcall(assert(load([[local t = setmetatable({}, { __name = "Lua54Mod" }); return t % 1]])))
+      assert(ok == false and err:match("Lua54Mod value") ~= nil and
+             err:match("local 't'") ~= nil and err:match("mod") == nil)
+      ok, err = pcall(assert(load([[return "x" % true]])))
+      assert(ok == false and err:match("attempt to mod") ~= nil and
+             err:match("'string'") ~= nil and err:match("'boolean'") ~= nil)
     end
     local string_mt = debug.getmetatable("")
     debug.setmetatable("", {

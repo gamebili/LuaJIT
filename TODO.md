@@ -116,7 +116,7 @@
 - [x] Lua 5.4 运算符元方法。
   - 当前状态：`//`、`%`、`&`、`|`、`~`、`<<`、`>>` 在 Lua 5.4 兼容模式下通过内部 helper 降级实现；helper 已在原始数值路径失败时查找并调用 `__idiv`、`__mod`、`__band`、`__bor`、`__bxor`、`__bnot`、`__shl`、`__shr`。
   - 当前进展：`//` helper 的无元方法失败路径已按 Lua 5.4 报 `attempt to idiv a '<lhs>' with a '<rhs>'`，不再泄露私有 helper 名，并保留 `__name` 类型名。
-  - 当前进展：`%` helper 已覆盖 integer `%` 子类型、integer `% 0` 错误和 float `%` 结果；字符串操作数会先尊重显式 `__mod`，`__idiv` 也同步修正为字符串显式元方法优先。
+  - 当前进展：`%` helper 已覆盖 integer `%` 子类型、integer `% 0` 错误和 float `%` 结果；字符串操作数会先尊重显式 `__mod`，并在无元方法失败时保留 Lua 5.4 的 `attempt to mod a '<lhs>' with a '<rhs>'` 文本；非字符串 table/boolean/nil 等失败路径按普通 arithmetic 错误报告，并保留 `__name` 与 source operand 名；`__idiv` 也同步修正为字符串显式元方法优先。
   - 当前进展：bitwise helper 的失败路径已按 Lua 5.4 报运算符错误，不再泄露私有 helper 名；无整数表示的 number 报 `number has no integer representation`，string/boolean/带 `__name` 的 table 报 `attempt to perform bitwise operation on ... value`，并会尽量追加 `(constant '3')` / `(local 'x')` 等源级操作数名字。
   - 当前进展：官方 `testes/bwcoercion.lua` 通过 string metatable 覆盖 bitwise/idiv 字符串边界；当前 lowered helper 已规整 metamethod 返回栈，只返回 metamethod 第一个结果，不再把原操作数漏成额外返回值。
   - 当前进展：lowered helper 的原始数值结果路径也已规整返回槽；`local a, b = "1.0" // "2"` 不再把左操作数字符串漏到 `a`，只返回单个 Lua 5.4 结果。
