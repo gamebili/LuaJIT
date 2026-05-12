@@ -87,6 +87,10 @@ LJLIB_CF(table_maxn)
 #if LJ_54
 #define LJ_TABLE_MAXINTEGER	((lua_Integer)2147483647)
 #define LJ_TABLE_MININTEGER	((lua_Integer)(-LJ_TABLE_MAXINTEGER - 1))
+#define LJ_TABLE_TAB_R		1
+#define LJ_TABLE_TAB_W		2
+#define LJ_TABLE_TAB_L		4
+#define LJ_TABLE_TAB_RW		(LJ_TABLE_TAB_R|LJ_TABLE_TAB_W)
 
 static int32_t table_array_highest(GCtab *t)
 {
@@ -164,13 +168,33 @@ static void table_argtype_named54(lua_State *L, int narg, const char *fname,
 		    table_argtypename54(L, narg)));
 }
 
-static GCtab *table_checktab_named54(lua_State *L, int narg,
-				     const char *fname)
+static int table_checkfield54(lua_State *L, const char *key, int n)
+{
+  int found;
+  lua_pushstring(L, key);
+  lua_rawget(L, -n);
+  found = !lua_isnil(L, -1);
+  return found;
+}
+
+static void table_checktab_like54(lua_State *L, int narg, int what,
+				  const char *fname)
 {
   TValue *o = L->base + narg-1;
-  if (!(o < L->top && tvistab(o)))
+  if (!(o < L->top && tvistab(o))) {
+    int n = 1;
+    if (o < L->top && lua_getmetatable(L, narg) &&
+	(!(what & LJ_TABLE_TAB_R) ||
+	 table_checkfield54(L, "__index", ++n)) &&
+	(!(what & LJ_TABLE_TAB_W) ||
+	 table_checkfield54(L, "__newindex", ++n)) &&
+	(!(what & LJ_TABLE_TAB_L) ||
+	 table_checkfield54(L, "__len", ++n))) {
+      lua_pop(L, n);
+      return;
+    }
     table_argtype_named54(L, narg, fname, "table");
-  return tabV(o);
+  }
 }
 
 static GCstr *table_checkstr_named54(lua_State *L, int narg,
@@ -247,15 +271,33 @@ static int32_t table_len54(lua_State *L, GCtab *t, int narg)
   }
   return len;
 }
+
+static int32_t table_len_obj54(lua_State *L, int narg)
+{
+  TValue *o = L->base + narg-1;
+  int32_t len;
+  if (o < L->top && tvistab(o))
+    return table_len54(L, tabV(o), narg);
+  lua_len(L, narg);
+  if (!table_toint32value54(L->top-1, &len, NULL)) {
+    L->top--;
+    luaL_error(L, "object length is not an integer");
+  }
+  L->top--;
+  return len;
+}
 #endif
 
 LJLIB_CF(table_insert)		LJLIB_REC(.)
 {
 #if LJ_54
-  GCtab *t = table_checktab_named54(L, 1, "table.insert");
-  int32_t len = table_len54(L, t, 1);
-  int32_t n, pos = len + 1;
+  int32_t len;
+  int32_t n, pos;
   int nargs = (int)(L->top - L->base);
+  table_checktab_like54(L, 1, LJ_TABLE_TAB_RW|LJ_TABLE_TAB_L,
+			"table.insert");
+  len = table_len_obj54(L, 1);
+  pos = len + 1;
   if (nargs == 3) {
     pos = table_checkint_named54(L, 2, "table.insert");
     if (pos < 1 || pos-1 > len)
@@ -354,10 +396,13 @@ LJLIB_LUA(table_move) /*
 #if LJ_54
 static int lj_cf_table_remove54(lua_State *L)
 {
-  GCtab *t = table_checktab_named54(L, 1, "table.remove");
-  int32_t len = table_len54(L, t, 1);
-  int32_t pos = len;
+  int32_t len;
+  int32_t pos;
   cTValue *posv = L->base + 1;
+  table_checktab_like54(L, 1, LJ_TABLE_TAB_RW|LJ_TABLE_TAB_L,
+			"table.remove");
+  len = table_len_obj54(L, 1);
+  pos = len;
   if (posv < L->top && !tvisnil(posv)) {
     pos = table_checkint_named54(L, 2, "table.remove");
     if (pos != len && (pos < 1 || pos-1 > len))
@@ -386,15 +431,13 @@ static int lj_cf_table_move54(lua_State *L)
   int32_t f = table_checkint_named54(L, 2, "table.move");
   int32_t e = table_checkint_named54(L, 3, "table.move");
   int32_t tt = table_checkint_named54(L, 4, "table.move");
-  GCtab *a1 = table_checktab_named54(L, 1, "table.move");
-  GCtab *a2;
   cTValue *a2v = L->base + 4;
   int target;
+  table_checktab_like54(L, 1, LJ_TABLE_TAB_R, "table.move");
   if (a2v < L->top && !tvisnil(a2v)) {
-    a2 = table_checktab_named54(L, 5, "table.move");
+    table_checktab_like54(L, 5, LJ_TABLE_TAB_W, "table.move");
     target = 5;
   } else {
-    a2 = a1;
     target = 1;
   }
   if (e >= f) {
@@ -409,7 +452,8 @@ static int lj_cf_table_move54(lua_State *L)
       table_argerror_named54(L, 3, "table.move", "too many elements to move");
     if (destend > (int64_t)INT32_MAX || destend < (int64_t)INT32_MIN)
       table_argerror_named54(L, 4, "table.move", "destination wrap around");
-    if (tt > e || tt <= f || a2 != a1) {
+    if (tt > e || tt <= f || (target != 1 &&
+			      !lua_compare(L, 1, target, LUA_OPEQ))) {
       for (i = f; ; i++) {
 	/* Lua 5.4 table.move observes __index/__newindex; use public table
 	** accessors here instead of LuaJIT's raw array helpers.
@@ -463,10 +507,11 @@ static int table_concat54(lua_State *L, GCstr *sep, int32_t i, int32_t e)
 LJLIB_CF(table_concat)		LJLIB_REC(.)
 {
 #if LJ_54
-  GCtab *t = table_checktab_named54(L, 1, "table.concat");
   GCstr *sep = table_optstr_named54(L, 2, "table.concat");
   int32_t i = (L->base+2 < L->top && !tvisnil(L->base+2)) ?
 	      table_checkint_named54(L, 3, "table.concat") : 1;
+  table_checktab_like54(L, 1, LJ_TABLE_TAB_R|LJ_TABLE_TAB_L,
+			"table.concat");
 #else
   GCtab *t = lj_lib_checktab(L, 1);
   GCstr *sep = lj_lib_optstr(L, 2);
@@ -484,14 +529,13 @@ LJLIB_CF(table_concat)		LJLIB_REC(.)
 #endif
 #if LJ_54
   } else {
-    e = table_len54(L, t, 1);
+    e = table_len_obj54(L, 1);
 #else
   } else {
     e = (int32_t)lj_tab_len(t);
 #endif
   }
 #if LJ_54
-  UNUSED(t);
   return table_concat54(L, sep, i, e);
 #else
   sb = lj_buf_tmp_(L);
@@ -625,8 +669,10 @@ static void auxsort(lua_State *L, int l, int u)
 LJLIB_CF(table_sort)
 {
 #if LJ_54
-  GCtab *t = table_checktab_named54(L, 1, "table.sort");
-  int32_t n = table_len54(L, t, 1);
+  int32_t n;
+  table_checktab_like54(L, 1, LJ_TABLE_TAB_RW|LJ_TABLE_TAB_L,
+			"table.sort");
+  n = table_len_obj54(L, 1);
   if (n >= INT32_MAX)
     luaL_error(L, "array too big");
 #else

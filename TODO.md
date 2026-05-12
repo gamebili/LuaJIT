@@ -441,6 +441,7 @@
   - 当前进展：`table.sort` 的 comparator 校验时机已对齐官方 Lua 5.4；空表和单元素表即使传入非函数第 2 参数也直接成功，两元素及以上才按官方报第 2 参数 `function expected`。
   - 当前进展：`table.sort` 在 Lua 5.4 兼容模式下会在分区扫描到 pivot 哨兵时拒绝非严格 comparator，例如 `a <= b` / `a >= b`，并报 `invalid order function for sorting`。
   - 当前进展：`table.sort` 在 Lua 5.4 兼容模式下已改用 API get/set 路径读写元素，因此代理表排序会通过 `__index` 读取、通过 `__newindex` 写入。
+  - 当前进展：`table.concat` / `insert` / `remove` / `sort` 现在也接受带所需 `__len` / `__index` / `__newindex` 的非 table 代理对象；`table.move` 对源对象只要求 `__index`、对目标对象只要求 `__newindex`，并按官方 `lua_compare(..., LUA_OPEQ)` 判断源/目标是否同一对象。
   - 当前进展：`table.unpack` 不再入口强制 table；默认终点会先触发 length 语义，显式空范围可对 nil/number 直接返回空结果，实际读取时再由普通索引路径报错。
   - 已覆盖：显式 `i/j` 空范围、`table.sort` comparator 错误传播、非严格 comparator 报错，以及官方 5.4.8 对照中允许的 always-true / always-false comparator 结果。
   - 说明：逐字错误文本继续归入“标准库错误消息与边界参数完全对齐”。

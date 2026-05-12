@@ -3062,6 +3062,42 @@ do
   assert(dst[3] == 11 and dst[4] == 21)
 end
 do
+  local oldmt = debug.getmetatable(0)
+  local slots = {}
+  local ok, err = pcall(function()
+    debug.setmetatable(0, {
+      __len = function(self) return #slots[self] end,
+      __index = function(self, k) return slots[self][k] end,
+      __newindex = function(self, k, v) slots[self][k] = v end,
+    })
+    slots[0] = { "a", "b" }
+    assert(table.concat(0, ",") == "a,b")
+
+    slots[0] = { "b", "c" }
+    table.insert(0, 1, "a")
+    assert(slots[0][1] == "a" and slots[0][2] == "b" and
+	   slots[0][3] == "c")
+    assert(table.remove(0, 2) == "b")
+    assert(slots[0][1] == "a" and slots[0][2] == "c" and
+	   slots[0][3] == nil)
+
+    slots[0] = { 3, 1, 2 }
+    table.sort(0)
+    assert(slots[0][1] == 1 and slots[0][2] == 2 and slots[0][3] == 3)
+
+    debug.setmetatable(0, {
+      __index = function(self, k) return slots[self][k] end,
+      __newindex = function(self, k, v) slots[self][k] = v end,
+    })
+    slots[0] = { "x", "y" }
+    slots[1] = {}
+    assert(table.move(0, 1, 2, 3, 1) == 1)
+    assert(slots[1][3] == "x" and slots[1][4] == "y")
+  end)
+  debug.setmetatable(0, oldmt)
+  assert(ok, err)
+end
+do
   local huge = setmetatable({}, { __len = function() return math.maxinteger end })
   local ok, err = pcall(table.sort, huge)
   assert(ok == false and err:match("too big", 1, true) ~= nil)
