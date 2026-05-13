@@ -22,10 +22,11 @@ end
 do
   local lnum = 0x13121110090807060504030201
   local s = pack("<j", -lnum)
+  local unum = unpack("<I4", s)
   for i = sizeLI + 1, NB do
     assert(unpack("<i" .. i, s .. ("\xff"):rep(i - sizeLI)) == -lnum)
     assert(unpack(">i" .. i, ("\xff"):rep(i - sizeLI) .. s:reverse()) == -lnum)
-    assert(unpack("<I" .. i, s .. ("\0"):rep(i - sizeLI)) == -lnum)
+    assert(unpack("<I" .. i, s .. ("\0"):rep(i - sizeLI)) == unum)
   end
 end
 

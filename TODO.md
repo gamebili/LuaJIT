@@ -100,9 +100,10 @@
   - 官方验证：PC x64 Lua 5.4 compat 构建下，官方 Lua 5.4.8 `testes/math.lua` 和 `testes/bitwise.lua` 当前已通过；这表示当前 32-bit integer 配置表面自洽，不表示已经完成默认 64-bit `lua_Integer` / TValue 目标。
   - 当前进展：外部 C 头文件的 `lua_Unsigned` 已改为由 `LUA_UNSIGNED` 派生，Lua 5.4 兼容构建下 `LUA_UNSIGNED` 使用与 `lua_Integer` 同宽的 `uintptr_t`，避免 64 位宿主上 `lua_Integer` 为 `ptrdiff_t` 但 `lua_Unsigned` 仍被硬编码成 32 位 `unsigned int`；外部 Lua 5.4 头的 `LUA_MAXINTEGER` / `LUA_MININTEGER` 也已按 `lua_Integer` 公开宽度展开，`lua_numbertointeger()` 宏可接受 32 位以上但仍在公开 `lua_Integer` 范围内的 double 值；`lua_tointegerx()` / `luaL_checkinteger()` 已能从精确 number/string 或 `lua_pushinteger()` 推入的值取回公开 64 位 C integer 范围内的值；`lua_geti()` / `lua_seti()` / `lua_rawgeti()` / `lua_rawseti()` 的 Lua 5.4 wrapper 不再把外部 `lua_Integer` key 截断成 `int`。C API smoke 已增加 `sizeof(lua_Unsigned) == sizeof(lua_Integer)`、`LUA_MAXUNSIGNED` 超 32 位、`LUA_MAXINTEGER` / `LUA_MININTEGER` 超 32 位、以及 `2147483648` 往返、普通和 raw table key 检查。默认 LuaJIT 构建仍保留旧 `unsigned int` 表面，核心 VM runtime 仍保持当前 32 位 integer subtype，`lua_isinteger()` 也仍只观察现有 TValue integer 子类型。
   - 当前进展：`LUA_INTEGER_FRMLEN` / `LUA_INTEGER_FMT` / `LUAI_UACINT` 已按 `lua_Integer` 的 `ptrdiff_t` 头文件 ABI 调整，`lua_integer2str()` 在外部 C 侧格式化 `2147483648` 这类超 32 位但可由 `lua_Integer` 表示的值时不再截断；这只修正 C 头文件格式 ABI，不代表 VM 已能以 integer subtype 保存该值。
-  - 已知差异：`math.mininteger` / `math.maxinteger`、64 位整数字面量扫描、`math.tointeger` / `math.ult`、`string.pack("j/i8/I8")`、`string.format` 的 `maxinteger`/`mininteger` 边界、`table.unpack` 超大区间边界和 C API runtime 边界仍没有完整 Lua 5.4 64 位整数语义。
+  - 当前进展：`string.pack` / `string.unpack` 的显式 `i8` / `I8` 已先桥接到公开 `lua_Integer` 宽度，当前 number 表面可精确表示的 64 位值（例如 `2^40` / `-2^40`）可 roundtrip，`I8` 也保留 unsigned modulo 输入（例如 `-1`）的 8 字节布局；`j` / `J` 默认宽度仍保持当前 VM integer 表面的 4 字节，等待 TValue/VM 整数批次统一翻转。
+  - 已知差异：`math.mininteger` / `math.maxinteger`、64 位整数字面量扫描、`math.tointeger` / `math.ult`、`string.pack("j/J")` 默认宽度、`string.format` 的 `maxinteger`/`mininteger` 边界、`table.unpack` 超大区间边界和 C API runtime 边界仍没有完整 Lua 5.4 64 位整数语义。
   - 对照结论：官方 `testes/math.lua` / `testes/bitwise.lua` 已能按当前 32-bit integer 配置跑通；但 `testes/strings.lua` 中 `0x7fffffffffffffff` / `-0x8000000000000000` 等 64-bit 默认配置边界，以及外部 ABI 对 `lua_Integer` / `lua_Unsigned` 的真实宽度要求，仍会卡在真实 64 位 integer/TValue 缺失上，不能继续用单个库函数补丁硬凑。
-  - 需要补测试：真实 64 位整数字面量边界、64 位 `math.tointeger` / `math.ult` / `math.random(0)` 全范围、64 位位运算、整除、比较、`string.pack` 的 `j`/`I8`/`i8`、C API `lua_Integer` 边界。
+  - 需要补测试：真实 64 位整数字面量边界、64 位 `math.tointeger` / `math.ult` / `math.random(0)` 全范围、64 位位运算、整除、比较、`string.pack` 的 `j`/`J` 默认宽度、C API `lua_Integer` 边界。
   - 实现重点：需要统一 TValue 表示、数值转换、字符串扫描、格式化、运算符和库函数的整数路径。
 
 - [x] 数值 `for` 的 Lua 5.4 整数/浮点控制变量语义。
@@ -137,10 +138,10 @@
 
 - [x] `string.pack` / `string.unpack` / `string.packsize` 的完整格式布局。
   - 当前状态：已覆盖基础整数、浮点、字符串、`j` / `J`、`T`、`l` / `L`、`X` 和 `!n` 最大对齐，`packsize`、`pack`、`unpack` 三者共用当前位置对齐规则。
-  - 当前进展：`i/I` 支持官方 1..16 字节尺寸；超过当前 4 字节 Lua integer 的部分按符号扩展或零扩展校验，错误路径会报 `N-byte integer does not fit into Lua Integer`；`J` 按当前 Lua integer 宽度读写无符号格式，`L` 保留当前 32-bit 字面量回绕表面，`I4` 仍可返回 `4000000000` 这类正 unsigned 结果。
+  - 当前进展：`i/I` 支持官方 1..16 字节尺寸；显式 `i8` / `I8` 已按公开 `lua_Integer` 宽度桥接，可处理当前 number 表面能精确表示的 64 位整数值，`I8` 对负输入按 unsigned modulo 写出 8 字节而 `I4` 仍会拒绝负数；超过公开 `lua_Integer` 宽度的部分按符号扩展或零扩展校验，错误路径会报 `N-byte integer does not fit into Lua Integer`；`J` 仍按当前 VM integer 宽度读写无符号格式，`L` 保留当前 32-bit 字面量回绕表面，`I4` 仍可返回 `4000000000` 这类正 unsigned 结果。
   - 当前进展：`c` 格式必须显式带 size，格式数字读取已按 Lua 5.4 的 int 安全边界停止吞后续数字：`!` / `i` / `I` / `s` 使用 `integral size ... out of limits [1,16]`，`c9999999999` 这类固定字符串尺寸会把剩余数字当作下一格式项并报 `invalid format option '9'`；`packsize` 理论总长度按 Lua 5.4 `0x7fffffff` 上限报 `too large`；`X` 的 next option 必须紧跟，不会跳过中间空白；`unpack` 初始位置支持负索引，且 `0` 会按官方 `posrelatI` 语义映射到首字节，随后再参与 alignment。
   - 已覆盖：`X`、`!n` 最大对齐、padding 字节、`unpack` 位置推进、混合 endian 与 alignment、1..16 字节整数格式、超当前 integer 宽度的扩展校验、`J`、负初始位置、`0` 初始位置、非法格式基础错误，以及官方 Lua 5.4.8 `testes/tpack.lua`。
-  - 剩余边界：完整 64 位 `lua_Integer` / TValue 后，`j/J` 的真实宽度和超 4 字节返回形态需要随整数批次重新校准。
+  - 剩余边界：完整 64 位 `lua_Integer` / TValue 后，`j/J` 的真实宽度和所有库函数的默认 integer subtype 返回形态需要随整数批次重新校准。
 
 ## P1：标准库和元语义缺口
 

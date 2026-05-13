@@ -37,6 +37,7 @@
 
 #if LJ_54
 #define LJ_LUA54_PACKSZ_INTEGER	4
+#define LJ_LUA54_PACKSZ_API_INTEGER	((size_t)sizeof(lua_Integer))
 #define LJ_LUA54_PACKSZ_MAX	16
 #define LJ_LUA54_PACKSZ_TOTALMAX	((size_t)0x7fffffff)
 #define LJ_LUA54_PACKSZ_DIGITSTOP	((LJ_LUA54_PACKSZ_TOTALMAX - 9) / 10)
@@ -1222,21 +1223,24 @@ static uint64_t string_pack_readint(const unsigned char *s, size_t sz,
 }
 
 static uint64_t string_pack_readint_ext(lua_State *L, const unsigned char *s,
-					size_t sz, int endian, int issigned)
+					size_t sz, int endian, int issigned,
+					size_t fitsz)
 {
   size_t i;
   int le = string_pack_endian(endian);
   uint64_t u = 0;
   unsigned char fill;
-  if (sz <= LJ_LUA54_PACKSZ_INTEGER)
+  if (fitsz > 8)
+    fitsz = 8;
+  if (sz <= fitsz)
     return string_pack_readint(s, sz, endian);
-  for (i = 0; i < LJ_LUA54_PACKSZ_INTEGER; i++) {
+  for (i = 0; i < fitsz; i++) {
     size_t idx = le ? i : (sz - 1 - i);
     u |= (uint64_t)s[idx] << (i * 8);
   }
-  fill = (issigned && (s[le ? LJ_LUA54_PACKSZ_INTEGER - 1 :
-		       sz - LJ_LUA54_PACKSZ_INTEGER] & 0x80)) ? 0xff : 0x00;
-  for (i = LJ_LUA54_PACKSZ_INTEGER; i < sz; i++) {
+  fill = (issigned && (s[le ? fitsz - 1 : sz - fitsz] & 0x80)) ?
+	 0xff : 0x00;
+  for (i = fitsz; i < sz; i++) {
     size_t idx = le ? i : (sz - 1 - i);
     if (s[idx] != fill)
       luaL_error(L, "%d-byte integer does not fit into Lua Integer", (int)sz);
@@ -1245,7 +1249,8 @@ static uint64_t string_pack_readint_ext(lua_State *L, const unsigned char *s,
 }
 
 static uint64_t string_pack_checkint(lua_State *L, int arg, size_t sz,
-				     int issigned, const char *fname)
+				     int issigned, int negmod,
+				     const char *fname)
 {
 #if LJ_54
   lua_Number n = string_checknum_named54(L, arg, fname);
@@ -1262,9 +1267,16 @@ static uint64_t string_pack_checkint(lua_State *L, int arg, size_t sz,
     string_argerror_named54(L, arg, fname,
 			    "number has no integer representation");
   if (issigned) {
-    if (sz > LJ_LUA54_PACKSZ_INTEGER &&
-	(v < (int64_t)INT32_MIN || v > (int64_t)INT32_MAX))
-      string_argerror_named54(L, arg, fname, "integer overflow");
+    size_t fitsz = LJ_LUA54_PACKSZ_API_INTEGER;
+    if (fitsz > 8)
+      fitsz = 8;
+    if (sz > fitsz && fitsz < 8) {
+      int bits = (int)(fitsz * 8);
+      int64_t minv = -(int64_t)((uint64_t)1 << (bits - 1));
+      int64_t maxv = (int64_t)(((uint64_t)1 << (bits - 1)) - 1);
+      if (v < minv || v > maxv)
+	string_argerror_named54(L, arg, fname, "integer overflow");
+    }
     if (sz < 8) {
       int bits = (int)(sz * 8);
       int64_t minv = -(int64_t)((uint64_t)1 << (bits - 1));
@@ -1276,8 +1288,12 @@ static uint64_t string_pack_checkint(lua_State *L, int arg, size_t sz,
   } else {
     uint64_t maxv = string_pack_umax(sz);
     if (v < 0) {
-      uint64_t uv = (uint32_t)v;
-      if (sz < LJ_LUA54_PACKSZ_INTEGER && uv > maxv)
+      uint64_t uv = negmod ? (uint32_t)v : (uint64_t)v;
+      size_t fitsz = negmod ? LJ_LUA54_PACKSZ_INTEGER :
+		     LJ_LUA54_PACKSZ_API_INTEGER;
+      if (fitsz > 8)
+	fitsz = 8;
+      if (sz < fitsz && uv > maxv)
 	string_argerror_named54(L, arg, fname, "unsigned overflow");
       return uv;
     }
@@ -1287,6 +1303,7 @@ static uint64_t string_pack_checkint(lua_State *L, int arg, size_t sz,
   }
 #else
   UNUSED(fname);
+  UNUSED(negmod);
   lua_Integer v = luaL_checkinteger(L, arg);
   if (issigned) {
     if (sz < 8) {
@@ -1404,8 +1421,10 @@ static int lj_cf_string_pack(lua_State *L)
       {
 	int issigned = opt == 'b' || opt == 'h' || opt == 'i' ||
 		       opt == 'l' || opt == 'j';
+	int negmod = !issigned && opt != 'I' && sz >= LJ_LUA54_PACKSZ_INTEGER;
 	string_pack_checkargpresent(L, arg, nargs, fname, "number");
-	uint64_t u = string_pack_checkint(L, arg++, sz, issigned, fname);
+	uint64_t u = string_pack_checkint(L, arg++, sz, issigned, negmod,
+					  fname);
 	string_pack_writeint(&b, u, sz, endian, issigned && (int64_t)u < 0);
       }
       pos += sz;
@@ -1544,13 +1563,18 @@ static int lj_cf_string_unpack(lua_State *L)
       string_pack_checksize(L, sz);
     unpack_int: {
       uint64_t u;
-      size_t rsz = (opt == 'i' || opt == 'I' || opt == 'j' || opt == 'J') &&
-		   sz > LJ_LUA54_PACKSZ_INTEGER ? LJ_LUA54_PACKSZ_INTEGER : sz;
+      int extfmt = opt == 'i' || opt == 'I' || opt == 'j' || opt == 'J';
+      size_t fitsz = (opt == 'i' || opt == 'I') ?
+		     LJ_LUA54_PACKSZ_API_INTEGER : LJ_LUA54_PACKSZ_INTEGER;
+      size_t rsz;
+      if (fitsz > 8)
+	fitsz = 8;
+      rsz = extfmt && sz > fitsz ? fitsz : sz;
       pos += string_pack_padding(L, pos, sz, maxalign, fname);
       string_pack_checkdata(L, pos, sz, len, fname);
-      u = (opt == 'i' || opt == 'I' || opt == 'j' || opt == 'J') ?
+      u = extfmt ?
 	  string_pack_readint_ext(L, data + pos, sz, endian,
-				  opt == 'i' || opt == 'j') :
+				  opt == 'i' || opt == 'j', fitsz) :
 	  string_pack_readint(data + pos, sz, endian);
       if (opt == 'b' || opt == 'h' || opt == 'i' ||
 	  opt == 'l' || opt == 'j') {
@@ -1561,8 +1585,7 @@ static int lj_cf_string_unpack(lua_State *L)
 	}
 	lua_pushinteger(L, (lua_Integer)(int64_t)u);
       } else {
-	if ((opt == 'I' && sz > LJ_LUA54_PACKSZ_INTEGER) ||
-	    opt == 'J' || opt == 'L')
+	if (opt == 'J' || (opt == 'L' && sizeof(long) <= 4))
 	  lua_pushinteger(L, (lua_Integer)(int32_t)(uint32_t)u);
 	else
 	  lua_pushinteger(L, (lua_Integer)u);

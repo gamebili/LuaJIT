@@ -3879,6 +3879,21 @@ do
     assert(a == -123456 and b == 4000000000 and pos == 9)
   end
   do
+    local big = 2^40
+    local neg = -big
+    assert(bytes(string.pack("<I8", big)) == "0,0,0,0,0,1,0,0")
+    assert(bytes(string.pack("<i8", neg)) == "0,0,0,0,0,255,255,255")
+    assert(bytes(string.pack("<I8", -1)) ==
+	   "255,255,255,255,255,255,255,255")
+    local u, upos = string.unpack("<I8", string.pack("<I8", big))
+    local i, ipos = string.unpack("<i8", string.pack("<i8", neg))
+    local wrap, wpos = string.unpack("<I8", string.pack("<I8", -1))
+    assert(u == big and upos == 9)
+    assert(i == neg and ipos == 9)
+    assert(wrap == -1 and wpos == 9)
+    assert(select(1, pcall(string.pack, "<I4", -1)) == false)
+  end
+  do
     local s = string.pack("fd", 1.5, -2.25)
     local a, b, pos = string.unpack("fd", s)
     assert(a == 1.5 and b == -2.25 and pos == #s + 1)
