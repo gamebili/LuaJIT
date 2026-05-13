@@ -237,6 +237,8 @@ static void LJ_FASTCALL recff_nyi(jit_State *J, RecordFFData *rd)
 #define RECFF_LUA54_I32_MIN		((int64_t)(-RECFF_LUA54_I32_MAX - 1))
 #define RECFF_IRCONV_I64_INT_SEXT	((IRT_I64<<IRCONV_DSH)|IRT_INT|IRCONV_SEXT)
 #define RECFF_IRCONV_INT_I64_NARROW	((IRT_INT<<IRCONV_DSH)|IRT_I64)
+#define RECFF_IRCONV_I64_NUM		((IRT_I64<<IRCONV_DSH)|IRT_NUM)
+#define RECFF_IRCONV_NUM_I64_SIGNED	((IRT_NUM<<IRCONV_DSH)|IRT_I64)
 
 static int recff_lua54_tref_isi64(TRef tr)
 {
@@ -258,11 +260,51 @@ static int64_t recff_lua54_tv_i64(cTValue *tv)
   return tvisint(tv) ? (int64_t)intV(tv) : (int64_t)i64V(tv);
 }
 
+static int recff_lua54_tv_toi64(cTValue *tv, int64_t *ip)
+{
+  if (recff_lua54_tv_isinteger(tv)) {
+    *ip = recff_lua54_tv_i64(tv);
+    return 1;
+  } else if (tvisnum(tv)) {
+    lua_Number n = numV(tv);
+    int64_t k;
+    if (!(n >= (-9223372036854775807.0 - 1.0) &&
+	  n < 9223372036854775808.0))
+      return 0;
+    if (n != lj_vm_floor(n))
+      return 0;
+    k = lj_num2i64(n);
+    if ((lua_Number)k != n)
+      return 0;
+    *ip = k;
+    return 1;
+  }
+  return 0;
+}
+
 static TRef recff_lua54_i64ref(jit_State *J, TRef tr)
 {
   if (tref_isinteger(tr))
     return emitir(IRT(IR_CONV, IRT_I64), tr, RECFF_IRCONV_I64_INT_SEXT);
   return emitir(IRT(IR_FLOAD, IRT_I64), tr, IRFL_INT64_VALUE);
+}
+
+static TRef recff_lua54_toi64ref(jit_State *J, TRef tr, cTValue *tv)
+{
+  if (recff_lua54_tv_isinteger(tv)) {
+    if (!recff_lua54_tref_isinteger(tr))
+      return 0;
+    return recff_lua54_i64ref(J, tr);
+  } else if (tvisnum(tv)) {
+    TRef i64, back;
+    if (!tref_isnum(tr))
+      return 0;
+    i64 = emitir(IRT(IR_CONV, IRT_I64), tr, RECFF_IRCONV_I64_NUM);
+    back = emitir(IRTN(IR_CONV), i64, RECFF_IRCONV_NUM_I64_SIGNED);
+    emitir(IRTG(IR_EQ, IRT_NUM), back, tr);
+    return i64;
+  }
+  return 0;
 }
 
 static TRef recff_lua54_i64result(jit_State *J, TRef tr, int64_t rv)
@@ -298,16 +340,14 @@ static int64_t recff_lua54_shiftint(int64_t a, int64_t sh, int left)
 		(int64_t)(lua_Integer)(u >> sh);
 }
 
-static TRef recff_lua54_shiftref(jit_State *J, TRef tr, TRef tsh,
+static TRef recff_lua54_shiftref(jit_State *J, TRef irv, TRef irsh,
 				 int64_t sh, IROp op)
 {
-  TRef irsh = recff_lua54_i64ref(J, tsh);
   if (sh >= 64 || sh <= -64) {
     emitir(IRTG(sh < 0 ? IR_LE : IR_GE, IRT_I64), irsh,
 	   lj_ir_kint64(J, (uint64_t)(sh < 0 ? -64 : 64)));
     return lj_ir_kint(J, 0);
   } else {
-    TRef irv = recff_lua54_i64ref(J, tr);
     TRef irs;
     if (sh < 0) {
       emitir(IRTG(IR_LT, IRT_I64), irsh, lj_ir_kint64(J, 0));
@@ -327,14 +367,19 @@ static TRef recff_lua54_shiftref(jit_State *J, TRef tr, TRef tsh,
 static void LJ_FASTCALL recff_lua54_bit(jit_State *J, RecordFFData *rd)
 {
 #if LJ_DUALNUM
-  if (recff_lua54_tref_isinteger(J->base[0]) &&
-      recff_lua54_tref_isinteger(J->base[1]) &&
-      recff_lua54_tv_isinteger(&rd->argv[0]) &&
-      recff_lua54_tv_isinteger(&rd->argv[1])) {
-    lua_Unsigned a = (lua_Unsigned)(lua_Integer)
-      recff_lua54_tv_i64(&rd->argv[0]);
-    lua_Unsigned b = (lua_Unsigned)(lua_Integer)
-      recff_lua54_tv_i64(&rd->argv[1]);
+  {
+    int64_t ai, bi;
+    TRef ta, tb;
+    if (!recff_lua54_tv_toi64(&rd->argv[0], &ai) ||
+	!recff_lua54_tv_toi64(&rd->argv[1], &bi))
+      goto nyi;
+    ta = recff_lua54_toi64ref(J, J->base[0], &rd->argv[0]);
+    tb = recff_lua54_toi64ref(J, J->base[1], &rd->argv[1]);
+    if (!ta || !tb)
+      goto nyi;
+    {
+    lua_Unsigned a = (lua_Unsigned)(lua_Integer)ai;
+    lua_Unsigned b = (lua_Unsigned)(lua_Integer)bi;
     lua_Unsigned r;
     TRef tr;
     switch ((IROp)rd->data) {
@@ -343,11 +388,12 @@ static void LJ_FASTCALL recff_lua54_bit(jit_State *J, RecordFFData *rd)
     case IR_BXOR: r = a ^ b; break;
     default: recff_nyiu(J, rd); return;
     }
-    tr = emitir(IRT(rd->data, IRT_I64), recff_lua54_i64ref(J, J->base[0]),
-		recff_lua54_i64ref(J, J->base[1]));
+    tr = emitir(IRT(rd->data, IRT_I64), ta, tb);
     J->base[0] = recff_lua54_i64result(J, tr, (int64_t)(lua_Integer)r);
     return;
+    }
   }
+nyi:
 #endif
   recff_nyiu(J, rd);
 }
@@ -355,16 +401,20 @@ static void LJ_FASTCALL recff_lua54_bit(jit_State *J, RecordFFData *rd)
 static void LJ_FASTCALL recff_lua54_bnot(jit_State *J, RecordFFData *rd)
 {
 #if LJ_DUALNUM
-  if (recff_lua54_tref_isinteger(J->base[0]) &&
-      recff_lua54_tv_isinteger(&rd->argv[0])) {
-    lua_Unsigned a = (lua_Unsigned)(lua_Integer)
-      recff_lua54_tv_i64(&rd->argv[0]);
-    TRef tr = emitir(IRT(rd->data, IRT_I64),
-		     recff_lua54_i64ref(J, J->base[0]), 0);
+  {
+    int64_t ai;
+    TRef ta, tr;
+    if (!recff_lua54_tv_toi64(&rd->argv[0], &ai))
+      goto nyi;
+    ta = recff_lua54_toi64ref(J, J->base[0], &rd->argv[0]);
+    if (!ta)
+      goto nyi;
+    tr = emitir(IRT(rd->data, IRT_I64), ta, 0);
     J->base[0] = recff_lua54_i64result(J, tr,
-				       (int64_t)(lua_Integer)~a);
+      (int64_t)(lua_Integer)~(lua_Unsigned)(lua_Integer)ai);
     return;
   }
+nyi:
 #else
   UNUSED(rd);
 #endif
@@ -374,18 +424,24 @@ static void LJ_FASTCALL recff_lua54_bnot(jit_State *J, RecordFFData *rd)
 static void LJ_FASTCALL recff_lua54_shift(jit_State *J, RecordFFData *rd)
 {
 #if LJ_DUALNUM
-  if (recff_lua54_tref_isinteger(J->base[0]) &&
-      recff_lua54_tref_isinteger(J->base[1]) &&
-      recff_lua54_tv_isinteger(&rd->argv[0]) &&
-      recff_lua54_tv_isinteger(&rd->argv[1])) {
-    int64_t a = recff_lua54_tv_i64(&rd->argv[0]);
-    int64_t sh = recff_lua54_tv_i64(&rd->argv[1]);
+  {
+    int64_t a, sh;
+    TRef ta, tsh;
+    if (!recff_lua54_tv_toi64(&rd->argv[0], &a) ||
+	!recff_lua54_tv_toi64(&rd->argv[1], &sh))
+      goto nyi;
+    ta = recff_lua54_toi64ref(J, J->base[0], &rd->argv[0]);
+    tsh = recff_lua54_toi64ref(J, J->base[1], &rd->argv[1]);
+    if (!ta || !tsh)
+      goto nyi;
+    {
     int64_t r = recff_lua54_shiftint(a, sh, (IROp)rd->data == IR_BSHL);
-    TRef tr = recff_lua54_shiftref(J, J->base[0], J->base[1], sh,
-				   (IROp)rd->data);
+    TRef tr = recff_lua54_shiftref(J, ta, tsh, sh, (IROp)rd->data);
     J->base[0] = tref_isinteger(tr) ? tr : recff_lua54_i64result(J, tr, r);
     return;
+    }
   }
+nyi:
 #endif
   recff_nyiu(J, rd);
 }
@@ -393,9 +449,7 @@ static void LJ_FASTCALL recff_lua54_shift(jit_State *J, RecordFFData *rd)
 static void LJ_FASTCALL recff_lua54_idivmod(jit_State *J, RecordFFData *rd)
 {
 #if LJ_DUALNUM
-  if (recff_lua54_tref_isinteger(J->base[0]) &&
-      recff_lua54_tref_isinteger(J->base[1]) &&
-      recff_lua54_tv_isinteger(&rd->argv[0]) &&
+  if (recff_lua54_tv_isinteger(&rd->argv[0]) &&
       recff_lua54_tv_isinteger(&rd->argv[1])) {
     int64_t a = recff_lua54_tv_i64(&rd->argv[0]);
     int64_t b = recff_lua54_tv_i64(&rd->argv[1]);
