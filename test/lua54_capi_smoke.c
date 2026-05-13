@@ -1312,10 +1312,24 @@ static int optinteger_fraction(lua_State *L)
   return 0;
 }
 
+static int optinteger_arg(lua_State *L)
+{
+  lua_Integer def = (lua_Integer)2048 * 1024 * 1024;
+  lua_pushinteger(L, luaL_optinteger(L, 1, def));
+  return 1;
+}
+
 static int len_meta(lua_State *L)
 {
   (void)L;
   lua_pushinteger(L, 77);
+  return 1;
+}
+
+static int len_wide_meta(lua_State *L)
+{
+  lua_Integer big40 = (lua_Integer)1024 * 1024 * 1024 * 1024;
+  lua_pushnumber(L, (lua_Number)big40);
   return 1;
 }
 
@@ -3826,6 +3840,19 @@ static void test_lauxlib_api(lua_State *L)
 	  "luaL_checkinteger accepts wider 64-bit string");
     check_integer(L, -1, big40, "luaL_checkinteger wider 64-bit string");
     lua_pop(L, 1);
+    lua_pushcfunction(L, optinteger_arg);
+    lua_pushnumber(L, (lua_Number)big40);
+    status = lua_pcall(L, 1, 1, 0);
+    check(L, status == LUA_OK,
+	  "luaL_optinteger accepts wider 64-bit number");
+    check_integer(L, -1, big40, "luaL_optinteger wider 64-bit number");
+    lua_pop(L, 1);
+    lua_pushcfunction(L, optinteger_arg);
+    status = lua_pcall(L, 0, 1, 0);
+    check(L, status == LUA_OK, "luaL_optinteger wider default status");
+    check_integer(L, -1, (lua_Integer)2048 * 1024 * 1024,
+		  "luaL_optinteger wider default");
+    lua_pop(L, 1);
   }
 
   lua_pushcfunction(L, optnumber_arg);
@@ -4091,6 +4118,19 @@ static void test_lauxlib_api(lua_State *L)
   check(L, status == LUA_OK, "luaL_len __len status");
   check_integer(L, -1, 77, "luaL_len __len");
   lua_pop(L, 1);
+  if (sizeof(lua_Integer) > sizeof(int)) {
+    lua_pushcfunction(L, laux_len_arg);
+    lua_newtable(L);
+    lua_newtable(L);
+    lua_pushcfunction(L, len_wide_meta);
+    lua_setfield(L, -2, "__len");
+    lua_setmetatable(L, -2);
+    status = lua_pcall(L, 1, 1, 0);
+    check(L, status == LUA_OK, "luaL_len wide __len status");
+    check_integer(L, -1, (lua_Integer)1024 * 1024 * 1024 * 1024,
+		  "luaL_len wide __len");
+    lua_pop(L, 1);
+  }
 
   lua_pushcfunction(L, laux_len_arg);
   lua_newtable(L);
