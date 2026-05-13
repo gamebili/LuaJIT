@@ -693,6 +693,41 @@ do
   end, "Lua 5.4 boxed int64 equality")
 
   assert_records_trace(function()
+    local function eq_loop(a, b)
+      local n = 0
+      for _ = 1, 80 do
+	if a == b then n = n + 1 end
+      end
+      return n
+    end
+    local a = assert(tonumber("9007199254740993"))
+    local b = 9007199254740992.0
+    assert(math.type(a) == "integer" and math.type(b) == "float")
+    assert(eq_loop(a, b) == 0)
+    assert(eq_loop(assert(tonumber("9007199254740992")), b) == 80)
+  end, "Lua 5.4 mixed int64/float equality")
+
+  assert_records_trace(function()
+    local function order_loop(a, b, c, nan)
+      local n = 0
+      for _ = 1, 80 do
+	if a < b then n = n + 1 end
+	if b > a then n = n + 1 end
+	if a <= b then n = n + 1 end
+	if not (a < c) then n = n + 1 end
+	if not (a <= nan) then n = n + 1 end
+      end
+      return n
+    end
+    local a = assert(tonumber("9007199254740993"))
+    local b = 9007199254740994.0
+    local c = 9007199254740992.0
+    local nan = 0 / 0
+    assert(math.type(a) == "integer" and math.type(b) == "float")
+    assert(order_loop(a, b, c, nan) == 400)
+  end, "Lua 5.4 mixed int64/float ordered comparison")
+
+  assert_records_trace(function()
     local n = 0
     for i = "1", "80" do
       if math.type(i) == "float" then n = n + i end

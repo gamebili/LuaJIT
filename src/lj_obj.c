@@ -6,9 +6,12 @@
 #define lj_obj_c
 #define LUA_CORE
 
+#include <math.h>
+
 #include "lj_obj.h"
 #include "lj_gc.h"
 #include "lj_str.h"
+#include "lj_vm.h"
 
 /* Object type names. */
 LJ_DATADEF const char *const lj_obj_typename[] = {  /* ORDER LUA_T */
@@ -66,6 +69,65 @@ static int obj_numeq_i64(lua_Number n, int64_t i)
     return 0;
   k = lj_num2i64(n);
   return k == i && (lua_Number)k == n;
+}
+
+int lj_obj_i64eqnum(int64_t i, lua_Number n)
+{
+  return obj_numeq_i64(n, i);
+}
+
+static int obj_i64lt_num(int64_t i, lua_Number n)
+{
+  lua_Number nf;
+  int64_t k;
+  if (!(n == n))
+    return 0;
+  if (n <= (-9223372036854775807.0 - 1.0))
+    return 0;
+  if (n >= 9223372036854775808.0)
+    return 1;
+  nf = lj_vm_floor(n);
+  k = lj_num2i64(nf);
+  return i < k || (i == k && nf < n);
+}
+
+static int obj_numlt_i64(lua_Number n, int64_t i)
+{
+  lua_Number nf;
+  int64_t k;
+  if (!(n == n))
+    return 0;
+  if (n < (-9223372036854775807.0 - 1.0))
+    return 1;
+  if (n == (-9223372036854775807.0 - 1.0))
+    return i > (-9223372036854775807LL - 1LL);
+  if (n >= 9223372036854775808.0)
+    return 0;
+  nf = lj_vm_floor(n);
+  k = lj_num2i64(nf);
+  return k < i;
+}
+
+int lj_obj_i64cmpnum(int64_t i, lua_Number n, int op)
+{
+  switch (op) {
+  case LJ_OBJ_CMPLT: return obj_i64lt_num(i, n);
+  case LJ_OBJ_CMPGE: return obj_numeq_i64(n, i) || obj_numlt_i64(n, i);
+  case LJ_OBJ_CMPLE: return obj_numeq_i64(n, i) || obj_i64lt_num(i, n);
+  case LJ_OBJ_CMPGT: return obj_numlt_i64(n, i);
+  default: return 0;
+  }
+}
+
+int lj_obj_numcmpi64(lua_Number n, int64_t i, int op)
+{
+  switch (op) {
+  case LJ_OBJ_CMPLT: return obj_numlt_i64(n, i);
+  case LJ_OBJ_CMPGE: return obj_numeq_i64(n, i) || obj_i64lt_num(i, n);
+  case LJ_OBJ_CMPLE: return obj_numeq_i64(n, i) || obj_numlt_i64(n, i);
+  case LJ_OBJ_CMPGT: return obj_i64lt_num(i, n);
+  default: return 0;
+  }
 }
 
 /* Compare two objects without calling metamethods. */

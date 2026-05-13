@@ -108,6 +108,20 @@ static int rec_lua54_i64cmp(cTValue *a, cTValue *b, IROp op)
   }
 }
 
+static int rec_lua54_cmpmode(IROp op)
+{
+  return (int)op - (int)IR_LT;
+}
+
+static int rec_lua54_i64numcmp(cTValue *a, cTValue *b, IROp op)
+{
+  int mode = rec_lua54_cmpmode(op);
+  if (rec_lua54_tv_isinteger(a))
+    return lj_obj_i64cmpnum(rec_lua54_tv_i64(a), numV(b), mode);
+  else
+    return lj_obj_numcmpi64(numV(a), rec_lua54_tv_i64(b), mode);
+}
+
 static TRef rec_lua54_i64ref(jit_State *J, TRef tr)
 {
   if (tref_isinteger(tr))
@@ -383,6 +397,14 @@ int lj_record_objcmp(jit_State *J, TRef a, TRef b, cTValue *av, cTValue *bv)
 	(tb == IRT_INT || tb == IRT_INT64)) {
       emitir(IRTG(diff ? IR_NE : IR_EQ, IRT_I64),
 	     rec_lua54_i64ref(J, a), rec_lua54_i64ref(J, b));
+      return diff;
+    }
+    if ((ta == IRT_INT64 && tb == IRT_NUM) ||
+	(ta == IRT_NUM && tb == IRT_INT64)) {
+      TRef eq = ta == IRT_INT64 ?
+	lj_ir_call(J, IRCALL_lj_obj_i64eqnum, rec_lua54_i64ref(J, a), b) :
+	lj_ir_call(J, IRCALL_lj_obj_i64eqnum, rec_lua54_i64ref(J, b), a);
+      emitir(IRTG(diff ? IR_EQ : IR_NE, IRT_INT), eq, lj_ir_kint(J, 0));
       return diff;
     }
 #endif
@@ -2710,6 +2732,28 @@ void lj_record_ins(jit_State *J)
 	emitir(IRTG(irop, IRT_I64),
 	       rec_lua54_i64ref(J, ra), rec_lua54_i64ref(J, rc));
 	rec_comp_fixup(J, J->pc, ((int)op ^ irop) & 1);
+	break;
+      }
+      if (((ta == IRT_INT64 && tc == IRT_NUM) ||
+	   (ta == IRT_NUM && tc == IRT_INT64)) &&
+	  ((rec_lua54_tv_isinteger(rav) && tvisnum(rcv)) ||
+	   (tvisnum(rav) && rec_lua54_tv_isinteger(rcv)))) {
+	int emitop, mode;
+	TRef cmp;
+	rec_comp_prep(J);
+	irop = (int)op - (int)BC_ISLT + (int)IR_LT;
+	mode = rec_lua54_cmpmode((IROp)irop);
+	emitop = irop;
+	if (!rec_lua54_i64numcmp(rav, rcv, (IROp)irop))
+	  emitop ^= 1;
+	cmp = ta == IRT_INT64 ?
+	  lj_ir_call(J, IRCALL_lj_obj_i64cmpnum, rec_lua54_i64ref(J, ra),
+		     rc, lj_ir_kint(J, mode)) :
+	  lj_ir_call(J, IRCALL_lj_obj_numcmpi64, ra,
+		     rec_lua54_i64ref(J, rc), lj_ir_kint(J, mode));
+	emitir(IRTG(emitop == irop ? IR_NE : IR_EQ, IRT_INT),
+	       cmp, lj_ir_kint(J, 0));
+	rec_comp_fixup(J, J->pc, ((int)op ^ emitop) & 1);
 	break;
       }
 #endif
