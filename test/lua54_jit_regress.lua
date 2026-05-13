@@ -727,6 +727,63 @@ do
     assert(order_loop(a, b, c, nan) == 400)
   end, "Lua 5.4 mixed int64/float ordered comparison")
 
+  assert_records_ir_op(function()
+    local x = 0
+    for _ = 1, 80 do
+      x = (x | 1099511627776) & 1099511628031
+    end
+    assert(x == 1099511627776 and math.type(x) == "integer")
+  end, "Lua 5.4 boxed int64 bitwise and/or", "BAND")
+
+  assert_records_ir_op(function()
+    local a = 1099511627776
+    local b = 1099511628031
+    local x = 0
+    for _ = 1, 80 do
+      x = a ~ b
+    end
+    assert(x == 255 and math.type(x) == "integer")
+  end, "Lua 5.4 boxed int64 bitwise xor", "BXOR")
+
+  assert_records_ir_op(function()
+    local x = 1
+    for _ = 1, 40 do
+      x = x << 1
+    end
+    assert(x == 1099511627776 and math.type(x) == "integer")
+  end, "Lua 5.4 boxed int64 shift left", "BSHL")
+
+  assert_records_ir_op(function()
+    local a = 2199023255552
+    local x = 0
+    for _ = 1, 80 do
+      x = a >> 1
+    end
+    assert(x == 1099511627776 and math.type(x) == "integer")
+  end, "Lua 5.4 boxed int64 shift right", "BSHR")
+
+  assert_records_trace(function()
+    local function shift_loop(a, b, c)
+      local n = 0
+      for _ = 1, 80 do
+	if (a >> b) == 1099511627776 then n = n + 1 end
+	if (a << c) == 1099511627776 then n = n + 1 end
+	if (a << 64) == 0 then n = n + 1 end
+      end
+      return n
+    end
+    assert(shift_loop(2199023255552, 1, -1) == 240)
+  end, "Lua 5.4 boxed int64 shift right/negative/out-of-range")
+
+  assert_records_ir_op(function()
+    local a = 1099511627776
+    local x = 0
+    for _ = 1, 80 do
+      x = ~a
+    end
+    assert(x == -1099511627777 and math.type(x) == "integer")
+  end, "Lua 5.4 boxed int64 bitwise not", "BNOT")
+
   assert_records_trace(function()
     local n = 0
     for i = "1", "80" do

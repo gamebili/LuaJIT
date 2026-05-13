@@ -558,7 +558,7 @@ static int lj_cf_jit__lua54_mod(lua_State *L)
   return lua54_pushbinnum(L, lua54_nummod(na, nb));
 }
 
-static int lj_cf_jit__lua54_band(lua_State *L)
+LJLIB_CF(jit__lua54_band_c)		LJLIB_REC(lua54_bit IR_BAND)
 {
   int ia, ib;
   lua_Integer a, b;
@@ -572,7 +572,7 @@ static int lj_cf_jit__lua54_band(lua_State *L)
     (lua_Integer)((lua_Unsigned)a & (lua_Unsigned)b));
 }
 
-static int lj_cf_jit__lua54_bor(lua_State *L)
+LJLIB_CF(jit__lua54_bor_c)		LJLIB_REC(lua54_bit IR_BOR)
 {
   int ia, ib;
   lua_Integer a, b;
@@ -586,7 +586,7 @@ static int lj_cf_jit__lua54_bor(lua_State *L)
     (lua_Integer)((lua_Unsigned)a | (lua_Unsigned)b));
 }
 
-static int lj_cf_jit__lua54_bxor(lua_State *L)
+LJLIB_CF(jit__lua54_bxor_c)		LJLIB_REC(lua54_bit IR_BXOR)
 {
   int ia, ib;
   lua_Integer a, b;
@@ -600,7 +600,7 @@ static int lj_cf_jit__lua54_bxor(lua_State *L)
     (lua_Integer)((lua_Unsigned)a ^ (lua_Unsigned)b));
 }
 
-static int lj_cf_jit__lua54_bnot(lua_State *L)
+LJLIB_CF(jit__lua54_bnot_c)		LJLIB_REC(lua54_bnot IR_BNOT)
 {
   int isnum;
   lua_Integer a;
@@ -628,7 +628,7 @@ static lua_Integer lua54_shiftint(lua_Integer a, lua_Integer sh, int left)
   return left ? (lua_Integer)(u << s) : (lua_Integer)(u >> s);
 }
 
-static int lj_cf_jit__lua54_shl(lua_State *L)
+LJLIB_CF(jit__lua54_shl_c)		LJLIB_REC(lua54_shift IR_BSHL)
 {
   int ia, ib;
   lua_Integer a, sh;
@@ -641,7 +641,7 @@ static int lj_cf_jit__lua54_shl(lua_State *L)
   return lua54_pushbinint(L, lua54_shiftint(a, sh, 1));
 }
 
-static int lj_cf_jit__lua54_shr(lua_State *L)
+LJLIB_CF(jit__lua54_shr_c)		LJLIB_REC(lua54_shift IR_BSHR)
 {
   int ia, ib;
   lua_Integer a, sh;
@@ -1513,18 +1513,6 @@ LUALIB_API int luaopen_jit(lua_State *L)
   lua_setfield(L, -2, "_lua54_idiv_c");
   lua_pushcfunction(L, lj_cf_jit__lua54_mod);
   lua_setfield(L, -2, "_lua54_mod_c");
-  lua_pushcfunction(L, lj_cf_jit__lua54_band);
-  lua_setfield(L, -2, "_lua54_band_c");
-  lua_pushcfunction(L, lj_cf_jit__lua54_bor);
-  lua_setfield(L, -2, "_lua54_bor_c");
-  lua_pushcfunction(L, lj_cf_jit__lua54_bxor);
-  lua_setfield(L, -2, "_lua54_bxor_c");
-  lua_pushcfunction(L, lj_cf_jit__lua54_bnot);
-  lua_setfield(L, -2, "_lua54_bnot_c");
-  lua_pushcfunction(L, lj_cf_jit__lua54_shl);
-  lua_setfield(L, -2, "_lua54_shl_c");
-  lua_pushcfunction(L, lj_cf_jit__lua54_shr);
-  lua_setfield(L, -2, "_lua54_shr_c");
   luaL_loadstring(L,
     "local rawget, type, getmetatable = rawget, type, getmetatable\n"
     "local jit = jit\n"
