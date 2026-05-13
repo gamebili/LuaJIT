@@ -810,6 +810,61 @@ static void test_newthread_allocator_failure(lua_State *L, lua_State *T,
 	"lua_newthread partial initialization failure exercised");
 }
 
+static int fail_newuserdatauv_after_alloc(lua_State *L)
+{
+  void *ud = NULL;
+  StrictAllocCtx *ctx;
+  int after = (int)luaL_checkinteger(L, 1);
+  size_t size = (size_t)luaL_checkinteger(L, 2);
+  int nuvalue = (int)luaL_checkinteger(L, 3);
+  lua_getallocf(L, &ud);
+  ctx = (StrictAllocCtx *)ud;
+  ctx->fail_at_alloc = ctx->alloc_requests + after;
+  (void)lua_newuserdatauv(L, size, nuvalue);
+  ctx->fail_at_alloc = 0;
+  return 1;
+}
+
+static void test_newuserdatauv_allocator_failure(lua_State *L, lua_State *T,
+						 StrictAllocCtx *ctx)
+{
+  int limit;
+  int saw_partial_cleanup = 0;
+  lua_gc(T, LUA_GCCOLLECT, 0);
+  for (limit = 1; limit <= 8; limit++) {
+    int before_live = ctx->live_blocks;
+    int before_fails = ctx->call_fails;
+    int before_frees = ctx->frees;
+    lua_pushcfunction(T, fail_newuserdatauv_after_alloc);
+    lua_pushinteger(T, limit);
+    lua_pushinteger(T, 256);
+    lua_pushinteger(T, 4);
+    {
+      int status = lua_pcall(T, 3, 1, 0);
+      ctx->fail_at_alloc = 0;
+      if (status == LUA_OK) {
+	check(L, lua_touserdata(T, -1) != NULL,
+	      "lua_newuserdatauv allocator success result");
+      } else {
+	check(L, status == LUA_ERRMEM,
+	      "lua_newuserdatauv allocator failure reports memory error");
+	check(L, ctx->call_fails > before_fails,
+	      "lua_newuserdatauv failure must come from allocator");
+      }
+      lua_settop(T, 0);
+      lua_gc(T, LUA_GCCOLLECT, 0);
+      if (status != LUA_OK && ctx->frees > before_frees)
+	saw_partial_cleanup = 1;
+    }
+    check(L, ctx->bad_osize == 0 && ctx->missing_ptr == 0,
+	  "lua_newuserdatauv failure preserves allocator block sizes");
+    check(L, ctx->live_blocks == before_live,
+	  "lua_newuserdatauv failure releases partial allocations");
+  }
+  check(L, saw_partial_cleanup,
+	"lua_newuserdatauv partial allocation cleanup exercised");
+}
+
 static void test_state_allocator_api(lua_State *L)
 {
   AllocCtx ctx = { 0, 0 };
@@ -971,6 +1026,7 @@ static void test_state_allocator_api(lua_State *L)
   check(L, strict_ctx.shrink_fails == 0,
 	"table repartition must not use in-place shrink");
   test_newthread_allocator_failure(L, T, &strict_ctx);
+  test_newuserdatauv_allocator_failure(L, T, &strict_ctx);
   lua_close(T);
   check(L, strict_ctx.bad_osize == 0 && strict_ctx.missing_ptr == 0,
 	"strict allocator preserves block sizes");
