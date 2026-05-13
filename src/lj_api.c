@@ -1297,6 +1297,59 @@ static int32_t api_shift32(int32_t a, int32_t sh, int left)
 		(int32_t)((uint32_t)a >> s);
 }
 
+#if LJ_54
+static lua_Integer api_shiftinteger54(lua_Integer a, lua_Integer sh, int left)
+{
+  lua_Unsigned u = (lua_Unsigned)a;
+  lua_Integer width = (lua_Integer)(8u * sizeof(lua_Unsigned));
+  if (sh < 0) {
+    if (sh <= -width)
+      return 0;
+    sh = -sh;
+    left = !left;
+  } else if (sh >= width) {
+    return 0;
+  }
+  return left ? (lua_Integer)(u << sh) : (lua_Integer)(u >> sh);
+}
+
+static int api_rawarith_bit54(TValue *res, cTValue *a, cTValue *b, int op)
+{
+  lua_Integer ia, ib;
+  lua_Unsigned ua, ub;
+  if (op == LUA_OPBNOT) {
+    if (!luaV_tointeger54(a, &ia, NULL))
+      return 0;
+    setintptrV(res, (lua_Integer)~(lua_Unsigned)ia);
+    return 1;
+  }
+  if (!luaV_tointeger54(a, &ia, NULL) ||
+      !luaV_tointeger54(b, &ib, NULL))
+    return 0;
+  ua = (lua_Unsigned)ia;
+  ub = (lua_Unsigned)ib;
+  switch (op) {
+  case LUA_OPBAND:
+    setintptrV(res, (lua_Integer)(ua & ub));
+    return 1;
+  case LUA_OPBOR:
+    setintptrV(res, (lua_Integer)(ua | ub));
+    return 1;
+  case LUA_OPBXOR:
+    setintptrV(res, (lua_Integer)(ua ^ ub));
+    return 1;
+  case LUA_OPSHL:
+    setintptrV(res, api_shiftinteger54(ia, ib, 1));
+    return 1;
+  case LUA_OPSHR:
+    setintptrV(res, api_shiftinteger54(ia, ib, 0));
+    return 1;
+  default:
+    return 0;
+  }
+}
+#endif
+
 #if LJ_54 && LJ_DUALNUM
 static int api_rawarith_int(lua_State *L, TValue *res, cTValue *a, cTValue *b,
 			    int op)
@@ -1334,6 +1387,16 @@ static int api_rawarith(lua_State *L, TValue *res, cTValue *a, cTValue *b,
   lua_Number na, nb, nr;
   copyTV(L, &ta, a);
   copyTV(L, &tb, b);
+#if LJ_54
+  switch (op) {
+  case LUA_OPBNOT:
+  case LUA_OPBAND: case LUA_OPBOR: case LUA_OPBXOR:
+  case LUA_OPSHL: case LUA_OPSHR:
+    return api_rawarith_bit54(res, a, b, op);
+  default:
+    break;
+  }
+#endif
   switch (op) {
   case LUA_OPBNOT:
     if (!api_toint32(a, &ia))

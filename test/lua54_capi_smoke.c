@@ -3474,6 +3474,53 @@ static void test_compare_len_arith(lua_State *L)
     check_integer(L, -1, (big40 + 7) / 4,
 		  "lua_arith preserves wider 64-bit idiv result");
     lua_pop(L, 1);
+    lua_pushinteger(L, big40);
+    lua_pushinteger(L, big40 + 0x123);
+    lua_arith(L, LUA_OPBAND);
+    check_integer(L, -1, big40,
+		  "lua_arith preserves wider 64-bit band result");
+    lua_pop(L, 1);
+    lua_pushinteger(L, big40);
+    lua_pushinteger(L, 0xff);
+    lua_arith(L, LUA_OPBOR);
+    check_integer(L, -1, big40 + 0xff,
+		  "lua_arith preserves wider 64-bit bor result");
+    lua_pop(L, 1);
+    lua_pushinteger(L, big40 + 3);
+    lua_pushinteger(L, big40 + 1);
+    lua_arith(L, LUA_OPBXOR);
+    check_integer(L, -1, 2,
+		  "lua_arith preserves wider 64-bit bxor result");
+    lua_pop(L, 1);
+    lua_pushinteger(L, 1);
+    lua_pushinteger(L, 40);
+    lua_arith(L, LUA_OPSHL);
+    check_integer(L, -1, big40,
+		  "lua_arith preserves wider 64-bit shl result");
+    lua_pop(L, 1);
+    lua_pushinteger(L, big40);
+    lua_pushinteger(L, 40);
+    lua_arith(L, LUA_OPSHR);
+    check_integer(L, -1, 1,
+		  "lua_arith preserves wider 64-bit shr result");
+    lua_pop(L, 1);
+    lua_pushinteger(L, big40);
+    lua_pushinteger(L, -40);
+    lua_arith(L, LUA_OPSHL);
+    check_integer(L, -1, 1,
+		  "lua_arith preserves wider 64-bit negative shift result");
+    lua_pop(L, 1);
+    lua_pushliteral(L, "1099511627776");
+    lua_pushinteger(L, 7);
+    lua_arith(L, LUA_OPBOR);
+    check_integer(L, -1, big40 + 7,
+		  "lua_arith preserves wider 64-bit string bit result");
+    lua_pop(L, 1);
+    lua_pushinteger(L, big40);
+    lua_arith(L, LUA_OPBNOT);
+    check_integer(L, -1, (lua_Integer)~(lua_Unsigned)big40,
+		  "lua_arith preserves wider 64-bit bnot result");
+    lua_pop(L, 1);
   }
 
   lua_pushinteger(L, 6);
