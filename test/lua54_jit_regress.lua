@@ -124,6 +124,23 @@ local function assert_records_ir_call(fn, what, callname)
 	 what .. " did not record " .. callname)
 end
 
+local function assert_records_ir_calls(fn, what, callnames)
+  jitmod.off()
+  jitmod.flush()
+  collectgarbage()
+  jitmod.on()
+  jit.opt.start("hotloop=1", "hotexit=1")
+  local before = trace_highwater()
+  fn()
+  local after = trace_highwater()
+  assert(after > before, what .. " did not record a trace")
+  for i = 1, #callnames do
+    local callname = callnames[i]
+    assert(trace_has_ir_call(before + 1, after, callname),
+	   what .. " did not record " .. callname)
+  end
+end
+
 local function assert_records_single_ir_trace(fn, what, opname)
   local saw_trace = false
   -- Whole-file runs can occasionally allocate an unrelated side trace number
@@ -894,6 +911,28 @@ do
     end
     assert(x == 1 and math.type(x) == "integer")
   end, "Lua 5.4 boxed int64 modulo", "lj_obj_i64mod")
+
+  assert_records_ir_calls(function()
+    local a = "9007199254740993"
+    local b = "3"
+    local x = 0
+    for _ = 1, 80 do
+      x = a // b
+    end
+    assert(x == 3002399751580331 and math.type(x) == "integer")
+  end, "Lua 5.4 string int64 floor division",
+  { "lj_strscan_toint6454", "lj_obj_i64idiv" })
+
+  assert_records_ir_calls(function()
+    local a = "9007199254740993"
+    local b = "10"
+    local x = 0
+    for _ = 1, 80 do
+      x = a % b
+    end
+    assert(x == 3 and math.type(x) == "integer")
+  end, "Lua 5.4 string int64 modulo",
+  { "lj_strscan_toint6454", "lj_obj_i64mod" })
 
   assert_records_trace(function()
     local n = 0

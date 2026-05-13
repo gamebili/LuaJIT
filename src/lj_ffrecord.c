@@ -287,6 +287,20 @@ static int recff_lua54_tv_toi64(cTValue *tv, int64_t *ip)
   return 0;
 }
 
+static int recff_lua54_tv_toint64(cTValue *tv, int64_t *ip)
+{
+  if (recff_lua54_tv_isinteger(tv)) {
+    *ip = recff_lua54_tv_i64(tv);
+    return 1;
+  } else if (tvisstr(tv)) {
+    if (!lj_strscan_toint64ok54(strV(tv)))
+      return 0;
+    *ip = lj_strscan_toint6454(strV(tv));
+    return 1;
+  }
+  return 0;
+}
+
 static TRef recff_lua54_i64ref(jit_State *J, TRef tr)
 {
   if (tref_isinteger(tr))
@@ -315,6 +329,23 @@ static TRef recff_lua54_toi64ref(jit_State *J, TRef tr, cTValue *tv)
     ok = lj_ir_call(J, IRCALL_lj_strscan_toi64ok54, tr);
     emitir(IRTG(IR_NE, IRT_INT), ok, lj_ir_kint(J, 0));
     return lj_ir_call(J, IRCALL_lj_strscan_toi6454, tr);
+  }
+  return 0;
+}
+
+static TRef recff_lua54_toint64ref(jit_State *J, TRef tr, cTValue *tv)
+{
+  if (recff_lua54_tv_isinteger(tv)) {
+    if (!recff_lua54_tref_isinteger(tr))
+      return 0;
+    return recff_lua54_i64ref(J, tr);
+  } else if (tvisstr(tv)) {
+    TRef ok;
+    if (!tref_isstr(tr))
+      return 0;
+    ok = lj_ir_call(J, IRCALL_lj_strscan_toint64ok54, tr);
+    emitir(IRTG(IR_NE, IRT_INT), ok, lj_ir_kint(J, 0));
+    return lj_ir_call(J, IRCALL_lj_strscan_toint6454, tr);
   }
   return 0;
 }
@@ -461,25 +492,29 @@ nyi:
 static void LJ_FASTCALL recff_lua54_idivmod(jit_State *J, RecordFFData *rd)
 {
 #if LJ_DUALNUM
-  if (recff_lua54_tv_isinteger(&rd->argv[0]) &&
-      recff_lua54_tv_isinteger(&rd->argv[1])) {
-    int64_t a = recff_lua54_tv_i64(&rd->argv[0]);
-    int64_t b = recff_lua54_tv_i64(&rd->argv[1]);
+  {
+    int64_t a, b;
+    TRef ta, tb, tr;
     IRCallID id = (IROp)rd->data == IR_DIV ? IRCALL_lj_obj_i64idiv :
 					      IRCALL_lj_obj_i64mod;
-    TRef ta, tb, tr;
+    if (!recff_lua54_tv_toint64(&rd->argv[0], &a) ||
+	!recff_lua54_tv_toint64(&rd->argv[1], &b))
+      goto nyi;
     if (b == 0) {
       recff_nyiu(J, rd);
       return;
     }
-    ta = recff_lua54_i64ref(J, J->base[0]);
-    tb = recff_lua54_i64ref(J, J->base[1]);
+    ta = recff_lua54_toint64ref(J, J->base[0], &rd->argv[0]);
+    tb = recff_lua54_toint64ref(J, J->base[1], &rd->argv[1]);
+    if (!ta || !tb)
+      goto nyi;
     emitir(IRTG(IR_NE, IRT_I64), tb, lj_ir_kint64(J, 0));
     tr = lj_ir_call(J, id, ta, tb);
     J->base[0] = recff_lua54_i64result(J, tr,
       (IROp)rd->data == IR_DIV ? lj_obj_i64idiv(a, b) : lj_obj_i64mod(a, b));
     return;
   }
+nyi:
 #endif
   recff_nyiu(J, rd);
 }
