@@ -42,19 +42,44 @@ static Node *hashkey(const GCtab *t, cTValue *key)
 
 /* -- Table creation and destruction -------------------------------------- */
 
-/* Create new hash part for table. */
-static LJ_AINLINE void newhpart(lua_State *L, GCtab *t, uint32_t hbits)
+/* Allocate a new hash part for table. */
+static LJ_AINLINE Node *allochpart(lua_State *L, uint32_t hbits,
+				   uint32_t *hmaskp)
 {
   uint32_t hsize;
-  Node *node;
   lj_assertL(hbits != 0, "zero hash size");
   if (hbits > LJ_MAX_HBITS)
     lj_err_msg(L, LJ_ERR_TABOV);
   hsize = 1u << hbits;
-  node = lj_mem_newvec(L, hsize, Node);
+  *hmaskp = hsize-1;
+  return lj_mem_newvec(L, hsize, Node);
+}
+
+static LJ_AINLINE Node *allochpart_noerr(lua_State *L, uint32_t hbits,
+					 uint32_t *hmaskp)
+{
+  uint32_t hsize;
+  lj_assertL(hbits != 0, "zero hash size");
+  if (hbits > LJ_MAX_HBITS)
+    lj_err_msg(L, LJ_ERR_TABOV);
+  hsize = 1u << hbits;
+  *hmaskp = hsize-1;
+  return (Node *)lj_mem_realloc_noerr(L, NULL, 0, sizeof(Node) * hsize);
+}
+
+static LJ_AINLINE void inithpart(GCtab *t, Node *node, uint32_t hmask)
+{
   setmref(t->node, node);
-  setfreetop(t, node, &node[hsize]);
-  t->hmask = hsize-1;
+  setfreetop(t, node, &node[hmask+1]);
+  t->hmask = hmask;
+}
+
+/* Create new hash part for table. */
+static LJ_AINLINE void newhpart(lua_State *L, GCtab *t, uint32_t hbits)
+{
+  uint32_t hmask;
+  Node *node = allochpart(L, hbits, &hmask);
+  inithpart(t, node, hmask);
 }
 
 /*
@@ -239,12 +264,73 @@ void LJ_FASTCALL lj_tab_free(global_State *g, GCtab *t)
 
 /* -- Table resizing ------------------------------------------------------ */
 
+static void tab_resize_shrinkarray(lua_State *L, GCtab *t, uint32_t asize,
+				   uint32_t hbits)
+{
+  global_State *g = G(L);
+  Node *oldnode = noderef(t->node);
+  uint32_t oldasize = t->asize;
+  uint32_t oldhmask = t->hmask;
+  TValue *oldarray = tvref(t->array);
+  TValue *newarray = NULL;
+  Node *newnode = NULL;
+  uint32_t newhmask = 0;
+  uint32_t i;
+  if (hbits > LJ_MAX_HBITS)
+    lj_err_msg(L, LJ_ERR_TABOV);
+  if (asize > 0) {
+    newarray = (TValue *)lj_mem_realloc_noerr(L, NULL, 0,
+					      sizeof(TValue) * asize);
+    if (newarray == NULL)
+      lj_err_mem(L);
+    for (i = 0; i < asize; i++)
+      copyTV(L, &newarray[i], &oldarray[i]);
+  }
+  if (hbits) {
+    newnode = allochpart_noerr(L, hbits, &newhmask);
+    if (newnode == NULL) {
+      if (newarray != NULL)
+	lj_mem_freevec(g, newarray, asize, TValue);
+      lj_err_mem(L);
+    }
+  }
+  setmref(t->array, newarray);
+  t->asize = asize;
+  if (hbits) {
+    inithpart(t, newnode, newhmask);
+    clearhpart(t);
+  } else {
+    setmref(t->node, &g->nilnode);
+#if LJ_GC64
+    setmref(t->freetop, &g->nilnode);
+#endif
+    t->hmask = 0;
+  }
+  for (i = asize; i < oldasize; i++)  /* Reinsert old array values. */
+    if (!tvisnil(&oldarray[i]))
+      copyTV(L, lj_tab_setinth(L, t, (int32_t)i), &oldarray[i]);
+  if (oldhmask > 0) {  /* Reinsert pairs from old hash part. */
+    for (i = 0; i <= oldhmask; i++) {
+      Node *n = &oldnode[i];
+      if (!tvisnil(&n->val))
+	copyTV(L, lj_tab_set(L, t, &n->key), &n->val);
+    }
+    lj_mem_freevec(g, oldnode, oldhmask+1, Node);
+  }
+  lj_mem_freevec(g, oldarray, oldasize, TValue);
+}
+
 /* Resize a table to fit the new array/hash part sizes. */
 void lj_tab_resize(lua_State *L, GCtab *t, uint32_t asize, uint32_t hbits)
 {
   Node *oldnode = noderef(t->node);
   uint32_t oldasize = t->asize;
   uint32_t oldhmask = t->hmask;
+  if (asize < oldasize && oldasize > 0 &&
+      (LJ_MAX_COLOSIZE == 0 || t->colo <= 0)) {
+    tab_resize_shrinkarray(L, t, asize, hbits);
+    return;
+  }
   if (asize > oldasize) {  /* Array part grows? */
     TValue *array;
     uint32_t i;

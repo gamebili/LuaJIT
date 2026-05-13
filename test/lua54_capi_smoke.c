@@ -341,6 +341,25 @@ typedef struct ShrinkFailAllocCtx {
   size_t max_failed_shrink_osize;
 } ShrinkFailAllocCtx;
 
+typedef struct StrictAllocBlock {
+  void *ptr;
+  size_t size;
+} StrictAllocBlock;
+
+typedef struct StrictAllocCtx {
+  StrictAllocBlock *blocks;
+  int capacity;
+  int live_blocks;
+  int calls;
+  int frees;
+  int fail_shrink;
+  int shrink_fails;
+  int bad_osize;
+  int missing_ptr;
+  size_t fail_shrink_min_osize;
+  size_t max_failed_shrink_osize;
+} StrictAllocCtx;
+
 typedef int (*RawGetI54Sig)(lua_State *L, int idx, lua_Integer n);
 typedef void (*RawSetI54Sig)(lua_State *L, int idx, lua_Integer n);
 typedef int (*LuaOpenBaseSig)(lua_State *L);
@@ -547,11 +566,89 @@ static void *shrink_fail_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
   return realloc(ptr, nsize);
 }
 
+static int strict_alloc_find(StrictAllocCtx *ctx, void *ptr)
+{
+  int i;
+  for (i = 0; i < ctx->live_blocks; i++)
+    if (ctx->blocks[i].ptr == ptr)
+      return i;
+  return -1;
+}
+
+static void strict_alloc_add(StrictAllocCtx *ctx, void *ptr, size_t size)
+{
+  if (ctx->live_blocks < ctx->capacity) {
+    ctx->blocks[ctx->live_blocks].ptr = ptr;
+    ctx->blocks[ctx->live_blocks].size = size;
+    ctx->live_blocks++;
+  } else {
+    ctx->missing_ptr++;
+  }
+}
+
+static void strict_alloc_remove(StrictAllocCtx *ctx, int idx)
+{
+  ctx->live_blocks--;
+  ctx->blocks[idx] = ctx->blocks[ctx->live_blocks];
+}
+
+static void *strict_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
+{
+  StrictAllocCtx *ctx = (StrictAllocCtx *)ud;
+  void *np;
+  int idx;
+  ctx->calls++;
+  if (ptr == NULL) {
+    if (osize != 0)
+      ctx->bad_osize++;
+    if (nsize == 0)
+      return NULL;
+    np = malloc(nsize);
+    if (np != NULL)
+      strict_alloc_add(ctx, np, nsize);
+    return np;
+  }
+  idx = strict_alloc_find(ctx, ptr);
+  if (idx < 0) {
+    ctx->missing_ptr++;
+  } else if (ctx->blocks[idx].size != osize) {
+    ctx->bad_osize++;
+  }
+  if (nsize == 0) {
+    ctx->frees++;
+    free(ptr);
+    if (idx >= 0)
+      strict_alloc_remove(ctx, idx);
+    return NULL;
+  }
+  if (ctx->fail_shrink && nsize < osize &&
+      osize >= ctx->fail_shrink_min_osize) {
+    ctx->shrink_fails++;
+    if (osize > ctx->max_failed_shrink_osize)
+      ctx->max_failed_shrink_osize = osize;
+    return NULL;
+  }
+  np = realloc(ptr, nsize);
+  if (np != NULL && idx >= 0) {
+    ctx->blocks[idx].ptr = np;
+    ctx->blocks[idx].size = nsize;
+  }
+  return np;
+}
+
 static int enable_shrink_fail_alloc(lua_State *L)
 {
   void *ud = NULL;
   lua_getallocf(L, &ud);
   ((ShrinkFailAllocCtx *)ud)->fail_shrink = 1;
+  return 0;
+}
+
+static int enable_strict_shrink_fail_alloc(lua_State *L)
+{
+  void *ud = NULL;
+  lua_getallocf(L, &ud);
+  ((StrictAllocCtx *)ud)->fail_shrink = 1;
   return 0;
 }
 
@@ -576,6 +673,7 @@ static void test_state_allocator_api(lua_State *L)
   SwitchAllocCtx switch_ctx = { 0, 0, 0, 0 };
   TrackingAllocCtx track_ctx = { 0, 0, 0 };
   ShrinkFailAllocCtx shrink_ctx = { 0, 0, 0, 0, 0 };
+  StrictAllocCtx strict_ctx;
   void *ud = NULL;
   lua_Alloc allocf;
   int status;
@@ -657,6 +755,39 @@ static void test_state_allocator_api(lua_State *L)
   check(L, status == LUA_OK,
 	"GC opportunistic shrink allocator failure is non-fatal");
   lua_close(T);
+
+  memset(&strict_ctx, 0, sizeof(strict_ctx));
+  strict_ctx.capacity = 32768;
+  strict_ctx.fail_shrink_min_osize = 32u * 1024u;
+  strict_ctx.blocks = (StrictAllocBlock *)calloc((size_t)strict_ctx.capacity,
+						 sizeof(StrictAllocBlock));
+  check(L, strict_ctx.blocks != NULL, "strict allocator bookkeeping");
+  T = lua_newstate(strict_alloc, &strict_ctx);
+  check(L, T != NULL, "lua_newstate strict allocator");
+  luaL_openlibs(T);
+  lua_pushcfunction(T, enable_strict_shrink_fail_alloc);
+  lua_setglobal(T, "enable_strict_shrink_fail_alloc");
+  status = luaL_dostring(T,
+    "local t = {}\n"
+    "for i = 1, 8192 do t[i] = i end\n"
+    "for i = 65, 8192 do t[i] = nil end\n"
+    "enable_strict_shrink_fail_alloc()\n"
+    "for i = 1, 8192 do t['strict-alloc-' .. i] = i end\n"
+    "for i = 1, 64 do assert(t[i] == i) end\n"
+    "for i = 65, 8192 do assert(t[i] == nil) end\n"
+    "for i = 1, 8192 do assert(t['strict-alloc-' .. i] == i) end\n"
+    "return true\n");
+  strict_ctx.fail_shrink = 0;
+  check(L, status == LUA_OK,
+	"table repartition must tolerate allocator refusing shrink");
+  check(L, strict_ctx.shrink_fails == 0,
+	"table repartition must not use in-place shrink");
+  lua_close(T);
+  check(L, strict_ctx.bad_osize == 0 && strict_ctx.missing_ptr == 0,
+	"table repartition preserves allocator block sizes");
+  check(L, strict_ctx.live_blocks == 0,
+	"strict allocator releases all table repartition blocks");
+  free(strict_ctx.blocks);
 }
 
 static int checkinteger_fraction(lua_State *L)
