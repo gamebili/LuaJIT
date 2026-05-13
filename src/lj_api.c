@@ -1602,13 +1602,18 @@ static int api_rawarith(lua_State *L, TValue *res, cTValue *a, cTValue *b,
   default:
     break;
   }
+#if LJ_54 && LJ_DUALNUM
+  if (!lj_strscan_numberobj54(L, &ta))
+    return 0;
+  if (op != LUA_OPUNM && !lj_strscan_numberobj54(L, &tb))
+    return 0;
+  if (api_rawarith_int(L, res, &ta, &tb, op))
+    return 1;
+#else
   if (!lj_strscan_numberobj(&ta))
     return 0;
   if (op != LUA_OPUNM && !lj_strscan_numberobj(&tb))
     return 0;
-#if LJ_54 && LJ_DUALNUM
-  if (api_rawarith_int(L, res, &ta, &tb, op))
-    return 1;
 #endif
   na = numberVnum(&ta);
   nb = numberVnum(&tb);

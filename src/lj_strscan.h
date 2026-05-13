@@ -41,6 +41,10 @@ LJ_FUNC int lj_strscan_tobaseintok54(GCstr *str, int32_t base);
 LJ_FUNC int32_t lj_strscan_tobaseintvalue54(GCstr *str, int32_t base);
 #if LJ_DUALNUM
 LJ_FUNC int LJ_FASTCALL lj_strscan_number(GCstr *str, TValue *o);
+#if LJ_54
+LJ_FUNC int LJ_FASTCALL lj_strscan_number54(lua_State *L, GCstr *str,
+					    TValue *o);
+#endif
 #else
 #define lj_strscan_number(s, o)		lj_strscan_num((s), (o))
 #endif
@@ -51,5 +55,13 @@ static LJ_AINLINE int lj_strscan_numberobj(TValue *o)
   return tvisnumber(o) || tvisi64(o) ||
 	 (tvisstr(o) && lj_strscan_number(strV(o), o));
 }
+
+#if LJ_54 && LJ_DUALNUM
+static LJ_AINLINE int lj_strscan_numberobj54(lua_State *L, TValue *o)
+{
+  return tvisnumber(o) || tvisi64(o) ||
+	 (tvisstr(o) && lj_strscan_number54(L, strV(o), o));
+}
+#endif
 
 #endif

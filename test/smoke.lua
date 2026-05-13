@@ -2228,6 +2228,21 @@ assert(assert(load("return 0x100000000"))() == 0x100000000)
 assert(tonumber("ffffFFFF", 16) + 1 == 0x100000000)
 assert(tonumber("-0ffffffFFFF", 16) - 1 == -0x10000000000)
 do
+  assert(assert(load([[
+    local wide = "9007199254740993"
+    assert(wide + 0 == 9007199254740993)
+    assert(math.type(wide + 0) == "integer")
+    assert(wide // 1 == 9007199254740993)
+    assert(math.type(wide // 1) == "integer")
+    assert(wide % 10 == 3)
+    assert(math.type(wide % 10) == "integer")
+    assert(("9223372036854775807" + 0) == math.maxinteger)
+    assert(("-9223372036854775808" + 0) == math.mininteger)
+    assert(math.type(wide + 0.0) == "float")
+    return true
+  ]]))())
+end
+do
   local i = 10
   local i2 = i * i
   local i10 = i2 * i2 * i2 * i2 * i2

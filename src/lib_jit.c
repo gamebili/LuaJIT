@@ -349,7 +349,7 @@ static int lua54_tonumop(lua_State *L, int narg, int *isint, lua_Integer *ip,
   if (o >= L->top)
     return 0;
   if (tvisstr(o)) {
-    if (!lj_strscan_number(strV(o), &tmp))
+    if (!lj_strscan_number54(L, strV(o), &tmp))
       return 0;
     o = &tmp;
   } else if (!tvisnumber(o) && !tvisi64(o)) {

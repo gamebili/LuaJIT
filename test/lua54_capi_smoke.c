@@ -3565,6 +3565,7 @@ static void test_compare_len_arith(lua_State *L)
   lua_pop(L, 1);
   if (sizeof(lua_Integer) > sizeof(int)) {
     lua_Integer big40 = (lua_Integer)1024 * 1024 * 1024 * 1024;
+    lua_Integer big53 = (((lua_Integer)1) << 53) + 1;
     lua_pushinteger(L, big40);
     lua_pushinteger(L, 3);
     lua_arith(L, LUA_OPADD);
@@ -3582,6 +3583,24 @@ static void test_compare_len_arith(lua_State *L)
     lua_arith(L, LUA_OPMOD);
     check_integer(L, -1, 3,
 		  "lua_arith preserves wider 64-bit mod result");
+    lua_pop(L, 1);
+    lua_pushliteral(L, "9007199254740993");
+    lua_pushinteger(L, 0);
+    lua_arith(L, LUA_OPADD);
+    check_integer(L, -1, big53,
+		  "lua_arith preserves wider string add result");
+    lua_pop(L, 1);
+    lua_pushliteral(L, "9007199254740993");
+    lua_pushinteger(L, 1);
+    lua_arith(L, LUA_OPIDIV);
+    check_integer(L, -1, big53,
+		  "lua_arith preserves wider string idiv result");
+    lua_pop(L, 1);
+    lua_pushliteral(L, "9007199254740993");
+    lua_pushinteger(L, 10);
+    lua_arith(L, LUA_OPMOD);
+    check_integer(L, -1, 3,
+		  "lua_arith preserves wider string mod result");
     lua_pop(L, 1);
     lua_pushinteger(L, big40);
     lua_pushinteger(L, big40 + 0x123);

@@ -346,14 +346,17 @@ TValue *lj_meta_tset(lua_State *L, cTValue *o, cTValue *k)
   return NULL;  /* unreachable */
 }
 
-static cTValue *str2num(cTValue *o, TValue *n)
+static cTValue *str2num(lua_State *L, cTValue *o, TValue *n)
 {
+#if !(LJ_54 && LJ_DUALNUM)
+  UNUSED(L);
+#endif
   if (tvisnum(o))
     return o;
 #if LJ_54 && LJ_DUALNUM
   else if (tvisinteger(o))
     return o;
-  else if (tvisstr(o) && lj_strscan_number(strV(o), n))
+  else if (tvisstr(o) && lj_strscan_number54(L, strV(o), n))
     return n;
 #else
   else if (tvisint(o))
@@ -465,8 +468,8 @@ TValue *lj_meta_arith(lua_State *L, TValue *ra, cTValue *rb, cTValue *rc,
     }
   }
 #endif
-  if ((b = str2num(rb, &tempb)) != NULL &&
-      (c = str2num(rc, &tempc)) != NULL) {  /* Try coercion first. */
+  if ((b = str2num(L, rb, &tempb)) != NULL &&
+      (c = str2num(L, rc, &tempc)) != NULL) {  /* Try coercion first. */
 #if LJ_54 && LJ_DUALNUM
     if (lua54_arith_int(L, ra, b, c, mm))
       return NULL;
@@ -483,7 +486,7 @@ TValue *lj_meta_arith(lua_State *L, TValue *ra, cTValue *rb, cTValue *rc,
 	if (tvisstr(rb) || tvisstr(rc))
 	  lua54_strarith_error(L, rb, rc, mm);
 #endif
-	if (str2num(rb, &tempb) == NULL) rc = rb;
+	if (str2num(L, rb, &tempb) == NULL) rc = rb;
 	lj_err_optype(L, rc, LJ_ERR_OPARITH);
 	return NULL;  /* unreachable */
       }

@@ -852,6 +852,26 @@ int LJ_FASTCALL lj_strscan_number(GCstr *str, TValue *o)
   else if (fmt == STRSCAN_I64) setnumV(o, (lua_Number)(int64_t)o->u64);
   return (fmt != STRSCAN_ERROR);
 }
+
+#if LJ_54
+int LJ_FASTCALL lj_strscan_number54(lua_State *L, GCstr *str, TValue *o)
+{
+  StrScanFmt fmt;
+  if (lj_strscan_rejectnum54(strdata(str), str->len))
+    return 0;
+  fmt = lj_strscan_scan((const uint8_t *)strdata(str), str->len, o,
+			STRSCAN_OPT_TOINT);
+  lj_assertX(fmt == STRSCAN_ERROR || fmt == STRSCAN_NUM ||
+	     fmt == STRSCAN_INT || fmt == STRSCAN_I64,
+	     "bad scan format");
+  if (fmt == STRSCAN_INT) {
+    setitype(o, LJ_TISNUM);
+  } else if (fmt == STRSCAN_I64) {
+    lj_obj_setint64(L, o, (int64_t)o->u64);
+  }
+  return (fmt != STRSCAN_ERROR);
+}
+#endif
 #endif
 
 #undef DNEXT
