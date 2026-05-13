@@ -450,6 +450,7 @@ lua_State *lj_state_new(lua_State *L)
   L1->capi_yield_k = NULL;
   L1->capi_yield_nresults = 0;
   L1->close_cframe_nres1 = 0;
+  L1->close_multres = 0;
   L1->capi_yield_kind = 0;
   L1->capi_cont_yieldable = 0;
 #endif

@@ -28,6 +28,17 @@ LJ_FUNC TValue *lj_close_continue_pcall(lua_State *L, TValue *mbase,
 LJ_FUNC TValue *lj_close_prepare_cframe_pcall(lua_State *L, uint32_t nres1);
 LJ_FUNC TValue *lj_close_continue_cframe_pcall(lua_State *L, TValue *mbase,
 					       TValue *res, int nres1);
+LJ_FUNC TValue *lj_close_prepare_return_pcall(lua_State *L, TValue *res,
+					      uint32_t nres1,
+					      uint32_t multres);
+LJ_FUNC TValue *lj_close_prepare_return_hook_pcall(lua_State *L, TValue *res,
+						   uint32_t nres1,
+						   uint32_t multres);
+LJ_FUNC TValue *lj_close_continue_return_pcall(lua_State *L, TValue *mbase,
+					       TValue *res, int nres1);
+LJ_FUNC TValue *lj_close_continue_return_hook_pcall(lua_State *L,
+						    TValue *mbase,
+						    TValue *res, int nres1);
 #endif
 LJ_FUNC uint32_t lj_close_cframe(lua_State *L, uint32_t nres1);
 LJ_FUNC void lj_close_freeall(lua_State *L);

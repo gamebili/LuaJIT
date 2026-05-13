@@ -674,6 +674,10 @@ static LoopEvent rec_for(jit_State *J, const BCIns *fori, int isforl)
 static LoopEvent rec_iterl(jit_State *J, const BCIns iterins)
 {
   BCReg ra = bc_a(iterins);
+#if LJ_54
+  if (J->L->closelist != NULL)
+    lj_trace_err_info(J, LJ_TRERR_NYIBC);
+#endif
   if (!tref_isnil(getslot(J, ra))) {  /* Looping back? */
     J->base[ra-1] = J->base[ra];  /* Copy result of ITERC to control var. */
     J->maxslot = ra-1+bc_b(J->pc[-1]);
@@ -2834,6 +2838,10 @@ void lj_record_ins(jit_State *J)
   /* -- Calls and vararg handling ----------------------------------------- */
 
   case BC_ITERC:
+#if LJ_54
+    if (J->L->closelist != NULL)
+      lj_trace_err_info(J, LJ_TRERR_NYIBC);
+#endif
     J->base[ra] = getslot(J, ra-3);
     J->base[ra+1+LJ_FR2] = getslot(J, ra-2);
     J->base[ra+2+LJ_FR2] = getslot(J, ra-1);

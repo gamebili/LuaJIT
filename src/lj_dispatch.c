@@ -342,6 +342,7 @@ LUA_API int lua_sethook(lua_State *L, lua_Hook func, int mask, int count)
   g->hook_skipline = 0;
   g->hook_skipcount = (uint8_t)((mask & LUA_MASKCOUNT) && count > 0 ?
 				(count == 1 ? 8 : 1) : 0);
+  g->hook_debug = 0;
 #if LJ_HASJIT
   if (mask)
     /* Lua 5.4 hooks must observe interpreted call/return/count boundaries.
@@ -393,12 +394,40 @@ LUA_API int lua_gethookcount(lua_State *L)
 }
 
 /* Call a hook. */
+#if LJ_54
+static int hook_thread_active(lua_State *L, lua_Hook hookfn)
+{
+  cTValue *tv;
+  TValue key;
+  if (!G(L)->hook_debug)
+    return 1;
+  UNUSED(hookfn);
+  tv = lj_tab_getstr(tabV(registry(L)), lj_str_newlit(L, "_HOOKKEY"));
+  if (!(tv && tvistab(tv)))
+    return 0;
+  setthreadV(L, &key, L);
+  tv = lj_tab_get(L, tabV(tv), &key);
+  return tv && tvisfunc(tv);
+}
+
+void LJ_FASTCALL lj_dispatch_clear_dead_debug_hook(lua_State *L)
+{
+  global_State *g = G(L);
+  if (g->hook_debug && L->status != LUA_YIELD &&
+      hook_thread_active(L, g->hookf)) {
+    g->hookmask &= (uint8_t)~HOOK_EVENTMASK;
+    g->hook_debug = 0;
+    lj_dispatch_update(g);
+  }
+}
+#endif
+
 static void callhook(lua_State *L, int event, BCLine line,
 		     uint16_t ftransfer, uint16_t ntransfer)
 {
   global_State *g = G(L);
-  lua_Hook hookf = g->hookf;
-  if (hookf && !hook_active(g)) {
+  lua_Hook hf = g->hookf;
+  if (hf && !hook_active(g)) {
     lua_Debug ar;
 #if LJ_54
 #if !LJ_HASPROFILE || LJ_PROFILE_SIGPROF
@@ -417,6 +446,10 @@ static void callhook(lua_State *L, int event, BCLine line,
     g->hook_ftransfer = ftransfer;
     g->hook_ntransfer = ntransfer;
     lj_state_checkstack(L, 1+LUA_MINSTACK);
+#if LJ_54
+    if (!hook_thread_active(L, hf))
+      return;
+#endif
 #if LJ_HASPROFILE && !LJ_PROFILE_SIGPROF
     lj_profile_hook_enter(g);
 #else
@@ -429,14 +462,14 @@ static void callhook(lua_State *L, int event, BCLine line,
     g->hookmask &= (uint8_t)~HOOK_EVENTMASK;
 #endif
 #endif
-    hookf(L, &ar);
+    hf(L, &ar);
     lj_assertG(hook_active(g), "active hook flag removed");
     setgcref(g->cur_L, obj2gco(L));
 #if LJ_HASPROFILE && !LJ_PROFILE_SIGPROF
     lj_profile_hook_leave(g);
 #else
 #if LJ_54
-    if ((g->hookmask & HOOK_EVENTMASK) == 0 && g->hookf == hookf)
+    if ((g->hookmask & HOOK_EVENTMASK) == 0 && g->hookf == hf)
       g->hookmask |= oldevents;
 #endif
     hook_leave(g);
@@ -459,16 +492,6 @@ uint32_t LJ_FASTCALL lj_dispatch_ceret(lua_State *L, uint32_t ftransfer,
   if (ftransfer > 65535u) ftransfer = 65535u;
   if (ntransfer > 65535u) ntransfer = 65535u;
 #if LJ_54
-  if (L->close_pcall) {
-    TValue *fnslot = L->base - (1+LJ_FR2);
-    if (fnslot >= tvref(L->stack) && tvisfunc(fnslot)) {
-      GCfunc *fn = funcV(fnslot);
-      if (!isluafunc(fn) && (fn->c.ffid == FF_pcall || fn->c.ffid == FF_xpcall)) {
-	ERRNO_RESTORE
-	return nres1;
-      }
-    }
-  }
   if (G(L)->hook_skipret) {
     G(L)->hook_skipret--;
     ERRNO_RESTORE
@@ -561,7 +584,11 @@ void LJ_FASTCALL lj_dispatch_ins(lua_State *L, const BCIns *pc)
 #if LJ_HASJIT
   {
     jit_State *J = G2J(g);
-    if (J->state != LJ_TRACE_IDLE) {
+    if (J->state != LJ_TRACE_IDLE
+#if LJ_54
+	&& L->closelist == NULL
+#endif
+       ) {
 #ifdef LUA_USE_ASSERT
       ptrdiff_t delta = L->top - L->base;
 #endif
@@ -619,24 +646,31 @@ void LJ_FASTCALL lj_dispatch_ins(lua_State *L, const BCIns *pc)
     }
   }
   if ((g->hookmask & LUA_MASKRET) && bc_isret(bc_op(pc[-1]))) {
-    BCIns ins = pc[-1];
-    BCReg first = bc_a(ins);
-    uint32_t nres = 0;
-    switch (bc_op(ins)) {
-    case BC_RET1:
-      nres = 1;
-      break;
-    case BC_RET:
-      nres = bc_d(ins) - 1;
-      break;
-    case BC_RETM:
-      nres = bc_d(ins) + cframe_multres_n(cf) - 1;
-      break;
-    default:
-      break;
+#if LJ_54
+    if (g->hook_skipret) {
+      g->hook_skipret--;
+    } else
+#endif
+    {
+      BCIns ins = pc[-1];
+      BCReg first = bc_a(ins);
+      uint32_t nres = 0;
+      switch (bc_op(ins)) {
+      case BC_RET1:
+	nres = 1;
+	break;
+      case BC_RET:
+	nres = bc_d(ins) - 1;
+	break;
+      case BC_RETM:
+	nres = bc_d(ins) + cframe_multres_n(cf) - 1;
+	break;
+      default:
+	break;
+      }
+      callhook(L, LUA_HOOKRET, -1, nres ? (uint16_t)(first + 1) : 0,
+	       (uint16_t)nres);
     }
-    callhook(L, LUA_HOOKRET, -1, nres ? (uint16_t)(first + 1) : 0,
-	     (uint16_t)nres);
   }
   ERRNO_RESTORE
 }
@@ -673,6 +707,10 @@ ASMFunction LJ_FASTCALL lj_dispatch_call(lua_State *L, const BCIns *pc)
 #if LJ_HASJIT
   J->L = L;
   if ((uintptr_t)pc & 1) {  /* Marker for hot call. */
+#if LJ_54
+    if (L->closelist != NULL)
+      goto out;
+#endif
 #ifdef LUA_USE_ASSERT
     ptrdiff_t delta = L->top - L->base;
 #endif
@@ -682,6 +720,9 @@ ASMFunction LJ_FASTCALL lj_dispatch_call(lua_State *L, const BCIns *pc)
 	       "unbalanced stack after hot call");
     goto out;
   } else if (J->state != LJ_TRACE_IDLE &&
+#if LJ_54
+	     L->closelist == NULL &&
+#endif
 	     !(g->hookmask & (HOOK_GC|HOOK_VMEVENT))) {
 #ifdef LUA_USE_ASSERT
     ptrdiff_t delta = L->top - L->base;

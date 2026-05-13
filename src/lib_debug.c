@@ -762,6 +762,7 @@ LJLIB_CF(debug_sethook)
   lua_rawset(L, -3);
   lua_pop(L, 1);
   lua_sethook(L1, func, mask, count);
+  G(L1)->hook_debug = (uint8_t)(func != NULL);
   hook_skipline54(L, L1, func, mask);
 #else
   (L->top++)->u64 = KEY_HOOK;

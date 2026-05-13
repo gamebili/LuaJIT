@@ -6,6 +6,8 @@
 #define lj_close_c
 #define LUA_CORE
 
+#include <string.h>
+
 #include "lua.h"
 #include "lj_obj.h"
 #include "lj_gc.h"
@@ -16,12 +18,15 @@
 #include "lj_err.h"
 #include "lj_func.h"
 #include "lj_close.h"
+#include "lj_strfmt.h"
 
 #if LJ_54
 typedef struct CloseState {
   struct CloseState *prev;
   ptrdiff_t slot;
 } CloseState;
+
+#define CLOSE_RETURN_NOFRAME	((TValue *)(void *)(uintptr_t)1)
 
 int lj_close_isfalse(cTValue *o)
 {
@@ -270,8 +275,9 @@ static TValue *close_setup_cont(lua_State *L, cTValue *mo, TValue *slot,
 {
   TValue *top = L->top;
   cTValue *gtv = lj_tab_getint(tabV(registry(L)), LUA_RIDX_GLOBALS);
-  cTValue *jittv = lj_tab_getstr(tabV(gtv), lj_str_newlit(L, "jit"));
-  cTValue *pcall = lj_tab_getstr(tabV(jittv), lj_str_newlit(L, "_lua54_closepcall"));
+  cTValue *pcall = lj_tab_getstr(tabV(gtv), lj_str_newlit(L, "pcall"));
+  if (contid == LJ_CONT_CLOSE_RETURN || contid == LJ_CONT_CLOSE_RETURN_HOOK)
+    L->close_pcall = 1;
 #if LJ_FR2
   (top++)->u64 = contid;
   setnilV(top++);
@@ -428,6 +434,10 @@ TValue *lj_close_prepare_cframe_pcall(lua_State *L, uint32_t nres1)
 {
   TValue *nresslot;
   TValue *errslot;
+  if (close_findunwind(L, savestack(L, L->base)) == NULL) {
+    L->close_cframe_nres1 = (int32_t)nres1;
+    return NULL;
+  }
   lj_state_checkstack(L, 2);
   nresslot = L->top++;
   setintV(nresslot, (int32_t)nres1);
@@ -449,6 +459,175 @@ TValue *lj_close_continue_cframe_pcall(lua_State *L, TValue *mbase,
   }
   L->top = top;
   return close_prepare_cframe_pcall(L, errslot);
+}
+
+static void close_restore_return(lua_State *L, TValue *errslot)
+{
+  TValue *nresslot = errslot-1;
+  TValue *multresslot = errslot-2;
+  TValue *raslot = errslot-3;
+  int32_t nres1 = (int32_t)intV(nresslot);
+  uint32_t nres = (uint32_t)(nres1 - 1);
+  TValue *src = raslot - nres;
+  TValue *dst = L->base + intV(raslot);
+  uint32_t i;
+  for (i = 0; i < nres; i++)
+    copyTV(L, dst+i, src+i);
+  L->close_cframe_nres1 = nres1;
+  L->close_multres = (int32_t)intV(multresslot);
+  L->close_pcall = 0;
+  L->top = dst + nres;
+}
+
+static void close_store_error(lua_State *L, TValue *errslot, cTValue *err)
+{
+  if (tvisstr(err)) {
+    GCstr *s = strV(err);
+    const char *msg = strdata(s);
+    if (msg[0] == '@' || strchr(msg, ' ') == NULL) {
+      ptrdiff_t errslotofs = savestack(L, errslot);
+      L->top = errslot+1;
+      lj_strfmt_pushf(L, "close.lua:0: %s", msg);
+      errslot = restorestack(L, errslotofs);
+      copyTV(L, errslot, L->top-1);
+      L->top = errslot+1;
+      return;
+    }
+  }
+  copyTV(L, errslot, err);
+}
+
+static TValue *close_prepare_return_pcall(lua_State *L, TValue *errslot,
+					  uint32_t contid)
+{
+  ptrdiff_t levelofs = savestack(L, L->base);
+  cTValue *err = tvisnil(errslot) ? niltv(L) : errslot;
+  CloseState **pcs;
+  lj_func_closeuv(L, L->base);
+  while ((pcs = close_findunwind(L, levelofs)) != NULL) {
+    CloseState *cs = *pcs;
+    TValue *slot = restorestack(L, cs->slot);
+    ptrdiff_t slotofs = cs->slot;
+    ptrdiff_t errofs = 0;
+    int errstack = close_stackvalue(L, err, &errofs);
+    cTValue *mo;
+    *pcs = cs->prev;
+    close_freenode(L, cs);
+    if (lj_close_isfalse(slot))
+      continue;
+    mo = lj_close_getmethod(L, slot);
+    if (!mo) {
+      setstrV(L, errslot, lj_str_newlit(L,
+	"attempt to call a nil value (metamethod 'close')"));
+      err = errslot;
+      continue;
+    }
+    {
+      ptrdiff_t errslotofs = savestack(L, errslot);
+      lj_state_checkstack(L, 8);
+      errslot = restorestack(L, errslotofs);
+    }
+    slot = restorestack(L, slotofs);
+    if (errstack)
+      err = restorestack(L, errofs);
+    L->top = errslot+1;
+    return close_setup_cont(L, mo, slot, err, contid);
+  }
+  if (tvisnil(errslot)) {
+    close_restore_return(L, errslot);
+    return NULL;
+  }
+  copyTV(L, L->base, errslot);
+  L->top = L->base+1;
+  L->close_cframe_nres1 = 0;
+  L->close_multres = 0;
+  L->close_pcall = 0;
+  lj_err_run(L);
+}
+
+static TValue *close_prepare_return_start(lua_State *L, TValue *res,
+					  uint32_t nres1, uint32_t multres,
+					  uint32_t contid)
+{
+  uint32_t nres = nres1 - 1;
+  ptrdiff_t resofs = savestack(L, res);
+  TValue *frame_top = curr_topL(L);
+  TValue *resend = res + nres;
+  TValue *save;
+  TValue *raslot;
+  TValue *multresslot;
+  TValue *nresslot;
+  TValue *errslot;
+  uint32_t i;
+  if (close_findunwind(L, savestack(L, L->base)) == NULL) {
+    L->close_cframe_nres1 = (int32_t)nres1;
+    L->close_multres = (int32_t)multres;
+    L->top = res + nres;
+    return CLOSE_RETURN_NOFRAME;
+  }
+  L->top = frame_top > resend ? frame_top : resend;
+  lj_state_checkstack(L, nres + 8);
+  res = restorestack(L, resofs);
+  frame_top = curr_topL(L);
+  resend = res + nres;
+  L->top = frame_top > resend ? frame_top : resend;
+  save = L->top;
+  for (i = 0; i < nres; i++)
+    copyTV(L, save+i, res+i);
+  raslot = save+nres;
+  setintV(raslot, (int32_t)(res - L->base));
+  multresslot = raslot+1;
+  setintV(multresslot, (int32_t)multres);
+  nresslot = multresslot+1;
+  setintV(nresslot, (int32_t)nres1);
+  errslot = nresslot+1;
+  setnilV(errslot);
+  L->top = errslot+1;
+  return close_prepare_return_pcall(L, errslot, contid);
+}
+
+TValue *lj_close_prepare_return_pcall(lua_State *L, TValue *res,
+				      uint32_t nres1, uint32_t multres)
+{
+  return close_prepare_return_start(L, res, nres1, multres,
+				   LJ_CONT_CLOSE_RETURN);
+}
+
+TValue *lj_close_prepare_return_hook_pcall(lua_State *L, TValue *res,
+					   uint32_t nres1, uint32_t multres)
+{
+  return close_prepare_return_start(L, res, nres1, multres,
+				   LJ_CONT_CLOSE_RETURN_HOOK);
+}
+
+static TValue *close_continue_return_pcall(lua_State *L, TValue *mbase,
+					   TValue *res, int nres1,
+					   uint32_t contid)
+{
+  TValue *top = mbase - (2+2*LJ_FR2);
+  TValue *errslot = top-1;
+  if (nres1 >= 2 && tvisfalse(res)) {
+    if (nres1 >= 3)
+      close_store_error(L, errslot, res+1);
+    else
+      setnilV(errslot);
+  }
+  L->top = top;
+  return close_prepare_return_pcall(L, errslot, contid);
+}
+
+TValue *lj_close_continue_return_pcall(lua_State *L, TValue *mbase,
+				       TValue *res, int nres1)
+{
+  return close_continue_return_pcall(L, mbase, res, nres1,
+				     LJ_CONT_CLOSE_RETURN);
+}
+
+TValue *lj_close_continue_return_hook_pcall(lua_State *L, TValue *mbase,
+					    TValue *res, int nres1)
+{
+  return close_continue_return_pcall(L, mbase, res, nres1,
+				     LJ_CONT_CLOSE_RETURN_HOOK);
 }
 #endif
 

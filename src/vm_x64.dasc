@@ -331,19 +331,35 @@
 |
 |// Decrement hashed hotcount and trigger trace recorder if zero.
 |.macro hotloop, reg
+#if LJ_54
+|  mov L:RB, SAVE_L
+|  cmp aword L:RB->closelist, 0
+|  jne >1
+#endif
 |  mov reg, PCd
 |  shr reg, 1
 |  and reg, HOTCOUNT_PCMASK
 |  sub word [DISPATCH+reg+GG_DISP2HOT], HOTCOUNT_LOOP
 |  jb ->vm_hotloop
+#if LJ_54
+|1:
+#endif
 |.endmacro
 |
 |.macro hotcall, reg
+#if LJ_54
+|  mov L:RB, SAVE_L
+|  cmp aword L:RB->closelist, 0
+|  jne >1
+#endif
 |  mov reg, PCd
 |  shr reg, 1
 |  and reg, HOTCOUNT_PCMASK
 |  sub word [DISPATCH+reg+GG_DISP2HOT], HOTCOUNT_CALL
 |  jb ->vm_hotcall
+#if LJ_54
+|1:
+#endif
 |.endmacro
 |
 |// Set current VM state.
@@ -886,6 +902,10 @@ static void build_subroutines(BuildCtx *ctx)
   |  je ->cont_close
   |  cmp RA, LJ_CONT_CLOSE_CFRAME
   |  je ->cont_close_cframe
+  |  cmp RA, LJ_CONT_CLOSE_RETURN
+  |  je ->cont_close_return
+  |  cmp RA, LJ_CONT_CLOSE_RETURN_HOOK
+  |  je ->cont_close_return_hook
 #endif
   |.if FFI
   |  cmp RA, 1
@@ -1118,6 +1138,82 @@ static void build_subroutines(BuildCtx *ctx)
   |  add TMPR, 1
   |  mov word [DISPATCH+DISPATCH_GL(hook_cres_ftransfer)], TMPRW
   |  jmp ->vm_returnc_closed
+#else
+  |  endbr
+  |  jmp ->cont_nop
+#endif
+  |
+  |->cont_close_return:		// BASE = base, RB = close call base.
+#if LJ_54
+  |  endbr
+  |  mov L:CARG1, SAVE_L
+  |  mov L:CARG1->base, BASE
+  |  mov CARG2, RB
+  |  mov CARG3, RC
+  |  mov CARG4d, MULTRES
+  |  mov KBASE, PC
+  |  call extern lj_close_continue_return_pcall
+  |  mov RA, RC
+  |  mov L:RB, SAVE_L
+  |  mov BASE, L:RB->base
+  |  mov PC, KBASE
+  |  mov DISPATCH, L:RB->glref
+  |  add DISPATCH, GG_G2DISP
+  |  cmp RA, 1
+  |  jne >1
+  |  mov TMPRd, L:RB->close_multres
+  |  mov MULTRES, TMPRd
+  |  mov dword L:RB->close_cframe_nres1, 0
+  |  mov dword L:RB->close_multres, 0
+  |  jmp ->vm_return_hook_closed
+  |1:
+  |  test RA, RA
+  |  jnz ->vm_call_close
+  |  mov RDd, L:RB->close_cframe_nres1	// RD = nresults+1.
+  |  mov dword L:RB->close_cframe_nres1, 0
+  |  mov TMPRd, L:RB->close_multres
+  |  mov dword L:RB->close_multres, 0
+  |  test byte [DISPATCH+DISPATCH_GL(hookmask)], LUA_MASKRET
+  |  jz >1
+  |  mov MULTRES, TMPRd
+  |  jmp ->vm_rethook
+  |1:
+  |  mov MULTRES, RDd
+  |  mov RA, L:RB->top
+  |  sub RA, BASE
+  |  mov TMPR, RD
+  |  shl TMPR, 3
+  |  sub TMPR, 8
+  |  sub RA, TMPR			// RA = result offset.
+  |  jmp ->BC_RET_CLOSE_DONE
+#else
+  |  endbr
+  |  jmp ->cont_nop
+#endif
+  |
+  |->cont_close_return_hook:	// BASE = base, RB = close call base.
+#if LJ_54
+  |  endbr
+  |  mov L:CARG1, SAVE_L
+  |  mov L:CARG1->base, BASE
+  |  mov CARG2, RB
+  |  mov CARG3, RC
+  |  mov CARG4d, MULTRES
+  |  mov KBASE, PC
+  |  call extern lj_close_continue_return_hook_pcall
+  |  mov RA, RC
+  |  mov L:RB, SAVE_L
+  |  mov BASE, L:RB->base
+  |  mov PC, KBASE
+  |  mov DISPATCH, L:RB->glref
+  |  add DISPATCH, GG_G2DISP
+  |  test RA, RA
+  |  jnz ->vm_call_close
+  |  mov TMPRd, L:RB->close_multres
+  |  mov MULTRES, TMPRd
+  |  mov dword L:RB->close_cframe_nres1, 0
+  |  mov dword L:RB->close_multres, 0
+  |  jmp ->vm_return_hook_closed
 #else
   |  endbr
   |  jmp ->cont_nop
@@ -1869,6 +1965,16 @@ static void build_subroutines(BuildCtx *ctx)
   |  mov CARG2, RA
   |  mov CARG1, TMP1
   |  call ->vm_resume			// (lua_State *L, TValue *base, 0, 0)
+#if LJ_54
+  |  mov SAVE_ERRF, eax
+  |  mov TMPR, TMP1
+  |  mov CSAVE_1, TMPR
+  |  mov CARG1, TMP1
+  |  call extern lj_dispatch_clear_dead_debug_hook
+  |  mov TMPR, CSAVE_1
+  |  mov TMP1, TMPR
+  |  mov eax, SAVE_ERRF
+#endif
   |
   |  mov L:RB, SAVE_L
   |  mov L:PC, TMP1
@@ -2582,6 +2688,44 @@ static void build_subroutines(BuildCtx *ctx)
   |  test RDL, LUA_MASKLINE
   |  jz >5
   |1:
+#if LJ_54
+  |  mov L:RB, SAVE_L
+  |  cmp byte L:RB->close_pcall, 0
+  |  jne ->vm_return_hook_closed
+  |  cmp aword L:RB->closelist, 0
+  |  je ->vm_return_hook_closed
+  |  movzx TMPRd, PC_OP
+  |  movzx RAd, PC_RA
+  |  movzx RDd, PC_RD
+  |  cmp TMPRd, BC_RET0
+  |  je >1
+  |  shl RAd, 3
+  |1:
+  |  cmp TMPRd, BC_RETM
+  |  jne >2
+  |  add RDd, MULTRES
+  |2:
+  |  mov L:RB->base, BASE
+  |  mov KBASE, PC
+  |  lea CARG2, [BASE+RA]
+  |  mov CARG3d, RDd
+  |  mov CARG4d, MULTRES
+  |  mov CARG1, L:RB
+  |  call extern lj_close_prepare_return_hook_pcall
+  |  mov RA, RC
+  |  mov L:RB, SAVE_L
+  |  mov BASE, L:RB->base
+  |  mov PC, KBASE
+  |  mov DISPATCH, L:RB->glref
+  |  add DISPATCH, GG_G2DISP
+  |  test RA, RA
+  |  jnz ->vm_call_close
+  |  mov TMPRd, L:RB->close_multres
+  |  mov MULTRES, TMPRd
+  |  mov dword L:RB->close_cframe_nres1, 0
+  |  mov dword L:RB->close_multres, 0
+  |->vm_return_hook_closed:
+#endif
   |  mov L:RB, SAVE_L
   |  mov L:RB->base, BASE
   |  mov CARG2, PC			// Caveat: CARG2 == BASE
@@ -4782,7 +4926,59 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  jne >9
     |  mov dword L:RB->tailcall_ci2, 0
     |9:
+    |  cmp aword L:RB->closelist, 0
+    |  je >4
+    |  mov L:RB->base, BASE
+    |  mov KBASE, PC
+    |  lea CARG2, [BASE+RA]
+    |  mov CARG3d, RDd
+    |  mov CARG4d, MULTRES
+    |  mov CARG1, L:RB
+    |  call extern lj_close_prepare_return_pcall
+    |  mov RA, RC
+    |  mov L:RB, SAVE_L
+    |  mov BASE, L:RB->base
+    |  mov PC, KBASE
+    |  mov DISPATCH, L:RB->glref
+    |  add DISPATCH, GG_G2DISP
+    |  cmp RA, 1
+    |  jne >6
+    |  mov RDd, L:RB->close_cframe_nres1
+    |  mov dword L:RB->close_cframe_nres1, 0
+    |  mov TMPRd, L:RB->close_multres
+    |  mov MULTRES, TMPRd
+    |  mov dword L:RB->close_multres, 0
+    |  mov RA, L:RB->top
+    |  sub RA, BASE
+    |  mov TMPR, RD
+    |  shl TMPR, 3
+    |  sub TMPR, 8
+    |  sub RA, TMPR			// RA = result offset.
+    |  jmp >4
+    |6:
+    |  test RA, RA
+    |  jnz ->vm_call_close
+    |  mov RDd, L:RB->close_cframe_nres1
+    |  mov dword L:RB->close_cframe_nres1, 0
+    |  mov TMPRd, L:RB->close_multres
+    |  mov dword L:RB->close_multres, 0
+    |  test byte [DISPATCH+DISPATCH_GL(hookmask)], LUA_MASKRET
+    |  jz >7
+    |  mov MULTRES, TMPRd
+    |  jmp ->vm_rethook
+    |7:
+    |  mov MULTRES, RDd
+    |  mov RA, L:RB->top
+    |  sub RA, BASE
+    |  mov TMPR, RD
+    |  shl TMPR, 3
+    |  sub TMPR, 8
+    |  sub RA, TMPR			// RA = result offset.
 #endif
+    if (op == BC_RET) {
+      |->BC_RET_CLOSE_DONE:
+    }
+    |4:
     |  mov PC, [BASE-8]
     |  mov MULTRES, RDd			// Save nresults+1.
     |  test PCd, FRAME_TYPE		// Check frame type marker.
@@ -5007,9 +5203,15 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     break;
 
   case BC_ITERL:
+#if LJ_54
+    |  mov L:RB, SAVE_L
+    |  cmp aword L:RB->closelist, 0
+    |  jne >1
+#endif
     |.if JIT
     |  hotloop RBd
     |.endif
+    |1:
     | // Fall through. Assumes BC_IITERL follows and ins_AJ is a no-op.
     break;
 

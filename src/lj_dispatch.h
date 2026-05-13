@@ -141,6 +141,9 @@ LJ_FUNCA ASMFunction LJ_FASTCALL lj_dispatch_call(lua_State *L, const BCIns*pc);
 LJ_FUNCA uint32_t LJ_FASTCALL lj_dispatch_ceret(lua_State *L,
 						uint32_t ftransfer,
 						uint32_t ntransfer);
+#if LJ_54
+LJ_FUNCA void LJ_FASTCALL lj_dispatch_clear_dead_debug_hook(lua_State *L);
+#endif
 #if LJ_HASJIT
 LJ_FUNCA void LJ_FASTCALL lj_dispatch_stitch(jit_State *J, const BCIns *pc);
 #endif

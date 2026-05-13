@@ -57,6 +57,10 @@ do
 	 "src/lj_frame.h: missing close continuation id")
   assert(frame:find("LJ_CONT_CLOSE_CFRAME", 1, true),
 	 "src/lj_frame.h: missing C-return close continuation id")
+  assert(frame:find("LJ_CONT_CLOSE_RETURN", 1, true),
+	 "src/lj_frame.h: missing Lua-return close continuation id")
+  assert(frame:find("LJ_CONT_CLOSE_RETURN_HOOK", 1, true),
+	 "src/lj_frame.h: missing Lua-return hook close continuation id")
   assert(close:find("lj_close_prepare_pcall", 1, true),
 	 "src/lj_close.c: missing close pcall preparation helper")
   assert(close:find("lj_close_continue_pcall", 1, true),
@@ -65,6 +69,10 @@ do
 	 "src/lj_close.c: missing C-return close pcall preparation helper")
   assert(close:find("lj_close_continue_cframe_pcall", 1, true),
 	 "src/lj_close.c: missing C-return close pcall continuation helper")
+  assert(close:find("lj_close_prepare_return_pcall", 1, true),
+	 "src/lj_close.c: missing Lua-return close pcall preparation helper")
+  assert(close:find("lj_close_continue_return_pcall", 1, true),
+	 "src/lj_close.c: missing Lua-return close pcall continuation helper")
   assert(close:find("LJ_TARGET_ARM || LJ_TARGET_MIPS || LJ_TARGET_MIPS64 || LJ_TARGET_PPC || LJ_TARGET_X86 || LJ_TARGET_X64 || LJ_TARGET_ARM64", 1, true),
 	 "src/lj_close.c: close continuation backend gate changed unexpectedly")
 end
@@ -92,6 +100,30 @@ for _, path in ipairs(close_cont_files) do
 	 path .. ": missing C-return close pcall continuation call")
   assert(data:find("vm_returnc_closed", 1, true),
 	 path .. ": missing shared C-return close completion label")
+end
+
+do
+  local path = "src/vm_x64.dasc"
+  local data = readfile(path)
+  -- x64 is the first backend where close-active Lua return no longer lowers to
+  -- parser pack/close/unpack helpers. The VM must close before return hooks and
+  -- resume through a dedicated Lua-return continuation when __close yields.
+  assert(data:find("lj_close_prepare_return_pcall", 1, true),
+	 path .. ": missing Lua-return close pcall preparation call")
+  assert(data:find("LJ_CONT_CLOSE_RETURN", 1, true),
+	 path .. ": missing Lua-return close continuation dispatch id")
+  assert(data:find("cont_close_return", 1, true),
+	 path .. ": missing Lua-return close continuation dispatch label")
+  assert(data:find("lj_close_continue_return_pcall", 1, true),
+	 path .. ": missing Lua-return close pcall continuation call")
+  assert(data:find("lj_close_prepare_return_hook_pcall", 1, true),
+	 path .. ": missing Lua-return hook close pcall preparation call")
+  assert(data:find("LJ_CONT_CLOSE_RETURN_HOOK", 1, true),
+	 path .. ": missing Lua-return hook close continuation dispatch id")
+  assert(data:find("cont_close_return_hook", 1, true),
+	 path .. ": missing Lua-return hook close continuation dispatch label")
+  assert(data:find("BC_RET_CLOSE_DONE", 1, true),
+	 path .. ": missing shared Lua-return close completion label")
 end
 
 print("lua54_vm_backend_static.lua OK")

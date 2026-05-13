@@ -874,6 +874,13 @@ int lj_debug_getinfo(lua_State *L, const char *what, lj_Debug *ar, int ext)
     } else if (*what == 'n') {
       ar->namewhat = frame ? lj_debug_funcname(L, frame, &ar->name) : NULL;
       if (ar->namewhat == NULL) {
+#if LJ_54
+	if (L->close_pcall && frame && !frame_islua(frame)) {
+	  ar->namewhat = "metamethod";
+	  ar->name = "close";
+	  continue;
+	}
+#endif
 	ar->namewhat = "";
 	ar->name = NULL;
       }

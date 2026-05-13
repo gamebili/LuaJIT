@@ -24,6 +24,7 @@
 #include "lj_meta.h"
 #include "lj_state.h"
 #include "lj_close.h"
+#include "lj_dispatch.h"
 #include "lj_bc.h"
 #include "lj_frame.h"
 #include "lj_trace.h"
@@ -2342,6 +2343,18 @@ typedef struct Lua54YieldKCtx {
   int nres;
 } Lua54YieldKCtx;
 
+static int lua54_debug_hook_thread_active(lua_State *L)
+{
+  cTValue *tv;
+  TValue key;
+  tv = lj_tab_getstr(tabV(registry(L)), lj_str_newlit(L, "_HOOKKEY"));
+  if (!(tv && tvistab(tv)))
+    return 0;
+  setthreadV(L, &key, L);
+  tv = lj_tab_get(L, tabV(tv), &key);
+  return tv && tvisfunc(tv);
+}
+
 static TValue *cp_lua54_yieldk_cont(lua_State *L, lua_CFunction dummy,
 				    void *ud)
 {
@@ -2474,6 +2487,9 @@ static int resume_lua54_callk_cont(lua_State *L, int status, int *nresults)
 LUA_API int lua_resume54(lua_State *L, lua_State *from, int nargs,
 			 int *nresults)
 {
+  global_State *g = G(L);
+  uint8_t oldmask = 0;
+  int suspend_debug_hooks = 0;
   int status;
   (void)from;
   /* The VM still implements LuaJIT's legacy resume ABI. This wrapper exposes
@@ -2482,7 +2498,17 @@ LUA_API int lua_resume54(lua_State *L, lua_State *from, int nargs,
   if (L->status == LUA_YIELD && L->capi_yield_k != NULL &&
       L->capi_yield_kind == LUA54_CAPI_CONT_YIELDK)
     return resume_lua54_yieldk_cont(L, nargs, nresults);
+  if (g->hook_debug && !lua54_debug_hook_thread_active(L)) {
+    oldmask = g->hookmask;
+    g->hookmask = (uint8_t)(oldmask & ~HOOK_EVENTMASK);
+    suspend_debug_hooks = 1;
+    lj_dispatch_update(g);
+  }
   status = lua_resume(L, nargs);
+  if (suspend_debug_hooks) {
+    g->hookmask = oldmask;
+    lj_dispatch_update(g);
+  }
   if (L->capi_yield_k != NULL &&
       (L->capi_yield_kind == LUA54_CAPI_CONT_CALLK ||
        L->capi_yield_kind == LUA54_CAPI_CONT_PCALLK) &&

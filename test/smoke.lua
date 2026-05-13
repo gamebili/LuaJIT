@@ -1349,6 +1349,55 @@ do
   end
   do
     assert(assert(load([[
+      local events = {}
+      local target
+      local function hook(ev)
+        if ev == "return" and debug.getinfo(2, "f").func == target then
+          events[#events + 1] = "return"
+        end
+      end
+      target = function()
+        local x <close> = setmetatable({}, {
+          __close = function()
+            events[#events + 1] = "close"
+          end,
+        })
+        return "ok"
+      end
+      debug.sethook(hook, "r")
+      local out = target()
+      debug.sethook()
+      assert(out == "ok")
+      assert(table.concat(events, ",") == "close,return")
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
+      local events = {}
+      local target
+      local function hook(ev)
+        if ev == "return" and debug.getinfo(2, "f").func == target then
+          events[#events + 1] = "return"
+        end
+      end
+      target = function()
+        local x <close> = setmetatable({}, {
+          __close = function()
+            events[#events + 1] = "close"
+            debug.sethook(hook, "r")
+          end,
+        })
+        return "ok"
+      end
+      assert(target() == "ok")
+      debug.sethook()
+      assert(table.concat(events, ",") == "close,return")
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
       local ok, err = pcall(function()
         local x <close> = setmetatable({}, {
           __close = function()

@@ -106,7 +106,7 @@ LJ_NOINLINE static void unwindstack(lua_State *L, TValue *top, int close_tbc)
   ** into close-unwind during the Windows coroutine unwind path unless there is
   ** actual close state to process.
   */
-  if (close_tbc && L->closelist != NULL)
+  if (close_tbc && L->closelist != NULL && lj_close_hasunwind(L, top))
     lj_close_unwind(L, top);
   if (!close_tbc)
     return;

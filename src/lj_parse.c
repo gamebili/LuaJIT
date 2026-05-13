@@ -1957,6 +1957,7 @@ static void bcemit_lua54_throwcloseerror(FuncState *fs, BCReg errval,
   jmp_tohere(fs, noerr);
 }
 
+#if !LJ_TARGET_X64
 static void bcemit_lua54_returnpack_begin(FuncState *fs, BCReg base)
 {
   LexState *ls = fs->ls;
@@ -1998,6 +1999,7 @@ static BCIns bcemit_lua54_returnunpack(FuncState *fs, BCReg base)
   fs->freereg = base+1;
   return BCINS_AD(BC_RETM, base, 0);
 }
+#endif
 #endif
 
 /* Partially discharge expression to a value. */
@@ -3089,6 +3091,7 @@ static int var_attr_parse(LexState *ls, VarIndex vidx)
       ** reuse the existing const assignment checks for locals and upvalues.
       */
       ls->vstack[vidx].info |= VSTACK_VAR_CLOSE | VSTACK_VAR_CONST;
+      ls->fs->flags |= PROTO_NOJIT;
     } else {
       lj_lex_error(ls, 0, LJ_ERR_XATTRIB, strdata(attr));
     }
@@ -4783,7 +4786,8 @@ static void parse_return(LexState *ls)
   BCIns ins;
   FuncState *fs = ls->fs;
 #if LJ_54
-  int closefixed = 1;
+  int closeactive = fscope_hascloseactive(fs, 0);
+  int closefixed = !(LJ_TARGET_X64 && closeactive);
 #endif
   lj_lex_next(ls);  /* Skip 'return'. */
   fs->flags |= PROTO_HAS_RETURN;
@@ -4792,7 +4796,8 @@ static void parse_return(LexState *ls)
   } else {  /* Return with one or more values. */
     ExpDesc e;  /* Receives the _last_ expression in the list. */
 #if LJ_54
-    if (fscope_hascloseactive(fs, 0)) {
+#if !LJ_TARGET_X64
+    if (closeactive) {
       BCReg base = fs->freereg;
       bcemit_lua54_returnpack_begin(fs, base);
       expr_list(ls, &e);
@@ -4801,6 +4806,7 @@ static void parse_return(LexState *ls)
       ins = bcemit_lua54_returnunpack(fs, base);
       closefixed = 0;
     } else
+#endif
 #endif
     {
       BCReg nret = expr_list(ls, &e);
@@ -4813,7 +4819,7 @@ static void parse_return(LexState *ls)
 	  /* It doesn't pay off to add BC_VARGT just for 'return ...'. */
 	  if (bc_op(*ip) == BC_VARG) goto notailcall;
 #if LJ_54
-	  if (fscope_hascloseactive(fs, 0))
+	  if (closeactive)
 	    goto notailcall;
 	  if (bcemit_lua54_is_private_helper_call(fs, &e))
 	    goto notailcall;

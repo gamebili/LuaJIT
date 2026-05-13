@@ -684,6 +684,7 @@ typedef struct global_State {
   uint8_t hook_skipline;	/* Suppress same-line hook once after sethook. */
   uint8_t hook_skipcount;	/* Suppress first count hook after sethook. */
   uint8_t hook_skipret;		/* Suppress return hooks for internal helpers. */
+  uint8_t hook_debug;		/* Hook installed by debug.sethook(). */
   int32_t hook_skipline_ci;	/* Frame that enabled the line hook. */
   BCLine hook_skipline_line;	/* Source line that enabled the line hook. */
 #endif
@@ -750,7 +751,8 @@ struct lua_State {
   lua_KContext capi_yield_ctx;  /* Saved lua_yieldk() context until resume. */
   lua_KFunction capi_yield_k;  /* Saved lua_yieldk() continuation callback. */
   int32_t capi_yield_nresults;  /* Saved lua_callk/lua_pcallk result count. */
-  int32_t close_cframe_nres1;  /* Saved C return count while __close yields. */
+  int32_t close_cframe_nres1;  /* Saved return count while __close yields. */
+  int32_t close_multres;  /* Saved MULTRES for Lua return close hooks. */
   uint8_t capi_yield_kind;  /* Saved Lua 5.4 C continuation dispatch kind. */
   uint8_t capi_cont_yieldable;  /* lua_yieldk() continuation may re-yield. */
 #endif

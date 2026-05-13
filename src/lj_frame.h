@@ -89,7 +89,9 @@ enum {
   LJ_CONT_FFI_CALLBACK,
 #if LJ_54
   LJ_CONT_CLOSE,
-  LJ_CONT_CLOSE_CFRAME
+  LJ_CONT_CLOSE_CFRAME,
+  LJ_CONT_CLOSE_RETURN,
+  LJ_CONT_CLOSE_RETURN_HOOK
 #endif
 };  /* Special continuations. */
 
