@@ -1571,7 +1571,13 @@ LUA_API int lua_rawget54(lua_State *L, int idx)
 
 LUA_API int lua_rawgeti54(lua_State *L, int idx, lua_Integer n)
 {
-  lua_rawgeti(L, idx, (int)n);
+  if (checki32(n)) {
+    lua_rawgeti(L, idx, (int)n);
+  } else {
+    idx = lua_absindex(L, idx);
+    lua_pushinteger(L, n);
+    lua_rawget(L, idx);
+  }
   return lua_type(L, -1);
 }
 
@@ -1881,11 +1887,14 @@ LUA_API void lua_rawseti(lua_State *L, int idx, int n)
 #if LJ_54
 LUA_API void lua_rawseti54(lua_State *L, int idx, lua_Integer n)
 {
-  /* Lua 5.4 exposes lua_Integer here. The current compatibility integer range
-  ** is still 32 bit, so the wrapper preserves the external signature while
-  ** delegating to LuaJIT's existing integer table slot helper.
-  */
-  lua_rawseti(L, idx, (int)n);
+  if (checki32(n)) {
+    lua_rawseti(L, idx, (int)n);
+  } else {
+    idx = lua_absindex(L, idx);
+    lua_pushinteger(L, n);
+    lua_insert(L, -2);
+    lua_rawset(L, idx);
+  }
 }
 #endif
 

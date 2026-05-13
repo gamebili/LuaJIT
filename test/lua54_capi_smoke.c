@@ -2962,6 +2962,26 @@ static void test_compare_len_arith(lua_State *L)
   check_string(L, -1, "raw-value", "lua_rawgeti return value");
   lua_pop(L, 1);
 
+  if (sizeof(lua_Integer) > sizeof(int)) {
+    lua_Integer big = (lua_Integer)((lua_Unsigned)0x7fffffffu + 1u);
+    lua_pushinteger(L, big);
+    lua_pushliteral(L, "raw-big-generic");
+    lua_rawset(L, -3);
+    rtype = lua_rawgeti_sig(L, -1, big);
+    check(L, rtype == LUA_TSTRING,
+	  "lua_rawgeti accepts 64-bit C integer key");
+    check_string(L, -1, "raw-big-generic", "lua_rawgeti 64-bit key value");
+    lua_pop(L, 1);
+    lua_pushliteral(L, "raw-big-seti");
+    lua_rawseti_sig(L, -2, big);
+    lua_pushinteger(L, big);
+    rtype = lua_rawget_sig(L, -2);
+    check(L, rtype == LUA_TSTRING,
+	  "lua_rawseti accepts 64-bit C integer key");
+    check_string(L, -1, "raw-big-seti", "lua_rawseti 64-bit key value");
+    lua_pop(L, 1);
+  }
+
   rtype = lua_rawgetp_sig(L, -1, &pointer_key);
   check(L, rtype == LUA_TSTRING, "lua_rawgetp function pointer return type");
   check_string(L, -1, "ptr-value", "lua_rawgetp return value");
