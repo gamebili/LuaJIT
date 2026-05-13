@@ -1398,6 +1398,44 @@ do
   end
   do
     assert(assert(load([[
+      local function func2close(f)
+        return setmetatable({}, { __close = f })
+      end
+      local events = {}
+      local target
+      local function values()
+        events[#events + 1] = "values"
+        return nil, "tail"
+      end
+      local function hook(ev)
+        if ev == "return" and debug.getinfo(2, "f").func == target then
+          events[#events + 1] = "return"
+        end
+      end
+      target = function()
+        local x <close> = func2close(function(_, err)
+          assert(err == nil)
+          events[#events + 1] = "close1"
+          coroutine.yield("close yield")
+          events[#events + 1] = "close2"
+          debug.sethook(hook, "r")
+        end)
+        return "head", values()
+      end
+      local co = coroutine.create(target)
+      local ok, value = coroutine.resume(co)
+      assert(ok == true and value == "close yield")
+      local out = table.pack(coroutine.resume(co))
+      debug.sethook()
+      assert(out.n == 4 and out[1] == true and out[2] == "head" and
+             out[3] == nil and out[4] == "tail")
+      assert(table.concat(events, ",") == "values,close1,close2,return")
+      assert(coroutine.status(co) == "dead")
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
       local ok, err = pcall(function()
         local x <close> = setmetatable({}, {
           __close = function()
