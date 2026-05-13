@@ -959,6 +959,53 @@ static void test_parser_allocator_failure(lua_State *L, lua_State *T,
 	"parser partial allocation cleanup exercised");
 }
 
+static void test_jit_allocator_trace_flush(lua_State *L, lua_State *T,
+					   StrictAllocCtx *ctx)
+{
+  int before_frees;
+  int status;
+  lua_gc(T, LUA_GCCOLLECT, 0);
+  before_frees = ctx->frees;
+  status = luaL_dostring(T,
+    "local okjit, jitmod = pcall(require, 'jit')\n"
+    "local okopt, jitopt = pcall(require, 'jit.opt')\n"
+    "local okutil, jutil = pcall(require, 'jit.util')\n"
+    "if not (okjit and okopt and okutil) then return 'skip' end\n"
+    "local function trace_highwater()\n"
+    "  local n = 0\n"
+    "  for i = 1, 256 do if jutil.traceinfo(i) then n = i end end\n"
+    "  return n\n"
+    "end\n"
+    "jitmod.off(trace_highwater, true)\n"
+    "jitmod.on()\n"
+    "jitmod.flush()\n"
+    "jitopt.start('hotloop=1', 'hotexit=1')\n"
+    "local before = trace_highwater()\n"
+    "local sum = 0\n"
+    "for round = 1, 4 do\n"
+    "  for i = 1, 200 do sum = sum + i end\n"
+    "end\n"
+    "assert(trace_highwater() > before, 'strict allocator JIT trace')\n"
+    "jitmod.flush()\n"
+    "collectgarbage('collect')\n"
+    "collectgarbage('collect')\n"
+    "jitopt.start('hotloop=56', 'hotexit=10')\n"
+    "return sum\n");
+  check(L, status == LUA_OK, "strict allocator JIT trace status");
+  if (lua_type(T, -1) == LUA_TSTRING) {
+    check_string(L, -1, "skip", "strict allocator JIT skip marker");
+  } else {
+    check(L, lua_tonumber(T, -1) == (lua_Number)80400,
+	  "strict allocator JIT trace result");
+    check(L, ctx->frees > before_frees,
+	  "strict allocator JIT trace flush frees trace memory");
+  }
+  lua_pop(T, 1);
+  lua_gc(T, LUA_GCCOLLECT, 0);
+  check(L, ctx->bad_osize == 0 && ctx->missing_ptr == 0,
+	"strict allocator JIT trace preserves block sizes");
+}
+
 static void test_state_allocator_api(lua_State *L)
 {
   AllocCtx ctx = { 0, 0 };
@@ -1122,6 +1169,7 @@ static void test_state_allocator_api(lua_State *L)
   test_newthread_allocator_failure(L, T, &strict_ctx);
   test_newuserdatauv_allocator_failure(L, T, &strict_ctx);
   test_parser_allocator_failure(L, T, &strict_ctx);
+  test_jit_allocator_trace_flush(L, T, &strict_ctx);
   lua_close(T);
   check(L, strict_ctx.bad_osize == 0 && strict_ctx.missing_ptr == 0,
 	"strict allocator preserves block sizes");
