@@ -34,9 +34,50 @@
 #define LJ_MATH_MININTEGER	((lua_Integer)(-LJ_MATH_MAXINTEGER - 1))
 
 #if LJ_54
+#if LJ_64
+#define LJ_MATH_API_MININTEGER		(-9223372036854775807.0 - 1.0)
+#define LJ_MATH_API_MAXINTEGER_EXCL	9223372036854775808.0
+#else
+#define LJ_MATH_API_MININTEGER		((lua_Number)LUA_MININTEGER)
+#define LJ_MATH_API_MAXINTEGER_EXCL	(-(lua_Number)LUA_MININTEGER)
+#endif
+
 static const char *math_argname54(lua_State *L, const char *fallback)
 {
   return lj_debug_callname54(L, fallback, "math");
+}
+
+static int math_tointeger54(lua_State *L, int narg, lua_Integer *ip, int *isnum)
+{
+  TValue tmp;
+  cTValue *o = L->base + narg-1;
+  lua_Number n;
+  int64_t k;
+  if (isnum)
+    *isnum = 0;
+  if (o >= L->top)
+    return 0;
+  if (tvisstr(o)) {
+    if (!lj_strscan_number(strV(o), &tmp))
+      return 0;
+    o = &tmp;
+  }
+  if (!tvisnumber(o))
+    return 0;
+  if (isnum)
+    *isnum = 1;
+  if (tvisint(o)) {
+    *ip = (lua_Integer)intV(o);
+    return 1;
+  }
+  n = numV(o);
+  if (!(n >= LJ_MATH_API_MININTEGER && n < LJ_MATH_API_MAXINTEGER_EXCL))
+    return 0;
+  k = lj_num2i64(n);
+  if ((lua_Number)k != n)
+    return 0;
+  *ip = (lua_Integer)k;
+  return 1;
 }
 
 static int math_toint32(lua_State *L, int narg, int32_t *ip, int *isnum)
@@ -539,22 +580,21 @@ static int lj_cf_math_ldexp_compat54(lua_State *L)
 
 static int lj_cf_math_ult(lua_State *L)
 {
-  int32_t a, b;
+  lua_Integer a, b;
   int isnum;
-  if (!math_toint32(L, 1, &a, &isnum)) {
+  if (!math_tointeger54(L, 1, &a, &isnum)) {
     if (isnum)
       lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #1 to '%s' "
 	"(number has no integer representation)", math_argname54(L, "math.ult")));
     math_argtype_named54(L, 1, "math.ult", "number");
   }
-  if (!math_toint32(L, 2, &b, &isnum)) {
+  if (!math_tointeger54(L, 2, &b, &isnum)) {
     if (isnum)
       lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #2 to '%s' "
 	"(number has no integer representation)", math_argname54(L, "math.ult")));
     math_argtype_named54(L, 2, "math.ult", "number");
   }
-  /* The compatibility mode currently uses LuaJIT's internal 32 bit integers. */
-  setboolV(L->top++, (uint32_t)a < (uint32_t)b);
+  setboolV(L->top++, (lua_Unsigned)a < (lua_Unsigned)b);
   return 1;
 }
 #endif
