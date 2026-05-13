@@ -667,6 +667,18 @@ static int raise_after_big_buffer(lua_State *L)
   return luaL_error(L, "abort after luaL_Buffer growth");
 }
 
+static int return_big_buffer(lua_State *L)
+{
+  luaL_Buffer b;
+  size_t big = (size_t)LUAL_BUFFERSIZE * 24u;
+  char *p;
+  luaL_buffinit(L, &b);
+  p = luaL_prepbuffsize(&b, big);
+  memset(p, 's', big);
+  luaL_pushresultsize(&b, big);
+  return 1;
+}
+
 static void test_state_allocator_api(lua_State *L)
 {
   AllocCtx ctx = { 0, 0 };
@@ -674,6 +686,9 @@ static void test_state_allocator_api(lua_State *L)
   TrackingAllocCtx track_ctx = { 0, 0, 0 };
   ShrinkFailAllocCtx shrink_ctx = { 0, 0, 0, 0, 0 };
   StrictAllocCtx strict_ctx;
+  size_t strict_big = (size_t)LUAL_BUFFERSIZE * 24u;
+  size_t strict_len = 0;
+  const char *strict_str;
   void *ud = NULL;
   lua_Alloc allocf;
   int status;
@@ -765,6 +780,14 @@ static void test_state_allocator_api(lua_State *L)
   T = lua_newstate(strict_alloc, &strict_ctx);
   check(L, T != NULL, "lua_newstate strict allocator");
   luaL_openlibs(T);
+  lua_pushcfunction(T, return_big_buffer);
+  status = lua_pcall(T, 0, 1, 0);
+  check(L, status == LUA_OK, "strict allocator luaL_Buffer status");
+  strict_str = lua_tolstring(T, -1, &strict_len);
+  check(L, strict_str != NULL && strict_len == strict_big &&
+	   strict_str[0] == 's' && strict_str[strict_big - 1] == 's',
+	"strict allocator luaL_Buffer result");
+  lua_pop(T, 1);
   lua_pushcfunction(T, enable_strict_shrink_fail_alloc);
   lua_setglobal(T, "enable_strict_shrink_fail_alloc");
   status = luaL_dostring(T,
@@ -784,7 +807,7 @@ static void test_state_allocator_api(lua_State *L)
 	"table repartition must not use in-place shrink");
   lua_close(T);
   check(L, strict_ctx.bad_osize == 0 && strict_ctx.missing_ptr == 0,
-	"table repartition preserves allocator block sizes");
+	"strict allocator preserves block sizes");
   check(L, strict_ctx.live_blocks == 0,
 	"strict allocator releases all table repartition blocks");
   free(strict_ctx.blocks);
