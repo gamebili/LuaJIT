@@ -624,6 +624,14 @@ LUALIB_API lua_Number luaL_optnumber(lua_State *L, int idx, lua_Number def)
 }
 
 #if LJ_54
+#if LJ_64
+#define LJ_LUA54_API_MININTEGER		(-9223372036854775807.0 - 1.0)
+#define LJ_LUA54_API_MAXINTEGER_EXCL	9223372036854775808.0
+#else
+#define LJ_LUA54_API_MININTEGER		((lua_Number)LUA_MININTEGER)
+#define LJ_LUA54_API_MAXINTEGER_EXCL	(-(lua_Number)LUA_MININTEGER)
+#endif
+
 static int luaV_tointeger54(cTValue *o, lua_Integer *ip, int *isnum)
 {
   TValue tmp;
@@ -648,7 +656,8 @@ static int luaV_tointeger54(cTValue *o, lua_Integer *ip, int *isnum)
   /* Lua 5.4 integer conversion is exact. Fractions remain numbers, but they
   ** are not valid integers for lua_tointegerx/luaL_checkinteger.
   */
-  if (!(n >= (lua_Number)LUA_MININTEGER && n <= (lua_Number)LUA_MAXINTEGER))
+  if (!(n >= LJ_LUA54_API_MININTEGER &&
+	n < LJ_LUA54_API_MAXINTEGER_EXCL))
     return 0;
   k = lj_num2i64(n);
   if ((lua_Number)k != n)

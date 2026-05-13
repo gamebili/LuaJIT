@@ -665,6 +665,12 @@ static int checkinteger_fraction(lua_State *L)
   return 0;
 }
 
+static int checkinteger_arg(lua_State *L)
+{
+  lua_pushinteger(L, luaL_checkinteger(L, 1));
+  return 1;
+}
+
 static int checknumber_arg(lua_State *L)
 {
   luaL_checknumber(L, 1);
@@ -1836,6 +1842,23 @@ static void test_stack_and_number_api(lua_State *L)
     check(L, !ok, "lua_tointegerx fraction status");
   }
   lua_pop(L, 1);
+
+  if (sizeof(lua_Integer) > sizeof(int)) {
+    lua_Integer big = (lua_Integer)((lua_Unsigned)0x7fffffffu + 1u);
+    int ok = 0;
+    lua_pushinteger(L, big);
+    check(L, lua_tointegerx(L, -1, &ok) == big && ok,
+	  "lua_tointegerx accepts pushed 64-bit C integer");
+    lua_pop(L, 1);
+    lua_pushnumber(L, (lua_Number)2147483648.0);
+    check(L, lua_tointegerx(L, -1, &ok) == big && ok,
+	  "lua_tointegerx accepts exact 64-bit number");
+    lua_pop(L, 1);
+    lua_pushliteral(L, "2147483648");
+    check(L, lua_tointegerx(L, -1, &ok) == big && ok,
+	  "lua_tointegerx accepts exact 64-bit string integer");
+    lua_pop(L, 1);
+  }
 
   lua_newtable(L);
   lua_pushinteger(L, 11);
@@ -3045,6 +3068,16 @@ static void test_lauxlib_api(lua_State *L)
 		  "number has no integer representation") != NULL,
 	"luaL_optinteger fraction error");
   lua_pop(L, 1);
+
+  if (sizeof(lua_Integer) > sizeof(int)) {
+    lua_Integer big = (lua_Integer)((lua_Unsigned)0x7fffffffu + 1u);
+    lua_pushcfunction(L, checkinteger_arg);
+    lua_pushnumber(L, (lua_Number)2147483648.0);
+    status = lua_pcall(L, 1, 1, 0);
+    check(L, status == LUA_OK, "luaL_checkinteger accepts 64-bit number");
+    check_integer(L, -1, big, "luaL_checkinteger 64-bit number");
+    lua_pop(L, 1);
+  }
 
   lua_pushcfunction(L, optnumber_arg);
   status = lua_pcall(L, 0, 1, 0);
