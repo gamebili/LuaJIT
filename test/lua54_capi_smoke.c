@@ -358,6 +358,9 @@ typedef struct StrictAllocCtx {
   int grow_fails;
   int bad_osize;
   int missing_ptr;
+  int alloc_requests;
+  int fail_at_alloc;
+  int call_fails;
   size_t fail_shrink_min_osize;
   size_t fail_grow_min_nsize;
   size_t max_failed_shrink_osize;
@@ -616,6 +619,11 @@ static void *strict_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
       ctx->bad_osize++;
     if (nsize == 0)
       return NULL;
+    if (ctx->fail_at_alloc > 0 &&
+	++ctx->alloc_requests >= ctx->fail_at_alloc) {
+      ctx->call_fails++;
+      return NULL;
+    }
     np = malloc(nsize);
     if (np != NULL)
       strict_alloc_add(ctx, np, nsize);
@@ -632,6 +640,11 @@ static void *strict_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
     free(ptr);
     if (idx >= 0)
       strict_alloc_remove(ctx, idx);
+    return NULL;
+  }
+  if (ctx->fail_at_alloc > 0 &&
+      ++ctx->alloc_requests >= ctx->fail_at_alloc) {
+    ctx->call_fails++;
     return NULL;
   }
   if (ctx->fail_shrink && nsize < osize &&
@@ -714,6 +727,40 @@ static int fail_growing_buffer(lua_State *L)
   return 1;
 }
 
+static void test_newstate_allocator_failure(lua_State *L)
+{
+  int limit;
+  int saw_partial_failure = 0;
+  for (limit = 1; limit <= 160; limit++) {
+    StrictAllocCtx ctx;
+    lua_State *T;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.capacity = 8192;
+    ctx.fail_at_alloc = limit;
+    ctx.blocks = (StrictAllocBlock *)calloc((size_t)ctx.capacity,
+					    sizeof(StrictAllocBlock));
+    check(L, ctx.blocks != NULL,
+	  "lua_newstate failure allocator bookkeeping");
+    T = lua_newstate(strict_alloc, &ctx);
+    if (T != NULL) {
+      ctx.fail_at_alloc = 0;
+      lua_close(T);
+    } else {
+      check(L, ctx.call_fails > 0,
+	    "lua_newstate failure must come from allocator");
+      if (limit > 1 && ctx.frees > 0)
+	saw_partial_failure = 1;
+    }
+    check(L, ctx.bad_osize == 0 && ctx.missing_ptr == 0,
+	  "lua_newstate failure preserves allocator block sizes");
+    check(L, ctx.live_blocks == 0,
+	  "lua_newstate failure releases partial allocations");
+    free(ctx.blocks);
+  }
+  check(L, saw_partial_failure,
+	"lua_newstate partial initialization failure exercised");
+}
+
 static void test_state_allocator_api(lua_State *L)
 {
   AllocCtx ctx = { 0, 0 };
@@ -729,7 +776,9 @@ static void test_state_allocator_api(lua_State *L)
   void *ud = NULL;
   lua_Alloc allocf;
   int status;
-  lua_State *T = lua_newstate(counting_alloc, &ctx);
+  lua_State *T;
+  test_newstate_allocator_failure(L);
+  T = lua_newstate(counting_alloc, &ctx);
   check(L, T != NULL, "lua_newstate custom allocator");
   check(L, lua_atpanic(T, panic_a) == NULL, "lua_atpanic initial handler");
   check(L, lua_atpanic(T, panic_b) == panic_a, "lua_atpanic old handler");
