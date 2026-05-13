@@ -36,7 +36,7 @@
 #define LJLIB_MODULE_string
 
 #if LJ_54
-#define LJ_LUA54_PACKSZ_INTEGER	4
+#define LJ_LUA54_PACKSZ_INTEGER	((size_t)sizeof(lua_Integer))
 #define LJ_LUA54_PACKSZ_API_INTEGER	((size_t)sizeof(lua_Integer))
 #define LJ_LUA54_PACKSZ_MAX	16
 #define LJ_LUA54_PACKSZ_TOTALMAX	((size_t)0x7fffffff)
@@ -127,7 +127,7 @@ static GCstr *string_checkstr_named54(lua_State *L, int narg,
   if (o < L->top) {
     if (tvisstr(o)) {
       return strV(o);
-    } else if (tvisnumber(o)) {
+    } else if (tvisnumber(o) || tvisi64(o)) {
       GCstr *s = lj_strfmt_number(L, o);
       setstrV(L, o, s);
       return s;
@@ -170,26 +170,63 @@ static lua_Number string_checknum_named54(lua_State *L, int narg,
   }
   if (tvisint(o))
     return (lua_Number)intV(o);
+  if (tvisi64(o))
+    return (lua_Number)i64V(o);
   if (!tvisnum(o))
     string_argtype_named54(L, narg, fname, "number");
   return numV(o);
 }
 
-static int32_t string_checkint_named54(lua_State *L, int narg,
-				       const char *fname)
+static int64_t string_checkinteger64_named54(lua_State *L, int narg,
+					     const char *fname)
 {
-  lua_Number n = string_checknum_named54(L, narg, fname);
+  cTValue *o = L->base + narg-1;
+  TValue tmp;
+  lua_Number n;
   int64_t k;
-  /* Lua 5.4 string-library positions and counts use exact integer
-  ** conversion. Keep string numerals, reject fractions instead of truncating.
-  */
-  if (!(n >= (lua_Number)LUA_MININTEGER && n <= (lua_Number)LUA_MAXINTEGER))
+  if (o >= L->top)
+    string_argtype_named54(L, narg, fname, "number");
+  if (tvisint(o))
+    return (int64_t)intV(o);
+  if (tvisi64(o))
+    return i64V(o);
+  if (tvisstr(o)) {
+    GCstr *s = strV(o);
+    StrScanFmt fmt;
+    if (lj_strscan_rejectnum54(strdata(s), s->len))
+      string_argtype_named54(L, narg, fname, "number");
+    fmt = lj_strscan_scan((const uint8_t *)strdata(s), s->len, &tmp,
+			  STRSCAN_OPT_TOINT);
+    if (fmt == STRSCAN_INT)
+      return (int64_t)tmp.i;
+    if (fmt == STRSCAN_I64)
+      return (int64_t)tmp.u64;
+    if (fmt != STRSCAN_NUM)
+      string_argtype_named54(L, narg, fname, "number");
+    n = numV(&tmp);
+  } else {
+    if (!tvisnum(o))
+      string_argtype_named54(L, narg, fname, "number");
+    n = numV(o);
+  }
+  if (!(n >= -9223372036854775808.0 && n < 9223372036854775808.0))
     string_argerror_named54(L, narg, fname,
 			    "number has no integer representation");
   k = lj_num2i64(n);
   if ((lua_Number)k != n)
     string_argerror_named54(L, narg, fname,
 			    "number has no integer representation");
+  return k;
+}
+
+static int32_t string_checkint_named54(lua_State *L, int narg,
+				       const char *fname)
+{
+  int64_t k = string_checkinteger64_named54(L, narg, fname);
+  if (k > INT32_MAX)
+    return INT32_MAX;
+  if (k < INT32_MIN)
+    return INT32_MIN;
   return (int32_t)k;
 }
 
@@ -1253,19 +1290,11 @@ static uint64_t string_pack_checkint(lua_State *L, int arg, size_t sz,
 				     const char *fname)
 {
 #if LJ_54
-  lua_Number n = string_checknum_named54(L, arg, fname);
-  int64_t v;
-  if (!(n >= -9223372036854775808.0 && n <= 9223372036854775807.0))
-    string_argerror_named54(L, arg, fname,
-			    "number has no integer representation");
-  v = lj_num2i64(n);
+  int64_t v = string_checkinteger64_named54(L, arg, fname);
   /* Pack formats define their own signed/unsigned range. Do the exact
   ** integer test here instead of using the current 32-bit lua_Integer shim,
   ** so existing Lua 5.4 pack cases such as I4/4000000000 keep working.
   */
-  if ((lua_Number)v != n)
-    string_argerror_named54(L, arg, fname,
-			    "number has no integer representation");
   if (issigned) {
     size_t fitsz = LJ_LUA54_PACKSZ_API_INTEGER;
     if (fitsz > 8)
@@ -1585,10 +1614,7 @@ static int lj_cf_string_unpack(lua_State *L)
 	}
 	lua_pushinteger(L, (lua_Integer)(int64_t)u);
       } else {
-	if (opt == 'J' || (opt == 'L' && sizeof(long) <= 4))
-	  lua_pushinteger(L, (lua_Integer)(int32_t)(uint32_t)u);
-	else
-	  lua_pushinteger(L, (lua_Integer)u);
+	lua_pushinteger(L, (lua_Integer)u);
       }
       pos += sz;
       nres++;

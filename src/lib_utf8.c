@@ -61,7 +61,7 @@ static const char *utf8_checklstring_named(lua_State *L, int narg,
     GCstr *s;
     if (tvisstr(o)) {
       s = strV(o);
-    } else if (tvisnumber(o)) {
+    } else if (tvisnumber(o) || tvisi64(o)) {
       s = lj_strfmt_number(L, o);
       setstrV(L, o, s);
     } else {
@@ -92,10 +92,13 @@ static lua_Integer utf8_checkinteger_named(lua_State *L, int narg,
   }
   if (tvisint(o))
     return (lua_Integer)intV(o);
+  if (tvisi64(o))
+    return (lua_Integer)i64V(o);
   if (!tvisnum(o))
     utf8_argtype_named(L, narg, fname, "number");
   n = numV(o);
-  if (!(n >= (lua_Number)LUA_MININTEGER && n <= (lua_Number)LUA_MAXINTEGER))
+  if (!(n >= (-9223372036854775807.0 - 1.0) &&
+	n < 9223372036854775808.0))
     utf8_argerror_named(L, narg, fname,
 			"number has no integer representation");
   k = lj_num2i64(n);
@@ -120,6 +123,12 @@ static lua_Integer utf8_checkchar_named(lua_State *L, int narg)
   }
   if (tvisint(o))
     return (lua_Integer)intV(o);
+  if (tvisi64(o)) {
+    lua_Integer i = (lua_Integer)i64V(o);
+    if (i < 0 || i > 0x7fffffffl)
+      utf8_argerror_named(L, narg, "utf8.char", "value out of range");
+    return i;
+  }
   if (!tvisnum(o))
     utf8_argtype_named(L, narg, "utf8.char", "number");
   n = numV(o);

@@ -100,7 +100,8 @@ static LJ_AINLINE void expr_init(ExpDesc *e, ExpKind k, uint32_t info)
 static int expr_numiszero(ExpDesc *e)
 {
   TValue *o = expr_numtv(e);
-  return tvisint(o) ? (intV(o) == 0) : tviszero(o);
+  return tvisint(o) ? (intV(o) == 0) :
+	 tvisi64(o) ? (i64V(o) == 0) : tviszero(o);
 }
 
 /* Per-function linked list of scope blocks. */
@@ -2445,9 +2446,6 @@ static void bcemit_unop(FuncState *fs, BCOp op, ExpDesc *e)
 	if (tvisint(o)) {
 	  int32_t k = intV(o), negk = (int32_t)(~(uint32_t)k+1u);
 #if LJ_54
-	  /* Lua 5.4 integer arithmetic wraps on overflow, so -mininteger stays
-	  ** mininteger on the current 32 bit compatibility integer surface.
-	  */
 	  setintV(o, negk);
 #else
 	  if (k == negk)
@@ -2456,6 +2454,13 @@ static void bcemit_unop(FuncState *fs, BCOp op, ExpDesc *e)
 	    setintV(o, negk);
 #endif
 	  return;
+#if LJ_54
+	} else if (tvisi64(o)) {
+	  lua_Integer i = (lua_Integer)i64V(o);
+	  lj_obj_setint64(fs->L, o,
+	    (int64_t)(lua_Integer)((lua_Unsigned)0 - (lua_Unsigned)i));
+	  return;
+#endif
 	} else {
 	  o->u64 ^= U64x(80000000,00000000);
 	  return;
@@ -3596,9 +3601,13 @@ static void fs_fixup_k(FuncState *fs, GCproto *pt, void *kptr)
 	copyTV(fs->L, tv, arrayslot(box, 0));
       } else
 #endif
-      if (tvisnum(&n->key)) {
+      if (tvisnum(&n->key) || tvisi64(&n->key)) {
 	TValue *tv = &((TValue *)kptr)[kidx];
-	if (LJ_DUALNUM) {
+	if (tvisi64(&n->key)) {
+	  GCobj *o = gcV(&n->key);
+	  copyTV(fs->L, tv, &n->key);
+	  lj_gc_objbarrier(fs->L, pt, o);
+	} else if (LJ_DUALNUM) {
 	  int64_t i64;
 	  int32_t k;
 	  lj_assertFS(!tvismzero(&n->key), "unexpected -0 key");

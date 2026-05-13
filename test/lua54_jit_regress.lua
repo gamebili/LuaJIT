@@ -819,7 +819,7 @@ do
     for _ = 1, 80 do
       -- A present base argument selects Lua 5.4 integer-base conversion, even
       -- for base 10. It must not fall back to decimal STRTO tracing.
-      if tonumber("\t10000000000\t", 10) == 1410065408 then n = n + 1 end
+      if tonumber("\t10000000000\t", 10) == 10000000000 then n = n + 1 end
       if tonumber("1.0", 10) == nil then n = n + 1 end
       if tonumber("1\0", 2) == nil then n = n + 1 end
       if tonumber("0x10", 16) == nil then n = n + 1 end

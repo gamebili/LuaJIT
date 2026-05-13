@@ -80,7 +80,8 @@ static void gc_mark(global_State *g, GCobj *o)
     gc_marktv(g, uvval(uv));
     if (uv->closed)
       gray2black(o);  /* Closed upvalues are never gray. */
-  } else if (gct != ~LJ_TSTR && gct != ~LJ_TCDATA) {
+  } else if (gct != ~LJ_TSTR && gct != ~LJ_TCDATA &&
+	     gct != ~LJ_TINT64) {
     lj_assertG(gct == ~LJ_TFUNC || gct == ~LJ_TTAB ||
 	       gct == ~LJ_TTHREAD || gct == ~LJ_TPROTO || gct == ~LJ_TTRACE,
 	       "bad GC type %d", gct);
@@ -374,9 +375,15 @@ static void gc_traverse_trace(global_State *g, GCtrace *T)
 static void gc_traverse_proto(global_State *g, GCproto *pt)
 {
   ptrdiff_t i;
+  TValue *kn = mref(pt->k, TValue);
   gc_mark_str(proto_chunkname(pt));
   for (i = -(ptrdiff_t)pt->sizekgc; i < 0; i++)  /* Mark collectable consts. */
     gc_markobj(g, proto_kgc(pt, i));
+#if LJ_54
+  for (i = 0; i < (ptrdiff_t)pt->sizekn; i++)  /* Mark boxed integer consts. */
+    if (tvisi64(&kn[i]))
+      gc_markobj(g, gcV(&kn[i]));
+#endif
 #if LJ_HASJIT
   if (pt->trace) gc_marktrace(g, pt->trace);
 #endif
@@ -488,6 +495,7 @@ static const GCFreeFunc gc_freefunc[] = {
 #else
   (GCFreeFunc)0,
 #endif
+  (GCFreeFunc)lj_obj_freeint64,
   (GCFreeFunc)lj_tab_free,
   (GCFreeFunc)lj_udata_free
 };

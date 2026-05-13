@@ -25,12 +25,21 @@ static LJ_AINLINE int strkeyeq(const GCstr *a, const GCstr *b)
   return lj_str_equal((GCstr *)a, (GCstr *)b);
 }
 
+static LJ_AINLINE Node *hashi64(const GCtab *t, int64_t key)
+{
+  TValue k;
+  setnumV(&k, (lua_Number)key);
+  return hashnum(t, &k);
+}
+
 /* Hash an arbitrary key and return its anchor position in the hash table. */
 static Node *hashkey(const GCtab *t, cTValue *key)
 {
   lj_assertX(!tvisint(key), "attempt to hash integer");
   if (tvisstr(key))
     return hashstr(t, strV(key));
+  else if (tvisi64(key))
+    return hashi64(t, i64V(key));
   else if (tvisnum(key))
     return hashnum(t, key);
   else if (tvisbool(key))
@@ -392,7 +401,13 @@ void lj_tab_resize(lua_State *L, GCtab *t, uint32_t asize, uint32_t hbits)
 static uint32_t countint(cTValue *key, uint32_t *bins)
 {
   lj_assertX(!tvisint(key), "bad integer key");
-  if (tvisnum(key)) {
+  if (tvisi64(key)) {
+    int64_t k = i64V(key);
+    if (k >= 0 && k < LJ_MAX_ASIZE) {
+      bins[lj_fls((uint32_t)k)]++;
+      return 1;
+    }
+  } else if (tvisnum(key)) {
     int64_t i64;
     int32_t k;
     if (lj_num2int_cond(numV(key), i64, k, (uint32_t)i64 < LJ_MAX_ASIZE)) {
@@ -503,14 +518,19 @@ cTValue *lj_tab_getstr(GCtab *t, const GCstr *key)
 
 cTValue *lj_tab_get(lua_State *L, GCtab *t, cTValue *key)
 {
+  Node *n;
   if (tvisstr(key)) {
     cTValue *tv = lj_tab_getstr(t, strV(key));
     if (tv)
       return tv;
+    return niltv(L);
   } else if (tvisint(key)) {
     cTValue *tv = lj_tab_getint(t, intV(key));
     if (tv)
       return tv;
+    return niltv(L);
+  } else if (tvisi64(key)) {
+    goto genlookup;
   } else if (tvisnum(key)) {
     int64_t i64;
     int32_t k;
@@ -518,18 +538,19 @@ cTValue *lj_tab_get(lua_State *L, GCtab *t, cTValue *key)
       cTValue *tv = lj_tab_getint(t, k);
       if (tv)
 	return tv;
+      return niltv(L);
     } else {
       goto genlookup;  /* Else use the generic lookup. */
     }
-  } else if (!tvisnil(key)) {
-    Node *n;
-  genlookup:
-    n = hashkey(t, key);
-    do {
-      if (!tvisnil(&n->val) && lj_obj_equal(&n->key, key))
-	return &n->val;
-    } while ((n = nextnode(n)));
+  } else if (tvisnil(key)) {
+    return niltv(L);
   }
+genlookup:
+  n = hashkey(t, key);
+  do {
+    if (!tvisnil(&n->val) && lj_obj_equal(&n->key, key))
+      return &n->val;
+  } while ((n = nextnode(n)));
   return niltv(L);
 }
 
@@ -645,6 +666,8 @@ TValue *lj_tab_set(lua_State *L, GCtab *t, cTValue *key)
     return lj_tab_setstr(L, t, strV(key));
   } else if (tvisint(key)) {
     return lj_tab_setint(L, t, intV(key));
+  } else if (tvisi64(key)) {
+    /* Use the generic numeric key. */
   } else if (tvisnum(key)) {
     int64_t i64;
     int32_t k;
@@ -683,6 +706,10 @@ uint32_t LJ_FASTCALL lj_tab_keyindex(GCtab *t, cTValue *key)
       return (uint32_t)k + 1;
     setnumV(&tmp, (lua_Number)k);
     key = &tmp;
+  } else if (tvisi64(key)) {
+    int64_t k = i64V(key);
+    if (k >= 0 && (uint64_t)k < (uint64_t)t->asize)
+      return (uint32_t)k + 1;
   } else if (tvisnum(key)) {
     int64_t i64;
     int32_t k;

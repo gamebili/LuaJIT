@@ -137,6 +137,94 @@ static TValue *index2adr_stack(lua_State *L, int idx)
   }
 }
 
+#if LJ_54
+#define api_tvisnumber(o)	(tvisnumber(o) || tvisi64(o))
+#else
+#define api_tvisnumber(o)	tvisnumber(o)
+#endif
+
+#if LJ_54
+static LJ_AINLINE int api_integerV54(cTValue *o, lua_Integer *ip)
+{
+  if (tvisint(o)) {
+    *ip = (lua_Integer)intV(o);
+    return 1;
+  } else if (tvisi64(o)) {
+    *ip = (lua_Integer)i64V(o);
+    return 1;
+  }
+  return 0;
+}
+
+static int api_numeq_i64(lua_Number n, lua_Integer i)
+{
+  int64_t k;
+  if (!(n >= (-9223372036854775807.0 - 1.0) && n < 9223372036854775808.0))
+    return 0;
+  k = lj_num2i64(n);
+  return k == (int64_t)i && (lua_Number)k == n;
+}
+
+static int api_i64lt_num(lua_Integer i, lua_Number n)
+{
+  lua_Number nf;
+  int64_t k;
+  if (!(n == n))
+    return 0;
+  if (n <= (-9223372036854775807.0 - 1.0))
+    return 0;
+  if (n >= 9223372036854775808.0)
+    return 1;
+  nf = lj_vm_floor(n);
+  k = lj_num2i64(nf);
+  return (int64_t)i < k || ((int64_t)i == k && nf < n);
+}
+
+static int api_numlt_i64(lua_Number n, lua_Integer i)
+{
+  lua_Number nf;
+  int64_t k;
+  if (!(n == n))
+    return 0;
+  if (n < (-9223372036854775807.0 - 1.0))
+    return 1;
+  if (n == (-9223372036854775807.0 - 1.0))
+    return (int64_t)i > (-9223372036854775807LL - 1LL);
+  if (n >= 9223372036854775808.0)
+    return 0;
+  nf = lj_vm_floor(n);
+  k = lj_num2i64(nf);
+  return k < (int64_t)i;
+}
+
+static int api_numeq54(cTValue *o1, cTValue *o2)
+{
+  lua_Integer i1, i2;
+  if (api_integerV54(o1, &i1)) {
+    return api_integerV54(o2, &i2) ? i1 == i2 : api_numeq_i64(numV(o2), i1);
+  } else if (api_integerV54(o2, &i2)) {
+    return api_numeq_i64(numV(o1), i2);
+  }
+  return numberVnum(o1) == numberVnum(o2);
+}
+
+static int api_numlt54(cTValue *o1, cTValue *o2)
+{
+  lua_Integer i1, i2;
+  if (api_integerV54(o1, &i1)) {
+    return api_integerV54(o2, &i2) ? i1 < i2 : api_i64lt_num(i1, numV(o2));
+  } else if (api_integerV54(o2, &i2)) {
+    return api_numlt_i64(numV(o1), i2);
+  }
+  return numberVnum(o1) < numberVnum(o2);
+}
+
+static int api_numle54(cTValue *o1, cTValue *o2)
+{
+  return api_numeq54(o1, o2) || api_numlt54(o1, o2);
+}
+#endif
+
 static GCtab *getcurrenv(lua_State *L)
 {
   GCfunc *fn = curr_func(L);
@@ -387,7 +475,7 @@ LUA_API void lua_pushvalue(lua_State *L, int idx)
 LUA_API int lua_type(lua_State *L, int idx)
 {
   cTValue *o = index2adr(L, idx);
-  if (tvisnumber(o)) {
+  if (api_tvisnumber(o)) {
     return LUA_TNUMBER;
 #if LJ_64 && !LJ_GC64
   } else if (tvislightud(o)) {
@@ -397,13 +485,22 @@ LUA_API int lua_type(lua_State *L, int idx)
     return LUA_TNONE;
   } else {  /* Magic internal/external tag conversion. ORDER LJ_T */
     uint32_t t = ~itype(o);
-#if LJ_64
-    int tt = (int)((U64x(75a06,98042110) >> 4*t) & 15u);
-#else
-    int tt = (int)(((t < 8 ? 0x98042110u : 0x75a06u) >> 4*(t&7)) & 15u);
-#endif
-    lj_assertL(tt != LUA_TNIL || tvisnil(o), "bad tag conversion");
-    return tt;
+    switch (t) {
+    case ~LJ_TNIL: return LUA_TNIL;
+    case ~LJ_TFALSE:
+    case ~LJ_TTRUE: return LUA_TBOOLEAN;
+    case ~LJ_TLIGHTUD: return LUA_TLIGHTUSERDATA;
+    case ~LJ_TSTR: return LUA_TSTRING;
+    case ~LJ_TFUNC: return LUA_TFUNCTION;
+    case ~LJ_TCDATA: return LUA_TCDATA;
+    case ~LJ_TTAB: return LUA_TTABLE;
+    case ~LJ_TUDATA: return LUA_TUSERDATA;
+    case ~LJ_TTHREAD: return LUA_TTHREAD;
+    case ~LJ_TPROTO: return LUA_TPROTO;
+    default:
+      lj_assertL(0, "bad tag conversion");
+      return LUA_TNIL;
+    }
   }
 }
 
@@ -435,7 +532,8 @@ LUA_API int lua_isnumber(lua_State *L, int idx)
 {
   cTValue *o = index2adr(L, idx);
   TValue tmp;
-  return (tvisnumber(o) || (tvisstr(o) && lj_strscan_number(strV(o), &tmp)));
+  return (api_tvisnumber(o) ||
+	  (tvisstr(o) && lj_strscan_number(strV(o), &tmp)));
 }
 
 LUA_API int lua_isinteger(lua_State *L, int idx)
@@ -445,7 +543,7 @@ LUA_API int lua_isinteger(lua_State *L, int idx)
   /* Lua 5.4's C API observes the TValue integer/float subtype, not merely
   ** whether a float has an exact integer representation.
   */
-  return tvisint(o);
+  return tvisinteger(o);
 #else
   if (tvisint(o))
     return 1;
@@ -462,7 +560,7 @@ LUA_API int lua_isinteger(lua_State *L, int idx)
 LUA_API int lua_isstring(lua_State *L, int idx)
 {
   cTValue *o = index2adr(L, idx);
-  return (tvisstr(o) || tvisnumber(o));
+  return (tvisstr(o) || api_tvisnumber(o));
 }
 
 LUA_API int lua_isuserdata(lua_State *L, int idx)
@@ -482,9 +580,14 @@ LUA_API int lua_equal(lua_State *L, int idx1, int idx2)
 {
   cTValue *o1 = index2adr(L, idx1);
   cTValue *o2 = index2adr(L, idx2);
+#if LJ_54
+  if (api_tvisnumber(o1) && api_tvisnumber(o2)) {
+    return api_numeq54(o1, o2);
+  } else
+#endif
   if (tvisint(o1) && tvisint(o2)) {
     return intV(o1) == intV(o2);
-  } else if (tvisnumber(o1) && tvisnumber(o2)) {
+  } else if (api_tvisnumber(o1) && api_tvisnumber(o2)) {
     return numberVnum(o1) == numberVnum(o2);
   } else if (itype(o1) != itype(o2)) {
     return 0;
@@ -517,9 +620,13 @@ LUA_API int lua_lessthan(lua_State *L, int idx1, int idx2)
   cTValue *o2 = index2adr(L, idx2);
   if (o1 == niltv(L) || o2 == niltv(L)) {
     return 0;
+#if LJ_54
+  } else if (api_tvisnumber(o1) && api_tvisnumber(o2)) {
+    return api_numlt54(o1, o2);
+#endif
   } else if (tvisint(o1) && tvisint(o2)) {
     return intV(o1) < intV(o2);
-  } else if (tvisnumber(o1) && tvisnumber(o2)) {
+  } else if (api_tvisnumber(o1) && api_tvisnumber(o2)) {
     return numberVnum(o1) < numberVnum(o2);
   } else {
     TValue *base = lj_meta_comp(L, o1, o2, 0);
@@ -540,9 +647,13 @@ static int api_lessequal(lua_State *L, int idx1, int idx2)
   cTValue *o2 = index2adr(L, idx2);
   if (o1 == niltv(L) || o2 == niltv(L)) {
     return 0;
+#if LJ_54
+  } else if (api_tvisnumber(o1) && api_tvisnumber(o2)) {
+    return api_numle54(o1, o2);
+#endif
   } else if (tvisint(o1) && tvisint(o2)) {
     return intV(o1) <= intV(o2);
-  } else if (tvisnumber(o1) && tvisnumber(o2)) {
+  } else if (api_tvisnumber(o1) && api_tvisnumber(o2)) {
     return numberVnum(o1) <= numberVnum(o2);
   } else {
     TValue *base = lj_meta_comp(L, o1, o2, 2);
@@ -576,7 +687,7 @@ LUA_API lua_Number lua_tonumber(lua_State *L, int idx)
 {
   cTValue *o = index2adr(L, idx);
   TValue tmp;
-  if (LJ_LIKELY(tvisnumber(o)))
+  if (LJ_LIKELY(api_tvisnumber(o)))
     return numberVnum(o);
   else if (tvisstr(o) && lj_strscan_num(strV(o), &tmp))
     return numV(&tmp);
@@ -588,7 +699,7 @@ LUA_API lua_Number lua_tonumberx(lua_State *L, int idx, int *ok)
 {
   cTValue *o = index2adr(L, idx);
   TValue tmp;
-  if (LJ_LIKELY(tvisnumber(o))) {
+  if (LJ_LIKELY(api_tvisnumber(o))) {
     if (ok) *ok = 1;
     return numberVnum(o);
   } else if (tvisstr(o) && lj_strscan_num(strV(o), &tmp)) {
@@ -604,7 +715,7 @@ LUALIB_API lua_Number luaL_checknumber(lua_State *L, int idx)
 {
   cTValue *o = index2adr(L, idx);
   TValue tmp;
-  if (LJ_LIKELY(tvisnumber(o)))
+  if (LJ_LIKELY(api_tvisnumber(o)))
     return numberVnum(o);
   else if (!(tvisstr(o) && lj_strscan_num(strV(o), &tmp)))
     lj_err_argt(L, idx, LUA_TNUMBER);
@@ -615,7 +726,7 @@ LUALIB_API lua_Number luaL_optnumber(lua_State *L, int idx, lua_Number def)
 {
   cTValue *o = index2adr(L, idx);
   TValue tmp;
-  if (LJ_LIKELY(tvisnumber(o)))
+  if (LJ_LIKELY(api_tvisnumber(o)))
     return numberVnum(o);
   else if (tvisnil(o))
     return def;
@@ -641,16 +752,34 @@ static int luaV_tointeger54(cTValue *o, lua_Integer *ip, int *isnum)
   if (isnum)
     *isnum = 0;
   if (tvisstr(o)) {
-    if (!lj_strscan_number(strV(o), &tmp))
+    GCstr *s = strV(o);
+    StrScanFmt fmt;
+    if (lj_strscan_rejectnum54(strdata(s), s->len))
       return 0;
+    fmt = lj_strscan_scan((const uint8_t *)strdata(s), s->len, &tmp,
+			  STRSCAN_OPT_TOINT);
+    if (fmt == STRSCAN_ERROR)
+      return 0;
+    if (isnum)
+      *isnum = 1;
+    if (fmt == STRSCAN_INT) {
+      *ip = (lua_Integer)tmp.i;
+      return 1;
+    } else if (fmt == STRSCAN_I64) {
+      *ip = (lua_Integer)tmp.u64;
+      return 1;
+    }
     o = &tmp;
   }
-  if (!tvisnumber(o))
+  if (!api_tvisnumber(o))
     return 0;
   if (isnum)
     *isnum = 1;
   if (tvisint(o)) {
     *ip = (lua_Integer)intV(o);
+    return 1;
+  } else if (tvisi64(o)) {
+    *ip = (lua_Integer)i64V(o);
     return 1;
   }
   n = numV(o);
@@ -800,7 +929,7 @@ LUA_API const char *lua_tolstring(lua_State *L, int idx, size_t *len)
   GCstr *s;
   if (LJ_LIKELY(tvisstr(o))) {
     s = strV(o);
-  } else if (tvisnumber(o)) {
+  } else if (api_tvisnumber(o)) {
     lj_gc_check(L);
     o = index2adr(L, idx);  /* GC may move the stack. */
     s = lj_strfmt_number(L, o);
@@ -819,7 +948,7 @@ LUALIB_API const char *luaL_checklstring(lua_State *L, int idx, size_t *len)
   GCstr *s;
   if (LJ_LIKELY(tvisstr(o))) {
     s = strV(o);
-  } else if (tvisnumber(o)) {
+  } else if (api_tvisnumber(o)) {
     lj_gc_check(L);
     o = index2adr(L, idx);  /* GC may move the stack. */
     s = lj_strfmt_number(L, o);
@@ -841,7 +970,7 @@ LUALIB_API const char *luaL_optlstring(lua_State *L, int idx,
   } else if (tvisnil(o)) {
     if (len != NULL) *len = def ? strlen(def) : 0;
     return def;
-  } else if (tvisnumber(o)) {
+  } else if (api_tvisnumber(o)) {
     lj_gc_check(L);
     o = index2adr(L, idx);  /* GC may move the stack. */
     s = lj_strfmt_number(L, o);
@@ -894,9 +1023,16 @@ LUA_API size_t lua_stringtonumber(lua_State *L, const char *s)
 						STRSCAN_OPT_TONUM);
   if (fmt == STRSCAN_ERROR)
     return 0;
-  if (LJ_DUALNUM && fmt == STRSCAN_INT)
+  if (LJ_DUALNUM && fmt == STRSCAN_INT) {
     setitype(&tv, LJ_TISNUM);
-  copyTV(L, L->top, &tv);
+    copyTV(L, L->top, &tv);
+#if LJ_54 && LJ_DUALNUM
+  } else if (fmt == STRSCAN_I64) {
+    lj_obj_setint64(L, L->top, (int64_t)tv.u64);
+#endif
+  } else {
+    copyTV(L, L->top, &tv);
+  }
   incr_top(L);
   return len + 1;
 }
@@ -910,7 +1046,7 @@ LUA_API size_t lua_objlen(lua_State *L, int idx)
     return (size_t)lj_tab_len(tabV(o));
   } else if (tvisudata(o)) {
     return udataV(o)->len;
-  } else if (tvisnumber(o)) {
+  } else if (api_tvisnumber(o)) {
     GCstr *s = lj_strfmt_number(L, o);
     setstrV(L, o, s);
     return s->len;
@@ -1031,7 +1167,11 @@ LUA_API void lua_pushnumber(lua_State *L, lua_Number n)
 
 LUA_API void lua_pushinteger(lua_State *L, lua_Integer n)
 {
+#if LJ_54
+  lj_obj_setint64(L, L->top, (int64_t)n);
+#else
   setintptrV(L->top, n);
+#endif
   incr_top(L);
 }
 
@@ -1313,14 +1453,15 @@ static lua_Integer api_shiftinteger54(lua_Integer a, lua_Integer sh, int left)
   return left ? (lua_Integer)(u << sh) : (lua_Integer)(u >> sh);
 }
 
-static int api_rawarith_bit54(TValue *res, cTValue *a, cTValue *b, int op)
+static int api_rawarith_bit54(lua_State *L, TValue *res, cTValue *a,
+			      cTValue *b, int op)
 {
   lua_Integer ia, ib;
   lua_Unsigned ua, ub;
   if (op == LUA_OPBNOT) {
     if (!luaV_tointeger54(a, &ia, NULL))
       return 0;
-    setintptrV(res, (lua_Integer)~(lua_Unsigned)ia);
+    lj_obj_setint64(L, res, (int64_t)(lua_Integer)~(lua_Unsigned)ia);
     return 1;
   }
   if (!luaV_tointeger54(a, &ia, NULL) ||
@@ -1330,19 +1471,19 @@ static int api_rawarith_bit54(TValue *res, cTValue *a, cTValue *b, int op)
   ub = (lua_Unsigned)ib;
   switch (op) {
   case LUA_OPBAND:
-    setintptrV(res, (lua_Integer)(ua & ub));
+    lj_obj_setint64(L, res, (int64_t)(lua_Integer)(ua & ub));
     return 1;
   case LUA_OPBOR:
-    setintptrV(res, (lua_Integer)(ua | ub));
+    lj_obj_setint64(L, res, (int64_t)(lua_Integer)(ua | ub));
     return 1;
   case LUA_OPBXOR:
-    setintptrV(res, (lua_Integer)(ua ^ ub));
+    lj_obj_setint64(L, res, (int64_t)(lua_Integer)(ua ^ ub));
     return 1;
   case LUA_OPSHL:
-    setintptrV(res, api_shiftinteger54(ia, ib, 1));
+    lj_obj_setint64(L, res, (int64_t)api_shiftinteger54(ia, ib, 1));
     return 1;
   case LUA_OPSHR:
-    setintptrV(res, api_shiftinteger54(ia, ib, 0));
+    lj_obj_setint64(L, res, (int64_t)api_shiftinteger54(ia, ib, 0));
     return 1;
   default:
     return 0;
@@ -1351,27 +1492,69 @@ static int api_rawarith_bit54(TValue *res, cTValue *a, cTValue *b, int op)
 #endif
 
 #if LJ_54 && LJ_DUALNUM
+static lua_Integer api_idivinteger54(lua_State *L, lua_Integer a,
+				     lua_Integer b)
+{
+  lua_Integer q, r;
+  if (b == 0)
+    lj_err_callermsg(L, "attempt to divide by zero");
+  if (a == LUA_MININTEGER && b == (lua_Integer)-1)
+    return LUA_MININTEGER;
+  q = a / b;
+  r = a % b;
+  if (r != 0 && ((r ^ b) < 0))
+    q--;
+  return q;
+}
+
+static lua_Integer api_modinteger54(lua_State *L, lua_Integer a,
+				    lua_Integer b)
+{
+  lua_Integer r;
+  if (b == 0)
+    lj_err_callermsg(L, "attempt to perform 'n%0'");
+  if (a == LUA_MININTEGER && b == (lua_Integer)-1)
+    return 0;
+  r = a % b;
+  if (r != 0 && ((r ^ b) < 0))
+    r += b;
+  return r;
+}
+
 static int api_rawarith_int(lua_State *L, TValue *res, cTValue *a, cTValue *b,
 			    int op)
 {
-  uint32_t ia, ib;
+  lua_Integer ia, ib;
+  lua_Unsigned ua, ub;
   if (op == LUA_OPUNM) {
-    if (!tvisint(a)) return 0;
-    setintV(res, (int32_t)(0u - (uint32_t)intV(a)));
+    if (!tvisinteger(a)) return 0;
+    ia = tvisint(a) ? (lua_Integer)intV(a) : (lua_Integer)i64V(a);
+    lj_obj_setint64(L, res,
+      (int64_t)(lua_Integer)((lua_Unsigned)0 - (lua_Unsigned)ia));
     return 1;
   }
-  if (!tvisint(a) || !tvisint(b))
+  if (!tvisinteger(a) || !tvisinteger(b))
     return 0;
-  ia = (uint32_t)intV(a);
-  ib = (uint32_t)intV(b);
+  ia = tvisint(a) ? (lua_Integer)intV(a) : (lua_Integer)i64V(a);
+  ib = tvisint(b) ? (lua_Integer)intV(b) : (lua_Integer)i64V(b);
+  ua = (lua_Unsigned)ia;
+  ub = (lua_Unsigned)ib;
   switch (op) {
-  case LUA_OPADD: setintV(res, (int32_t)(ia + ib)); return 1;
-  case LUA_OPSUB: setintV(res, (int32_t)(ia - ib)); return 1;
-  case LUA_OPMUL: setintV(res, (int32_t)(ia * ib)); return 1;
+  case LUA_OPADD:
+    lj_obj_setint64(L, res, (int64_t)(lua_Integer)(ua + ub));
+    return 1;
+  case LUA_OPSUB:
+    lj_obj_setint64(L, res, (int64_t)(lua_Integer)(ua - ub));
+    return 1;
+  case LUA_OPMUL:
+    lj_obj_setint64(L, res, (int64_t)(lua_Integer)(ua * ub));
+    return 1;
   case LUA_OPMOD:
     /* Keep lua_arith aligned with Lua 5.4's integer modulo subtype rules. */
-    if (intV(b) == 0) lj_err_callermsg(L, "attempt to perform 'n%0'");
-    setintV(res, lj_vm_modi(intV(a), intV(b)));
+    lj_obj_setint64(L, res, (int64_t)api_modinteger54(L, ia, ib));
+    return 1;
+  case LUA_OPIDIV:
+    lj_obj_setint64(L, res, (int64_t)api_idivinteger54(L, ia, ib));
     return 1;
   default:
     return 0;
@@ -1392,7 +1575,7 @@ static int api_rawarith(lua_State *L, TValue *res, cTValue *a, cTValue *b,
   case LUA_OPBNOT:
   case LUA_OPBAND: case LUA_OPBOR: case LUA_OPBXOR:
   case LUA_OPSHL: case LUA_OPSHR:
-    return api_rawarith_bit54(res, a, b, op);
+    return api_rawarith_bit54(L, res, a, b, op);
   default:
     break;
   }
@@ -1448,7 +1631,11 @@ static int api_rawarith(lua_State *L, TValue *res, cTValue *a, cTValue *b,
   if ((op == LUA_OPIDIV || op == LUA_OPUNM) &&
       nr >= (lua_Number)LUA_MININTEGER && nr <= (lua_Number)LUA_MAXINTEGER &&
       nr == lj_vm_floor(nr)) {
+#if LJ_54
+    lj_obj_setint64(L, res, (int64_t)(lua_Integer)nr);
+#else
     setintptrV(res, (lua_Integer)nr);
+#endif
   } else {
     setnumV(res, nr);
   }

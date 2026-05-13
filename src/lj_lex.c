@@ -151,6 +151,10 @@ static void lex_number(LexState *ls, TValue *tv)
     setitype(tv, LJ_TISNUM);
   } else if (fmt == STRSCAN_NUM) {
     /* Already in correct format. */
+#if LJ_54 && LJ_DUALNUM
+  } else if (fmt == STRSCAN_I64) {
+    lj_obj_setint64(ls->L, tv, (int64_t)tv->u64);
+#endif
 #if LJ_HASFFI
   } else if (fmt != STRSCAN_ERROR) {
     lua_State *L = ls->L;

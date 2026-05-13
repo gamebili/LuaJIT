@@ -268,10 +268,11 @@ typedef const TValue cTValue;
 #define LJ_TFUNC		(~8u)
 #define LJ_TTRACE		(~9u)
 #define LJ_TCDATA		(~10u)
-#define LJ_TTAB			(~11u)
-#define LJ_TUDATA		(~12u)
+#define LJ_TINT64		(~11u)
+#define LJ_TTAB			(~12u)
+#define LJ_TUDATA		(~13u)
 /* This is just the canonical number type used in some places. */
-#define LJ_TNUMX		(~13u)
+#define LJ_TNUMX		(~14u)
 
 /* Integers have itype == LJ_TISNUM doubles have itype < LJ_TISNUM */
 #if LJ_64 && !LJ_GC64
@@ -365,6 +366,13 @@ typedef struct GCcdataVar {
 #define cdatavlen(cd)	check_exp(cdataisv(cd), cdatav(cd)->len)
 #define sizecdatav(cd)	(cdatavlen(cd) + cdatav(cd)->extra)
 #define memcdatav(cd)	((void *)((char *)(cd) - cdatav(cd)->offset))
+
+/* -- Boxed 64 bit integer object ---------------------------------------- */
+
+typedef struct GCint64 {
+  GCHeader;
+  int64_t i;
+} GCint64;
 
 /* -- Prototype object ---------------------------------------------------- */
 
@@ -813,6 +821,7 @@ typedef union GCobj {
   GCproto pt;
   GCfunc fn;
   GCcdata cd;
+  GCint64 i64;
   GCtab tab;
   GCudata ud;
 } GCobj;
@@ -824,6 +833,7 @@ typedef union GCobj {
 #define gco2pt(o)	check_exp((o)->gch.gct == ~LJ_TPROTO, &(o)->pt)
 #define gco2func(o)	check_exp((o)->gch.gct == ~LJ_TFUNC, &(o)->fn)
 #define gco2cd(o)	check_exp((o)->gch.gct == ~LJ_TCDATA, &(o)->cd)
+#define gco2i64(o)	check_exp((o)->gch.gct == ~LJ_TINT64, &(o)->i64)
 #define gco2tab(o)	check_exp((o)->gch.gct == ~LJ_TTAB, &(o)->tab)
 #define gco2ud(o)	check_exp((o)->gch.gct == ~LJ_TUDATA, &(o)->ud)
 
@@ -853,10 +863,12 @@ typedef union GCobj {
 #define tvisthread(o)	(itype(o) == LJ_TTHREAD)
 #define tvisproto(o)	(itype(o) == LJ_TPROTO)
 #define tviscdata(o)	(itype(o) == LJ_TCDATA)
+#define tvisi64(o)	(LJ_54 && itype(o) == LJ_TINT64)
 #define tvistab(o)	(itype(o) == LJ_TTAB)
 #define tvisudata(o)	(itype(o) == LJ_TUDATA)
 #define tvisnumber(o)	(itype(o) <= LJ_TISNUM)
 #define tvisint(o)	(LJ_DUALNUM && itype(o) == LJ_TISNUM)
+#define tvisinteger(o)	(tvisint(o) || tvisi64(o))
 #define tvisnum(o)	(itype(o) < LJ_TISNUM)
 
 #define tvistruecond(o)	(itype(o) < LJ_TISTRUECOND)
@@ -879,9 +891,10 @@ typedef union GCobj {
 /* Macros to convert type ids. */
 #if LJ_64 && !LJ_GC64
 #define itypemap(o) \
-  (tvisnumber(o) ? ~LJ_TNUMX : tvislightud(o) ? ~LJ_TLIGHTUD : ~itype(o))
+  ((tvisnumber(o) || tvisi64(o)) ? ~LJ_TNUMX : \
+   tvislightud(o) ? ~LJ_TLIGHTUD : ~itype(o))
 #else
-#define itypemap(o)	(tvisnumber(o) ? ~LJ_TNUMX : ~itype(o))
+#define itypemap(o)	((tvisnumber(o) || tvisi64(o)) ? ~LJ_TNUMX : ~itype(o))
 #endif
 
 /* Macros to get tagged values. */
@@ -917,6 +930,7 @@ static LJ_AINLINE void *lightudV(global_State *g, cTValue *o)
 #define threadV(o)	check_exp(tvisthread(o), &gcval(o)->th)
 #define protoV(o)	check_exp(tvisproto(o), &gcval(o)->pt)
 #define cdataV(o)	check_exp(tviscdata(o), &gcval(o)->cd)
+#define i64V(o)		check_exp(tvisi64(o), gco2i64(gcval(o))->i)
 #define tabV(o)		check_exp(tvistab(o), &gcval(o)->tab)
 #define udataV(o)	check_exp(tvisudata(o), &gcval(o)->ud)
 #define numV(o)		check_exp(tvisnum(o), (o)->n)
@@ -995,6 +1009,7 @@ define_setV(setthreadV, lua_State, LJ_TTHREAD)
 define_setV(setprotoV, GCproto, LJ_TPROTO)
 define_setV(setfuncV, GCfunc, LJ_TFUNC)
 define_setV(setcdataV, GCcdata, LJ_TCDATA)
+define_setV(seti64V, GCint64, LJ_TINT64)
 define_setV(settabV, GCtab, LJ_TTAB)
 define_setV(setudataV, GCudata, LJ_TUDATA)
 
@@ -1102,6 +1117,8 @@ static LJ_AINLINE int32_t numberVint(cTValue *o)
 {
   if (LJ_LIKELY(tvisint(o)))
     return intV(o);
+  else if (LJ_UNLIKELY(tvisi64(o)))
+    return (int32_t)i64V(o);
   else
     return lj_num2int(numV(o));
 }
@@ -1110,6 +1127,8 @@ static LJ_AINLINE lua_Number numberVnum(cTValue *o)
 {
   if (LJ_UNLIKELY(tvisint(o)))
     return (lua_Number)intV(o);
+  else if (LJ_UNLIKELY(tvisi64(o)))
+    return (lua_Number)i64V(o);
   else
     return numV(o);
 }
@@ -1123,7 +1142,11 @@ LJ_DATA const char *const lj_obj_itypename[~LJ_TNUMX+1];
 #define lj_typename(o)	(lj_obj_itypename[itypemap(o)])
 
 /* Compare two objects without calling metamethods. */
+LJ_FUNC GCint64 *lj_obj_newint64(lua_State *L, int64_t i);
+LJ_FUNC void LJ_FASTCALL lj_obj_freeint64(global_State *g, GCint64 *i64);
+LJ_FUNC void lj_obj_setint64(lua_State *L, TValue *o, int64_t i);
 LJ_FUNC int LJ_FASTCALL lj_obj_equal(cTValue *o1, cTValue *o2);
+LJ_FUNC int LJ_FASTCALL lj_obj_equaltv(uint64_t u1, uint64_t u2);
 LJ_FUNC const void * LJ_FASTCALL lj_obj_ptr(global_State *g, cTValue *o);
 
 #if LJ_ABI_PAUTH

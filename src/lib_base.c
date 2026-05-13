@@ -110,7 +110,7 @@ static GCstr *base_checkstr_named54(lua_State *L, int narg, const char *fname)
   if (o < L->top) {
     if (tvisstr(o)) {
       return strV(o);
-    } else if (tvisnumber(o)) {
+    } else if (tvisnumber(o) || tvisi64(o)) {
       GCstr *s = lj_strfmt_number(L, o);
       setstrV(L, o, s);
       return s;
@@ -219,7 +219,7 @@ LJLIB_ASM(assert)		LJLIB_REC(.)
   else if (tvisstr(L->base+1))
     lj_err_callermsg(L, strdata(strV(L->base+1)));
 #else
-  else if (tvisstr(L->base+1) || tvisnumber(L->base+1))
+  else if (tvisstr(L->base+1) || tvisnumber(L->base+1) || tvisi64(L->base+1))
     lj_err_callermsg(L, strdata(lj_lib_checkstr(L, 2)));
 #endif
   else
@@ -698,6 +698,28 @@ LJLIB_ASM(tonumber)		LJLIB_REC(.)
   if (base == 10) {
 #endif
     TValue *o = lj_lib_checkany(L, 1);
+#if LJ_54
+    if (tvisstr(o)) {
+      GCstr *s = strV(o);
+      TValue tmp;
+      StrScanFmt fmt;
+      if (lj_strscan_rejectnum54(strdata(s), s->len))
+	goto badbase;
+      fmt = lj_strscan_scan((const uint8_t *)strdata(s), s->len, &tmp,
+			    STRSCAN_OPT_TOINT);
+      if (fmt == STRSCAN_INT) {
+	setintV(L->base-1-LJ_FR2, tmp.i);
+	return FFH_RES(1);
+      } else if (fmt == STRSCAN_I64) {
+	lj_obj_setint64(L, L->base-1-LJ_FR2, (int64_t)tmp.u64);
+	return FFH_RES(1);
+      } else if (fmt == STRSCAN_NUM) {
+	setnumV(L->base-1-LJ_FR2, tmp.n);
+	return FFH_RES(1);
+      }
+      goto badbase;
+    }
+#endif
     if (lj_strscan_numberobj(o)) {
       copyTV(L, L->base-1-LJ_FR2, o);
       return FFH_RES(1);
@@ -725,7 +747,7 @@ LJLIB_ASM(tonumber)		LJLIB_REC(.)
 #if LJ_54
     GCstr *s;
     const char *p, *pe;
-    uint32_t u = 0;
+    lua_Unsigned u = 0;
 #else
     const char *p = strdata(lj_lib_checkstr(L, 1));
     char *ep;
@@ -759,15 +781,13 @@ LJLIB_ASM(tonumber)		LJLIB_REC(.)
 			 (uint32_t)((*p | 0x20) - 'a' + 10);
 	if (digit >= (uint32_t)base)
 	  goto badbase;
-	/* Lua 5.4's base conversion accumulates in lua_Unsigned.  Match the
-	** current 32 bit public integer surface by letting uint32_t wrap here.
-	*/
-	u = u * (uint32_t)base + digit;
+	u = u * (lua_Unsigned)base + (lua_Unsigned)digit;
 	p++;
       } while (p < pe && lj_char_isalnum((unsigned char)(*p)));
       while (p < pe && lj_char_isspace((unsigned char)(*p))) p++;
       if (p == pe) {
-	setintV(L->base-1-LJ_FR2, neg ? (int32_t)(~u+1u) : (int32_t)u);
+	lj_obj_setint64(L, L->base-1-LJ_FR2,
+	  (int64_t)(lua_Integer)(neg ? ~u+1u : u));
 	return FFH_RES(1);
       }
     }
@@ -821,7 +841,7 @@ LJLIB_ASM(tostring)		LJLIB_REC(.)
     /* Lua 5.4 follows luaL_tolstring(): __tostring may return a string or
     ** number, but other values are a hard error.
     */
-    if (tvisnumber(L->top-1)) {
+    if (tvisnumber(L->top-1) || tvisi64(L->top-1)) {
       GCstr *s = lj_strfmt_obj(L, L->top-1);
       setstrV(L, L->top-1, s);
     } else if (!tvisstr(L->top-1)) {
@@ -964,7 +984,7 @@ static const char *reader_func(lua_State *L, void *ud, size_t *size)
       L->top--;
       *size = 0;
       return NULL;
-    } else if (tvisstr(o) || tvisnumber(o)) {
+    } else if (tvisstr(o) || tvisnumber(o) || tvisi64(o)) {
       GCstr *s;
       if (tvisstr(o)) {
 	s = strV(o);
@@ -990,7 +1010,7 @@ static const char *reader_func(lua_State *L, void *ud, size_t *size)
   if (tvisnil(L->top)) {
     *size = 0;
     return NULL;
-  } else if (tvisstr(L->top) || tvisnumber(L->top)) {
+  } else if (tvisstr(L->top) || tvisnumber(L->top) || tvisi64(L->top)) {
     copyTV(L, L->base+4, L->top);  /* Anchor string in reserved stack slot. */
     return lua_tolstring(L, 5, size);
   } else {
@@ -1021,7 +1041,8 @@ LJLIB_CF(load)
 #endif
   int status;
   if (L->base < L->top &&
-      (tvisstr(L->base) || tvisnumber(L->base) || tvisbuf(L->base))) {
+      (tvisstr(L->base) || tvisnumber(L->base) || tvisi64(L->base) ||
+       tvisbuf(L->base))) {
     const char *s;
     MSize len;
     if (tvisbuf(L->base)) {
@@ -1095,7 +1116,7 @@ static GCstr *base_optstr_dofile_load54(lua_State *L)
     return NULL;
   if (tvisstr(o))
     return strV(o);
-  if (tvisnumber(o)) {
+  if (tvisnumber(o) || tvisi64(o)) {
     GCstr *s = lj_strfmt_number(L, o);
     setstrV(L, o, s);
     return s;

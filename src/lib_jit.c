@@ -161,28 +161,55 @@ LJLIB_CF(jit_attach)
 #define LJ_LUA54_I32_MAX	((int64_t)2147483647)
 #define LJ_LUA54_I32_MIN	((int64_t)(-LJ_LUA54_I32_MAX - 1))
 
-static int lua54_toint32(lua_State *L, int narg, int32_t *ip, int *isnum)
+static int lua54_tointeger(lua_State *L, int narg, lua_Integer *ip, int *isnum)
 {
+  TValue tmp;
   cTValue *o = L->base + narg-1;
   double n, ni;
+  int64_t k;
   if (isnum) *isnum = 0;
   if (o >= L->top)
     return 0;
-  if (!tvisnumber(o))
+  if (tvisstr(o)) {
+    GCstr *s = strV(o);
+    StrScanFmt fmt;
+    if (lj_strscan_rejectnum54(strdata(s), s->len))
+      return 0;
+    fmt = lj_strscan_scan((const uint8_t *)strdata(s), s->len, &tmp,
+			  STRSCAN_OPT_TOINT);
+    if (fmt == STRSCAN_ERROR)
+      return 0;
+    if (isnum) *isnum = 1;
+    if (fmt == STRSCAN_INT) {
+      *ip = (lua_Integer)tmp.i;
+      return 1;
+    } else if (fmt == STRSCAN_I64) {
+      *ip = (lua_Integer)tmp.u64;
+      return 1;
+    }
+    o = &tmp;
+  }
+  if (!tvisnumber(o) && !tvisi64(o))
     return 0;
   if (isnum) *isnum = 1;
   if (tvisint(o)) {
-    *ip = intV(o);
+    *ip = (lua_Integer)intV(o);
+    return 1;
+  } else if (tvisi64(o)) {
+    *ip = (lua_Integer)i64V(o);
     return 1;
   }
   n = numV(o);
-  if (!(n >= (lua_Number)LJ_LUA54_I32_MIN &&
-	n <= (lua_Number)LJ_LUA54_I32_MAX))
+  if (!(n >= (-9223372036854775807.0 - 1.0) &&
+	n < 9223372036854775808.0))
     return 0;
   ni = lj_vm_floor(n);
   if (n != ni)
     return 0;
-  *ip = (int32_t)lj_num2i64(n);
+  k = lj_num2i64(n);
+  if ((lua_Number)k != n)
+    return 0;
+  *ip = (lua_Integer)k;
   return 1;
 }
 
@@ -250,11 +277,11 @@ static const char *lua54_operand_source(lua_State *L, int narg,
   return NULL;
 }
 
-static int32_t lua54_checkintop32(lua_State *L, int narg)
+static lua_Integer lua54_checkintop(lua_State *L, int narg)
 {
-  int32_t i;
+  lua_Integer i;
   int isnum;
-  if (!lua54_toint32(L, narg, &i, &isnum)) {
+  if (!lua54_tointeger(L, narg, &i, &isnum)) {
     if (isnum)
       lua54_argerr_numint(L, narg);
     else {
@@ -314,7 +341,7 @@ static void lua54_arith_error(lua_State *L, int narg)
     "attempt to perform arithmetic on a %s value", tname));
 }
 
-static int lua54_tonumop(lua_State *L, int narg, int *isint, int32_t *ip,
+static int lua54_tonumop(lua_State *L, int narg, int *isint, lua_Integer *ip,
 			 double *np)
 {
   TValue tmp;
@@ -325,12 +352,16 @@ static int lua54_tonumop(lua_State *L, int narg, int *isint, int32_t *ip,
     if (!lj_strscan_number(strV(o), &tmp))
       return 0;
     o = &tmp;
-  } else if (!tvisnumber(o)) {
+  } else if (!tvisnumber(o) && !tvisi64(o)) {
     return 0;
   }
   if (tvisint(o)) {
     *isint = 1;
-    *ip = intV(o);
+    *ip = (lua_Integer)intV(o);
+    *np = (double)*ip;
+  } else if (tvisi64(o)) {
+    *isint = 1;
+    *ip = (lua_Integer)i64V(o);
     *np = (double)*ip;
   } else {
     *isint = 0;
@@ -439,10 +470,10 @@ static void lua54_finish_one_result(lua_State *L)
   L->top = L->base + 1;
 }
 
-static int lua54_pushbinint(lua_State *L, int32_t v)
+static int lua54_pushbinint(lua_State *L, lua_Integer v)
 {
   TValue *base = L->base;
-  setintV(base, v);
+  lj_obj_setint64(L, base, (int64_t)v);
   lua54_finish_one_result(L);
   return 1;
 }
@@ -470,7 +501,7 @@ static lua_Number lua54_nummod(lua_Number a, lua_Number b)
 static int lj_cf_jit__lua54_idiv(lua_State *L)
 {
   int ia, ib;
-  int32_t a = 0, b = 0;
+  lua_Integer a = 0, b = 0;
   double na, nb;
   if ((tvisstr(L->base) || tvisstr(L->base+1)) &&
       lua54_callbinmeta(L, "__idiv", 0))
@@ -482,22 +513,16 @@ static int lj_cf_jit__lua54_idiv(lua_State *L)
     lua54_binop_error(L, "idiv");
   }
   if (ia && ib) {
-    int64_t ai = a, bi = b, q, r;
-    if (bi == 0)
+    lua_Integer q, r;
+    if (b == 0)
       return luaL_error(L, "attempt to divide by zero");
-    if (a == (int32_t)LJ_LUA54_I32_MIN && b == -1) {
-      /* Lua 5.4 integer division keeps the current integer surface wrapping
-      ** for mininteger // -1; falling through to int64 would expose a float.
-      */
+    if (a == LUA_MININTEGER && b == (lua_Integer)-1)
       return lua54_pushbinint(L, a);
-    }
-    q = ai / bi;
-    r = ai % bi;
-    if (r != 0 && ((r < 0) != (bi < 0)))
+    q = a / b;
+    r = a % b;
+    if (r != 0 && ((r ^ b) < 0))
       q--;
-    if (q >= LJ_LUA54_I32_MIN && q <= LJ_LUA54_I32_MAX)
-      return lua54_pushbinint(L, (int32_t)q);
-    return lua54_pushbinnum(L, (lua_Number)q);
+    return lua54_pushbinint(L, q);
   }
   return lua54_pushbinnum(L, lj_vm_floor(na / nb));
 }
@@ -505,7 +530,7 @@ static int lj_cf_jit__lua54_idiv(lua_State *L)
 static int lj_cf_jit__lua54_mod(lua_State *L)
 {
   int ia, ib, oka, okb;
-  int32_t a = 0, b = 0;
+  lua_Integer a = 0, b = 0;
   double na, nb;
   if ((tvisstr(L->base) || tvisstr(L->base+1)) &&
       lua54_callbinmeta(L, "__mod", 0))
@@ -520,9 +545,15 @@ static int lj_cf_jit__lua54_mod(lua_State *L)
     lua54_arith_error(L, oka ? 2 : 1);
   }
   if (ia && ib) {
+    lua_Integer r;
     if (b == 0)
       return luaL_error(L, "attempt to perform 'n%%0'");
-    return lua54_pushbinint(L, lj_vm_modi(a, b));
+    if (a == LUA_MININTEGER && b == (lua_Integer)-1)
+      return lua54_pushbinint(L, 0);
+    r = a % b;
+    if (r != 0 && ((r ^ b) < 0))
+      r += b;
+    return lua54_pushbinint(L, r);
   }
   return lua54_pushbinnum(L, lua54_nummod(na, nb));
 }
@@ -530,91 +561,97 @@ static int lj_cf_jit__lua54_mod(lua_State *L)
 static int lj_cf_jit__lua54_band(lua_State *L)
 {
   int ia, ib;
-  int32_t a, b;
-  if (!lua54_toint32(L, 1, &a, &ia) || !lua54_toint32(L, 2, &b, &ib)) {
+  lua_Integer a, b;
+  if (!lua54_tointeger(L, 1, &a, &ia) || !lua54_tointeger(L, 2, &b, &ib)) {
     if (lua54_callbinmeta(L, "__band", 0))
       return 1;
-    a = lua54_checkintop32(L, 1);
-    b = lua54_checkintop32(L, 2);
+    a = lua54_checkintop(L, 1);
+    b = lua54_checkintop(L, 2);
   }
-  return lua54_pushbinint(L, (int32_t)((uint32_t)a & (uint32_t)b));
+  return lua54_pushbinint(L,
+    (lua_Integer)((lua_Unsigned)a & (lua_Unsigned)b));
 }
 
 static int lj_cf_jit__lua54_bor(lua_State *L)
 {
   int ia, ib;
-  int32_t a, b;
-  if (!lua54_toint32(L, 1, &a, &ia) || !lua54_toint32(L, 2, &b, &ib)) {
+  lua_Integer a, b;
+  if (!lua54_tointeger(L, 1, &a, &ia) || !lua54_tointeger(L, 2, &b, &ib)) {
     if (lua54_callbinmeta(L, "__bor", 0))
       return 1;
-    a = lua54_checkintop32(L, 1);
-    b = lua54_checkintop32(L, 2);
+    a = lua54_checkintop(L, 1);
+    b = lua54_checkintop(L, 2);
   }
-  return lua54_pushbinint(L, (int32_t)((uint32_t)a | (uint32_t)b));
+  return lua54_pushbinint(L,
+    (lua_Integer)((lua_Unsigned)a | (lua_Unsigned)b));
 }
 
 static int lj_cf_jit__lua54_bxor(lua_State *L)
 {
   int ia, ib;
-  int32_t a, b;
-  if (!lua54_toint32(L, 1, &a, &ia) || !lua54_toint32(L, 2, &b, &ib)) {
+  lua_Integer a, b;
+  if (!lua54_tointeger(L, 1, &a, &ia) || !lua54_tointeger(L, 2, &b, &ib)) {
     if (lua54_callbinmeta(L, "__bxor", 0))
       return 1;
-    a = lua54_checkintop32(L, 1);
-    b = lua54_checkintop32(L, 2);
+    a = lua54_checkintop(L, 1);
+    b = lua54_checkintop(L, 2);
   }
-  return lua54_pushbinint(L, (int32_t)((uint32_t)a ^ (uint32_t)b));
+  return lua54_pushbinint(L,
+    (lua_Integer)((lua_Unsigned)a ^ (lua_Unsigned)b));
 }
 
 static int lj_cf_jit__lua54_bnot(lua_State *L)
 {
   int isnum;
-  int32_t a;
-  if (!lua54_toint32(L, 1, &a, &isnum)) {
+  lua_Integer a;
+  if (!lua54_tointeger(L, 1, &a, &isnum)) {
     if (lua54_callbinmeta(L, "__bnot", 1))
       return 1;
-    a = lua54_checkintop32(L, 1);
+    a = lua54_checkintop(L, 1);
   }
-  return lua54_pushbinint(L, (int32_t)~(uint32_t)a);
+  return lua54_pushbinint(L, (lua_Integer)~(lua_Unsigned)a);
 }
 
-static int32_t lua54_shift32(int32_t a, int32_t sh, int left)
+static lua_Integer lua54_shiftint(lua_Integer a, lua_Integer sh, int left)
 {
-  int64_t s = (int64_t)sh;
+  lua_Integer s = sh;
+  lua_Integer width = (lua_Integer)(8u * sizeof(lua_Unsigned));
+  lua_Unsigned u = (lua_Unsigned)a;
   if (s < 0) {
+    if (s <= -width)
+      return 0;
     s = -s;
     left = !left;
-  }
-  if (s >= 32)
+  } else if (s >= width) {
     return 0;
-  return left ? (int32_t)((uint32_t)a << s) :
-		(int32_t)((uint32_t)a >> s);
+  }
+  return left ? (lua_Integer)(u << s) : (lua_Integer)(u >> s);
 }
 
 static int lj_cf_jit__lua54_shl(lua_State *L)
 {
   int ia, ib;
-  int32_t a, sh;
-  if (!lua54_toint32(L, 1, &a, &ia) || !lua54_toint32(L, 2, &sh, &ib)) {
+  lua_Integer a, sh;
+  if (!lua54_tointeger(L, 1, &a, &ia) || !lua54_tointeger(L, 2, &sh, &ib)) {
     if (lua54_callbinmeta(L, "__shl", 0))
       return 1;
-    a = lua54_checkintop32(L, 1);
-    sh = lua54_checkintop32(L, 2);
+    a = lua54_checkintop(L, 1);
+    sh = lua54_checkintop(L, 2);
   }
-  return lua54_pushbinint(L, lua54_shift32(a, sh, 1));
+  return lua54_pushbinint(L, lua54_shiftint(a, sh, 1));
 }
 
 static int lj_cf_jit__lua54_shr(lua_State *L)
 {
   int ia, ib;
-  int32_t a, sh;
-  if (!lua54_toint32(L, 1, &a, &ia) || !lua54_toint32(L, 2, &sh, &ib)) {
+  lua_Integer a, sh;
+  if (!lua54_tointeger(L, 1, &a, &ia) || !lua54_tointeger(L, 2, &sh, &ib)) {
     if (lua54_callbinmeta(L, "__shr", 0))
       return 1;
-    a = lua54_checkintop32(L, 1);
-    sh = lua54_checkintop32(L, 2);
+    a = lua54_checkintop(L, 1);
+    sh = lua54_checkintop(L, 2);
   }
-  return lua54_pushbinint(L, lua54_shift32(a, sh, 0));
+  return lua54_pushbinint(L, lua54_shiftint(a, sh, 0));
 }
 
 static void lua54_forerror(lua_State *L, cTValue *o, const char *what)
@@ -638,10 +675,10 @@ static int lj_cf_jit__lua54_forstep(lua_State *L)
     if (tvisint(&tmp))
       setnumV(&tmp, (lua_Number)intV(&tmp));
     o = &tmp;
-  } else if (!tvisnumber(o)) {
+  } else if (!tvisnumber(o) && !tvisi64(o)) {
     lua54_forerror(L, o, "step");
   }
-  if (tvisint(o) ? intV(o) == 0 : tviszero(o))
+  if (tvisint(o) ? intV(o) == 0 : tvisi64(o) ? i64V(o) == 0 : tviszero(o))
     return luaL_error(L, "'for' step is zero");
   /* Returning the normalized value keeps string-number steps from reaching
   ** FORI as strings, while the VM still handles the real loop mechanics.

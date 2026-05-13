@@ -5,7 +5,7 @@ local unpack = string.unpack
 local NB = 16
 local sizeLI = packsize("j")
 
-assert(sizeLI == 4)
+assert(sizeLI == (math.maxinteger > 0x7fffffff and 8 or 4))
 assert(packsize("!xXi16") == 8)
 
 for i = 1, NB do
@@ -22,7 +22,7 @@ end
 do
   local lnum = 0x13121110090807060504030201
   local s = pack("<j", -lnum)
-  local unum = unpack("<I4", s)
+  local unum = unpack("<I" .. sizeLI, s)
   for i = sizeLI + 1, NB do
     assert(unpack("<i" .. i, s .. ("\xff"):rep(i - sizeLI)) == -lnum)
     assert(unpack(">i" .. i, ("\xff"):rep(i - sizeLI) .. s:reverse()) == -lnum)

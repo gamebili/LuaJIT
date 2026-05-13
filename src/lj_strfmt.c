@@ -257,6 +257,25 @@ char * LJ_FASTCALL lj_strfmt_wint(char *p, int32_t k)
 }
 #undef WINT_R
 
+static char *strfmt_wi64(char *p, int64_t k)
+{
+  char buf[20], *q = buf + sizeof(buf);
+  uint64_t u;
+  if (k < 0) {
+    *p++ = '-';
+    u = ~(uint64_t)k + 1;
+  } else {
+    u = (uint64_t)k;
+  }
+  do {
+    *--q = (char)('0' + (u % 10));
+    u /= 10;
+  } while (u);
+  while (q < buf + sizeof(buf))
+    *p++ = *q++;
+  return p;
+}
+
 /* Write pointer to buffer. */
 char * LJ_FASTCALL lj_strfmt_wptr(char *p, const void *v)
 {
@@ -298,7 +317,7 @@ const char *lj_strfmt_wstrnum(lua_State *L, cTValue *o, MSize *lenp)
     *lenp = sbufxlen(sbx);
     return sbx->r ? sbx->r : "";
 #if LJ_54
-  } else if (tvisnumber(o)) {
+  } else if (tvisnumber(o) || tvisi64(o)) {
     GCstr *str = lj_strfmt_number(L, o);
     *lenp = str->len;
     return strdata(str);
@@ -321,6 +340,13 @@ SBuf * LJ_FASTCALL lj_strfmt_putint(SBuf *sb, int32_t k)
 {
   sb->w = lj_strfmt_wint(lj_buf_more(sb, STRFMT_MAXBUF_INT), k);
   return sb;
+}
+
+SBuf * LJ_FASTCALL lj_strfmt_puti64(SBuf *sb, int64_t k)
+{
+  if (checki32(k))
+    return lj_strfmt_putint(sb, (int32_t)k);
+  return lj_strfmt_putfxint(sb, STRFMT_INT, (uint64_t)k);
 }
 
 #if LJ_HASJIT
@@ -543,6 +569,8 @@ static lua_Number strfmt_checknum_named54(lua_State *L, int arg)
   }
   if (tvisint(o))
     return (lua_Number)intV(o);
+  if (tvisi64(o))
+    return (lua_Number)i64V(o);
   if (tvisnum(o))
     return numV(o);
   strfmt_argtype_named54(L, arg, "number");
@@ -642,6 +670,9 @@ int lj_strfmt_putarg(lua_State *L, SBuf *sb, int arg, int retry)
 	  else
 	    lj_strfmt_putfxint(sb, sf, k);
 	  break;
+	} else if (tvisi64(o)) {
+	  lj_strfmt_putfxint(sb, sf, (uint64_t)i64V(o));
+	  break;
 	}
 #if LJ_HASFFI
 	if (tviscdata(o)) {
@@ -660,10 +691,14 @@ int lj_strfmt_putarg(lua_State *L, SBuf *sb, int arg, int retry)
 	break;
       case STRFMT_UINT:
 	if (tvisint(o)) {
-	  /* Current Lua 5.4 integer surface is still 32 bit; unsigned integer
-	  ** formats must wrap at that width until the 64 bit integer batch lands.
-	  */
+#if LJ_54
+	  lj_strfmt_putfxint(sb, sf, (uint64_t)(int64_t)intV(o));
+#else
 	  lj_strfmt_putfxint(sb, sf, (uint32_t)intV(o));
+#endif
+	  break;
+	} else if (tvisi64(o)) {
+	  lj_strfmt_putfxint(sb, sf, (uint64_t)i64V(o));
 	  break;
 	}
 #if LJ_HASFFI
@@ -706,6 +741,14 @@ int lj_strfmt_putarg(lua_State *L, SBuf *sb, int arg, int retry)
 	    }
 	    break;
 	  }
+	  if (tvisi64(o)) {
+	    int64_t k = i64V(o);
+	    if (k == (int64_t)U64x(80000000,00000000))
+	      lj_strfmt_putfxint(sb, STRFMT_X|STRFMT_F_ALT, (uint64_t)k);
+	    else
+	      lj_strfmt_puti64(sb, k);
+	    break;
+	  }
 	  if (tvisnum(o)) { strfmt_putqnum_lua54(sb, numV(o)); break; }
 	  if (tvisnil(o)) { lj_buf_putmem(sb, "nil", 3); break; }
 	  if (tvisfalse(o)) { lj_buf_putmem(sb, "false", 5); break; }
@@ -725,7 +768,8 @@ int lj_strfmt_putarg(lua_State *L, SBuf *sb, int arg, int retry)
 	  copyTV(L, L->top++, o);
 	  lua_call(L, 1, 1);
 #if LJ_54
-	  if (!tvisstr(L->top-1) && !tvisnumber(L->top-1)) {
+	  if (!tvisstr(L->top-1) &&
+	      !(tvisnumber(L->top-1) || tvisi64(L->top-1))) {
 	    /* string.format("%s") follows luaL_tolstring(): __tostring may
 	    ** return a string or number, but other values are a hard error.
 	    */
@@ -832,10 +876,18 @@ GCstr * LJ_FASTCALL lj_strfmt_int(lua_State *L, int32_t k)
   return lj_str_new(L, buf, len);
 }
 
+GCstr * LJ_FASTCALL lj_strfmt_i64(lua_State *L, int64_t k)
+{
+  char buf[STRFMT_MAXBUF_I64];
+  MSize len = (MSize)(strfmt_wi64(buf, k) - buf);
+  return lj_str_new(L, buf, len);
+}
+
 /* Convert integer or number to string. */
 GCstr * LJ_FASTCALL lj_strfmt_number(lua_State *L, cTValue *o)
 {
-  return tvisint(o) ? lj_strfmt_int(L, intV(o)) : lj_strfmt_num(L, o);
+  return tvisint(o) ? lj_strfmt_int(L, intV(o)) :
+	 tvisi64(o) ? lj_strfmt_i64(L, i64V(o)) : lj_strfmt_num(L, o);
 }
 
 #if LJ_HASJIT
@@ -853,7 +905,7 @@ GCstr * LJ_FASTCALL lj_strfmt_obj(lua_State *L, cTValue *o)
 {
   if (tvisstr(o)) {
     return strV(o);
-  } else if (tvisnumber(o)) {
+  } else if (tvisnumber(o) || tvisi64(o)) {
     return lj_strfmt_number(L, o);
   } else if (tvisnil(o)) {
     return lj_str_newlit(L, "nil");

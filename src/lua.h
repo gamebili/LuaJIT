@@ -161,7 +161,7 @@ typedef LUA_NUMBER lua_Number;
 typedef LUA_INTEGER lua_Integer;
 typedef LUA_UNSIGNED lua_Unsigned;
 
-#if LUAJIT_EXTERNAL_LUA54
+#if LUAJIT_EXTERNAL_LUA54 || defined(LUAJIT_ENABLE_LUA54COMPAT)
 #define LUA_MAXINTEGER	((lua_Integer)(((lua_Unsigned)~(lua_Unsigned)0) >> 1))
 #else
 #define LUA_MAXINTEGER	((lua_Integer)2147483647)

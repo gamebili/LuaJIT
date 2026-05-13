@@ -86,6 +86,7 @@
 |.type GL,		global_State
 |.type TVALUE,		TValue
 |.type GCOBJ,		GCobj
+|.type INT64,		GCint64
 |.type STR,		GCstr
 |.type TAB,		GCtab
 |.type LFUNC,		GCfuncL
@@ -3548,11 +3549,17 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
       |  cmp RBd, LJ_TCDATA; je ->vmeta_equal_cd
       |  cmp ITYPEd, LJ_TCDATA; je ->vmeta_equal_cd
       |.endif
+#if LJ_54
+      |  cmp RBd, LJ_TINT64; je >7
+      |  cmp ITYPEd, LJ_TINT64; je >7
+#endif
       |  cmp RA, RD
       |  je <1				// Same GCobjs or pvalues?
       |  cmp RBd, ITYPEd
       |  jne <2				// Not the same type?
 #if LJ_54
+      |  cmp RBd, LJ_TINT64
+      |  je >7
       |  cmp RBd, LJ_TSTR
       |  je >6
 #endif
@@ -3584,6 +3591,26 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
       |  jmp ->vmeta_equal		// Handle __eq metamethod.
 #endif
 #if LJ_54
+      |7:  // Boxed int64 values compare numerically with numbers/integers.
+      |.if X64WIN
+      |  mov RB, BASE
+      |  mov CARG2, RD
+      |.else
+      |  mov CARG1, RA
+      |  mov CARG2, RD
+      |.endif
+      |  call extern lj_obj_equaltv	// (uint64_t u1, uint64_t u2)
+      |.if X64WIN
+      |  mov BASE, RB
+      |.endif
+      |  cmp eax, 1
+      if (vk) {
+	|  je <1
+	|  jmp <2
+      } else {
+	|  jne <2
+	|  jmp <1
+      }
       |6:  // Different long string objects may still be byte-equal in Lua 5.4.
       |  cleartp STR:RA
       |  cleartp STR:RD
@@ -3656,6 +3683,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  ins_next
     |
     |7:  // RA is not an integer.
+#if LJ_54
+    |  cmp ITYPEd, LJ_TINT64; je >5
+#endif
     |  ja >3
     |  // RA is a number.
     |  mov RD, [KBASE+RD*8]
@@ -3669,6 +3699,36 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  movd xmm1, RD
     |  ucomisd xmm0, xmm1
     |  jmp >4
+#if LJ_54
+    |5:  // RA is a boxed int64, RD is a numeric constant.
+    |  mov RD, [KBASE+RD*8]
+    |.if X64WIN
+    |  mov CARG1, RB
+    |  mov RB, BASE
+    |  mov CARG2, RD
+    |.else
+    |  mov CARG1, RB
+    |  mov CARG2, RD
+    |.endif
+    |  call extern lj_obj_equaltv	// (uint64_t u1, uint64_t u2)
+    |.if X64WIN
+    |  mov BASE, RB
+    |.endif
+    |  cmp eax, 1
+    if (vk) {
+      |  jne >6
+      |  movzx RDd, PC_RD
+      |  branchPC RD
+      |6:
+      |  ins_next
+    } else {
+      |  je >6
+      |  movzx RDd, PC_RD
+      |  branchPC RD
+      |6:
+      |  ins_next
+    }
+#endif
     |1:
     |  movd xmm0, RD
     |.else
@@ -5138,7 +5198,13 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
 	|  jge =>BC_JLOOP
       }
       |  jmp <6
-      |9:  // Fallback to FP variant.
+      |9:  // Fallback to FP variant or boxed int64 helper.
+#if LJ_54
+      |  mov ITYPE, RB
+      |  sar ITYPE, 47
+      |  cmp ITYPEd, LJ_TINT64
+      |  je >8
+#endif
       if (!vk) {
 	|  jae ->vmeta_for
       }
@@ -5200,6 +5266,128 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |3:  // Invert comparison if step is negative.
     |  ucomisd xmm0, xmm1
     |  jmp <1
+#if LJ_54
+    |8:  // Boxed int64 numeric for-loop.
+    if (op == BC_FORL || op == BC_IFORL || op == BC_JFORL) {
+      |  mov TMPR, RB
+      |  cleartp INT64:TMPR
+      |  mov RB, INT64:TMPR->i
+      |  mov ITYPE, FOR_STEP
+      |  mov RC, ITYPE
+      |  sar RC, 47
+      |  cmp RCd, LJ_TISNUM
+      |  jne >4
+      |  movsxd ITYPE, ITYPEd
+      |  jmp >5
+      |4:
+      |  cmp RCd, LJ_TINT64
+      |  jne ->vmeta_for
+      |  cleartp INT64:ITYPE
+      |  mov ITYPE, INT64:ITYPE->i
+      |5:
+      |  mov TMP1, RB
+      |  xor CARG4d, CARG4d
+      |  add RB, ITYPE
+      |  mov INT64:TMPR->i, RB
+      |  mov TMPR, FOR_STOP
+      |  mov RC, TMPR
+      |  sar RC, 47
+      |  cmp RCd, LJ_TISNUM
+      |  jne >6
+      |  movsxd TMPR, TMPRd
+      |  jmp >7
+      |6:
+      |  cmp RCd, LJ_TINT64
+      |  je >8
+      |  cmp RCd, LJ_TISNUM
+      |  jae ->vmeta_for
+      |  mov CARG4d, 1
+      |  jmp >7
+      |8:
+      |  cleartp INT64:TMPR
+      |  mov TMPR, INT64:TMPR->i
+      |7:
+      |  test ITYPE, ITYPE
+      |  js >6
+      |  cmp RB, TMP1
+      |  jl >9
+      |  test CARG4d, CARG4d
+      |  jnz >4
+      |  cmp RB, TMPR
+      |  jg >9
+      |4:
+      |  mov RC, FOR_EXT
+      |  cleartp INT64:RC
+      |  mov INT64:RC->i, RB
+      if (op == BC_JFORL) {
+	|  jmp =>BC_JLOOP
+      } else {
+	|  movzx RDd, PC_RD
+	|  branchPC RD
+	|  ins_next
+      }
+      |6:
+      |  cmp RB, TMP1
+      |  jg >9
+      |  test CARG4d, CARG4d
+      |  jnz >5
+      |  cmp RB, TMPR
+      |  jl >9
+      |5:
+      |  mov RC, FOR_EXT
+      |  cleartp INT64:RC
+      |  mov INT64:RC->i, RB
+      if (op == BC_JFORL) {
+	|  jmp =>BC_JLOOP
+      } else {
+	|  movzx RDd, PC_RD
+	|  branchPC RD
+	|  ins_next
+      }
+      |9:
+      |  ins_next
+    } else {
+    |  mov L:RB, SAVE_L
+    |  mov L:RB->base, BASE
+    |  mov CARG2, RA
+    if (op == BC_FORI || op == BC_JFORI) {
+      |  xor CARG3d, CARG3d
+    } else {
+      |  mov CARG3d, 1
+    }
+    |  mov L:CARG1, L:RB
+    |  mov SAVE_PC, PC
+    |  call extern lj_meta_fori64	// (lua_State *L, TValue *base, int isforl)
+    |  mov ITYPEd, eax
+    |  mov BASE, L:RB->base
+    |  mov RCd, [PC-4]
+    |  shr RCd, 16
+    |  cmp ITYPEd, 0
+    |  jl ->vmeta_for
+    if (op == BC_FORI) {
+      |  test ITYPEd, ITYPEd
+      |  jnz <7
+      |  mov RDd, RCd
+      |  branchPC RD
+      |  ins_next
+    } else if (op == BC_JFORI) {
+      |  mov RDd, RCd
+      |  branchPC RD
+      |  test ITYPEd, ITYPEd
+      |  jnz =>BC_JLOOP
+      |  ins_next
+    } else if (op == BC_FORL || op == BC_IFORL) {
+      |  test ITYPEd, ITYPEd
+      |  jz <7
+      |  mov RDd, RCd
+      |  branchPC RD
+    } else {
+      |  test ITYPEd, ITYPEd
+      |  jnz =>BC_JLOOP
+      |  ins_next
+    }
+    }
+#endif
     break;
 
   case BC_ITERL:

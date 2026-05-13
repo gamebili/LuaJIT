@@ -171,6 +171,26 @@ static void strscan_double(uint64_t x, TValue *o, int32_t ex2, int32_t neg)
   o->n = n;
 }
 
+#if LJ_54 && LJ_DUALNUM
+static StrScanFmt strscan_luaint64(TValue *o, uint64_t x, int32_t neg)
+{
+  uint64_t u = neg ? ~x+1u : x;
+  int64_t i = (int64_t)u;
+  if (i == (int64_t)(int32_t)i) {
+    o->i = (int32_t)i;
+    return STRSCAN_INT;
+  }
+  o->u64 = u;
+  return STRSCAN_I64;
+}
+
+static int strscan_luaint64_decok(uint64_t x, int32_t neg)
+{
+  return neg ? x <= U64x(80000000,00000000) :
+	       x < U64x(80000000,00000000);
+}
+#endif
+
 /* Parse hexadecimal number. */
 static StrScanFmt strscan_hex(const uint8_t *p, TValue *o,
 			      StrScanFmt fmt, uint32_t opt,
@@ -197,18 +217,14 @@ static StrScanFmt strscan_hex(const uint8_t *p, TValue *o,
 #if LJ_54 && LJ_DUALNUM
   if (fmt == STRSCAN_INT && (opt & STRSCAN_OPT_TOINT) &&
       !(opt & (STRSCAN_OPT_TONUM|STRSCAN_OPT_C)) && ex2orig == 0) {
-    uint32_t w = 0;
+    uint64_t w = 0;
     const uint8_t *q = ps;
-    /* Lua integer hex numerals wrap on overflow.  This compat build exposes a
-    ** 32 bit integer range today, so parse integer-looking hex input modulo
-    ** 2^32 instead of falling back to a float for overflow-only cases.
-    */
+    /* Lua integer hex numerals wrap on overflow. */
     for (i = dig; i; i--, q++) {
       uint32_t d = *q; if (d > '9') d += 9;
       w = (w << 4) + (d & 15);
     }
-    o->i = neg ? (int32_t)(~w+1u) : (int32_t)w;
-    return STRSCAN_INT;
+    return strscan_luaint64(o, w, neg);
   }
 #endif
   switch (fmt) {
@@ -323,6 +339,12 @@ static StrScanFmt strscan_dec(const uint8_t *p, TValue *o,
 	  o->i = neg ? (int32_t)(~x+1u) : (int32_t)x;
 	  return STRSCAN_INT;  /* Fast path for 32 bit integers. */
 	}
+#if LJ_54 && LJ_DUALNUM
+	if ((opt & STRSCAN_OPT_TOINT) &&
+	    !(opt & (STRSCAN_OPT_TONUM|STRSCAN_OPT_C)) &&
+	    strscan_luaint64_decok(x, neg))
+	  return strscan_luaint64(o, x, neg);
+#endif
 	if (!(opt & STRSCAN_OPT_C)) { fmt = STRSCAN_NUM; goto plainnumber; }
 	/* fallthrough */
       case STRSCAN_U32:
@@ -651,7 +673,8 @@ int LJ_FASTCALL lj_strscan_numtype54(GCstr *str)
     return 3;  /* LuaJIT-only numeric extension rejected by Lua 5.4. */
   fmt = lj_strscan_scan((const uint8_t *)strdata(str), str->len, &o,
 			STRSCAN_OPT_TOINT);
-  return fmt == STRSCAN_INT ? 1 : fmt == STRSCAN_NUM ? 2 : 0;
+  return (fmt == STRSCAN_INT || fmt == STRSCAN_I64) ? 1 :
+	 fmt == STRSCAN_NUM ? 2 : 0;
 #else
   UNUSED(str);
   return 0;
@@ -772,9 +795,11 @@ int LJ_FASTCALL lj_strscan_number(GCstr *str, TValue *o)
 #endif
   StrScanFmt fmt = lj_strscan_scan((const uint8_t *)strdata(str), str->len, o,
 				   STRSCAN_OPT_TOINT);
-  lj_assertX(fmt == STRSCAN_ERROR || fmt == STRSCAN_NUM || fmt == STRSCAN_INT,
+  lj_assertX(fmt == STRSCAN_ERROR || fmt == STRSCAN_NUM ||
+	     fmt == STRSCAN_INT || fmt == STRSCAN_I64,
 	     "bad scan format");
   if (fmt == STRSCAN_INT) setitype(o, LJ_TISNUM);
+  else if (fmt == STRSCAN_I64) setnumV(o, (lua_Number)(int64_t)o->u64);
   return (fmt != STRSCAN_ERROR);
 }
 #endif

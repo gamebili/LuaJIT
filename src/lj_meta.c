@@ -351,7 +351,7 @@ static cTValue *str2num(cTValue *o, TValue *n)
   if (tvisnum(o))
     return o;
 #if LJ_54 && LJ_DUALNUM
-  else if (tvisint(o))
+  else if (tvisinteger(o))
     return o;
   else if (tvisstr(o) && lj_strscan_number(strV(o), n))
     return n;
@@ -370,24 +370,42 @@ static cTValue *str2num(cTValue *o, TValue *n)
 static int lua54_arith_int(lua_State *L, TValue *ra, cTValue *b, cTValue *c,
 			   MMS mm)
 {
-  uint32_t ib, ic;
+  lua_Integer ib, ic;
+  lua_Unsigned ub, uc;
   if (mm == MM_unm) {
-    if (!tvisint(b)) return 0;
-    setintV(ra, (int32_t)(0u - (uint32_t)intV(b)));
+    if (!tvisinteger(b)) return 0;
+    ib = tvisint(b) ? (lua_Integer)intV(b) : (lua_Integer)i64V(b);
+    lj_obj_setint64(L, ra,
+      (int64_t)(lua_Integer)((lua_Unsigned)0 - (lua_Unsigned)ib));
     return 1;
   }
-  if (!tvisint(b) || !tvisint(c))
+  if (!tvisinteger(b) || !tvisinteger(c))
     return 0;
-  ib = (uint32_t)intV(b);
-  ic = (uint32_t)intV(c);
+  ib = tvisint(b) ? (lua_Integer)intV(b) : (lua_Integer)i64V(b);
+  ic = tvisint(c) ? (lua_Integer)intV(c) : (lua_Integer)i64V(c);
+  ub = (lua_Unsigned)ib;
+  uc = (lua_Unsigned)ic;
   switch (mm) {
-  case MM_add: setintV(ra, (int32_t)(ib + ic)); return 1;
-  case MM_sub: setintV(ra, (int32_t)(ib - ic)); return 1;
-  case MM_mul: setintV(ra, (int32_t)(ib * ic)); return 1;
+  case MM_add:
+    lj_obj_setint64(L, ra, (int64_t)(lua_Integer)(ub + uc));
+    return 1;
+  case MM_sub:
+    lj_obj_setint64(L, ra, (int64_t)(lua_Integer)(ub - uc));
+    return 1;
+  case MM_mul:
+    lj_obj_setint64(L, ra, (int64_t)(lua_Integer)(ub * uc));
+    return 1;
   case MM_mod:
     /* Lua 5.4 integer modulo by zero is an error; float modulo keeps NaN. */
-    if (intV(c) == 0) lj_err_callermsg(L, "attempt to perform 'n%0'");
-    setintV(ra, lj_vm_modi(intV(b), intV(c)));
+    if (ic == 0) lj_err_callermsg(L, "attempt to perform 'n%0'");
+    if (ib == LUA_MININTEGER && ic == (lua_Integer)-1) {
+      lj_obj_setint64(L, ra, 0);
+    } else {
+      lua_Integer r = ib % ic;
+      if (r != 0 && ((r ^ ic) < 0))
+	r += ic;
+      lj_obj_setint64(L, ra, (int64_t)r);
+    }
     return 1;
   default:
     return 0;  /* Division and power always use the float path. */
@@ -480,13 +498,14 @@ TValue *lj_meta_cat(lua_State *L, TValue *top, int left)
   int fromc = 0;
   if (left < 0) { left = -left; fromc = 1; }
   do {
-    if (!(tvisstr(top) || tvisnumber(top) || tvisbuf(top)) ||
-	!(tvisstr(top-1) || tvisnumber(top-1) || tvisbuf(top-1))) {
+    if (!(tvisstr(top) || tvisnumber(top) || tvisi64(top) || tvisbuf(top)) ||
+	!(tvisstr(top-1) || tvisnumber(top-1) || tvisi64(top-1) ||
+	  tvisbuf(top-1))) {
       cTValue *mo = lj_meta_lookup(L, top-1, MM_concat);
       if (tvisnil(mo)) {
 	mo = lj_meta_lookup(L, top, MM_concat);
 	if (tvisnil(mo)) {
-	  if (tvisstr(top-1) || tvisnumber(top-1)) top++;
+	  if (tvisstr(top-1) || tvisnumber(top-1) || tvisi64(top-1)) top++;
 	  lj_err_optype(L, top-1, LJ_ERR_OPCAT);
 	  return NULL;  /* unreachable */
 	}
@@ -523,7 +542,8 @@ TValue *lj_meta_cat(lua_State *L, TValue *top, int left)
       do {
 	o--; tlen += tvisstr(o) ? strV(o)->len :
 		     tvisbuf(o) ? sbufxlen(bufV(o)) : STRFMT_MAXBUF_NUM;
-      } while (--left > 0 && (tvisstr(o-1) || tvisnumber(o-1)));
+      } while (--left > 0 &&
+	       (tvisstr(o-1) || tvisnumber(o-1) || tvisi64(o-1)));
       if (tlen >= LJ_MAX_STR) lj_err_msg(L, LJ_ERR_STROV);
       sb = lj_buf_tmp_(L);
       lj_buf_more(sb, (MSize)tlen);
@@ -537,14 +557,18 @@ TValue *lj_meta_cat(lua_State *L, TValue *top, int left)
 	  lj_buf_putmem(sb, sbx->r, sbufxlen(sbx));
 	} else if (tvisint(o)) {
 	  lj_strfmt_putint(sb, intV(o));
-	} else {
 #if LJ_54
-	  GCstr *s = lj_strfmt_number(L, o);
+	} else if (tvisi64(o)) {
+	  lj_strfmt_puti64(sb, i64V(o));
+	} else {
+	  GCstr *s = lj_strfmt_num(L, o);
 	  lj_buf_putmem(sb, strdata(s), s->len);
-#else
-	  lj_strfmt_putfnum(sb, STRFMT_G14, numV(o));
-#endif
 	}
+#else
+	} else {
+	  lj_strfmt_putfnum(sb, STRFMT_G14, numV(o));
+	}
+#endif
       }
       setstrV(L, top, lj_buf_str(L, sb));
     }
@@ -660,9 +684,74 @@ TValue * LJ_FASTCALL lj_meta_equal_cd(lua_State *L, BCIns ins)
 }
 #endif
 
+#if LJ_54
+static LJ_AINLINE int meta_integerV54(cTValue *o, lua_Integer *ip)
+{
+  if (tvisint(o)) {
+    *ip = (lua_Integer)intV(o);
+    return 1;
+  } else if (tvisi64(o)) {
+    *ip = (lua_Integer)i64V(o);
+    return 1;
+  }
+  return 0;
+}
+
+static int meta_i64lt_num(lua_Integer i, lua_Number n)
+{
+  lua_Number nf;
+  int64_t k;
+  if (!(n == n))
+    return 0;
+  if (n <= (-9223372036854775807.0 - 1.0))
+    return 0;
+  if (n >= 9223372036854775808.0)
+    return 1;
+  nf = lj_vm_floor(n);
+  k = lj_num2i64(nf);
+  return (int64_t)i < k || ((int64_t)i == k && nf < n);
+}
+
+static int meta_numlt_i64(lua_Number n, lua_Integer i)
+{
+  lua_Number nf;
+  int64_t k;
+  if (!(n == n))
+    return 0;
+  if (n < (-9223372036854775807.0 - 1.0))
+    return 1;
+  if (n == (-9223372036854775807.0 - 1.0))
+    return (int64_t)i > (-9223372036854775807LL - 1LL);
+  if (n >= 9223372036854775808.0)
+    return 0;
+  nf = lj_vm_floor(n);
+  k = lj_num2i64(nf);
+  return k < (int64_t)i;
+}
+
+static int meta_numlt54(cTValue *o1, cTValue *o2)
+{
+  lua_Integer i1, i2;
+  if (meta_integerV54(o1, &i1)) {
+    return meta_integerV54(o2, &i2) ? i1 < i2 : meta_i64lt_num(i1, numV(o2));
+  } else if (meta_integerV54(o2, &i2)) {
+    return meta_numlt_i64(numV(o1), i2);
+  }
+  return numberVnum(o1) < numberVnum(o2);
+}
+#endif
+
 /* Helper for ordered comparisons. String compare, __lt/__le metamethods. */
 TValue *lj_meta_comp(lua_State *L, cTValue *o1, cTValue *o2, int op)
 {
+#if LJ_54
+  if ((tvisnumber(o1) || tvisi64(o1)) &&
+      (tvisnumber(o2) || tvisi64(o2))) {
+    int res = (op & 2) ? (lj_obj_equal(o1, o2) || meta_numlt54(o1, o2)) :
+			  meta_numlt54(o1, o2);
+    return (TValue *)(intptr_t)(res ^ (op & 1));
+  }
+#endif
   if (LJ_HASFFI && (tviscdata(o1) || tviscdata(o2))) {
     ASMFunction cont = (op & 1) ? lj_cont_condf : lj_cont_condt;
     MMS mm = (op & 2) ? MM_le : MM_lt;
@@ -874,3 +963,54 @@ void LJ_FASTCALL lj_meta_for(lua_State *L, TValue *o)
 #endif
   }
 }
+
+#if LJ_54
+static int meta_for_ivalue(cTValue *o, int64_t *ip)
+{
+  if (tvisint(o)) {
+    *ip = (int64_t)intV(o);
+    return 1;
+  } else if (tvisi64(o)) {
+    *ip = i64V(o);
+    return 1;
+  }
+  return 0;
+}
+
+static void meta_for_setidx(lua_State *L, TValue *o, int64_t i)
+{
+  if (tvisi64(o))
+    gco2i64(gcV(o))->i = i;
+  else
+    lj_obj_setint64(L, o, i);
+}
+
+int lj_meta_fori64(lua_State *L, TValue *o, int isforl)
+{
+  int64_t idx, stop, step;
+  int ok;
+  if (!meta_for_ivalue(&o[FORL_IDX], &idx) ||
+      !meta_for_ivalue(&o[FORL_STEP], &step))
+    return -1;
+  if (step == 0)
+    lj_err_msg(L, LJ_ERR_FORSTEP0);
+  if (isforl) {
+    idx = (int64_t)((uint64_t)idx + (uint64_t)step);
+    meta_for_setidx(L, &o[FORL_IDX], idx);
+  } else if (tvisi64(&o[FORL_IDX])) {
+    lj_obj_setint64(L, &o[FORL_IDX], idx);
+  }
+  if (meta_for_ivalue(&o[FORL_STOP], &stop)) {
+    ok = step > 0 ? idx <= stop : idx >= stop;
+  } else if (tvisnum(&o[FORL_STOP])) {
+    lua_Number nidx = (lua_Number)idx;
+    lua_Number nstop = numV(&o[FORL_STOP]);
+    ok = step > 0 ? nidx <= nstop : nidx >= nstop;
+  } else {
+    return -1;
+  }
+  if (ok)
+    lj_obj_setint64(L, &o[FORL_EXT], idx);
+  return ok;
+}
+#endif

@@ -69,6 +69,7 @@ typedef enum FormatType {
 /* Maximum buffer sizes for conversions. */
 #define STRFMT_MAXBUF_XINT	(1+22)  /* '0' prefix + uint64_t in octal. */
 #define STRFMT_MAXBUF_INT	(1+10)  /* Sign + int32_t in decimal. */
+#define STRFMT_MAXBUF_I64	(1+20)  /* Sign + int64_t in decimal. */
 #define STRFMT_MAXBUF_NUM	32  /* Must correspond with STRFMT_G14. */
 #define STRFMT_MAXBUF_PTR	(2+2*sizeof(ptrdiff_t))  /* "0x" + hex ptr. */
 
@@ -91,6 +92,7 @@ LJ_FUNC const char *lj_strfmt_wstrnum(lua_State *L, cTValue *o, MSize *lenp);
 
 /* Unformatted conversions to buffer. */
 LJ_FUNC SBuf * LJ_FASTCALL lj_strfmt_putint(SBuf *sb, int32_t k);
+LJ_FUNC SBuf * LJ_FASTCALL lj_strfmt_puti64(SBuf *sb, int64_t k);
 #if LJ_HASJIT
 LJ_FUNC SBuf * LJ_FASTCALL lj_strfmt_putnum(SBuf *sb, cTValue *o);
 #endif
@@ -112,6 +114,7 @@ LJ_FUNC int lj_strfmt_putarg(lua_State *L, SBuf *sb, int arg, int retry);
 
 /* Conversions to strings. */
 LJ_FUNC GCstr * LJ_FASTCALL lj_strfmt_int(lua_State *L, int32_t k);
+LJ_FUNC GCstr * LJ_FASTCALL lj_strfmt_i64(lua_State *L, int64_t k);
 LJ_FUNCA GCstr * LJ_FASTCALL lj_strfmt_num(lua_State *L, cTValue *o);
 LJ_FUNCA GCstr * LJ_FASTCALL lj_strfmt_number(lua_State *L, cTValue *o);
 #if LJ_HASJIT

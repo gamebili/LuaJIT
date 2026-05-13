@@ -132,6 +132,58 @@ static int table_toint32value54(cTValue *o, int32_t *ip, int *isnum)
   return 1;
 }
 
+static int table_tointegervalue54(cTValue *o, lua_Integer *ip, int *isnum)
+{
+  TValue tmp;
+  double n, ni;
+  int64_t k;
+  if (isnum)
+    *isnum = 0;
+  if (tvisstr(o)) {
+    GCstr *s = strV(o);
+    StrScanFmt fmt;
+    if (lj_strscan_rejectnum54(strdata(s), s->len))
+      return 0;
+    fmt = lj_strscan_scan((const uint8_t *)strdata(s), s->len, &tmp,
+			  STRSCAN_OPT_TOINT);
+    if (fmt == STRSCAN_ERROR)
+      return 0;
+    if (isnum)
+      *isnum = 1;
+    if (fmt == STRSCAN_INT) {
+      *ip = (lua_Integer)tmp.i;
+      return 1;
+    } else if (fmt == STRSCAN_I64) {
+      *ip = (lua_Integer)tmp.u64;
+      return 1;
+    }
+    o = &tmp;
+  }
+  if (!tvisnumber(o) && !tvisi64(o))
+    return 0;
+  if (isnum)
+    *isnum = 1;
+  if (tvisint(o)) {
+    *ip = (lua_Integer)intV(o);
+    return 1;
+  } else if (tvisi64(o)) {
+    *ip = (lua_Integer)i64V(o);
+    return 1;
+  }
+  n = numV(o);
+  if (!(n >= (-9223372036854775807.0 - 1.0) &&
+	n < 9223372036854775808.0))
+    return 0;
+  ni = lj_vm_floor(n);
+  if (n != ni)
+    return 0;
+  k = lj_num2i64(n);
+  if ((lua_Number)k != n)
+    return 0;
+  *ip = (lua_Integer)k;
+  return 1;
+}
+
 static void table_argerror_named54(lua_State *L, int narg, const char *fname,
 				   const char *msg)
 {
@@ -272,6 +324,21 @@ static int32_t table_len54(lua_State *L, GCtab *t, int narg)
   return len;
 }
 
+static lua_Integer table_checkinteger_named54(lua_State *L, int narg,
+					      const char *fname)
+{
+  cTValue *o = L->base + narg-1;
+  lua_Integer i;
+  int isnum = 0;
+  if (o < L->top && table_tointegervalue54(o, &i, &isnum))
+    return i;
+  if (isnum)
+    table_argerror_named54(L, narg, fname,
+			   "number has no integer representation");
+  table_argtype_named54(L, narg, fname, "number");
+  return 0;  /* unreachable */
+}
+
 static int32_t table_len_obj54(lua_State *L, int narg)
 {
   TValue *o = L->base + narg-1;
@@ -286,21 +353,44 @@ static int32_t table_len_obj54(lua_State *L, int narg)
   L->top--;
   return len;
 }
+
+static lua_Integer table_len_integer_obj54(lua_State *L, int narg)
+{
+  TValue *o = L->base + narg-1;
+  lua_Integer len;
+  if (o < L->top && tvistab(o)) {
+    cTValue *mo = lj_meta_lookup(L, o, MM_len);
+    if (tvisnil(mo))
+      return (lua_Integer)table_len54(L, tabV(o), narg);
+    copyTV(L, L->top++, mo);
+    copyTV(L, L->top++, o);
+    lua_call(L, 1, 1);
+  } else {
+    lua_len(L, narg);
+  }
+  if (!table_tointegervalue54(L->top-1, &len, NULL)) {
+    L->top--;
+    luaL_error(L, "object length is not an integer");
+  }
+  L->top--;
+  return len;
+}
 #endif
 
 LJLIB_CF(table_insert)		LJLIB_REC(.)
 {
 #if LJ_54
-  int32_t len;
-  int32_t n, pos;
+  lua_Integer e;
+  lua_Integer n, pos;
   int nargs = (int)(L->top - L->base);
   table_checktab_like54(L, 1, LJ_TABLE_TAB_RW|LJ_TABLE_TAB_L,
 			"table.insert");
-  len = table_len_obj54(L, 1);
-  pos = len + 1;
+  e = (lua_Integer)((lua_Unsigned)table_len_integer_obj54(L, 1) +
+		    (lua_Unsigned)1);
+  pos = e;
   if (nargs == 3) {
-    pos = table_checkint_named54(L, 2, "table.insert");
-    if (pos < 1 || pos-1 > len)
+    pos = table_checkinteger_named54(L, 2, "table.insert");
+    if ((lua_Unsigned)pos - (lua_Unsigned)1 >= (lua_Unsigned)e)
       table_argerror_named54(L, 2, "table.insert", "position out of bounds");
   } else if (nargs != 2) {
     lj_err_caller(L, LJ_ERR_TABINS);
@@ -312,7 +402,7 @@ LJLIB_CF(table_insert)		LJLIB_REC(.)
   /* Lua 5.4 rejects non-integer positions and out-of-range insert slots before
   ** moving elements; only the compatibility build gets the stricter contract.
   */
-  for (n = len + 1; n > pos; n--) {
+  for (n = e; n > pos; n--) {
     /* Lua 5.4 table.insert observes __index/__newindex while shifting
     ** sequence slots, so proxy tables are updated through their metatables.
     */
@@ -428,9 +518,9 @@ static int lj_cf_table_remove54(lua_State *L)
 
 static int lj_cf_table_move54(lua_State *L)
 {
-  int32_t f = table_checkint_named54(L, 2, "table.move");
-  int32_t e = table_checkint_named54(L, 3, "table.move");
-  int32_t tt = table_checkint_named54(L, 4, "table.move");
+  lua_Integer f = table_checkinteger_named54(L, 2, "table.move");
+  lua_Integer e = table_checkinteger_named54(L, 3, "table.move");
+  lua_Integer tt = table_checkinteger_named54(L, 4, "table.move");
   cTValue *a2v = L->base + 4;
   int target;
   table_checktab_like54(L, 1, LJ_TABLE_TAB_R, "table.move");
@@ -441,16 +531,15 @@ static int lj_cf_table_move54(lua_State *L)
     target = 1;
   }
   if (e >= f) {
-    int32_t i, d = tt - f;
-    int64_t n = (int64_t)e - (int64_t)f + 1;
-    int64_t destend = (int64_t)tt + n - 1;
+    lua_Integer i, n;
     /* Match Lua 5.4's overflow guards before moving anything. Without these
     ** checks, huge ranges such as 0..maxinteger would spin for billions of
     ** public API get/set operations before any observable error.
     */
-    if (n > (int64_t)INT32_MAX)
+    if ((lua_Unsigned)e - (lua_Unsigned)f >= (lua_Unsigned)LUA_MAXINTEGER)
       table_argerror_named54(L, 3, "table.move", "too many elements to move");
-    if (destend > (int64_t)INT32_MAX || destend < (int64_t)INT32_MIN)
+    n = e - f + 1;
+    if (tt > LUA_MAXINTEGER - n + 1)
       table_argerror_named54(L, 4, "table.move", "destination wrap around");
     if (tt > e || tt <= f || (target != 1 &&
 			      !lua_compare(L, 1, target, LUA_OPEQ))) {
@@ -459,13 +548,13 @@ static int lj_cf_table_move54(lua_State *L)
 	** accessors here instead of LuaJIT's raw array helpers.
 	*/
 	lua_geti(L, 1, i);
-	lua_seti(L, target, (int32_t)((uint32_t)i + (uint32_t)d));
+	lua_seti(L, target, tt + (i - f));
 	if (i == e) break;
       }
     } else {
       for (i = e; i >= f; i--) {
 	lua_geti(L, 1, i);
-	lua_seti(L, target, (int32_t)((uint32_t)i + (uint32_t)d));
+	lua_seti(L, target, tt + (i - f));
 	if (i == f) break;
       }
     }
@@ -476,21 +565,24 @@ static int lj_cf_table_move54(lua_State *L)
 #endif
 
 #if LJ_54
-static int table_concat54(lua_State *L, GCstr *sep, int32_t i, int32_t e)
+static int table_concat54(lua_State *L, GCstr *sep, lua_Integer i,
+			  lua_Integer e)
 {
   luaL_Buffer b;
   const char *sepstr = sep ? strdata(sep) : "";
   size_t seplen = sep ? sep->len : 0;
-  int32_t start = i;
+  lua_Integer start = i;
   luaL_buffinit(L, &b);
   while (i <= e) {
     if (i > start && seplen)
       luaL_addlstring(&b, sepstr, seplen);
     /* Lua 5.4 table.concat observes __index while reading sequence items. */
     lua_geti(L, 1, i);
-    if (!lua_isstring(L, -1))
-      luaL_error(L, "invalid value (%s) at index %d in table for 'concat'",
-		 luaL_typename(L, -1), i);
+    if (!lua_isstring(L, -1)) {
+      GCstr *idx = lj_strfmt_i64(L, i);
+      luaL_error(L, "invalid value (%s) at index %s in table for 'concat'",
+		 luaL_typename(L, -1), strdata(idx));
+    }
     luaL_addvalue(&b);
     /* Stop exactly at the requested end index. Incrementing maxinteger wraps
     ** to mininteger on this build and would make the loop read one extra key.
@@ -508,8 +600,8 @@ LJLIB_CF(table_concat)		LJLIB_REC(.)
 {
 #if LJ_54
   GCstr *sep = table_optstr_named54(L, 2, "table.concat");
-  int32_t i = (L->base+2 < L->top && !tvisnil(L->base+2)) ?
-	      table_checkint_named54(L, 3, "table.concat") : 1;
+  lua_Integer i = (L->base+2 < L->top && !tvisnil(L->base+2)) ?
+		  table_checkinteger_named54(L, 3, "table.concat") : 1;
   table_checktab_like54(L, 1, LJ_TABLE_TAB_R|LJ_TABLE_TAB_L,
 			"table.concat");
 #else
@@ -517,13 +609,13 @@ LJLIB_CF(table_concat)		LJLIB_REC(.)
   GCstr *sep = lj_lib_optstr(L, 2);
   int32_t i = lj_lib_optint(L, 3, 1);
 #endif
-  int32_t e;
+  lua_Integer e;
 #if !LJ_54
   SBuf *sb, *sbx;
 #endif
   if (L->base+3 < L->top && !tvisnil(L->base+3)) {
 #if LJ_54
-    e = table_checkint_named54(L, 4, "table.concat");
+    e = table_checkinteger_named54(L, 4, "table.concat");
 #else
     e = lj_lib_checkint(L, 4);
 #endif
@@ -670,11 +762,13 @@ LJLIB_CF(table_sort)
 {
 #if LJ_54
   int32_t n;
+  lua_Integer len;
   table_checktab_like54(L, 1, LJ_TABLE_TAB_RW|LJ_TABLE_TAB_L,
 			"table.sort");
-  n = table_len_obj54(L, 1);
-  if (n >= INT32_MAX)
+  len = table_len_integer_obj54(L, 1);
+  if (len >= INT32_MAX)
     luaL_error(L, "array too big");
+  n = (int32_t)len;
 #else
   GCtab *t = lj_lib_checktab(L, 1);
   int32_t n = (int32_t)lj_tab_len(t);
@@ -699,33 +793,34 @@ LJLIB_CF(table_sort)
 #if LJ_54
 static int lj_cf_table_unpack54(lua_State *L)
 {
-  int32_t n, i = (L->base+1 < L->top && !tvisnil(L->base+1)) ?
-		 table_checkint_named54(L, 2, "table.unpack") : 1;
-  int32_t e;
-  uint32_t nu;
+  int n;
+  lua_Integer i = (L->base+1 < L->top && !tvisnil(L->base+1)) ?
+		  table_checkinteger_named54(L, 2, "table.unpack") : 1;
+  lua_Integer e;
+  lua_Unsigned nu;
   if (L->base+2 < L->top && !tvisnil(L->base+2)) {
-    e = table_checkint_named54(L, 3, "table.unpack");
+    e = table_checkinteger_named54(L, 3, "table.unpack");
   } else if (L->base < L->top && tvistab(L->base)) {
-    e = table_len54(L, tabV(L->base), 1);
+    e = table_len_integer_obj54(L, 1);
   } else {
-    lua_Integer len = 0;
     int ok = 0;
     lua_len(L, 1);
     /* lua_numbertointeger is the public Lua 5.4 header macro and intentionally
     ** truncates in-range floats. Runtime length checks need exact integers.
     */
-    len = lua_tointegerx(L, -1, &ok);
+    e = lua_tointegerx(L, -1, &ok);
     if (!ok) {
       lua_pop(L, 1);
       luaL_error(L, "object length is not an integer");
     }
     lua_pop(L, 1);
-    e = (int32_t)len;
   }
   if (i > e) return 0;
-  nu = (uint32_t)e - (uint32_t)i;
-  n = (int32_t)(nu+1);
-  if (nu >= LUAI_MAXCSTACK || !lua_checkstack(L, n))
+  nu = (lua_Unsigned)e - (lua_Unsigned)i;
+  if (nu >= (lua_Unsigned)LUAI_MAXCSTACK)
+    lj_err_caller(L, LJ_ERR_UNPACK);
+  n = (int)(nu + 1u);
+  if (!lua_checkstack(L, n))
     lj_err_caller(L, LJ_ERR_UNPACK);
   do {
     /* Lua 5.4 table.unpack reads through __index, unlike LuaJIT's raw array
@@ -733,7 +828,7 @@ static int lj_cf_table_unpack54(lua_State *L)
     */
     lua_geti(L, 1, i);
     if (i >= e) break;
-    i++;
+    i = (lua_Integer)((lua_Unsigned)i + (lua_Unsigned)1);
   } while (1);
   return n;
 }

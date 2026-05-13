@@ -375,6 +375,8 @@ static int getfield(lua_State *L, const char *key, int d
   TValue tmp;
   cTValue *o;
   int64_t res;
+  int64_t lo = (int64_t)INT_MIN + delta;
+  int64_t hi = (int64_t)INT_MAX + delta;
   lua_getfield(L, -1, key);
   o = L->top - 1;
   if (tvisnil(o)) {
@@ -384,26 +386,39 @@ static int getfield(lua_State *L, const char *key, int d
     return d;
   }
   if (tvisstr(o)) {
-    if (!lj_strscan_number(strV(o), &tmp))
+    GCstr *s = strV(o);
+    StrScanFmt fmt;
+    if (lj_strscan_rejectnum54(strdata(s), s->len))
       luaL_error(L, "field '%s' is not an integer", key);
+    fmt = lj_strscan_scan((const uint8_t *)strdata(s), s->len, &tmp,
+			  STRSCAN_OPT_TOINT);
+    if (fmt == STRSCAN_ERROR)
+      luaL_error(L, "field '%s' is not an integer", key);
+    if (fmt == STRSCAN_INT) {
+      res = (int64_t)tmp.i;
+      goto intok;
+    } else if (fmt == STRSCAN_I64) {
+      res = (int64_t)tmp.u64;
+      goto intok;
+    }
     o = &tmp;
   }
   if (tvisint(o)) {
     res = (int64_t)intV(o);
+  } else if (tvisi64(o)) {
+    res = i64V(o);
   } else if (tvisnum(o)) {
     lua_Number n = numV(o);
-    int64_t k;
-    if (!(n >= -2147483648.0 && n <= 2147483647.0))
+    lua_Integer k = 0;
+    if (!lua_numbertointeger(n, &k) || (lua_Number)k != n)
       luaL_error(L, "field '%s' is not an integer", key);
-    k = lj_num2i64(n);
-    if ((lua_Number)k != n)
-      luaL_error(L, "field '%s' is not an integer", key);
-    res = k;
+    res = (int64_t)k;
   } else {
     luaL_error(L, "field '%s' is not an integer", key);
     res = 0;  /* Unreachable. */
   }
-  if (!(res >= 0 ? res - delta <= INT_MAX : INT_MIN + delta <= res))
+intok:
+  if (res < lo || res > hi)
     luaL_error(L, "field '%s' is out-of-bound", key);
   lua_pop(L, 1);
   return (int)(res - delta);

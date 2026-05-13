@@ -320,8 +320,8 @@ LJ_DATA const uint8_t lj_ir_mode[IR__MAX+1];
 #define IRTDEF(_) \
   _(NIL, 4) _(FALSE, 4) _(TRUE, 4) _(LIGHTUD, LJ_64 ? 8 : 4) \
   _(STR, IRTSIZE_PGC) _(P32, 4) _(THREAD, IRTSIZE_PGC) _(PROTO, IRTSIZE_PGC) \
-  _(FUNC, IRTSIZE_PGC) _(P64, 8) _(CDATA, IRTSIZE_PGC) _(TAB, IRTSIZE_PGC) \
-  _(UDATA, IRTSIZE_PGC) \
+  _(FUNC, IRTSIZE_PGC) _(P64, 8) _(CDATA, IRTSIZE_PGC) _(INT64, IRTSIZE_PGC) \
+  _(TAB, IRTSIZE_PGC) _(UDATA, IRTSIZE_PGC) \
   _(FLOAT, 4) _(NUM, 8) _(I8, 1) _(U8, 1) _(I16, 2) _(U16, 2) \
   _(INT, 4) _(U32, 4) _(I64, 8) _(U64, 8) \
   _(SOFTFP, 4)  /* There is room for 8 more types. */
@@ -373,6 +373,7 @@ typedef struct IRType1 { uint8_t irt; } IRType1;
 #define irt_isstr(t)		(irt_type(t) == IRT_STR)
 #define irt_istab(t)		(irt_type(t) == IRT_TAB)
 #define irt_iscdata(t)		(irt_type(t) == IRT_CDATA)
+#define irt_isint64obj(t)	(irt_type(t) == IRT_INT64)
 #define irt_isfloat(t)		(irt_type(t) == IRT_FLOAT)
 #define irt_isnum(t)		(irt_type(t) == IRT_NUM)
 #define irt_isint(t)		(irt_type(t) == IRT_INT)
@@ -396,8 +397,8 @@ typedef struct IRType1 { uint8_t irt; } IRType1;
 #define IRT_IS64 \
   ((1u<<IRT_NUM)|(1u<<IRT_I64)|(1u<<IRT_U64)|(1u<<IRT_P64)|\
    (1u<<IRT_LIGHTUD)|(1u<<IRT_STR)|(1u<<IRT_THREAD)|(1u<<IRT_PROTO)|\
-   (1u<<IRT_FUNC)|(1u<<IRT_CDATA)|(1u<<IRT_TAB)|(1u<<IRT_UDATA)|\
-   (1u<<IRT_NIL))
+   (1u<<IRT_FUNC)|(1u<<IRT_CDATA)|(1u<<IRT_INT64)|(1u<<IRT_TAB)|\
+   (1u<<IRT_UDATA)|(1u<<IRT_NIL))
 #elif LJ_64
 #define IRT_IS64 \
   ((1u<<IRT_NUM)|(1u<<IRT_I64)|(1u<<IRT_U64)|(1u<<IRT_P64)|(1u<<IRT_LIGHTUD))

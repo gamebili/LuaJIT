@@ -1855,12 +1855,12 @@ do
   assert(eval("~7") == -8)
   assert(eval("1 << 3") == 8)
   assert(eval("8 >> 1") == 4)
-  assert(eval("1 << 31") == math.mininteger)
-  assert(eval("-(1 << 31)") == math.mininteger)
+  assert(eval("1 << 31") == 0x80000000)
+  assert(eval("-(1 << 31)") == -0x80000000)
   assert(math.type(eval("-(1 << 31)")) == "integer")
-  assert(eval("(1 << 31) - 1") == math.maxinteger)
-  assert(eval("1 << 32") == 0)
-  assert(eval("1 << 40") == 0)
+  assert(eval("(1 << 31) - 1") == 0x7fffffff)
+  assert(eval("1 << 32") == 0x100000000)
+  assert(eval("1 << 40") == 0x10000000000)
   assert(eval("1 << 64") == 0)
   assert(eval("1 >> 64") == 0)
   assert(assert(load("local a, b = 6, 3; return (a + 1) & (b + 1)"))() == 4)
@@ -1917,8 +1917,7 @@ do
     ok, err = pcall(assert(load([[return 1 + "x"]])))
     assert(ok == false and err:match("attempt to add") ~= nil and
            err:match("'number'") ~= nil and err:match("'string'") ~= nil)
-    ok, err = pcall(assert(load([[return (2 ^ 40) & 1]])))
-    assert(ok == false and err:match("number has no integer representation") ~= nil)
+    assert(assert(load([[return (2 ^ 40) & 1]]))() == 0)
     ok, err = pcall(assert(load([[return math.huge << 1]])))
     assert(ok == false and err:match("integer representation") ~= nil and
            err:match("field 'huge'") ~= nil)
@@ -1935,18 +1934,9 @@ do
   do
     local ok, err = pcall(assert(load("return 3.5 & 1")))
     assert(ok == false and err:match("integer representation") ~= nil)
-    ok, err = pcall(assert(load([[return "3" & 1]])))
-    assert(ok == false and err:match("bitwise operation") ~= nil and
-           err:match("string value") ~= nil and
-           err:match("constant '3'") ~= nil)
-    ok, err = pcall(assert(load([[return 1 & "3"]])))
-    assert(ok == false and err:match("bitwise operation") ~= nil and
-           err:match("string value") ~= nil and
-           err:match("constant '3'") ~= nil)
-    ok, err = pcall(assert(load([[local x = "3"; return x & 1]])))
-    assert(ok == false and err:match("bitwise operation") ~= nil and
-           err:match("string value") ~= nil and
-           err:match("local 'x'") ~= nil)
+    assert(assert(load([[return "3" & 1]]))() == 1)
+    assert(assert(load([[return 1 & "3"]]))() == 1)
+    assert(assert(load([[local x = "3"; return x & 1]]))() == 1)
     ok, err = pcall(assert(load("return true & 1")))
     assert(ok == false and err:match("bitwise operation") ~= nil and
            err:match("boolean value") ~= nil)
@@ -1958,10 +1948,7 @@ do
     assert(ok == false and err:match("bitwise operation") ~= nil and
            err:match("table value") ~= nil and
            err:match("local 't'") ~= nil)
-    ok, err = pcall(assert(load([[return ~"3"]])))
-    assert(ok == false and err:match("bitwise operation") ~= nil and
-           err:match("string value") ~= nil and
-           err:match("constant '3'") ~= nil)
+    assert(assert(load([[return ~"3"]]))() == -4)
     _G.__lua54_named_bitwise = setmetatable({}, { __name = "Lua54Bitwise" })
     ok, err = pcall(assert(load("return __lua54_named_bitwise & 1")))
     assert(ok == false and err:match("bitwise operation") ~= nil and
@@ -1980,8 +1967,8 @@ do
       old[name] = string_mt["__"..name]
       string_mt["__"..name] = function(a, b) return name, a, b end
     end
+    assert(assert(load([[return "7" & 3]]))() == 3)
     local cases = {
-      { [[return "7" & 3]], "band" },
       { [[return "x" | 3]], "bor" },
       { [[return "x" ~ 3]], "bxor" },
       { [[return ~"x"]], "bnot" },
@@ -2200,9 +2187,9 @@ assert(math.type(tonumber("1")) == "integer")
 assert(math.type(tonumber("1.0")) == "float")
 assert(tonumber("0x1"..string.rep("0", 30)) == 0)
 assert(math.type(tonumber("0x1"..string.rep("0", 30))) == "integer")
-assert(assert(load("return 0x100000000"))() == 0)
-assert(tonumber("ffffFFFF", 16) + 1 == 0)
-assert(tonumber("-0ffffffFFFF", 16) - 1 == 0)
+assert(assert(load("return 0x100000000"))() == 0x100000000)
+assert(tonumber("ffffFFFF", 16) + 1 == 0x100000000)
+assert(tonumber("-0ffffffFFFF", 16) - 1 == -0x10000000000)
 do
   local i = 10
   local i2 = i * i
@@ -2231,8 +2218,8 @@ do
     jit.opt.start("hotloop=56", "hotexit=10")
   end
 end
-assert(math.maxinteger == 2147483647)
-assert(math.mininteger == -2147483648)
+assert(math.maxinteger == 9223372036854775807)
+assert(math.mininteger == -9223372036854775808)
 assert(math.maxinteger > 0 and math.mininteger < 0)
 assert(type(math.tointeger) == "function")
 assert(type(math.ult) == "function")
@@ -2240,7 +2227,7 @@ assert(math.tointeger(nil) == nil)
 assert(math.tointeger("12") == 12)
 assert(math.tointeger(12.0) == 12)
 assert(math.tointeger(12.5) == nil)
-assert(math.tointeger(2147483648) == nil)
+assert(math.tointeger(2147483648) == 2147483648)
 assert(math.ult(1, 2) == true)
 assert(math.ult(2, 1) == false)
 assert(math.ult(1, -1) == true)
@@ -2305,7 +2292,7 @@ do
 end
 do
   math.randomseed(1007)
-  assert(math.random(0) == -1557935658)
+  assert(math.random(0) == 0x7a7040a5a323c9d6)
   math.randomseed(1007, 0)
   assert(math.abs(math.random() - 0x0.7a7040a5a323c9d6) < 2^-53)
 end
@@ -3954,11 +3941,12 @@ do
     local a, pos = string.unpack("s1", "\3abcx")
     assert(a == "abc" and pos == 5)
   end
-  assert(string.packsize("j") == 4)
-  assert(string.packsize("jT") == 4 + string.packsize("T"))
+  local j_size = string.packsize("j")
+  assert(j_size == (math.maxinteger > 0x7fffffff and 8 or 4))
+  assert(string.packsize("jT") == j_size + string.packsize("T"))
   do
     local a, b, pos = string.unpack("<jT", string.pack("<jT", -2, 5))
-    assert(a == -2 and b == 5 and pos == 5 + string.packsize("T"))
+    assert(a == -2 and b == 5 and pos == j_size + string.packsize("T") + 1)
   end
   assert(string.packsize("!8bi8") == 16)
   assert(bytes(string.pack("!8bi8", 1, 2)) ==

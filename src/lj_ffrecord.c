@@ -964,8 +964,8 @@ static void LJ_FASTCALL recff_math_random(jit_State *J, RecordFFData *rd)
       return;
     }
     if (up == 0) {
-      emitir(IRTGI(IR_EQ), trup, lj_ir_kint(J, 0));
-      J->base[0] = lj_ir_call(J, IRCALL_lj_prng_i32_random54, rs);
+      recff_nyiu(J, rd);
+      return;
     } else if (up >= 1) {
       emitir(IRTGI(IR_GE), trup, lj_ir_kint(J, 1));
       J->base[0] = lj_ir_call(J, IRCALL_lj_prng_int_random54,
