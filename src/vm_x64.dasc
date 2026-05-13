@@ -2725,8 +2725,8 @@ static void build_subroutines(BuildCtx *ctx)
   |  mov MULTRES, TMPRd
   |  mov dword L:RB->close_cframe_nres1, 0
   |  mov dword L:RB->close_multres, 0
-  |->vm_return_hook_closed:
 #endif
+  |->vm_return_hook_closed:
   |  mov L:RB, SAVE_L
   |  mov L:RB->base, BASE
   |  mov CARG2, PC			// Caveat: CARG2 == BASE

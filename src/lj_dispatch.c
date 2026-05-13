@@ -409,9 +409,11 @@ static int hook_thread_active(lua_State *L, lua_Hook hookfn)
   tv = lj_tab_get(L, tabV(tv), &key);
   return tv && tvisfunc(tv);
 }
+#endif
 
 void LJ_FASTCALL lj_dispatch_clear_dead_debug_hook(lua_State *L)
 {
+#if LJ_54
   global_State *g = G(L);
   if (g->hook_debug && L->status != LUA_YIELD &&
       hook_thread_active(L, g->hookf)) {
@@ -419,8 +421,10 @@ void LJ_FASTCALL lj_dispatch_clear_dead_debug_hook(lua_State *L)
     g->hook_debug = 0;
     lj_dispatch_update(g);
   }
-}
+#else
+  UNUSED(L);
 #endif
+}
 
 static void callhook(lua_State *L, int event, BCLine line,
 		     uint16_t ftransfer, uint16_t ntransfer)

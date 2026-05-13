@@ -2355,16 +2355,16 @@ LJFOLDF(fload_cdata_int64_kgc)
   return NEXTFOLD;
 }
 
-#if LJ_54
 /* Get the contents of immutable boxed 64 bit integer objects. */
 LJFOLD(FLOAD KGC IRFL_INT64_VALUE)
 LJFOLDF(fload_int64_value_kgc)
 {
+#if LJ_54
   if (LJ_LIKELY((J->flags & JIT_F_OPT_FOLD) && irt_isint64obj(fleft->t)))
     return INT64FOLD((uint64_t)gco2i64(ir_kgc(fleft))->i);
+#endif
   return NEXTFOLD;
 }
-#endif
 
 LJFOLD(FLOAD CNEW IRFL_CDATA_CTYPEID)
 LJFOLD(FLOAD CNEWI IRFL_CDATA_CTYPEID)
