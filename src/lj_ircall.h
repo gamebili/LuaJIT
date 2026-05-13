@@ -210,6 +210,8 @@ typedef struct CCallInfo {
   _(ANY,	lj_obj_i64eqnum,	2,   N, INT, (XA_64+XA_FP)) \
   _(ANY,	lj_obj_i64cmpnum,	3,   N, INT, (XA_64+XA_FP)) \
   _(ANY,	lj_obj_numcmpi64,	3,   N, INT, (XA_64+XA_FP)) \
+  _(ANY,	lj_obj_i64idiv,		2,   N, I64, XA2_64|CCI_NOFPRCLOBBER) \
+  _(ANY,	lj_obj_i64mod,		2,   N, I64, XA2_64|CCI_NOFPRCLOBBER) \
   _(ANY,	lj_prng_num_random54,	1,  FS, NUM, 0) \
   _(ANY,	lj_prng_i32_random54,	1,  FS, INT, 0) \
   _(ANY,	lj_prng_int_random54,	3,   S, INT, 0) \

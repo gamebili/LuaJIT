@@ -498,7 +498,7 @@ static lua_Number lua54_nummod(lua_Number a, lua_Number b)
   return m;
 }
 
-static int lj_cf_jit__lua54_idiv(lua_State *L)
+LJLIB_CF(jit__lua54_idiv_c)		LJLIB_REC(lua54_idivmod IR_DIV)
 {
   int ia, ib;
   lua_Integer a = 0, b = 0;
@@ -527,7 +527,7 @@ static int lj_cf_jit__lua54_idiv(lua_State *L)
   return lua54_pushbinnum(L, lj_vm_floor(na / nb));
 }
 
-static int lj_cf_jit__lua54_mod(lua_State *L)
+LJLIB_CF(jit__lua54_mod_c)		LJLIB_REC(lua54_idivmod IR_MOD)
 {
   int ia, ib, oka, okb;
   lua_Integer a = 0, b = 0;
@@ -1509,10 +1509,6 @@ LUALIB_API int luaopen_jit(lua_State *L)
   LJ_LIB_REG(L, LUA_JITLIBNAME, jit);
 #if LJ_54
   lua_getglobal(L, LUA_JITLIBNAME);
-  lua_pushcfunction(L, lj_cf_jit__lua54_idiv);
-  lua_setfield(L, -2, "_lua54_idiv_c");
-  lua_pushcfunction(L, lj_cf_jit__lua54_mod);
-  lua_setfield(L, -2, "_lua54_mod_c");
   luaL_loadstring(L,
     "local rawget, type, getmetatable = rawget, type, getmetatable\n"
     "local jit = jit\n"

@@ -130,6 +130,29 @@ int lj_obj_numcmpi64(lua_Number n, int64_t i, int op)
   }
 }
 
+int64_t lj_obj_i64idiv(int64_t a, int64_t b)
+{
+  int64_t q, r;
+  if (a == (int64_t)U64x(80000000,00000000) && b == -1)
+    return a;
+  q = a / b;
+  r = a % b;
+  if (r != 0 && ((r ^ b) < 0))
+    q--;
+  return q;
+}
+
+int64_t lj_obj_i64mod(int64_t a, int64_t b)
+{
+  int64_t r;
+  if (a == (int64_t)U64x(80000000,00000000) && b == -1)
+    return 0;
+  r = a % b;
+  if (r != 0 && ((r ^ b) < 0))
+    r += b;
+  return r;
+}
+
 /* Compare two objects without calling metamethods. */
 int LJ_FASTCALL lj_obj_equal(cTValue *o1, cTValue *o2)
 {

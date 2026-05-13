@@ -1153,6 +1153,8 @@ LJ_FUNC void lj_obj_setint64(lua_State *L, TValue *o, int64_t i);
 LJ_FUNC int lj_obj_i64eqnum(int64_t i, lua_Number n);
 LJ_FUNC int lj_obj_i64cmpnum(int64_t i, lua_Number n, int op);
 LJ_FUNC int lj_obj_numcmpi64(lua_Number n, int64_t i, int op);
+LJ_FUNC int64_t lj_obj_i64idiv(int64_t a, int64_t b);
+LJ_FUNC int64_t lj_obj_i64mod(int64_t a, int64_t b);
 LJ_FUNC int LJ_FASTCALL lj_obj_equal(cTValue *o1, cTValue *o2);
 LJ_FUNC int LJ_FASTCALL lj_obj_equaltv(uint64_t u1, uint64_t u2);
 LJ_FUNC const void * LJ_FASTCALL lj_obj_ptr(global_State *g, cTValue *o);

@@ -389,6 +389,34 @@ static void LJ_FASTCALL recff_lua54_shift(jit_State *J, RecordFFData *rd)
 #endif
   recff_nyiu(J, rd);
 }
+
+static void LJ_FASTCALL recff_lua54_idivmod(jit_State *J, RecordFFData *rd)
+{
+#if LJ_DUALNUM
+  if (recff_lua54_tref_isinteger(J->base[0]) &&
+      recff_lua54_tref_isinteger(J->base[1]) &&
+      recff_lua54_tv_isinteger(&rd->argv[0]) &&
+      recff_lua54_tv_isinteger(&rd->argv[1])) {
+    int64_t a = recff_lua54_tv_i64(&rd->argv[0]);
+    int64_t b = recff_lua54_tv_i64(&rd->argv[1]);
+    IRCallID id = (IROp)rd->data == IR_DIV ? IRCALL_lj_obj_i64idiv :
+					      IRCALL_lj_obj_i64mod;
+    TRef ta, tb, tr;
+    if (b == 0) {
+      recff_nyiu(J, rd);
+      return;
+    }
+    ta = recff_lua54_i64ref(J, J->base[0]);
+    tb = recff_lua54_i64ref(J, J->base[1]);
+    emitir(IRTG(IR_NE, IRT_I64), tb, lj_ir_kint64(J, 0));
+    tr = lj_ir_call(J, id, ta, tb);
+    J->base[0] = recff_lua54_i64result(J, tr,
+      (IROp)rd->data == IR_DIV ? lj_obj_i64idiv(a, b) : lj_obj_i64mod(a, b));
+    return;
+  }
+#endif
+  recff_nyiu(J, rd);
+}
 #endif
 
 /* Emit BUFHDR for the global temporary buffer. */

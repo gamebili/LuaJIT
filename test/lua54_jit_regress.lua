@@ -77,6 +77,25 @@ local function trace_has_ir_op(first_trace, last_trace, opname)
   return false
 end
 
+local function trace_has_ir_call(first_trace, last_trace, callname)
+  for tr = first_trace, last_trace do
+    if jutil.traceinfo(tr) then
+      for ins = 1, 1000 do
+	local _, ot, _, op2 = jutil.traceir(tr, ins)
+	if not ot then break end
+	local opidx = bit.rshift(ot, 8)
+	local op = vmdef.irnames:sub(opidx * 6 + 1, opidx * 6 + 6)
+	op = op:gsub("%s+$", "")
+	if (op == "CALLN" or op == "CALLA" or op == "CALLL" or
+	    op == "CALLS") and vmdef.ircall[op2] == callname then
+	  return true
+	end
+      end
+    end
+  end
+  return false
+end
+
 local function assert_records_ir_op(fn, what, opname)
   jitmod.off()
   jitmod.flush()
@@ -89,6 +108,20 @@ local function assert_records_ir_op(fn, what, opname)
   assert(after > before, what .. " did not record a trace")
   assert(trace_has_ir_op(before + 1, after, opname),
 	 what .. " did not record IR_" .. opname)
+end
+
+local function assert_records_ir_call(fn, what, callname)
+  jitmod.off()
+  jitmod.flush()
+  collectgarbage()
+  jitmod.on()
+  jit.opt.start("hotloop=1", "hotexit=1")
+  local before = trace_highwater()
+  fn()
+  local after = trace_highwater()
+  assert(after > before, what .. " did not record a trace")
+  assert(trace_has_ir_call(before + 1, after, callname),
+	 what .. " did not record " .. callname)
 end
 
 local function assert_records_single_ir_trace(fn, what, opname)
@@ -783,6 +816,26 @@ do
     end
     assert(x == -1099511627777 and math.type(x) == "integer")
   end, "Lua 5.4 boxed int64 bitwise not", "BNOT")
+
+  assert_records_ir_call(function()
+    local a = -1099511627777
+    local b = 3
+    local x = 0
+    for _ = 1, 80 do
+      x = a // b
+    end
+    assert(x == -366503875926 and math.type(x) == "integer")
+  end, "Lua 5.4 boxed int64 floor division", "lj_obj_i64idiv")
+
+  assert_records_ir_call(function()
+    local a = -1099511627777
+    local b = 3
+    local x = 0
+    for _ = 1, 80 do
+      x = a % b
+    end
+    assert(x == 1 and math.type(x) == "integer")
+  end, "Lua 5.4 boxed int64 modulo", "lj_obj_i64mod")
 
   assert_records_trace(function()
     local n = 0
