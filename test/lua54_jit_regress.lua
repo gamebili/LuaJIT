@@ -640,6 +640,30 @@ do
   end, "Lua 5.4 math.type")
 
   assert_records_trace(function()
+    local x = 0
+    for _ = 1, 80 do
+      x = x + 2147483648
+    end
+    assert(x == 171798691840 and math.type(x) == "integer")
+  end, "Lua 5.4 boxed int64 addition")
+
+  assert_records_trace(function()
+    local x = 2147483647
+    for _ = 1, 80 do
+      x = x + 1
+    end
+    assert(x == 2147483727 and math.type(x) == "integer")
+  end, "Lua 5.4 int32 boundary addition")
+
+  assert_records_trace(function()
+    local x = 2147483648
+    for _ = 1, 8 do
+      x = x * 2
+    end
+    assert(x == 549755813888 and math.type(x) == "integer")
+  end, "Lua 5.4 boxed int64 multiplication")
+
+  assert_records_trace(function()
     local n = 0
     for i = "1", "80" do
       if math.type(i) == "float" then n = n + i end

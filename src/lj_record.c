@@ -63,6 +63,101 @@ static int rec_lua54_strcmp_locale(GCstr *a, GCstr *b, IROp op)
   }
 }
 
+#if LJ_DUALNUM
+#define LJ_LUA54_I32_MAX	((int64_t)2147483647)
+#define LJ_LUA54_I32_MIN	((int64_t)(-LJ_LUA54_I32_MAX - 1))
+#define IRCONV_I64_INT_SEXT	((IRT_I64<<IRCONV_DSH)|IRT_INT|IRCONV_SEXT)
+#define IRCONV_INT_I64_NARROW	((IRT_INT<<IRCONV_DSH)|IRT_I64)
+#define IRCONV_NUM_I64_SIGNED	((IRT_NUM<<IRCONV_DSH)|IRT_I64)
+
+static int rec_lua54_tref_isi64(TRef tr)
+{
+  return tref_type(tr) == IRT_INT64;
+}
+
+static int rec_lua54_tref_isinteger(TRef tr)
+{
+  return tref_isinteger(tr) || rec_lua54_tref_isi64(tr);
+}
+
+static int rec_lua54_tref_isnumeric(TRef tr)
+{
+  return tref_isnumber(tr) || rec_lua54_tref_isi64(tr);
+}
+
+static int rec_lua54_tv_isinteger(cTValue *tv)
+{
+  return tvisint(tv) || tvisi64(tv);
+}
+
+static int64_t rec_lua54_tv_i64(cTValue *tv)
+{
+  return tvisint(tv) ? (int64_t)intV(tv) : (int64_t)i64V(tv);
+}
+
+static TRef rec_lua54_i64ref(jit_State *J, TRef tr)
+{
+  if (tref_isinteger(tr))
+    return emitir(IRT(IR_CONV, IRT_I64), tr, IRCONV_I64_INT_SEXT);
+  lj_assertJ(rec_lua54_tref_isi64(tr), "bad int64 TValue ref");
+  return emitir(IRT(IR_FLOAD, IRT_I64), tr, IRFL_INT64_VALUE);
+}
+
+static TRef rec_lua54_numref(jit_State *J, TRef tr)
+{
+  if (tref_isnum(tr))
+    return tr;
+  if (tref_isinteger(tr))
+    return emitir(IRTN(IR_CONV), tr, IRCONV_NUM_INT);
+  return emitir(IRTN(IR_CONV), rec_lua54_i64ref(J, tr), IRCONV_NUM_I64_SIGNED);
+}
+
+static TRef rec_lua54_i64result(jit_State *J, TRef tr, int64_t rv)
+{
+  if (rv >= LJ_LUA54_I32_MIN && rv <= LJ_LUA54_I32_MAX) {
+    emitir(IRTG(IR_GE, IRT_I64), tr,
+	   lj_ir_kint64(J, (uint64_t)LJ_LUA54_I32_MIN));
+    emitir(IRTG(IR_LE, IRT_I64), tr,
+	   lj_ir_kint64(J, (uint64_t)LJ_LUA54_I32_MAX));
+    return emitir(IRTI(IR_CONV), tr, IRCONV_INT_I64_NARROW);
+  } else {
+    emitir(IRTG(rv < LJ_LUA54_I32_MIN ? IR_LT : IR_GT, IRT_I64), tr,
+	   lj_ir_kint64(J, (uint64_t)(rv < LJ_LUA54_I32_MIN ?
+				      LJ_LUA54_I32_MIN : LJ_LUA54_I32_MAX)));
+    return lj_ir_call(J, IRCALL_lj_obj_newint64, tr);
+  }
+}
+
+static TRef rec_lua54_unm_int(jit_State *J, TRef rc, cTValue *rcv)
+{
+  lua_Integer ic = (lua_Integer)rec_lua54_tv_i64(rcv);
+  int64_t rv = (int64_t)(lua_Integer)((lua_Unsigned)0 - (lua_Unsigned)ic);
+  TRef irc = rec_lua54_i64ref(J, rc);
+  TRef tr = emitir(IRT(IR_NEG, IRT_I64), irc, irc);
+  return rec_lua54_i64result(J, tr, rv);
+}
+
+static TRef rec_lua54_arith_int(jit_State *J, TRef rb, TRef rc,
+				cTValue *rbv, cTValue *rcv, MMS mm)
+{
+  lua_Integer ib = (lua_Integer)rec_lua54_tv_i64(rbv);
+  lua_Integer ic = (lua_Integer)rec_lua54_tv_i64(rcv);
+  lua_Unsigned ub = (lua_Unsigned)ib, uc = (lua_Unsigned)ic;
+  IROp op = (IROp)((int)mm - (int)MM_add + (int)IR_ADD);
+  int64_t rv;
+  TRef tr;
+  switch (mm) {
+  case MM_add: rv = (int64_t)(lua_Integer)(ub + uc); break;
+  case MM_sub: rv = (int64_t)(lua_Integer)(ub - uc); break;
+  case MM_mul: rv = (int64_t)(lua_Integer)(ub * uc); break;
+  default: lj_assertJ(0, "bad Lua 5.4 integer arithmetic op"); rv = 0; break;
+  }
+  tr = emitir(IRT(op, IRT_I64), rec_lua54_i64ref(J, rb),
+	      rec_lua54_i64ref(J, rc));
+  return rec_lua54_i64result(J, tr, rv);
+}
+#endif
+
 #endif
 
 /* -- Sanity checks ------------------------------------------------------- */
@@ -2553,6 +2648,9 @@ void lj_record_ins(jit_State *J)
   case BCMpri: setpriV(rcv, ~rc); ix.key = rc = TREF_PRI(IRT_NIL+rc); break;
   case BCMnum: { cTValue *tv = proto_knumtv(J->pt, rc);
     copyTV(J->L, rcv, tv); ix.key = rc = tvisint(tv) ? lj_ir_kint(J, intV(tv)) :
+#if LJ_54 && LJ_DUALNUM
+    tvisi64(tv) ? lj_ir_kgc(J, gcV(tv), IRT_INT64) :
+#endif
     tv->u32.hi == LJ_KEYINDEX ? (lj_ir_kint(J, 0) | TREF_KEYINDEX) :
 #if LJ_54 && LJ_DUALNUM
     lj_ir_knum(J, numV(tv)); } break;
@@ -2693,6 +2791,11 @@ void lj_record_ins(jit_State *J)
   /* -- Arithmetic ops ---------------------------------------------------- */
 
   case BC_UNM:
+#if LJ_54 && LJ_DUALNUM
+    if (rec_lua54_tref_isinteger(rc) && rec_lua54_tv_isinteger(rcv)) {
+      rc = rec_lua54_unm_int(J, rc, rcv);
+    } else
+#endif
     if (tref_isnumber_str(rc)) {
       rc = lj_opt_narrow_unm(J, rc, rcv);
     } else {
@@ -2714,13 +2817,22 @@ void lj_record_ins(jit_State *J)
   case BC_ADDVN: case BC_SUBVN: case BC_MULVN: case BC_DIVVN:
   case BC_ADDVV: case BC_SUBVV: case BC_MULVV: case BC_DIVVV: {
     MMS mm = bcmode_mm(op);
+#if LJ_54 && LJ_DUALNUM
+    IROp irop = (int)mm - (int)MM_add + (int)IR_ADD;
+    if (rec_lua54_tref_isnumeric(rb) && rec_lua54_tref_isnumeric(rc)) {
+      if (irop <= IR_MUL && rec_lua54_tv_isinteger(rbv) &&
+	  rec_lua54_tv_isinteger(rcv)) {
+	rc = rec_lua54_arith_int(J, rb, rc, rbv, rcv, mm);
+      } else {
+	rc = emitir(IRTN(irop), rec_lua54_numref(J, rb),
+		    rec_lua54_numref(J, rc));
+      }
+      break;
+    }
+#endif
     if (tref_isnumber_str(rb) && tref_isnumber_str(rc)) {
 #if LJ_54 && LJ_DUALNUM
-      IROp irop = (int)mm - (int)MM_add + (int)IR_ADD;
       if (irop <= IR_MUL && tref_isinteger(rb) && tref_isinteger(rc)) {
-	/* Current Lua 5.4 compat exposes a 32-bit lua_Integer surface, where
-	** integer +, - and * wrap instead of widening to float on overflow.
-	*/
 	rc = emitir(IRTI(irop), rb, rc);
 	break;
       }
