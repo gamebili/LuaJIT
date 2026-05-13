@@ -713,6 +713,22 @@ do
     assert(x == 549755813888 and math.type(x) == "integer")
   end, "Lua 5.4 boxed int64 multiplication")
 
+  assert_records_trace(function()
+    local x = 0
+    for _ = 1, 80 do
+      x = 9223372036854775807 + 1
+    end
+    assert(x == math.mininteger and math.type(x) == "integer")
+  end, "Lua 5.4 int64 constant add wrap")
+
+  assert_records_trace(function()
+    local x = 0
+    for _ = 1, 80 do
+      x = 3037000499 * 3037000499
+    end
+    assert(x == 9223372030926249001 and math.type(x) == "integer")
+  end, "Lua 5.4 int64 constant mul fold")
+
   assert_records_ir_call(function()
     local wide = "9007199254740993"
     local x = 0

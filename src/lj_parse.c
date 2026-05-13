@@ -284,18 +284,18 @@ static BCReg const_num(FuncState *fs, ExpDesc *e)
   TValue *o;
   lj_assertFS(expr_isnumk(e), "bad usage");
 #if LJ_54 && LJ_DUALNUM
-  if (tvisnum(&e->u.nval)) {
+  if (tvisnum(&e->u.nval) || tvisi64(&e->u.nval)) {
     int64_t i64;
     int32_t k;
     UNUSED(k);
-    if (tvismzero(&e->u.nval) ||
+    if (tvisi64(&e->u.nval) || tvismzero(&e->u.nval) ||
 	lj_num2int_check(numV(&e->u.nval), i64, k)) {
       GCtab *box = lj_tab_new(L, 1, 0);
       box->flags54 |= LUA54_KNUM_BOX;
       copyTV(L, arrayslot(box, 0), &e->u.nval);
-      /* Lua tables intentionally unify 1 and 1.0 as keys. The parser
-      ** constant cache must not, otherwise Lua 5.4 float literals lose their
-      ** TValue subtype before bytecode is emitted.
+      /* Lua tables intentionally unify numeric keys by value. The parser
+      ** constant cache must not, otherwise Lua 5.4 float or boxed int64
+      ** literals can lose their TValue subtype before bytecode is emitted.
       */
       settabV(L, L->top, box);
       incr_top(L);
@@ -304,14 +304,6 @@ static BCReg const_num(FuncState *fs, ExpDesc *e)
       goto gotnum;
     }
   }
-#endif
-#if LJ_54 && LJ_DUALNUM
-  if (tvisi64(&e->u.nval)) {
-    copyTV(L, L->top, &e->u.nval);
-    incr_top(L);
-    o = lj_tab_set(L, fs->kt, L->top-1);
-    L->top--;
-  } else
 #endif
   {
     o = lj_tab_set(L, fs->kt, &e->u.nval);
@@ -2237,12 +2229,46 @@ static void bcemit_branch_f(FuncState *fs, ExpDesc *e)
 
 /* -- Bytecode emitter for operators -------------------------------------- */
 
+#if LJ_54 && LJ_DUALNUM
+static int expr_toint64k(ExpDesc *e, int64_t *ip)
+{
+  TValue *o = expr_numtv(e);
+  if (tvisint(o)) {
+    *ip = (int64_t)intV(o);
+    return 1;
+  } else if (tvisi64(o)) {
+    *ip = i64V(o);
+    return 1;
+  }
+  return 0;
+}
+#endif
+
 /* Try constant-folding of arithmetic operators. */
-static int foldarith(BinOpr opr, ExpDesc *e1, ExpDesc *e2)
+static int foldarith(FuncState *fs, BinOpr opr, ExpDesc *e1, ExpDesc *e2)
 {
   TValue o;
   lua_Number n;
   if (!expr_isnumk_nojump(e1) || !expr_isnumk_nojump(e2)) return 0;
+#if LJ_54 && LJ_DUALNUM
+  if (opr <= OPR_MUL) {
+    int64_t i1, i2, r;
+    lua_Unsigned u1, u2;
+    if (expr_toint64k(e1, &i1) && expr_toint64k(e2, &i2)) {
+      u1 = (lua_Unsigned)(lua_Integer)i1;
+      u2 = (lua_Unsigned)(lua_Integer)i2;
+      switch (opr) {
+      case OPR_ADD: r = (int64_t)(lua_Integer)(u1 + u2); break;
+      case OPR_SUB: r = (int64_t)(lua_Integer)(u1 - u2); break;
+      case OPR_MUL: r = (int64_t)(lua_Integer)(u1 * u2); break;
+      default: lj_assertFS(0, "bad integer fold op"); r = 0; break;
+      }
+      lj_obj_setint64(fs->L, &e1->u.nval, r);
+      const_anchor_i64(fs, &e1->u.nval);
+      return 1;
+    }
+  }
+#endif
   n = lj_vm_foldarith(expr_numberV(e1), expr_numberV(e2), (int)opr-OPR_ADD);
   setnumV(&o, n);
   if (tvisnan(&o) || tvismzero(&o)) return 0;  /* Avoid NaN and -0 as consts. */
@@ -2270,7 +2296,7 @@ static void bcemit_arith(FuncState *fs, BinOpr opr, ExpDesc *e1, ExpDesc *e2)
 {
   BCReg rb, rc, t;
   uint32_t op;
-  if (foldarith(opr, e1, e2))
+  if (foldarith(fs, opr, e1, e2))
     return;
   if (opr == OPR_POW) {
     op = BC_POW;
@@ -3629,9 +3655,13 @@ static void fs_fixup_k(FuncState *fs, GCproto *pt, void *kptr)
       if (tvistab(&n->key) && (tabV(&n->key)->flags54 & LUA54_KNUM_BOX)) {
 	GCtab *box = tabV(&n->key);
 	TValue *tv = &((TValue *)kptr)[kidx];
-	lj_assertFS(box->asize > 0 && tvisnumber(arrayslot(box, 0)),
+	lj_assertFS(box->asize > 0 &&
+		    (tvisnumber(arrayslot(box, 0)) ||
+		     tvisi64(arrayslot(box, 0))),
 		    "bad Lua 5.4 boxed number constant");
 	copyTV(fs->L, tv, arrayslot(box, 0));
+	if (tvisi64(tv))
+	  lj_gc_objbarrier(fs->L, pt, gcV(tv));
       } else
 #endif
       if (tvisnum(&n->key) || tvisi64(&n->key)) {
