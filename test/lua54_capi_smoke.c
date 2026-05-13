@@ -695,6 +695,18 @@ static int enable_strict_shrink_fail_alloc(lua_State *L)
   return 0;
 }
 
+static int strict_fail_once_after_alloc(lua_State *L)
+{
+  void *ud = NULL;
+  StrictAllocCtx *ctx;
+  int after = (int)luaL_checkinteger(L, 1);
+  lua_getallocf(L, &ud);
+  ctx = (StrictAllocCtx *)ud;
+  ctx->fail_at_alloc = ctx->alloc_requests + after;
+  ctx->fail_once_alloc = 1;
+  return 0;
+}
+
 static int raise_after_big_buffer(lua_State *L)
 {
   luaL_Buffer b;
@@ -891,6 +903,17 @@ static const char lua54_parser_array_chunk[] =
   "local t = {" LUA54_ALLOC_ARRAY256 "}\n"
   "return t[1]\n";
 
+static const char lua54_table_growth_chunk[] =
+  "local after = ...\n"
+  "local okjit, jitmod = pcall(require, 'jit')\n"
+  "if okjit then jitmod.off() end\n"
+  "strict_fail_once_after_alloc(after)\n"
+  "local t = {}\n"
+  "for i = 1, 128 do t[i] = i end\n"
+  "for i = 1, 4096 do t[i + 0.5] = i end\n"
+  "for i = 1, 128 do assert(t[i] == i) end\n"
+  "return t[4096.5]\n";
+
 static int fail_load_array_after_alloc(lua_State *L)
 {
   void *ud = NULL;
@@ -966,6 +989,64 @@ static void test_parser_allocator_failure(lua_State *L, lua_State *T,
   check(L, saw_load_failure, "parser allocator failure exercised");
   check(L, saw_partial_cleanup,
 	"parser partial allocation cleanup exercised");
+}
+
+static void test_table_allocator_failure(lua_State *L, lua_State *T,
+					 StrictAllocCtx *ctx)
+{
+  int limit;
+  int saw_table_failure = 0;
+  int saw_partial_cleanup = 0;
+  int status;
+  lua_gc(T, LUA_GCCOLLECT, 0);
+  lua_settop(T, 0);
+  status = luaL_loadbufferx(T, lua54_table_growth_chunk,
+			    sizeof(lua54_table_growth_chunk) - 1u,
+			    "=strict-table-growth", "t");
+  check(L, status == LUA_OK, "table allocator failure probe load");
+  for (limit = 1; limit <= 64; limit++) {
+    int before_live;
+    int before_fails;
+    int before_frees;
+    int failed = 0;
+    lua_gc(T, LUA_GCCOLLECT, 0);
+    before_live = ctx->live_blocks;
+    before_fails = ctx->call_fails;
+    before_frees = ctx->frees;
+    lua_pushvalue(T, 1);
+    lua_pushinteger(T, limit);
+    status = lua_pcall(T, 1, 1, 0);
+    ctx->fail_at_alloc = 0;
+    ctx->fail_once_alloc = 0;
+    if (status == LUA_OK) {
+      int ok = 0;
+      lua_Integer got = lua_tointegerx(T, -1, &ok);
+      check(L, ok && got == 4096,
+	    "table allocator failure success result");
+      check(L, ctx->call_fails == before_fails,
+	    "table allocator success must not hide allocator failure");
+    } else {
+      check(L, status == LUA_ERRMEM,
+	    "table allocator failure reports memory error");
+      check(L, ctx->call_fails > before_fails,
+	    "table allocator failure must come from allocator");
+      failed = 1;
+      saw_table_failure = 1;
+    }
+    lua_settop(T, 1);
+    lua_gc(T, LUA_GCCOLLECT, 0);
+    lua_gc(T, LUA_GCCOLLECT, 0);
+    if (failed && ctx->frees > before_frees)
+      saw_partial_cleanup = 1;
+    check(L, ctx->bad_osize == 0 && ctx->missing_ptr == 0,
+	  "table allocator failure preserves allocator block sizes");
+    check(L, ctx->live_blocks == before_live,
+	  "table allocator failure releases partial allocations");
+  }
+  lua_settop(T, 0);
+  check(L, saw_table_failure, "table allocator failure exercised");
+  check(L, saw_partial_cleanup,
+	"table partial allocation cleanup exercised");
 }
 
 static void test_jit_allocator_trace_flush(lua_State *L, lua_State *T,
@@ -1242,6 +1323,8 @@ static void test_state_allocator_api(lua_State *L)
   lua_pop(T, 1);
   lua_pushcfunction(T, enable_strict_shrink_fail_alloc);
   lua_setglobal(T, "enable_strict_shrink_fail_alloc");
+  lua_pushcfunction(T, strict_fail_once_after_alloc);
+  lua_setglobal(T, "strict_fail_once_after_alloc");
   status = luaL_dostring(T,
     "local t = {}\n"
     "for i = 1, 8192 do t[i] = i end\n"
@@ -1257,6 +1340,7 @@ static void test_state_allocator_api(lua_State *L)
 	"table repartition must tolerate allocator refusing shrink");
   check(L, strict_ctx.shrink_fails == 0,
 	"table repartition must not use in-place shrink");
+  test_table_allocator_failure(L, T, &strict_ctx);
   test_newthread_allocator_failure(L, T, &strict_ctx);
   test_newuserdatauv_allocator_failure(L, T, &strict_ctx);
   test_parser_allocator_failure(L, T, &strict_ctx);
