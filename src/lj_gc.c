@@ -431,7 +431,7 @@ static size_t propagatemark(global_State *g)
   } else if (LJ_LIKELY(gct == ~LJ_TFUNC)) {
     GCfunc *fn = gco2func(o);
     gc_traverse_func(g, fn);
-    return isluafunc(fn) ? sizeLfunc((MSize)fn->l.nupvalues) :
+    return isluafunc(fn) ? sizeLfunc((MSize)funcproto(fn)->sizeuv) :
 			   sizeCfunc((MSize)fn->c.nupvalues);
   } else if (LJ_LIKELY(gct == ~LJ_TPROTO)) {
     GCproto *pt = gco2pt(o);

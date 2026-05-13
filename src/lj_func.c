@@ -215,7 +215,7 @@ GCfunc *lj_func_newL_gc(lua_State *L, GCproto *pt, GCfuncL *parent)
 
 void LJ_FASTCALL lj_func_free(global_State *g, GCfunc *fn)
 {
-  MSize size = isluafunc(fn) ? sizeLfunc((MSize)fn->l.nupvalues) :
+  MSize size = isluafunc(fn) ? sizeLfunc((MSize)funcproto(fn)->sizeuv) :
 			       sizeCfunc((MSize)fn->c.nupvalues);
   lj_mem_free(g, fn, size);
 }

@@ -865,6 +865,99 @@ static void test_newuserdatauv_allocator_failure(lua_State *L, lua_State *T,
 	"lua_newuserdatauv partial allocation cleanup exercised");
 }
 
+#define LUA54_ALLOC_ARRAY16 \
+  "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,"
+#define LUA54_ALLOC_ARRAY256 \
+  LUA54_ALLOC_ARRAY16 LUA54_ALLOC_ARRAY16 \
+  LUA54_ALLOC_ARRAY16 LUA54_ALLOC_ARRAY16 \
+  LUA54_ALLOC_ARRAY16 LUA54_ALLOC_ARRAY16 \
+  LUA54_ALLOC_ARRAY16 LUA54_ALLOC_ARRAY16 \
+  LUA54_ALLOC_ARRAY16 LUA54_ALLOC_ARRAY16 \
+  LUA54_ALLOC_ARRAY16 LUA54_ALLOC_ARRAY16 \
+  LUA54_ALLOC_ARRAY16 LUA54_ALLOC_ARRAY16 \
+  LUA54_ALLOC_ARRAY16 LUA54_ALLOC_ARRAY16
+
+static const char lua54_parser_array_chunk[] =
+  "local t = {" LUA54_ALLOC_ARRAY256 "}\n"
+  "return t[1]\n";
+
+static int fail_load_array_after_alloc(lua_State *L)
+{
+  void *ud = NULL;
+  StrictAllocCtx *ctx;
+  int after = (int)luaL_checkinteger(L, 1);
+  int status;
+  lua_getallocf(L, &ud);
+  ctx = (StrictAllocCtx *)ud;
+  ctx->fail_at_alloc = ctx->alloc_requests + after;
+  status = luaL_loadbufferx(L, lua54_parser_array_chunk,
+			    sizeof(lua54_parser_array_chunk) - 1u,
+			    "=strict-parser-array", "t");
+  ctx->fail_at_alloc = 0;
+  if (status == LUA_OK || status == LUA_ERRMEM || status == LUA_ERRSYNTAX)
+    lua_pop(L, 1);
+  lua_pushinteger(L, status);
+  return 1;
+}
+
+static void test_parser_allocator_failure(lua_State *L, lua_State *T,
+					  StrictAllocCtx *ctx)
+{
+  int limit;
+  int saw_load_failure = 0;
+  int saw_partial_cleanup = 0;
+  lua_gc(T, LUA_GCCOLLECT, 0);
+  for (limit = 1; limit <= 48; limit++) {
+    int before_live = ctx->live_blocks;
+    int before_fails = ctx->call_fails;
+    int before_frees = ctx->frees;
+    int failed = 0;
+    lua_pushcfunction(T, fail_load_array_after_alloc);
+    lua_pushinteger(T, limit);
+    {
+      int status = lua_pcall(T, 1, 1, 0);
+      ctx->fail_at_alloc = 0;
+      if (status == LUA_OK) {
+	int ok = 0;
+	int load_status = (int)lua_tointegerx(T, -1, &ok);
+	check(L, ok, "parser allocator failure status result");
+	if (load_status == LUA_OK) {
+	  check(L, ctx->call_fails == before_fails,
+		"parser allocator success must not hide allocator failure");
+	} else {
+	  check(L, load_status == LUA_ERRMEM,
+		"parser allocator failure reports memory error status");
+	  check(L, ctx->call_fails > before_fails,
+		"parser allocator status failure must come from allocator");
+	  failed = 1;
+	}
+      } else {
+	check(L, status == LUA_ERRMEM,
+	      "parser allocator failure reports memory error");
+	check(L, ctx->call_fails > before_fails,
+	      "parser allocator failure must come from allocator");
+	failed = 1;
+      }
+      lua_settop(T, 0);
+      lua_gc(T, LUA_GCCOLLECT, 0);
+      if (failed) {
+	saw_load_failure = 1;
+	if (ctx->frees > before_frees)
+	  saw_partial_cleanup = 1;
+      }
+    }
+    check(L, ctx->bad_osize == 0,
+	  "parser allocator failure preserves allocator block sizes");
+    check(L, ctx->missing_ptr == 0,
+	  "parser allocator failure releases known allocator pointers");
+    check(L, ctx->live_blocks == before_live,
+	  "parser allocator failure releases partial allocations");
+  }
+  check(L, saw_load_failure, "parser allocator failure exercised");
+  check(L, saw_partial_cleanup,
+	"parser partial allocation cleanup exercised");
+}
+
 static void test_state_allocator_api(lua_State *L)
 {
   AllocCtx ctx = { 0, 0 };
@@ -1027,6 +1120,7 @@ static void test_state_allocator_api(lua_State *L)
 	"table repartition must not use in-place shrink");
   test_newthread_allocator_failure(L, T, &strict_ctx);
   test_newuserdatauv_allocator_failure(L, T, &strict_ctx);
+  test_parser_allocator_failure(L, T, &strict_ctx);
   lua_close(T);
   check(L, strict_ctx.bad_osize == 0 && strict_ctx.missing_ptr == 0,
 	"strict allocator preserves block sizes");
