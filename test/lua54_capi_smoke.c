@@ -2964,6 +2964,23 @@ static void test_compare_len_arith(lua_State *L)
 
   if (sizeof(lua_Integer) > sizeof(int)) {
     lua_Integer big = (lua_Integer)((lua_Unsigned)0x7fffffffu + 1u);
+    lua_Integer big2 = big + 1;
+    lua_pushinteger(L, big);
+    lua_pushliteral(L, "geti-big-generic");
+    lua_rawset(L, -3);
+    rtype = lua_geti_sig(L, -1, big);
+    check(L, rtype == LUA_TSTRING,
+	  "lua_geti accepts 64-bit C integer key");
+    check_string(L, -1, "geti-big-generic", "lua_geti 64-bit key value");
+    lua_pop(L, 1);
+    lua_pushliteral(L, "seti-big-generic");
+    lua_seti(L, -2, big2);
+    lua_pushinteger(L, big2);
+    rtype = lua_rawget_sig(L, -2);
+    check(L, rtype == LUA_TSTRING,
+	  "lua_seti accepts 64-bit C integer key");
+    check_string(L, -1, "seti-big-generic", "lua_seti 64-bit key value");
+    lua_pop(L, 1);
     lua_pushinteger(L, big);
     lua_pushliteral(L, "raw-big-generic");
     lua_rawset(L, -3);
