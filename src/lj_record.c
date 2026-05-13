@@ -95,6 +95,19 @@ static int64_t rec_lua54_tv_i64(cTValue *tv)
   return tvisint(tv) ? (int64_t)intV(tv) : (int64_t)i64V(tv);
 }
 
+static int rec_lua54_i64cmp(cTValue *a, cTValue *b, IROp op)
+{
+  int64_t ia = rec_lua54_tv_i64(a);
+  int64_t ib = rec_lua54_tv_i64(b);
+  switch (op) {
+  case IR_LT: return ia < ib;
+  case IR_GE: return ia >= ib;
+  case IR_LE: return ia <= ib;
+  case IR_GT: return ia > ib;
+  default: lj_assertX(0, "bad IR op %d", op); return 0;
+  }
+}
+
 static TRef rec_lua54_i64ref(jit_State *J, TRef tr)
 {
   if (tref_isinteger(tr))
@@ -361,6 +374,15 @@ int lj_record_objcmp(jit_State *J, TRef a, TRef b, cTValue *av, cTValue *bv)
       */
       eq = lj_ir_call(J, IRCALL_lj_str_equal, a, b);
       emitir(IRTG(diff ? IR_EQ : IR_NE, IRT_INT), eq, lj_ir_kint(J, 0));
+      return diff;
+    }
+#endif
+#if LJ_54 && LJ_DUALNUM
+    if ((ta == IRT_INT64 || tb == IRT_INT64) &&
+	(ta == IRT_INT || ta == IRT_INT64) &&
+	(tb == IRT_INT || tb == IRT_INT64)) {
+      emitir(IRTG(diff ? IR_NE : IR_EQ, IRT_I64),
+	     rec_lua54_i64ref(J, a), rec_lua54_i64ref(J, b));
       return diff;
     }
 #endif
@@ -2678,6 +2700,19 @@ void lj_record_ins(jit_State *J)
       IRType ta = tref_isinteger(ra) ? IRT_INT : tref_type(ra);
       IRType tc = tref_isinteger(rc) ? IRT_INT : tref_type(rc);
       int irop;
+#if LJ_54 && LJ_DUALNUM
+      if (rec_lua54_tref_isinteger(ra) && rec_lua54_tref_isinteger(rc) &&
+	  rec_lua54_tv_isinteger(rav) && rec_lua54_tv_isinteger(rcv)) {
+	rec_comp_prep(J);
+	irop = (int)op - (int)BC_ISLT + (int)IR_LT;
+	if (!rec_lua54_i64cmp(rav, rcv, (IROp)irop))
+	  irop ^= 1;
+	emitir(IRTG(irop, IRT_I64),
+	       rec_lua54_i64ref(J, ra), rec_lua54_i64ref(J, rc));
+	rec_comp_fixup(J, J->pc, ((int)op ^ irop) & 1);
+	break;
+      }
+#endif
       if (ta != tc) {
 	/* Widen mixed number/int comparisons to number/number comparison. */
 	if (ta == IRT_INT && tc == IRT_NUM) {

@@ -664,6 +664,35 @@ do
   end, "Lua 5.4 boxed int64 multiplication")
 
   assert_records_trace(function()
+    local function order_loop(a, b)
+      local n = 0
+      for _ = 1, 80 do
+	if a < b then n = n + 1 end
+	if b > a then n = n + 1 end
+	if a <= a then n = n + 1 end
+	if b >= a then n = n + 1 end
+      end
+      return n
+    end
+    assert(order_loop(2147483648, 2147483649) == 320)
+  end, "Lua 5.4 boxed int64 ordered comparison")
+
+  assert_records_trace(function()
+    local function eq_loop(a, b)
+      local n = 0
+      for _ = 1, 80 do
+	if a == b then n = n + 1 end
+	if a ~= b + 1 then n = n + 1 end
+      end
+      return n
+    end
+    local a = assert(tonumber("2147483648"))
+    local b = assert(tonumber("2147483648"))
+    assert(a == b and math.type(a) == "integer" and math.type(b) == "integer")
+    assert(eq_loop(a, b) == 160)
+  end, "Lua 5.4 boxed int64 equality")
+
+  assert_records_trace(function()
     local n = 0
     for i = "1", "80" do
       if math.type(i) == "float" then n = n + i end
