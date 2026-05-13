@@ -43,6 +43,7 @@ int main(void)
 {
   lua_State *L = luaL_newstate();
   int ok = 0;
+  lua_Unsigned wide = (lua_Unsigned)0xffffffffu + (lua_Unsigned)1u;
 
   check(L, L != NULL, "luaL_newstate");
 
@@ -63,6 +64,30 @@ int main(void)
 	"luaL_optunsigned default");
   check(L, luaL_optint(L, 1, 78) == 78, "luaL_optint default");
   check(L, luaL_optlong(L, 1, 79L) == 79L, "luaL_optlong default");
+
+  if (wide > (lua_Unsigned)0xffffffffu) {
+    lua_pushunsigned(L, wide);
+    check(L, lua_tounsigned(L, -1) == wide,
+	  "lua_tounsigned 64-bit value");
+    check(L, lua_tounsignedx(L, -1, &ok) == wide && ok,
+	  "lua_tounsignedx 64-bit value");
+    lua_pop(L, 1);
+
+    lua_pushliteral(L, "4294967296");
+    check(L, luaL_checkunsigned(L, 1) == wide,
+	  "luaL_checkunsigned 64-bit string");
+    lua_pop(L, 1);
+
+    check(L, luaL_optunsigned(L, 1, wide) == wide,
+	  "luaL_optunsigned 64-bit default");
+
+    lua_pushunsigned(L, LUA_MAXUNSIGNED);
+    check(L, lua_tounsigned(L, -1) == LUA_MAXUNSIGNED,
+	  "lua_tounsigned max unsigned wrap");
+    lua_pop(L, 1);
+    check(L, luaL_optunsigned(L, 1, LUA_MAXUNSIGNED) == LUA_MAXUNSIGNED,
+	  "luaL_optunsigned max unsigned default");
+  }
 
   lua_close(L);
   return 0;
