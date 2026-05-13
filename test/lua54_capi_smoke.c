@@ -2427,6 +2427,14 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, lua_stringtonumber(L, "123") == 4, "lua_stringtonumber length");
   check_integer(L, -1, 123, "lua_stringtonumber value");
   lua_pop(L, 1);
+  if (sizeof(lua_Integer) > sizeof(int)) {
+    lua_Integer big40 = (lua_Integer)1024 * 1024 * 1024 * 1024;
+    check(L, lua_stringtonumber(L, "1099511627776") == 14,
+	  "lua_stringtonumber wider 64-bit length");
+    check_integer(L, -1, big40,
+		  "lua_stringtonumber wider 64-bit value");
+    lua_pop(L, 1);
+  }
   check(L, lua_stringtonumber(L, "nope") == 0, "lua_stringtonumber reject");
   check(L, lua_stringtonumber(L, "inf") == 0, "lua_stringtonumber rejects inf");
   check(L, lua_stringtonumber(L, "NaN") == 0, "lua_stringtonumber rejects nan");
@@ -3506,6 +3514,17 @@ static void test_compare_len_arith(lua_State *L)
   lua_len(L, -1);
   check_integer(L, -1, 77, "lua_len __len metamethod");
   lua_pop(L, 2);
+  if (sizeof(lua_Integer) > sizeof(int)) {
+    lua_newtable(L);
+    lua_newtable(L);
+    lua_pushcfunction(L, len_wide_meta);
+    lua_setfield(L, -2, "__len");
+    lua_setmetatable(L, -2);
+    lua_len(L, -1);
+    check_integer(L, -1, (lua_Integer)1024 * 1024 * 1024 * 1024,
+		  "lua_len wider 64-bit __len metamethod");
+    lua_pop(L, 2);
+  }
 
   lua_pushinteger(L, 5);
   lua_pushinteger(L, 2);
@@ -3557,6 +3576,12 @@ static void test_compare_len_arith(lua_State *L)
     lua_arith(L, LUA_OPIDIV);
     check_integer(L, -1, (big40 + 7) / 4,
 		  "lua_arith preserves wider 64-bit idiv result");
+    lua_pop(L, 1);
+    lua_pushinteger(L, big40 + 7);
+    lua_pushinteger(L, 4);
+    lua_arith(L, LUA_OPMOD);
+    check_integer(L, -1, 3,
+		  "lua_arith preserves wider 64-bit mod result");
     lua_pop(L, 1);
     lua_pushinteger(L, big40);
     lua_pushinteger(L, big40 + 0x123);
@@ -3655,6 +3680,20 @@ static void test_compare_len_arith(lua_State *L)
     lua_Integer big2 = big + 1;
     lua_Integer big40 = (lua_Integer)1024 * 1024 * 1024 * 1024;
     lua_Integer big40b = big40 + 1;
+    lua_pushinteger(L, big40);
+    lua_pushinteger(L, big40b);
+    check(L, lua_compare(L, -2, -1, LUA_OPLT),
+	  "lua_compare accepts wider 64-bit C integer lt");
+    check(L, lua_compare(L, -2, -1, LUA_OPLE),
+	  "lua_compare accepts wider 64-bit C integer le");
+    check(L, !lua_compare(L, -2, -1, LUA_OPEQ),
+	  "lua_compare accepts wider 64-bit C integer eq false");
+    lua_pop(L, 2);
+    lua_pushinteger(L, big40);
+    lua_pushnumber(L, (lua_Number)big40);
+    check(L, lua_compare(L, -2, -1, LUA_OPEQ),
+	  "lua_compare matches wider integer and exact number");
+    lua_pop(L, 2);
     lua_pushinteger(L, big);
     lua_pushliteral(L, "geti-big-generic");
     lua_rawset(L, -3);
