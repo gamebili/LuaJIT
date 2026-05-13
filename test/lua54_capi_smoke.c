@@ -353,11 +353,15 @@ typedef struct StrictAllocCtx {
   int calls;
   int frees;
   int fail_shrink;
+  int fail_grow;
   int shrink_fails;
+  int grow_fails;
   int bad_osize;
   int missing_ptr;
   size_t fail_shrink_min_osize;
+  size_t fail_grow_min_nsize;
   size_t max_failed_shrink_osize;
+  size_t max_failed_grow_nsize;
 } StrictAllocCtx;
 
 typedef int (*RawGetI54Sig)(lua_State *L, int idx, lua_Integer n);
@@ -592,6 +596,15 @@ static void strict_alloc_remove(StrictAllocCtx *ctx, int idx)
   ctx->blocks[idx] = ctx->blocks[ctx->live_blocks];
 }
 
+static int strict_alloc_has_block_at_least(StrictAllocCtx *ctx, size_t size)
+{
+  int i;
+  for (i = 0; i < ctx->live_blocks; i++)
+    if (ctx->blocks[i].size >= size)
+      return 1;
+  return 0;
+}
+
 static void *strict_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
 {
   StrictAllocCtx *ctx = (StrictAllocCtx *)ud;
@@ -626,6 +639,13 @@ static void *strict_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
     ctx->shrink_fails++;
     if (osize > ctx->max_failed_shrink_osize)
       ctx->max_failed_shrink_osize = osize;
+    return NULL;
+  }
+  if (ctx->fail_grow && nsize > osize &&
+      nsize >= ctx->fail_grow_min_nsize) {
+    ctx->grow_fails++;
+    if (nsize > ctx->max_failed_grow_nsize)
+      ctx->max_failed_grow_nsize = nsize;
     return NULL;
   }
   np = realloc(ptr, nsize);
@@ -679,6 +699,21 @@ static int return_big_buffer(lua_State *L)
   return 1;
 }
 
+static int fail_growing_buffer(lua_State *L)
+{
+  luaL_Buffer b;
+  size_t big = (size_t)LUAL_BUFFERSIZE * 16u;
+  char *p;
+  luaL_buffinit(L, &b);
+  p = luaL_prepbuffsize(&b, big);
+  memset(p, 'g', big);
+  luaL_addsize(&b, big);
+  p = luaL_prepbuffsize(&b, big);
+  memset(p, 'u', big);
+  luaL_pushresultsize(&b, big);
+  return 1;
+}
+
 static void test_state_allocator_api(lua_State *L)
 {
   AllocCtx ctx = { 0, 0 };
@@ -686,7 +721,9 @@ static void test_state_allocator_api(lua_State *L)
   TrackingAllocCtx track_ctx = { 0, 0, 0 };
   ShrinkFailAllocCtx shrink_ctx = { 0, 0, 0, 0, 0 };
   StrictAllocCtx strict_ctx;
+  StrictAllocCtx strict_fail_ctx;
   size_t strict_big = (size_t)LUAL_BUFFERSIZE * 24u;
+  size_t strict_fail_big = (size_t)LUAL_BUFFERSIZE * 16u;
   size_t strict_len = 0;
   const char *strict_str;
   void *ud = NULL;
@@ -770,6 +807,36 @@ static void test_state_allocator_api(lua_State *L)
   check(L, status == LUA_OK,
 	"GC opportunistic shrink allocator failure is non-fatal");
   lua_close(T);
+
+  memset(&strict_fail_ctx, 0, sizeof(strict_fail_ctx));
+  strict_fail_ctx.capacity = 1024;
+  strict_fail_ctx.fail_grow_min_nsize = strict_fail_big * 2u;
+  strict_fail_ctx.blocks =
+    (StrictAllocBlock *)calloc((size_t)strict_fail_ctx.capacity,
+			       sizeof(StrictAllocBlock));
+  check(L, strict_fail_ctx.blocks != NULL,
+	"strict fail allocator bookkeeping");
+  T = lua_newstate(strict_alloc, &strict_fail_ctx);
+  check(L, T != NULL, "lua_newstate strict fail allocator");
+  strict_fail_ctx.fail_grow = 1;
+  lua_pushcfunction(T, fail_growing_buffer);
+  status = lua_pcall(T, 0, 0, 0);
+  strict_fail_ctx.fail_grow = 0;
+  check(L, status == LUA_ERRMEM,
+	"luaL_Buffer failed grow reports memory error");
+  check(L, strict_fail_ctx.grow_fails > 0 &&
+	   strict_fail_ctx.max_failed_grow_nsize >= strict_fail_big * 2u,
+	"luaL_Buffer failed grow exercises allocator");
+  lua_settop(T, 0);
+  check(L, !strict_alloc_has_block_at_least(&strict_fail_ctx, strict_fail_big),
+	"luaL_Buffer failed grow closes old side buffer");
+  lua_close(T);
+  check(L, strict_fail_ctx.bad_osize == 0 &&
+	   strict_fail_ctx.missing_ptr == 0,
+	"luaL_Buffer failed grow preserves allocator block sizes");
+  check(L, strict_fail_ctx.live_blocks == 0,
+	"strict fail allocator releases all blocks");
+  free(strict_fail_ctx.blocks);
 
   memset(&strict_ctx, 0, sizeof(strict_ctx));
   strict_ctx.capacity = 32768;
