@@ -779,6 +779,16 @@ do
   end, "Lua 5.4 float int64 bitwise coercion", "BAND")
 
   assert_records_ir_op(function()
+    local a = "1099511627776"
+    local b = "1099511628031"
+    local x = 0
+    for _ = 1, 80 do
+      x = a & b
+    end
+    assert(x == 1099511627776 and math.type(x) == "integer")
+  end, "Lua 5.4 string int64 bitwise coercion", "BAND")
+
+  assert_records_ir_op(function()
     local a = 1099511627776
     local b = 1099511628031
     local x = 0
@@ -805,6 +815,16 @@ do
     end
     assert(x == 1099511627776 and math.type(x) == "integer")
   end, "Lua 5.4 float int64 shift coercion", "BSHL")
+
+  assert_records_ir_op(function()
+    local a = "1.0"
+    local sh = "40"
+    local x = 0
+    for _ = 1, 80 do
+      x = a << sh
+    end
+    assert(x == 1099511627776 and math.type(x) == "integer")
+  end, "Lua 5.4 string int64 shift coercion", "BSHL")
 
   assert_records_ir_op(function()
     local a = 2199023255552

@@ -744,6 +744,56 @@ static int strscan_tocheckint54(GCstr *str, int32_t *ip)
 #endif
 }
 
+static int strscan_toi6454(GCstr *str, int64_t *ip)
+{
+#if LJ_54
+  TValue o;
+  StrScanFmt fmt;
+  if (lj_strscan_rejectnum54(strdata(str), str->len))
+    return 0;
+  fmt = lj_strscan_scan((const uint8_t *)strdata(str), str->len, &o,
+			STRSCAN_OPT_TOINT);
+  if (fmt == STRSCAN_INT) {
+    *ip = (int64_t)o.i;
+    return 1;
+  } else if (fmt == STRSCAN_I64) {
+    *ip = (int64_t)o.u64;
+    return 1;
+  } else if (fmt == STRSCAN_NUM) {
+    lua_Number n = numV(&o);
+    int64_t k;
+    if (!(n >= (-9223372036854775807.0 - 1.0) &&
+	  n < 9223372036854775808.0))
+      return 0;
+    k = lj_num2i64(n);
+    if ((lua_Number)k != n)
+      return 0;
+    *ip = k;
+    return 1;
+  }
+#else
+  UNUSED(str);
+#endif
+  UNUSED(ip);
+  return 0;
+}
+
+int LJ_FASTCALL lj_strscan_toi64ok54(GCstr *str)
+{
+  int64_t i;
+  return strscan_toi6454(str, &i);
+}
+
+int64_t LJ_FASTCALL lj_strscan_toi6454(GCstr *str)
+{
+  int64_t i = 0;
+  int ok = strscan_toi6454(str, &i);
+  lj_assertX(ok, "bad string-to-int64 guard");
+  if (!ok)
+    return 0;
+  return i;
+}
+
 int LJ_FASTCALL lj_strscan_tocheckintok54(GCstr *str)
 {
   int32_t i;
