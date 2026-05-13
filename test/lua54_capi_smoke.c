@@ -361,6 +361,7 @@ typedef struct StrictAllocCtx {
   int missing_ptr;
   int alloc_requests;
   int fail_at_alloc;
+  int fail_once_alloc;
   int call_fails;
   size_t fail_shrink_min_osize;
   size_t fail_grow_min_nsize;
@@ -609,6 +610,20 @@ static int strict_alloc_has_block_at_least(StrictAllocCtx *ctx, size_t size)
   return 0;
 }
 
+static int strict_alloc_should_fail(StrictAllocCtx *ctx)
+{
+  if (ctx->fail_at_alloc > 0 &&
+      ++ctx->alloc_requests >= ctx->fail_at_alloc) {
+    ctx->call_fails++;
+    if (ctx->fail_once_alloc) {
+      ctx->fail_at_alloc = 0;
+      ctx->fail_once_alloc = 0;
+    }
+    return 1;
+  }
+  return 0;
+}
+
 static void *strict_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
 {
   StrictAllocCtx *ctx = (StrictAllocCtx *)ud;
@@ -616,15 +631,12 @@ static void *strict_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
   int idx;
   ctx->calls++;
   if (ptr == NULL) {
-    if (osize != 0)
-      ctx->bad_osize++;
     if (nsize == 0)
       return NULL;
-    if (ctx->fail_at_alloc > 0 &&
-	++ctx->alloc_requests >= ctx->fail_at_alloc) {
-      ctx->call_fails++;
+    if (osize != 0)
+      ctx->bad_osize++;
+    if (strict_alloc_should_fail(ctx))
       return NULL;
-    }
     np = malloc(nsize);
     if (np != NULL)
       strict_alloc_add(ctx, np, nsize);
@@ -643,11 +655,8 @@ static void *strict_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
       strict_alloc_remove(ctx, idx);
     return NULL;
   }
-  if (ctx->fail_at_alloc > 0 &&
-      ++ctx->alloc_requests >= ctx->fail_at_alloc) {
-    ctx->call_fails++;
+  if (strict_alloc_should_fail(ctx))
     return NULL;
-  }
   if (ctx->fail_shrink && nsize < osize &&
       osize >= ctx->fail_shrink_min_osize) {
     ctx->shrink_fails++;
@@ -1006,6 +1015,88 @@ static void test_jit_allocator_trace_flush(lua_State *L, lua_State *T,
 	"strict allocator JIT trace preserves block sizes");
 }
 
+static void test_jit_allocator_record_failure(lua_State *L, lua_State *T,
+					      StrictAllocCtx *ctx)
+{
+  static const char probe_chunk[] =
+    "return function()\n"
+    "  local sum = 0\n"
+    "  for round = 1, 6 do\n"
+    "    for i = 1, 180 do sum = sum + i end\n"
+    "  end\n"
+    "  return sum\n"
+    "end\n";
+  int limit;
+  int saw_jit_failure = 0;
+  int status = luaL_dostring(T,
+    "local okjit, jitmod = pcall(require, 'jit')\n"
+    "local okopt, jitopt = pcall(require, 'jit.opt')\n"
+    "if not (okjit and okopt) then return 'skip' end\n"
+    "jitmod.on()\n"
+    "jitmod.flush()\n"
+    "jitopt.start('hotloop=1', 'hotexit=1')\n"
+    "return true\n");
+  check(L, status == LUA_OK, "strict allocator JIT failure setup status");
+  if (lua_type(T, -1) == LUA_TSTRING) {
+    check_string(L, -1, "skip",
+		 "strict allocator JIT failure skip marker");
+    lua_pop(T, 1);
+    return;
+  }
+  lua_pop(T, 1);
+
+  for (limit = 1; limit <= 16; limit++) {
+    int before_fails;
+    status = luaL_dostring(T,
+      "local jitmod = require('jit')\n"
+      "local jitopt = require('jit.opt')\n"
+      "jitmod.on()\n"
+      "jitmod.flush()\n"
+      "jitopt.start('hotloop=1', 'hotexit=1')\n"
+      "return true\n");
+    check(L, status == LUA_OK,
+	  "strict allocator JIT failure iteration setup");
+    lua_pop(T, 1);
+
+    status = luaL_loadbufferx(T, probe_chunk, sizeof(probe_chunk) - 1u,
+			      "=strict-jit-alloc-fail", "t");
+    check(L, status == LUA_OK, "strict allocator JIT probe load");
+    status = lua_pcall(T, 0, 1, 0);
+    check(L, status == LUA_OK, "strict allocator JIT probe factory");
+
+    before_fails = ctx->call_fails;
+    ctx->fail_once_alloc = 1;
+    ctx->fail_at_alloc = ctx->alloc_requests + limit;
+    lua_pushvalue(T, -1);
+    status = lua_pcall(T, 0, 1, 0);
+    ctx->fail_at_alloc = 0;
+    ctx->fail_once_alloc = 0;
+    check(L, status == LUA_OK,
+	  "JIT allocator failure aborts trace without Lua error");
+    check(L, lua_tonumber(T, -1) == (lua_Number)97740,
+	  "JIT allocator failure preserves interpreter result");
+    if (ctx->call_fails > before_fails)
+      saw_jit_failure = 1;
+    lua_settop(T, 0);
+    lua_gc(T, LUA_GCCOLLECT, 0);
+    check(L, ctx->bad_osize == 0,
+	  "JIT allocator failure preserves block sizes");
+    check(L, ctx->missing_ptr == 0,
+	  "JIT allocator failure releases known pointers");
+  }
+
+  status = luaL_dostring(T,
+    "local jitmod = require('jit')\n"
+    "local jitopt = require('jit.opt')\n"
+    "jitmod.flush()\n"
+    "jitmod.on()\n"
+    "jitopt.start('hotloop=56', 'hotexit=10')\n"
+    "return true\n");
+  check(L, status == LUA_OK, "strict allocator JIT failure reset");
+  lua_pop(T, 1);
+  check(L, saw_jit_failure, "JIT allocator failure exercised");
+}
+
 static void test_state_allocator_api(lua_State *L)
 {
   AllocCtx ctx = { 0, 0 };
@@ -1170,6 +1261,7 @@ static void test_state_allocator_api(lua_State *L)
   test_newuserdatauv_allocator_failure(L, T, &strict_ctx);
   test_parser_allocator_failure(L, T, &strict_ctx);
   test_jit_allocator_trace_flush(L, T, &strict_ctx);
+  test_jit_allocator_record_failure(L, T, &strict_ctx);
   lua_close(T);
   check(L, strict_ctx.bad_osize == 0 && strict_ctx.missing_ptr == 0,
 	"strict allocator preserves block sizes");
