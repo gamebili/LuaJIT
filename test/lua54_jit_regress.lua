@@ -696,6 +696,24 @@ do
     assert(x == 549755813888 and math.type(x) == "integer")
   end, "Lua 5.4 boxed int64 multiplication")
 
+  assert_records_ir_call(function()
+    local wide = "9007199254740993"
+    local x = 0
+    for _ = 1, 80 do
+      x = x + (wide + 0) % 10
+    end
+    assert(x == 240 and math.type(x) == "integer")
+  end, "Lua 5.4 string int64 addition", "lj_strscan_toint6454")
+
+  assert_records_ir_call(function()
+    local wide = "9007199254740993"
+    local x = 0
+    for _ = 1, 80 do
+      x = x + (-wide + 9007199254740993)
+    end
+    assert(x == 0 and math.type(x) == "integer")
+  end, "Lua 5.4 string int64 unary minus", "lj_strscan_toint6454")
+
   assert_records_trace(function()
     local function order_loop(a, b)
       local n = 0

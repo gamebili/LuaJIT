@@ -35,6 +35,8 @@ LJ_FUNC int32_t LJ_FASTCALL lj_strscan_toint54(GCstr *str);
 LJ_FUNC lua_Number LJ_FASTCALL lj_strscan_tonum54s(GCstr *str);
 LJ_FUNC int LJ_FASTCALL lj_strscan_toi64ok54(GCstr *str);
 LJ_FUNC int64_t LJ_FASTCALL lj_strscan_toi6454(GCstr *str);
+LJ_FUNC int LJ_FASTCALL lj_strscan_toint64ok54(GCstr *str);
+LJ_FUNC int64_t LJ_FASTCALL lj_strscan_toint6454(GCstr *str);
 LJ_FUNC int LJ_FASTCALL lj_strscan_tocheckintok54(GCstr *str);
 LJ_FUNC int32_t LJ_FASTCALL lj_strscan_tocheckint54(GCstr *str);
 LJ_FUNC int lj_strscan_tobaseintok54(GCstr *str, int32_t base);

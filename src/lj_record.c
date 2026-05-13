@@ -12,6 +12,7 @@
 
 #include "lj_err.h"
 #include "lj_str.h"
+#include "lj_strscan.h"
 #include "lj_tab.h"
 #include "lj_gc.h"
 #include "lj_meta.h"
@@ -95,6 +96,20 @@ static int64_t rec_lua54_tv_i64(cTValue *tv)
   return tvisint(tv) ? (int64_t)intV(tv) : (int64_t)i64V(tv);
 }
 
+static int rec_lua54_tv_toint64(cTValue *tv, int64_t *ip)
+{
+  if (rec_lua54_tv_isinteger(tv)) {
+    *ip = rec_lua54_tv_i64(tv);
+    return 1;
+  } else if (tvisstr(tv)) {
+    if (!lj_strscan_toint64ok54(strV(tv)))
+      return 0;
+    *ip = lj_strscan_toint6454(strV(tv));
+    return 1;
+  }
+  return 0;
+}
+
 static int rec_lua54_i64cmp(cTValue *a, cTValue *b, IROp op)
 {
   int64_t ia = rec_lua54_tv_i64(a);
@@ -155,21 +170,41 @@ static TRef rec_lua54_i64result(jit_State *J, TRef tr, int64_t rv)
   }
 }
 
-static TRef rec_lua54_unm_int(jit_State *J, TRef rc, cTValue *rcv)
+static TRef rec_lua54_toint64ref(jit_State *J, TRef tr, cTValue *tv)
 {
-  lua_Integer ic = (lua_Integer)rec_lua54_tv_i64(rcv);
+  if (rec_lua54_tv_isinteger(tv)) {
+    if (!rec_lua54_tref_isinteger(tr))
+      return 0;
+    return rec_lua54_i64ref(J, tr);
+  } else if (tvisstr(tv)) {
+    TRef ok;
+    if (!tref_isstr(tr))
+      return 0;
+    ok = lj_ir_call(J, IRCALL_lj_strscan_toint64ok54, tr);
+    emitir(IRTG(IR_NE, IRT_INT), ok, lj_ir_kint(J, 0));
+    return lj_ir_call(J, IRCALL_lj_strscan_toint6454, tr);
+  }
+  return 0;
+}
+
+static TRef rec_lua54_unm_intref(jit_State *J, TRef irc, int64_t ic)
+{
   int64_t rv = (int64_t)(lua_Integer)((lua_Unsigned)0 - (lua_Unsigned)ic);
-  TRef irc = rec_lua54_i64ref(J, rc);
   TRef tr = emitir(IRT(IR_NEG, IRT_I64), irc, irc);
   return rec_lua54_i64result(J, tr, rv);
 }
 
-static TRef rec_lua54_arith_int(jit_State *J, TRef rb, TRef rc,
-				cTValue *rbv, cTValue *rcv, MMS mm)
+static TRef rec_lua54_unm_int(jit_State *J, TRef rc, cTValue *rcv)
 {
-  lua_Integer ib = (lua_Integer)rec_lua54_tv_i64(rbv);
-  lua_Integer ic = (lua_Integer)rec_lua54_tv_i64(rcv);
-  lua_Unsigned ub = (lua_Unsigned)ib, uc = (lua_Unsigned)ic;
+  return rec_lua54_unm_intref(J, rec_lua54_i64ref(J, rc),
+			      rec_lua54_tv_i64(rcv));
+}
+
+static TRef rec_lua54_arith_intref(jit_State *J, TRef irb, TRef irc,
+				   int64_t ib, int64_t ic, MMS mm)
+{
+  lua_Unsigned ub = (lua_Unsigned)(lua_Integer)ib;
+  lua_Unsigned uc = (lua_Unsigned)(lua_Integer)ic;
   IROp op = (IROp)((int)mm - (int)MM_add + (int)IR_ADD);
   int64_t rv;
   TRef tr;
@@ -179,9 +214,17 @@ static TRef rec_lua54_arith_int(jit_State *J, TRef rb, TRef rc,
   case MM_mul: rv = (int64_t)(lua_Integer)(ub * uc); break;
   default: lj_assertJ(0, "bad Lua 5.4 integer arithmetic op"); rv = 0; break;
   }
-  tr = emitir(IRT(op, IRT_I64), rec_lua54_i64ref(J, rb),
-	      rec_lua54_i64ref(J, rc));
+  tr = emitir(IRT(op, IRT_I64), irb, irc);
   return rec_lua54_i64result(J, tr, rv);
+}
+
+static TRef rec_lua54_arith_int(jit_State *J, TRef rb, TRef rc,
+				cTValue *rbv, cTValue *rcv, MMS mm)
+{
+  return rec_lua54_arith_intref(J, rec_lua54_i64ref(J, rb),
+				rec_lua54_i64ref(J, rc),
+				rec_lua54_tv_i64(rbv), rec_lua54_tv_i64(rcv),
+				mm);
 }
 #endif
 
@@ -2873,7 +2916,16 @@ void lj_record_ins(jit_State *J)
 #if LJ_54 && LJ_DUALNUM
     if (rec_lua54_tref_isinteger(rc) && rec_lua54_tv_isinteger(rcv)) {
       rc = rec_lua54_unm_int(J, rc, rcv);
-    } else
+      break;
+    } else {
+      int64_t ic;
+      TRef irc;
+      if (rec_lua54_tv_toint64(rcv, &ic) &&
+	  (irc = rec_lua54_toint64ref(J, rc, rcv))) {
+	rc = rec_lua54_unm_intref(J, irc, ic);
+	break;
+      }
+    }
 #endif
     if (tref_isnumber_str(rc)) {
       rc = lj_opt_narrow_unm(J, rc, rcv);
@@ -2907,6 +2959,17 @@ void lj_record_ins(jit_State *J)
 		    rec_lua54_numref(J, rc));
       }
       break;
+    }
+    if (irop <= IR_MUL) {
+      int64_t ib, ic;
+      TRef irb, irc;
+      if (rec_lua54_tv_toint64(rbv, &ib) &&
+	  rec_lua54_tv_toint64(rcv, &ic) &&
+	  (irb = rec_lua54_toint64ref(J, rb, rbv)) &&
+	  (irc = rec_lua54_toint64ref(J, rc, rcv))) {
+	rc = rec_lua54_arith_intref(J, irb, irc, ib, ic, mm);
+	break;
+      }
     }
 #endif
     if (tref_isnumber_str(rb) && tref_isnumber_str(rc)) {
