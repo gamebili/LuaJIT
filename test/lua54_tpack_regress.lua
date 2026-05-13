@@ -38,6 +38,13 @@ end
 assert(unpack("<I4", pack("<I4", 4000000000)) == 4000000000)
 assert(unpack("L", pack("L", 0xffffffff)) == 0xffffffff)
 assert(unpack("<J", pack("<j", -1)) == -1)
+assert(pack("<J", -1) == string.rep("\xff", sizeLI))
+assert(unpack("<J", pack("<J", -1)) == -1)
+assert(unpack("<J", pack("<J", math.mininteger)) == math.mininteger)
+if packsize("T") == sizeLI then
+  assert(pack("<T", -1) == string.rep("\xff", sizeLI))
+  assert(unpack("<T", pack("<T", -1)) == -1)
+end
 
 do
   local ok, err = pcall(pack, "!17", 0)

@@ -1203,9 +1203,6 @@ static const char *string_pack_xsize(lua_State *L, const char *fmt,
   case 'h': case 'H': *szp = 2; return fmt;
   case 'l': case 'L': *szp = sizeof(long); return fmt;
   case 'j': case 'J':
-    /* The current Lua 5.4 compatibility layer exposes a 32 bit integer range
-    ** even though LuaJIT's C typedef remains ptrdiff_t for ABI continuity.
-    */
     *szp = LJ_LUA54_PACKSZ_INTEGER;
     return fmt;
   case 'T': *szp = sizeof(size_t); return fmt;
@@ -1292,8 +1289,8 @@ static uint64_t string_pack_checkint(lua_State *L, int arg, size_t sz,
 #if LJ_54
   int64_t v = string_checkinteger64_named54(L, arg, fname);
   /* Pack formats define their own signed/unsigned range. Do the exact
-  ** integer test here instead of using the current 32-bit lua_Integer shim,
-  ** so existing Lua 5.4 pack cases such as I4/4000000000 keep working.
+  ** integer test here instead of relying on the raw TValue tag width, so
+  ** Lua 5.4 pack cases such as I4/4000000000 keep working.
   */
   if (issigned) {
     size_t fitsz = LJ_LUA54_PACKSZ_API_INTEGER;
@@ -1317,7 +1314,7 @@ static uint64_t string_pack_checkint(lua_State *L, int arg, size_t sz,
   } else {
     uint64_t maxv = string_pack_umax(sz);
     if (v < 0) {
-      uint64_t uv = negmod ? (uint32_t)v : (uint64_t)v;
+      uint64_t uv = negmod ? (uint64_t)(lua_Unsigned)v : (uint64_t)v;
       size_t fitsz = negmod ? LJ_LUA54_PACKSZ_INTEGER :
 		     LJ_LUA54_PACKSZ_API_INTEGER;
       if (fitsz > 8)

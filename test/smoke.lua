@@ -4002,6 +4002,16 @@ do
     local a, b, pos = string.unpack("<jT", string.pack("<jT", -2, 5))
     assert(a == -2 and b == 5 and pos == j_size + string.packsize("T") + 1)
   end
+  assert(bytes(string.pack("<J", -1)) == ("255,"):rep(j_size - 1).."255")
+  do
+    local a, pos = string.unpack("<J", string.pack("<J", -1))
+    assert(a == -1 and pos == j_size + 1)
+  end
+  if string.packsize("T") == j_size then
+    assert(bytes(string.pack("<T", -1)) == ("255,"):rep(j_size - 1).."255")
+    local a, pos = string.unpack("<T", string.pack("<T", -1))
+    assert(a == -1 and pos == j_size + 1)
+  end
   assert(string.packsize("!8bi8") == 16)
   assert(bytes(string.pack("!8bi8", 1, 2)) ==
          "1,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0")
