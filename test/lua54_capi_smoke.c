@@ -3460,6 +3460,21 @@ static void test_compare_len_arith(lua_State *L)
   lua_arith(L, LUA_OPIDIV);
   check_integer(L, -1, 2, "lua_arith idiv");
   lua_pop(L, 1);
+  if (sizeof(lua_Integer) > sizeof(int)) {
+    lua_Integer big40 = (lua_Integer)1024 * 1024 * 1024 * 1024;
+    lua_pushinteger(L, big40);
+    lua_pushinteger(L, 3);
+    lua_arith(L, LUA_OPADD);
+    check_integer(L, -1, big40 + 3,
+		  "lua_arith preserves wider 64-bit add result");
+    lua_pop(L, 1);
+    lua_pushinteger(L, big40 + 7);
+    lua_pushinteger(L, 4);
+    lua_arith(L, LUA_OPIDIV);
+    check_integer(L, -1, (big40 + 7) / 4,
+		  "lua_arith preserves wider 64-bit idiv result");
+    lua_pop(L, 1);
+  }
 
   lua_pushinteger(L, 6);
   lua_pushinteger(L, 3);
