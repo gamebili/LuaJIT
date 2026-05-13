@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <stddef.h>
 #include <limits.h>
+#include <stdarg.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -1993,6 +1994,16 @@ static int pushfstring_bad_floatfmt(lua_State *L)
   return 1;
 }
 
+static const char *pushvfstring_wrap(lua_State *L, const char *fmt, ...)
+{
+  const char *ret;
+  va_list argp;
+  va_start(argp, fmt);
+  ret = lua_pushvfstring(L, fmt, argp);
+  va_end(argp);
+  return ret;
+}
+
 static void test_stack_and_number_api(lua_State *L)
 {
   static const char light_key;
@@ -2225,6 +2236,17 @@ static void test_stack_and_number_api(lua_State *L)
 	   strcmp(ret, "i=-123 u=\xe2\x82\xac f=1.0 d=7 c=A s=ok %") == 0,
 	"lua_pushfstring Lua 5.4 formats");
   lua_pop(L, 1);
+  if (sizeof(lua_Integer) > sizeof(int)) {
+    lua_Integer big40 = (lua_Integer)1024 * 1024 * 1024 * 1024;
+    ret = lua_pushfstring(L, "big=%I", big40);
+    check(L, ret != NULL && strcmp(ret, "big=1099511627776") == 0,
+	  "lua_pushfstring keeps wider 64-bit C integer width");
+    lua_pop(L, 1);
+    ret = pushvfstring_wrap(L, "vbig=%I", big40);
+    check(L, ret != NULL && strcmp(ret, "vbig=1099511627776") == 0,
+	  "lua_pushvfstring keeps wider 64-bit C integer width");
+    lua_pop(L, 1);
+  }
 
   lua_pushcfunction(L, pushfstring_bad_format);
   check(L, lua_pcall(L, 0, 1, 0) == LUA_ERRRUN,

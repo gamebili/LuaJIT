@@ -994,13 +994,13 @@ const char *lj_strfmt_pushvf(lua_State *L, const char *fmt, va_list argp)
     case STRFMT_ERR:
 #if LJ_54
       if (fs.len == 2 && fs.str[0] == '%' && fs.str[1] == 'I') {
-	TValue tv;
-	setintptrV(&tv, va_arg(argp, lua_Integer));
+	char ibuf[64];
+	lua_integer2str(ibuf, sizeof(ibuf), va_arg(argp, lua_Integer));
 	/* %I is specific to lua_pushfstring() in Lua 5.4. Keep it out of
 	** the shared string.format() parser so Lua-visible formatting stays
 	** governed by string.format's own conversion set.
 	*/
-	lj_buf_putstr(sb, lj_strfmt_number(L, &tv));
+	lj_buf_putmem(sb, ibuf, (MSize)strlen(ibuf));
 	fs.p = (const uint8_t *)fs.str + 2;
 	break;
       } else if (fs.len == 2 && fs.str[0] == '%' && fs.str[1] == 'U') {
