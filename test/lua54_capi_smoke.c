@@ -2123,6 +2123,7 @@ static void test_stack_and_number_api(lua_State *L)
 	"Lua 5.4 lua_numbertointeger truncates in-range fractions");
   iv = 0;
   if (sizeof(lua_Integer) > sizeof(int)) {
+    lua_Integer big40 = (lua_Integer)1024 * 1024 * 1024 * 1024;
     check(L, LUA_MAXINTEGER > (lua_Integer)0x7fffffffu,
 	  "LUA_MAXINTEGER follows external lua_Integer width");
     check(L, LUA_MININTEGER < (lua_Integer)(-2147483647 - 1),
@@ -2130,6 +2131,9 @@ static void test_stack_and_number_api(lua_State *L)
     check(L, lua_numbertointeger((lua_Number)2147483648.0, &iv) &&
 	     iv == (lua_Integer)((lua_Unsigned)0x7fffffffu + 1u),
 	  "lua_numbertointeger accepts external 64-bit header range");
+    iv = 0;
+    check(L, lua_numbertointeger((lua_Number)big40, &iv) && iv == big40,
+	  "lua_numbertointeger accepts wider exact 64-bit header range");
     iv = 0;
   }
   check(L, !lua_numbertointeger((lua_Number)LUA_MAXINTEGER + 1.0, &iv),
@@ -2142,10 +2146,14 @@ static void test_stack_and_number_api(lua_State *L)
     check(L, strcmp(nbuf, "12.5") == 0, "lua_number2str 5.4 signature");
     check(L, strcmp(ibuf, "-123") == 0, "lua_integer2str");
     if (sizeof(lua_Integer) > sizeof(int)) {
+      lua_Integer big40 = (lua_Integer)1024 * 1024 * 1024 * 1024;
       lua_integer2str(ibuf, sizeof(ibuf),
 		      (lua_Integer)((lua_Unsigned)0x7fffffffu + 1u));
       check(L, strcmp(ibuf, "2147483648") == 0,
 	    "lua_integer2str keeps 64-bit C integer width");
+      lua_integer2str(ibuf, sizeof(ibuf), big40);
+      check(L, strcmp(ibuf, "1099511627776") == 0,
+	    "lua_integer2str keeps wider 64-bit C integer width");
     }
     check(L, LUA_MAXUNSIGNED == (lua_Unsigned)~(lua_Unsigned)0,
 	  "LUA_MAXUNSIGNED");
@@ -2165,6 +2173,7 @@ static void test_stack_and_number_api(lua_State *L)
 
   if (sizeof(lua_Integer) > sizeof(int)) {
     lua_Integer big = (lua_Integer)((lua_Unsigned)0x7fffffffu + 1u);
+    lua_Integer big40 = (lua_Integer)1024 * 1024 * 1024 * 1024;
     int ok = 0;
     lua_pushinteger(L, big);
     check(L, lua_tointegerx(L, -1, &ok) == big && ok,
@@ -2177,6 +2186,18 @@ static void test_stack_and_number_api(lua_State *L)
     lua_pushliteral(L, "2147483648");
     check(L, lua_tointegerx(L, -1, &ok) == big && ok,
 	  "lua_tointegerx accepts exact 64-bit string integer");
+    lua_pop(L, 1);
+    lua_pushinteger(L, big40);
+    check(L, lua_tointegerx(L, -1, &ok) == big40 && ok,
+	  "lua_tointegerx accepts pushed wider 64-bit C integer");
+    lua_pop(L, 1);
+    lua_pushnumber(L, (lua_Number)big40);
+    check(L, lua_tointegerx(L, -1, &ok) == big40 && ok,
+	  "lua_tointegerx accepts wider exact 64-bit number");
+    lua_pop(L, 1);
+    lua_pushliteral(L, "1099511627776");
+    check(L, lua_tointegerx(L, -1, &ok) == big40 && ok,
+	  "lua_tointegerx accepts wider exact 64-bit string integer");
     lua_pop(L, 1);
   }
 
@@ -3154,6 +3175,8 @@ static void test_compare_len_arith(lua_State *L)
   if (sizeof(lua_Integer) > sizeof(int)) {
     lua_Integer big = (lua_Integer)((lua_Unsigned)0x7fffffffu + 1u);
     lua_Integer big2 = big + 1;
+    lua_Integer big40 = (lua_Integer)1024 * 1024 * 1024 * 1024;
+    lua_Integer big40b = big40 + 1;
     lua_pushinteger(L, big);
     lua_pushliteral(L, "geti-big-generic");
     lua_rawset(L, -3);
@@ -3185,6 +3208,42 @@ static void test_compare_len_arith(lua_State *L)
     check(L, rtype == LUA_TSTRING,
 	  "lua_rawseti accepts 64-bit C integer key");
     check_string(L, -1, "raw-big-seti", "lua_rawseti 64-bit key value");
+    lua_pop(L, 1);
+    lua_pushinteger(L, big40);
+    lua_pushliteral(L, "geti-big40-generic");
+    lua_rawset(L, -3);
+    rtype = lua_geti_sig(L, -1, big40);
+    check(L, rtype == LUA_TSTRING,
+	  "lua_geti accepts wider 64-bit C integer key");
+    check_string(L, -1, "geti-big40-generic",
+		 "lua_geti wider 64-bit key value");
+    lua_pop(L, 1);
+    lua_pushliteral(L, "seti-big40-generic");
+    lua_seti(L, -2, big40b);
+    lua_pushinteger(L, big40b);
+    rtype = lua_rawget_sig(L, -2);
+    check(L, rtype == LUA_TSTRING,
+	  "lua_seti accepts wider 64-bit C integer key");
+    check_string(L, -1, "seti-big40-generic",
+		 "lua_seti wider 64-bit key value");
+    lua_pop(L, 1);
+    lua_pushinteger(L, big40);
+    lua_pushliteral(L, "raw-big40-generic");
+    lua_rawset(L, -3);
+    rtype = lua_rawgeti_sig(L, -1, big40);
+    check(L, rtype == LUA_TSTRING,
+	  "lua_rawgeti accepts wider 64-bit C integer key");
+    check_string(L, -1, "raw-big40-generic",
+		 "lua_rawgeti wider 64-bit key value");
+    lua_pop(L, 1);
+    lua_pushliteral(L, "raw-big40-seti");
+    lua_rawseti_sig(L, -2, big40);
+    lua_pushinteger(L, big40);
+    rtype = lua_rawget_sig(L, -2);
+    check(L, rtype == LUA_TSTRING,
+	  "lua_rawseti accepts wider 64-bit C integer key");
+    check_string(L, -1, "raw-big40-seti",
+		 "lua_rawseti wider 64-bit key value");
     lua_pop(L, 1);
   }
 
@@ -3428,11 +3487,26 @@ static void test_lauxlib_api(lua_State *L)
 
   if (sizeof(lua_Integer) > sizeof(int)) {
     lua_Integer big = (lua_Integer)((lua_Unsigned)0x7fffffffu + 1u);
+    lua_Integer big40 = (lua_Integer)1024 * 1024 * 1024 * 1024;
     lua_pushcfunction(L, checkinteger_arg);
     lua_pushnumber(L, (lua_Number)2147483648.0);
     status = lua_pcall(L, 1, 1, 0);
     check(L, status == LUA_OK, "luaL_checkinteger accepts 64-bit number");
     check_integer(L, -1, big, "luaL_checkinteger 64-bit number");
+    lua_pop(L, 1);
+    lua_pushcfunction(L, checkinteger_arg);
+    lua_pushnumber(L, (lua_Number)big40);
+    status = lua_pcall(L, 1, 1, 0);
+    check(L, status == LUA_OK,
+	  "luaL_checkinteger accepts wider 64-bit number");
+    check_integer(L, -1, big40, "luaL_checkinteger wider 64-bit number");
+    lua_pop(L, 1);
+    lua_pushcfunction(L, checkinteger_arg);
+    lua_pushliteral(L, "1099511627776");
+    status = lua_pcall(L, 1, 1, 0);
+    check(L, status == LUA_OK,
+	  "luaL_checkinteger accepts wider 64-bit string");
+    check_integer(L, -1, big40, "luaL_checkinteger wider 64-bit string");
     lua_pop(L, 1);
   }
 
