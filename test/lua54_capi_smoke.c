@@ -1614,6 +1614,12 @@ static int laux_error_arg(lua_State *L)
   return luaL_error(L, "laux boom");
 }
 
+static int laux_error_wide_integer_arg(lua_State *L)
+{
+  lua_Integer big40 = (lua_Integer)1024 * 1024 * 1024 * 1024;
+  return luaL_error(L, "laux big %I", big40);
+}
+
 static const luaL_Reg capi_newlib[] = {
   { "answer", push_answer },
   { NULL, NULL }
@@ -4218,6 +4224,14 @@ static void test_lauxlib_api(lua_State *L)
   check(L, strstr(lua_tostring(L, -1), "laux boom") != NULL,
 	"luaL_error message");
   lua_pop(L, 1);
+  if (sizeof(lua_Integer) > sizeof(int)) {
+    lua_pushcfunction(L, laux_error_wide_integer_arg);
+    status = lua_pcall(L, 0, 0, 0);
+    check(L, status == LUA_ERRRUN, "luaL_error wide integer status");
+    check(L, strstr(lua_tostring(L, -1), "laux big 1099511627776") != NULL,
+	  "luaL_error wide integer message");
+    lua_pop(L, 1);
+  }
 
   luaL_traceback(L, L, "trace-msg", 0);
   check(L, strstr(lua_tostring(L, -1), "trace-msg") != NULL,
