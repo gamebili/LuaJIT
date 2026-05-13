@@ -172,6 +172,7 @@ local irtype_text = {
   "fun",
   "p64",
   "cdt",
+  "i64o",
   "tab",
   "udt",
   "flt",
@@ -198,6 +199,7 @@ local colortype_ansi = {
   "%s",
   "\027[1m%s\027[m",
   "%s",
+  "\027[33m%s\027[m",
   "\027[33m%s\027[m",
   "\027[31m%s\027[m",
   "\027[36m%s\027[m",
@@ -346,7 +348,7 @@ local function formatk(tr, idx, sn)
       s = format("[%p]", k)
       if s == "[NULL]" then s = "NULL" end
     end
-  elseif t == 21 then -- int64_t
+  elseif t == 22 then -- int64_t
     s = sub(tostring(k), 1, -3)
     if sub(s, 1, 1) ~= "-" then s = "+"..s end
   elseif sn == 0x1057fff then -- SNAP(1, SNAP_FRAME | SNAP_NORESTORE, REF_NIL)

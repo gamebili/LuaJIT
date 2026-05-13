@@ -162,6 +162,9 @@ typedef struct Lua54TableFieldAlias {
 /* Per-function state. */
 typedef struct FuncState {
   GCtab *kt;			/* Hash table for constants. */
+#if LJ_54 && LJ_DUALNUM
+  GCtab *k64anchor;		/* Anchor table for transient int64 literals. */
+#endif
   LexState *ls;			/* Lexer state. */
   lua_State *L;			/* Lua state. */
   FuncScope *bl;		/* Current scope. */
@@ -302,7 +305,17 @@ static BCReg const_num(FuncState *fs, ExpDesc *e)
     }
   }
 #endif
-  o = lj_tab_set(L, fs->kt, &e->u.nval);
+#if LJ_54 && LJ_DUALNUM
+  if (tvisi64(&e->u.nval)) {
+    copyTV(L, L->top, &e->u.nval);
+    incr_top(L);
+    o = lj_tab_set(L, fs->kt, L->top-1);
+    L->top--;
+  } else
+#endif
+  {
+    o = lj_tab_set(L, fs->kt, &e->u.nval);
+  }
 #if LJ_54 && LJ_DUALNUM
 gotnum:
 #endif
@@ -311,6 +324,25 @@ gotnum:
   o->u64 = fs->nkn;
   return fs->nkn++;
 }
+
+#if LJ_54 && LJ_DUALNUM
+/* Keep boxed integer literals alive while parsing can still allocate before
+** the expression is emitted into bytecode or folded into another literal.
+*/
+static void const_anchor_i64(FuncState *fs, cTValue *tv)
+{
+  if (tvisi64(tv)) {
+    lua_State *L = fs->L;
+    TValue *o;
+    copyTV(L, L->top, tv);
+    incr_top(L);
+    o = lj_tab_set(L, fs->k64anchor, L->top-1);
+    if (tvisnil(o))
+      setboolV(o, 1);
+    L->top--;
+  }
+}
+#endif
 
 /* Add a GC object constant. */
 static BCReg const_gc(FuncState *fs, GCobj *gc, uint32_t itype)
@@ -2459,6 +2491,7 @@ static void bcemit_unop(FuncState *fs, BCOp op, ExpDesc *e)
 	  lua_Integer i = (lua_Integer)i64V(o);
 	  lj_obj_setint64(fs->L, o,
 	    (int64_t)(lua_Integer)((lua_Unsigned)0 - (lua_Unsigned)i));
+	  const_anchor_i64(fs, o);
 	  return;
 #endif
 	} else {
@@ -3826,7 +3859,11 @@ static GCproto *fs_finish(LexState *ls, BCLine line)
     setprotoV(V, V->top++, pt);
   );
 
+#if LJ_54 && LJ_DUALNUM
+  L->top -= 2;  /* Pop int64 anchors and table of constants. */
+#else
   L->top--;  /* Pop table of constants. */
+#endif
   ls->vtop = fs->vbase;  /* Reset variable stack. */
   ls->fs = fs->prev;
   lj_assertL(ls->fs != NULL || ls->tok == TK_eof, "bad parser state");
@@ -3872,6 +3909,11 @@ static void fs_init(LexState *ls, FuncState *fs)
   /* Anchor table of constants in stack to avoid being collected. */
   settabV(L, L->top, fs->kt);
   incr_top(L);
+#if LJ_54 && LJ_DUALNUM
+  fs->k64anchor = lj_tab_new(L, 0, 0);
+  settabV(L, L->top, fs->k64anchor);
+  incr_top(L);
+#endif
 }
 
 /* -- Expressions --------------------------------------------------------- */
@@ -4239,6 +4281,9 @@ static void expr_simple(LexState *ls, ExpDesc *v)
   case TK_number:
     expr_init(v, (LJ_HASFFI && tviscdata(&ls->tokval)) ? VKCDATA : VKNUM, 0);
     copyTV(ls->L, &v->u.nval, &ls->tokval);
+#if LJ_54 && LJ_DUALNUM
+    const_anchor_i64(ls->fs, &v->u.nval);
+#endif
     break;
   case TK_string:
     expr_init(v, VKSTR, 0);

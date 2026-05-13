@@ -988,19 +988,23 @@ static void meta_for_setidx(lua_State *L, TValue *o, int64_t i)
 int lj_meta_fori64(lua_State *L, TValue *o, int isforl)
 {
   int64_t idx, stop, step;
-  int ok;
+  int overflow = 0, ok;
   if (!meta_for_ivalue(&o[FORL_IDX], &idx) ||
       !meta_for_ivalue(&o[FORL_STEP], &step))
     return -1;
   if (step == 0)
     lj_err_msg(L, LJ_ERR_FORSTEP0);
   if (isforl) {
+    int64_t oldidx = idx;
     idx = (int64_t)((uint64_t)idx + (uint64_t)step);
+    overflow = step > 0 ? idx < oldidx : idx > oldidx;
     meta_for_setidx(L, &o[FORL_IDX], idx);
   } else if (tvisi64(&o[FORL_IDX])) {
     lj_obj_setint64(L, &o[FORL_IDX], idx);
   }
-  if (meta_for_ivalue(&o[FORL_STOP], &stop)) {
+  if (overflow) {
+    ok = 0;
+  } else if (meta_for_ivalue(&o[FORL_STOP], &stop)) {
     ok = step > 0 ? idx <= stop : idx >= stop;
   } else if (tvisnum(&o[FORL_STOP])) {
     lua_Number nidx = (lua_Number)idx;

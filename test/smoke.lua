@@ -1806,6 +1806,20 @@ for i = 1, "x" do end]], "bad 'for' limit", "got string"):match(":2:", 1, true) 
   assert(fortypes(1, "3", 1) == "integer:1,integer:2,integer:3")
   assert(fortypes(1, 3, "1") == "float:1.0,float:2.0,float:3.0")
   assert(fortypes("0x1", "0x3") == "float:1.0,float:2.0,float:3.0")
+  local boxed_for = {}
+  for i = 2147483648, 2147483650 do
+    boxed_for[#boxed_for+1] = i
+  end
+  assert(boxed_for[1] == 2147483648)
+  assert(boxed_for[2] == 2147483649)
+  assert(boxed_for[3] == 2147483650)
+  local boxed_closures = {}
+  for i = 2147483648, 2147483650 do
+    boxed_closures[#boxed_closures+1] = function() return i end
+  end
+  assert(boxed_closures[1]() == 2147483648)
+  assert(boxed_closures[2]() == 2147483649)
+  assert(boxed_closures[3]() == 2147483650)
   if jit and jit.opt and jit.opt.start then
     local function check_jit_float_for(init, limit, step)
       local n = 0
@@ -1864,6 +1878,29 @@ do
   assert(eval("1 << 64") == 0)
   assert(eval("1 >> 64") == 0)
   assert(assert(load("local a, b = 6, 3; return (a + 1) & (b + 1)"))() == 4)
+  do
+    local fname = "lua54_i64_constants_loadfile.tmp"
+    local f = assert(io.open(fname, "w"))
+    f:write([[
+local function arshift(a, b)
+  a = a & 0xffffffff
+  if b <= 0 or (a & 0x80000000) == 0 then
+    return (a >> b) & 0xffffffff
+  end
+  return ((a >> b) | ~(0xffffffff >> b)) & 0xffffffff
+end
+for _ = 1, 20 do
+  assert((-1 & 0xffffffff) == 0xffffffff)
+  assert(arshift(0x12345678, 0) == 0x12345678)
+  assert(arshift(-1, 1) == 0xffffffff)
+end
+return true
+]])
+    assert(f:close())
+    collectgarbage("collect")
+    assert(assert(loadfile(fname))())
+    assert(os.remove(fname))
+  end
   assert(eval("((1 << 4) | 3) ~ 5") == 22)
   assert(eval("8 >> -1") == 16)
   assert(eval("8 << -1") == 4)
@@ -2600,6 +2637,8 @@ do
   assert(ok == false and err:match("string%.format") ~= nil and
          err:match("integer representation") ~= nil)
   assert(string.format("%d", 12.0) == "12")
+  assert(string.format("%s|%s|%s", -3, 2147483651, 31) ==
+         "-3|2147483651|31")
   ok, err = pcall(string.format, "%d", true)
   assert(ok == false and err:match("string%.format") ~= nil and
          err:match("number expected") ~= nil)

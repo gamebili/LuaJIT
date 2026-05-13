@@ -5268,87 +5268,10 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  jmp <1
 #if LJ_54
     |8:  // Boxed int64 numeric for-loop.
-    if (op == BC_FORL || op == BC_IFORL || op == BC_JFORL) {
-      |  mov TMPR, RB
-      |  cleartp INT64:TMPR
-      |  mov RB, INT64:TMPR->i
-      |  mov ITYPE, FOR_STEP
-      |  mov RC, ITYPE
-      |  sar RC, 47
-      |  cmp RCd, LJ_TISNUM
-      |  jne >4
-      |  movsxd ITYPE, ITYPEd
-      |  jmp >5
-      |4:
-      |  cmp RCd, LJ_TINT64
-      |  jne ->vmeta_for
-      |  cleartp INT64:ITYPE
-      |  mov ITYPE, INT64:ITYPE->i
-      |5:
-      |  mov TMP1, RB
-      |  xor CARG4d, CARG4d
-      |  add RB, ITYPE
-      |  mov INT64:TMPR->i, RB
-      |  mov TMPR, FOR_STOP
-      |  mov RC, TMPR
-      |  sar RC, 47
-      |  cmp RCd, LJ_TISNUM
-      |  jne >6
-      |  movsxd TMPR, TMPRd
-      |  jmp >7
-      |6:
-      |  cmp RCd, LJ_TINT64
-      |  je >8
-      |  cmp RCd, LJ_TISNUM
-      |  jae ->vmeta_for
-      |  mov CARG4d, 1
-      |  jmp >7
-      |8:
-      |  cleartp INT64:TMPR
-      |  mov TMPR, INT64:TMPR->i
-      |7:
-      |  test ITYPE, ITYPE
-      |  js >6
-      |  cmp RB, TMP1
-      |  jl >9
-      |  test CARG4d, CARG4d
-      |  jnz >4
-      |  cmp RB, TMPR
-      |  jg >9
-      |4:
-      |  mov RC, FOR_EXT
-      |  cleartp INT64:RC
-      |  mov INT64:RC->i, RB
-      if (op == BC_JFORL) {
-	|  jmp =>BC_JLOOP
-      } else {
-	|  movzx RDd, PC_RD
-	|  branchPC RD
-	|  ins_next
-      }
-      |6:
-      |  cmp RB, TMP1
-      |  jg >9
-      |  test CARG4d, CARG4d
-      |  jnz >5
-      |  cmp RB, TMPR
-      |  jl >9
-      |5:
-      |  mov RC, FOR_EXT
-      |  cleartp INT64:RC
-      |  mov INT64:RC->i, RB
-      if (op == BC_JFORL) {
-	|  jmp =>BC_JLOOP
-      } else {
-	|  movzx RDd, PC_RD
-	|  branchPC RD
-	|  ins_next
-      }
-      |9:
-      |  ins_next
-    } else {
     |  mov L:RB, SAVE_L
     |  mov L:RB->base, BASE
+    |  lea TMPR, [RA+32]
+    |  mov L:RB->top, TMPR
     |  mov CARG2, RA
     if (op == BC_FORI || op == BC_JFORI) {
       |  xor CARG3d, CARG3d
@@ -5381,11 +5304,11 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
       |  jz <7
       |  mov RDd, RCd
       |  branchPC RD
+      |  ins_next
     } else {
       |  test ITYPEd, ITYPEd
       |  jnz =>BC_JLOOP
       |  ins_next
-    }
     }
 #endif
     break;
