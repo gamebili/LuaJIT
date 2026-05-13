@@ -761,6 +761,55 @@ static void test_newstate_allocator_failure(lua_State *L)
 	"lua_newstate partial initialization failure exercised");
 }
 
+static int fail_newthread_after_alloc(lua_State *L)
+{
+  void *ud = NULL;
+  StrictAllocCtx *ctx;
+  int after = (int)luaL_checkinteger(L, 1);
+  lua_getallocf(L, &ud);
+  ctx = (StrictAllocCtx *)ud;
+  ctx->fail_at_alloc = ctx->alloc_requests + after;
+  lua_newthread(L);
+  ctx->fail_at_alloc = 0;
+  return 1;
+}
+
+static void test_newthread_allocator_failure(lua_State *L, lua_State *T,
+					     StrictAllocCtx *ctx)
+{
+  int limit;
+  int saw_partial_failure = 0;
+  lua_gc(T, LUA_GCCOLLECT, 0);
+  for (limit = 1; limit <= 4; limit++) {
+    int before_live = ctx->live_blocks;
+    int before_fails = ctx->call_fails;
+    lua_pushcfunction(T, fail_newthread_after_alloc);
+    lua_pushinteger(T, limit);
+    {
+      int status = lua_pcall(T, 1, 1, 0);
+      ctx->fail_at_alloc = 0;
+      if (status == LUA_OK) {
+	lua_pop(T, 1);
+      } else {
+	check(L, status == LUA_ERRMEM,
+	      "lua_newthread allocator failure reports memory error");
+	check(L, ctx->call_fails > before_fails,
+	      "lua_newthread failure must come from allocator");
+	lua_pop(T, 1);
+	if (limit > 1)
+	  saw_partial_failure = 1;
+      }
+    }
+    lua_gc(T, LUA_GCCOLLECT, 0);
+    check(L, ctx->bad_osize == 0 && ctx->missing_ptr == 0,
+	  "lua_newthread failure preserves allocator block sizes");
+    check(L, ctx->live_blocks == before_live,
+	  "lua_newthread failure releases partial allocations");
+  }
+  check(L, saw_partial_failure,
+	"lua_newthread partial initialization failure exercised");
+}
+
 static void test_state_allocator_api(lua_State *L)
 {
   AllocCtx ctx = { 0, 0 };
@@ -921,6 +970,7 @@ static void test_state_allocator_api(lua_State *L)
 	"table repartition must tolerate allocator refusing shrink");
   check(L, strict_ctx.shrink_fails == 0,
 	"table repartition must not use in-place shrink");
+  test_newthread_allocator_failure(L, T, &strict_ctx);
   lua_close(T);
   check(L, strict_ctx.bad_osize == 0 && strict_ctx.missing_ptr == 0,
 	"strict allocator preserves block sizes");
