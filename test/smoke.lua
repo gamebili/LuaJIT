@@ -1798,6 +1798,8 @@ do
     return assert(load("return "..src))()
   end
   local intbits = math.floor(math.log(math.maxinteger, 2) + 0.5) + 1
+  assert(string.packsize("j") * 8 == intbits)
+  assert(string.packsize("J") == string.packsize("j"))
   assert(eval("1 << "..intbits) == 0)
   assert(math.mininteger == eval("1 << "..(intbits - 1)))
   assert(math.maxinteger == math.mininteger - 1)
