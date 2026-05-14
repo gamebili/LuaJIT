@@ -2386,6 +2386,13 @@ do
   assert(math.random(0) == 0x7a7040a5a323c9d6)
   math.randomseed(1007, 0)
   assert(math.abs(math.random() - 0x0.7a7040a5a323c9d6) < 2^-53)
+  local seed1, seed2 = math.randomseed(1099511627776, "1")
+  assert(seed1 == 1099511627776 and seed2 == 1)
+  assert(math.type(seed1) == "integer" and math.type(seed2) == "integer")
+  assert(math.random(0) == -7928649372492011025)
+  assert(math.random(0) == 2966187919354626699)
+  seed1, seed2 = math.randomseed(math.mininteger, math.maxinteger)
+  assert(seed1 == math.mininteger and seed2 == math.maxinteger)
 end
 assert(math.max("a", "b") == "b")
 assert(math.min("a", "b") == "a")
@@ -4543,6 +4550,8 @@ end
 do
   local a, b = math.randomseed(1, 2)
   assert(a == 1 and b == 2)
+  a, b = math.randomseed(1099511627776, 1)
+  assert(a == 1099511627776 and b == 1 and math.type(a) == "integer")
   local s1, s2 = math.randomseed()
   assert(math.tointeger(s1) == s1 and math.tointeger(s2) == s2)
   assert(s1 ~= 0 or s2 ~= 0)

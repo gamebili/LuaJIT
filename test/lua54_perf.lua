@@ -913,10 +913,12 @@ end
 
 local function random_helpers(n)
   local sum = 0
-  math.randomseed(0x24681357, 0x13572468)
+  local seed1, seed2 = math.randomseed(1099511627776, "1")
   for _ = 1, n do
     -- Keep all Lua 5.4 random recorder surfaces in the perf window: floats,
     -- full-width integer samples, and constant/dynamic integer intervals.
+    if seed1 == 1099511627776 and seed2 == 1 and
+       math.type(seed1) == "integer" then sum = sum + 1 end
     local bounded = math.random(1, 4)
     if math.type(bounded) == "integer" and bounded >= 1 and bounded <= 4 then
       sum = sum + 1
@@ -1411,7 +1413,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_random = timeit(mode_name..":random_helpers",
 			     random_helpers, iter_n)
-  assert(r_random == iter_n * 7)
+  assert(r_random == iter_n * 8)
 
   local _, r_string_order = timeit(mode_name..":string_order_helpers",
 				   string_order_helpers, iter_n)

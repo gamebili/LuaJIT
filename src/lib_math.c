@@ -160,23 +160,6 @@ static lua_Integer math_checkrandominteger(lua_State *L, int narg,
   return i;
 }
 
-static int32_t math_checkseedint(lua_State *L, int narg, const char *fname)
-{
-  lua_Integer i;
-  int isnum;
-  if (!math_tointeger54(L, narg, &i, &isnum) ||
-      !((i >= LJ_MATH_MININT32 && i <= LJ_MATH_MAXINT32) ||
-	(i >= 0 && (lua_Unsigned)i <= (lua_Unsigned)0xffffffffu))) {
-    if (isnum)
-      lj_err_callermsg(L,
-	lj_strfmt_pushf(L, "bad argument #%d to '%s' "
-			"(number has no integer representation)", narg,
-			math_argname54(L, fname)));
-    math_argtype_named54(L, narg, fname, "number");
-  }
-  return (int32_t)(uint32_t)i;
-}
-
 static void math_pushintegernum(lua_State *L, lua_Number n)
 {
   double ni;
@@ -725,17 +708,19 @@ static lua_Unsigned random_project54(PRNGState *rs, lua_Unsigned ran,
 }
 
 static void random_setseed54(lua_State *L, PRNGState *rs,
-			     int32_t n1, int32_t n2)
+			     lua_Unsigned n1, lua_Unsigned n2)
 {
   int i;
-  rs->u[0] = (uint32_t)n1;
+  rs->u[0] = (uint64_t)n1;
   rs->u[1] = 0xffu;  /* Avoid a zero xoshiro256** state. */
-  rs->u[2] = (uint32_t)n2;
+  rs->u[2] = (uint64_t)n2;
   rs->u[3] = 0;
   for (i = 0; i < 16; i++)
     (void)random_next54(rs);
-  setintV(L->top++, n1);
-  setintV(L->top++, n2);
+  lj_obj_setint64(L, L->top, (int64_t)(lua_Integer)n1);
+  L->top++;
+  lj_obj_setint64(L, L->top, (int64_t)(lua_Integer)n2);
+  L->top++;
 }
 #endif
 
@@ -850,14 +835,14 @@ LJLIB_CF(math_randomseed)
 {
   PRNGState *rs = (PRNGState *)(uddata(udataV(lj_lib_upvalue(L, 1))));
 #if LJ_54
-  int32_t s1, s2;
+  lua_Unsigned s1, s2;
   if (L->base != L->top) {
-    s1 = math_checkseedint(L, 1, "math.randomseed");
+    s1 = (lua_Unsigned)math_checkrandominteger(L, 1, "math.randomseed");
     s2 = (L->base+1 < L->top && !tvisnil(L->base+1)) ?
-	 math_checkseedint(L, 2, "math.randomseed") : 0;
+	 (lua_Unsigned)math_checkrandominteger(L, 2, "math.randomseed") : 0;
   } else {
-    s1 = (int32_t)(uint32_t)time(NULL);
-    s2 = (int32_t)(uint32_t)(uintptr_t)L;
+    s1 = (lua_Unsigned)time(NULL);
+    s2 = (lua_Unsigned)(uintptr_t)L;
   }
   random_setseed54(L, rs, s1, s2);
   return 2;

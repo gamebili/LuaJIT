@@ -558,6 +558,21 @@ do
     assert(got_sum == expect_sum)
     assert(got_full == expect_full and got_float == expect_float)
   end, "Lua 5.4 math.random recorder", "CALLS")
+
+  jitmod.off()
+  local seed1, seed2 = math.randomseed(1099511627776, "1")
+  assert(seed1 == 1099511627776 and seed2 == 1)
+  assert(math.random(0) == -7928649372492011025)
+  assert(math.random(0) == 2966187919354626699)
+
+  assert_records_trace(function()
+    math.randomseed(1099511627776, "1")
+    local n = 0
+    for _ = 1, 80 do
+      if math.type(math.random(0)) == "integer" then n = n + 1 end
+    end
+    assert(n == 80)
+  end, "Lua 5.4 math.randomseed int64 seeds")
 end
 
 do
