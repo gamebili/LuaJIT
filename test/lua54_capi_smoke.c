@@ -1454,12 +1454,44 @@ static int push_fraction_len_userdata(lua_State *L)
   return 1;
 }
 
+static int getsubtable_index_meta(lua_State *L)
+{
+  const char *key = luaL_checkstring(L, 2);
+  if (strcmp(key, "virtual") == 0) {
+    lua_newtable(L);
+    lua_pushliteral(L, "from-index");
+    lua_setfield(L, -2, "origin");
+    return 1;
+  }
+  return 0;
+}
+
+static int getsubtable_newindex_meta(lua_State *L)
+{
+  lua_pushvalue(L, 2);
+  lua_setfield(L, lua_upvalueindex(1), "key");
+  lua_pushvalue(L, 3);
+  lua_setfield(L, lua_upvalueindex(1), "captured");
+  return 0;
+}
+
 static int require_open(lua_State *L)
 {
   check_string(L, 1, "capi.mod", "luaL_requiref passes module name");
   require_open_count++;
   lua_newtable(L);
   lua_pushliteral(L, "ready");
+  lua_setfield(L, -2, "state");
+  return 1;
+}
+
+static int require_open_false(lua_State *L)
+{
+  check_string(L, 1, "capi.falsemod",
+	       "luaL_requiref passes false-loaded module name");
+  require_open_count++;
+  lua_newtable(L);
+  lua_pushliteral(L, "false-ready");
   lua_setfield(L, -2, "state");
   return 1;
 }
@@ -4054,6 +4086,7 @@ static void test_lauxlib_api(lua_State *L)
   int status;
   int ref;
   int rtype;
+  int before_count;
   void *ud;
   FILE *tmpf;
   const char *tmpname = "test/lua54_capi_dofile.tmp.lua";
@@ -4454,6 +4487,42 @@ static void test_lauxlib_api(lua_State *L)
 	"luaL_getsubtable reuses");
   lua_pop(L, 2);
 
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushcfunction(L, getsubtable_index_meta);
+  lua_setfield(L, -2, "__index");
+  lua_setmetatable(L, -2);
+  check(L, luaL_getsubtable(L, -1, "virtual") == 1,
+	"luaL_getsubtable accepts __index table result");
+  lua_getfield(L, -1, "origin");
+  check_string(L, -1, "from-index", "luaL_getsubtable __index value");
+  lua_pop(L, 1);
+  lua_pushliteral(L, "virtual");
+  lua_rawget(L, -3);
+  check(L, lua_isnil(L, -1), "luaL_getsubtable __index does not raw set");
+  lua_pop(L, 3);
+
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushvalue(L, -3);
+  lua_pushcclosure(L, getsubtable_newindex_meta, 1);
+  lua_setfield(L, -2, "__newindex");
+  lua_setmetatable(L, -2);
+  check(L, luaL_getsubtable(L, -1, "created") == 0,
+	"luaL_getsubtable creates through __newindex");
+  lua_getfield(L, -3, "captured");
+  check(L, lua_rawequal(L, -1, -2),
+	"luaL_getsubtable passes new table to __newindex");
+  lua_pop(L, 1);
+  lua_getfield(L, -3, "key");
+  check_string(L, -1, "created", "luaL_getsubtable __newindex key");
+  lua_pop(L, 1);
+  lua_pushliteral(L, "created");
+  lua_rawget(L, -3);
+  check(L, lua_isnil(L, -1), "luaL_getsubtable __newindex does not raw set");
+  lua_pop(L, 4);
+
   check(L, luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE) == 1,
 	"LUA_LOADED_TABLE");
   lua_pop(L, 1);
@@ -4497,6 +4566,18 @@ static void test_lauxlib_api(lua_State *L)
   luaL_requiref(L, "capi.mod", require_open, 1);
   check(L, require_open_count == 1, "luaL_requiref reuses loaded module");
   lua_pop(L, 1);
+
+  luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "capi.falsemod");
+  lua_pop(L, 1);
+  before_count = require_open_count;
+  luaL_requiref(L, "capi.falsemod", require_open_false, 0);
+  check(L, require_open_count == before_count + 1,
+	"luaL_requiref reloads false loaded module");
+  lua_getfield(L, -1, "state");
+  check_string(L, -1, "false-ready", "luaL_requiref false loaded result");
+  lua_pop(L, 2);
 
   check(L, luaL_fileresult(L, 1, NULL) == 1, "luaL_fileresult success arity");
   check(L, lua_toboolean(L, -1), "luaL_fileresult success value");
