@@ -2414,8 +2414,23 @@ do
   local seed1, seed2 = math.randomseed(1099511627776, "1")
   assert(seed1 == 1099511627776 and seed2 == 1)
   assert(math.type(seed1) == "integer" and math.type(seed2) == "integer")
-  assert(math.random(0) == -7928649372492011025)
-  assert(math.random(0) == 2966187919354626699)
+  local full = {
+    -7928649372492011025, 2966187919354626699,
+    -7324652882753459820, 5615477104289094605,
+    1229524019937507, 7256633879735615446,
+    4945512312844809479, -1506706736174479277,
+  }
+  local seen_hi_pos, seen_hi_neg, seen_wide = false, false, false
+  for _, want in ipairs(full) do
+    local got = math.random(0)
+    assert(got == want and math.type(got) == "integer")
+    if got > 9007199254740992 then seen_hi_pos = true end
+    if got < -9007199254740992 then seen_hi_neg = true end
+    if got > 4611686018427387904 or got < -4611686018427387904 then
+      seen_wide = true
+    end
+  end
+  assert(seen_hi_pos and seen_hi_neg and seen_wide)
   seed1, seed2 = math.randomseed(math.mininteger, math.maxinteger)
   assert(seed1 == math.mininteger and seed2 == math.maxinteger)
 end

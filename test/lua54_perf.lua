@@ -924,6 +924,9 @@ end
 local function random_helpers(n)
   local sum = 0
   local seed1, seed2 = math.randomseed(1099511627776, "1")
+  local full_probe = math.random(0)
+  if full_probe == -7928649372492011025 and
+     math.type(full_probe) == "integer" then sum = sum + 1 end
   for _ = 1, n do
     -- Keep all Lua 5.4 random recorder surfaces in the perf window: floats,
     -- full-width integer samples, and constant/dynamic integer intervals.
@@ -1423,7 +1426,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_random = timeit(mode_name..":random_helpers",
 			     random_helpers, iter_n)
-  assert(r_random == iter_n * 8)
+  assert(r_random == iter_n * 8 + 1)
 
   local _, r_string_order = timeit(mode_name..":string_order_helpers",
 				   string_order_helpers, iter_n)

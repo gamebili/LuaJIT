@@ -567,11 +567,18 @@ do
 
   assert_records_trace(function()
     math.randomseed(1099511627776, "1")
-    local n = 0
+    local n, hi_pos, hi_neg, very_wide = 0, 0, 0, 0
     for _ = 1, 80 do
-      if math.type(math.random(0)) == "integer" then n = n + 1 end
+      local v = math.random(0)
+      if math.type(v) == "integer" then n = n + 1 end
+      if v > 9007199254740992 then hi_pos = hi_pos + 1 end
+      if v < -9007199254740992 then hi_neg = hi_neg + 1 end
+      if v > 4611686018427387904 or v < -4611686018427387904 then
+	very_wide = very_wide + 1
+      end
     end
     assert(n == 80)
+    assert(hi_pos > 0 and hi_neg > 0 and very_wide > 0)
   end, "Lua 5.4 math.randomseed int64 seeds")
 end
 
