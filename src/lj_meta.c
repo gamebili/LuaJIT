@@ -656,6 +656,25 @@ TValue * LJ_FASTCALL lj_meta_equal_lstr(lua_State *L, BCIns ins)
     return (TValue *)(intptr_t)(lj_str_equal(strV(o1), strV(o2)) ^ ne);
   return (TValue *)(intptr_t)ne;
 }
+
+TValue * LJ_FASTCALL lj_meta_equal_i64(lua_State *L, BCIns ins)
+{
+  BCOp op = bc_op(ins);
+  int ne = (int)op & 1;
+  int basop = (int)op & ~1;
+  cTValue *o2, *o1 = &L->base[bc_a(ins)];
+
+  if (basop == BC_ISEQV) {
+    o2 = &L->base[bc_d(ins)];
+  } else {
+    lj_assertL(basop == BC_ISEQN, "bad bytecode op %d", op);
+    o2 = proto_knumtv(curr_proto(L), bc_d(ins));
+  }
+
+  if (tvisi64(o1) || tvisi64(o2))
+    return (TValue *)(intptr_t)(lj_obj_equal(o1, o2) ^ ne);
+  return (TValue *)(intptr_t)ne;
+}
 #endif
 
 #if LJ_HASFFI

@@ -191,6 +191,12 @@ do
     n, k, v = result_count(iter({ [math.mininteger] = 10 }, k))
     assert(n == 1 and k == nil and v == nil)
   end
+  do
+    local i64 = 2147483648
+    assert(i64 == 2147483647 + 1)
+    assert(math.mininteger == math.mininteger + 0)
+    assert(rawequal(i64, 2147483647 + 1))
+  end
   ok, err = pcall(setmetatable)
   assert(ok == false and err:match("to 'setmetatable'") ~= nil)
   ok, err = pcall(setmetatable, {})

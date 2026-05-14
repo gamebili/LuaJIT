@@ -833,7 +833,7 @@ local function number_pack_helpers(n)
     end
     -- Keep explicit-base tonumber in the performance window. The old decimal
     -- recorder must not bypass the Lua 5.4 integer-base scanner here.
-    if tonumber("\t10000000000\t", 10) == 1410065408 then sum = sum + 1 end
+    if tonumber("\t10000000000\t", 10) == 10000000000 then sum = sum + 1 end
     if tonumber("1.0", 10) == nil then sum = sum + 1 end
     if math.type(tonumber(base16_input, 16)) == "integer" then
       sum = sum + 1

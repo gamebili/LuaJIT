@@ -700,6 +700,7 @@ static int lj_cf_jit__lua54_checkclose(lua_State *L)
   int32_t slotdelta = lj_lib_checkint(L, 3);
   TValue *slot = L->base + slotdelta;
   if (o >= L->top || lj_close_isfalse(o)) {
+    lj_close_unmark(L, slot);
     lua54_skip_helper_return(L);
     return 0;
   }
@@ -826,10 +827,16 @@ static int lj_cf_jit__lua54_closevalue(lua_State *L)
   ptrdiff_t errofs = 0;
   int errstack;
   cTValue *mo;
-  if (o >= L->top)
+  if (o >= L->top) {
+    if (lj_close_islast(L, o))
+      lj_close_unmark(L, o);
     return lua54_pushnopclose(L);
-  if (lj_close_isfalse(o))
+  }
+  if (lj_close_isfalse(o)) {
+    if (lj_close_islast(L, o))
+      lj_close_unmark(L, o);
     return lua54_pushnopclose(L);
+  }
   /* Generic-for reserves a Lua 5.4 closing slot even when the iterator does
   ** not return a fourth value. Only a slot that was actually marked by the
   ** declaration/check helper should run or diagnose __close at scope exit.
