@@ -4691,6 +4691,38 @@ static void test_lauxlib_api(lua_State *L)
   check_string(L, -1, "1.5", "luaL_tolstring float fraction subtype");
   lua_pop(L, 2);
 
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushliteral(L, "NamedTolstring");
+  lua_setfield(L, -2, "__name");
+  lua_setmetatable(L, -2);
+  {
+    char want[96];
+    int wantlen = snprintf(want, sizeof(want), "NamedTolstring: %p",
+			   lua_topointer(L, -1));
+    check(L, wantlen > 0 && wantlen < (int)sizeof(want),
+	  "luaL_tolstring string __name expected string");
+    luaL_tolstring(L, -1, NULL);
+    check_string(L, -1, want, "luaL_tolstring string __name");
+    lua_pop(L, 2);
+  }
+
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushinteger(L, 123);
+  lua_setfield(L, -2, "__name");
+  lua_setmetatable(L, -2);
+  {
+    char want[96];
+    int wantlen = snprintf(want, sizeof(want), "table: %p",
+			   lua_topointer(L, -1));
+    check(L, wantlen > 0 && wantlen < (int)sizeof(want),
+	  "luaL_tolstring non-string __name expected string");
+    luaL_tolstring(L, -1, NULL);
+    check_string(L, -1, want, "luaL_tolstring ignores non-string __name");
+    lua_pop(L, 2);
+  }
+
   luaL_buffinit(L, &b);
   p = luaL_prepbuffer(&b);
   check(L, p == luaL_buffaddr(&b), "luaL_buffaddr");

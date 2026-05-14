@@ -591,12 +591,21 @@ LUALIB_API const char *luaL_tolstring(lua_State *L, int idx, size_t *len)
       break;
     default: {
       const char *kind = luaL_typename(L, idx);
+#if LJ_54
+      int tt = luaL_getmetafield(L, idx, "__name");
+      if (tt) {
+	if (tt == LUA_TSTRING)
+	  kind = lua_tostring(L, -1);
+	lua_pop(L, 1);
+      }
+#else
       if (luaL_getmetafield(L, idx, "__name")) {
 	const char *name = lua_tostring(L, -1);
 	if (name)
 	  kind = name;
 	lua_pop(L, 1);
       }
+#endif
       lua_pushfstring(L, "%s: %p", kind, lua_topointer(L, idx));
       break;
     }
