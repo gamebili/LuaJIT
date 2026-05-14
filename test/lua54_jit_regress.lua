@@ -2005,6 +2005,12 @@ do
   local stamp = os.time({
     year = 2020, month = 5, day = 7, hour = 12, min = 34, sec = 56
   })
+  local future_fields = {
+    year = 2039, month = 1, day = 2, hour = 12, min = 34, sec = 56,
+    isdst = false
+  }
+  local future_ok, future_stamp = pcall(os.time, future_fields)
+  local future_supported = future_ok and future_stamp > 2147483647
   local path_present = os.getenv("PATH") ~= nil
 
   assert_records_trace(function()
@@ -2014,6 +2020,12 @@ do
       if os.date("%Y-%m-%d", stamp) == "2020-05-07" then n = n + 1 end
       if os.date("!\0\0", stamp) == "\0\0" then n = n + 1 end
       if os.difftime(stamp + 7, stamp) == 7 then n = n + 1 end
+      if future_supported and math.type(future_stamp) == "integer" and
+	 os.difftime(future_stamp + 7, future_stamp) == 7 and
+	 os.difftime(tostring(future_stamp + 7), tostring(future_stamp)) == 7 and
+	 os.date("%Y-%m-%d", future_stamp) == "2039-01-02" then
+	n = n + 1
+      end
 
       -- Use a midday timestamp and valid 1..50 seconds so Windows local-time
       -- normalization cannot turn this into a timezone or DST edge test.
@@ -2031,7 +2043,7 @@ do
       if (os.getenv("PATH") ~= nil) == path_present then n = n + 1 end
       if type(os.setlocale(nil, "time")) == "string" then n = n + 1 end
     end
-    assert(n == 560)
+    assert(n == 560 + (future_supported and 80 or 0))
   end, "Lua 5.4 os date/time helpers")
 
   assert_records_trace(function()

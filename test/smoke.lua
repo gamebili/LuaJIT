@@ -4768,6 +4768,19 @@ do
   local stamp = os.time({ year = 2020, month = 5, day = 7,
 			  hour = 12, min = 34, sec = 56 })
   assert(math.type(stamp) == "integer")
+  do
+    local future = { year = 2039, month = 1, day = 2,
+		     hour = 12, min = 34, sec = 56, isdst = false }
+    local future_ok, future_stamp = pcall(os.time, future)
+    if future_ok then
+      assert(math.type(future_stamp) == "integer")
+      assert(future_stamp > 2147483647)
+      assert(os.difftime(future_stamp + 7, future_stamp) == 7)
+      assert(os.difftime(tostring(future_stamp + 7),
+			 tostring(future_stamp)) == 7)
+      assert(os.date("%Y-%m-%d", future_stamp) == "2039-01-02")
+    end
+  end
   local normalized = { year = 2005, month = 1, day = 1, hour = 1, min = 0, sec = -3602 }
   os.time(normalized)
   assert(normalized.day == 31 and normalized.month == 12 and

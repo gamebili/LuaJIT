@@ -596,6 +596,12 @@ local os_time_stamp = os.time({
   year = 2020, month = 5, day = 7, hour = 12, min = 34, sec = 56
 })
 assert(math.type(os_time_stamp) == "integer")
+local os_future_fields = {
+  year = 2039, month = 1, day = 2, hour = 12, min = 34, sec = 56,
+  isdst = false
+}
+local os_future_ok, os_future_stamp = pcall(os.time, os_future_fields)
+local os_future_supported = os_future_ok and os_future_stamp > 2147483647
 local os_path_present = os.getenv("PATH") ~= nil
 
 local function os_helpers(n)
@@ -607,6 +613,13 @@ local function os_helpers(n)
     end
     if os.date("!\0\0", os_time_stamp) == "\0\0" then sum = sum + 1 end
     if os.difftime(os_time_stamp + 7, os_time_stamp) == 7 then
+      sum = sum + 1
+    end
+    if os_future_supported and math.type(os_future_stamp) == "integer" and
+       os.difftime(os_future_stamp + 7, os_future_stamp) == 7 and
+       os.difftime(tostring(os_future_stamp + 7),
+		   tostring(os_future_stamp)) == 7 and
+       os.date("%Y-%m-%d", os_future_stamp) == "2039-01-02" then
       sum = sum + 1
     end
 
@@ -1373,7 +1386,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   assert(r_many_upvalue == iter_n)
 
   local _, r_os = timeit(mode_name..":os_helpers", os_helpers, iter_n)
-  assert(r_os == iter_n * 12)
+  assert(r_os == iter_n * (12 + (os_future_supported and 1 or 0)))
 
   local _, r_io = timeit(mode_name..":io_helpers", io_helpers, iter_n)
   assert(r_io == iter_n * 9)

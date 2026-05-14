@@ -108,12 +108,14 @@ static time_t os_checktime_named54(lua_State *L, int narg, const char *fname)
   if (o >= L->top)
     os_argtype_named54(L, narg, fname, "number");
   if (tvisstr(o)) {
-    if (!lj_strscan_number(strV(o), &tmp))
+    if (!lj_strscan_number54(L, strV(o), &tmp))
       os_argtype_named54(L, narg, fname, "number");
     o = &tmp;
   }
   if (tvisint(o)) {
     k = (int64_t)intV(o);
+  } else if (tvisi64(o)) {
+    k = (int64_t)i64V(o);
   } else if (tvisnum(o)) {
     lua_Number n = numV(o);
     if (!(n >= (lua_Number)INT64_MIN && n < -((lua_Number)INT64_MIN)))
@@ -626,12 +628,13 @@ LJLIB_CF(os_time)
     lua_pushnil(L);
 #endif
 #if LJ_54
-  /* Lua 5.4 returns os.time() as an integer.  The current compat runtime still
-  ** has a 32-bit integer subtype, so setint64V keeps in-range timestamps as
-  ** integers and falls back to number for values that need the larger surface.
+  /* Lua 5.4 returns os.time() as an integer, including timestamps outside the
+  ** legacy 32-bit TValue integer range.
   */
-  else
-    setint64V(L->top++, (int64_t)t);
+  else {
+    lj_obj_setint64(L, L->top, (int64_t)t);
+    L->top++;
+  }
 #else
   else
     lua_pushnumber(L, (lua_Number)t);
