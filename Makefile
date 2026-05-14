@@ -272,6 +272,8 @@ smoketest-capi-lua54compat: smoketest-lua54compat
 	rm -f src/lua54_lua_guard_smoke.o
 	gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -I src -c test/lua54_lauxlib_header_smoke.c -o src/lua54_lauxlib_header_smoke.o
 	rm -f src/lua54_lauxlib_header_smoke.o
+	gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -I src -c test/lua54_lauxlib_core_header_smoke.c -o src/lua54_lauxlib_core_header_smoke.o
+	rm -f src/lua54_lauxlib_core_header_smoke.o
 	gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -I src -c test/lua54_lauxlib_guard_smoke.c -o src/lua54_lauxlib_guard_smoke.o
 	rm -f src/lua54_lauxlib_guard_smoke.o
 	gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -I src -c test/lua54_lualib_header_smoke.c -o src/lua54_lualib_header_smoke.o
