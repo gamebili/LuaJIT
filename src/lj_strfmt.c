@@ -1040,8 +1040,18 @@ const char *lj_strfmt_pushvf(lua_State *L, const char *fmt, va_list argp)
 #if LJ_54
       if (strfmt_pushf_conv_lua54(L, &fs) != 'p')
 	strfmt_pushf_bad_lua54(L, &fs);
-#endif
+      {
+	char pbuf[4 * sizeof(void *) + 8];
+	int len = snprintf(pbuf, sizeof(pbuf), "%p", va_arg(argp, void *));
+	if (len < 0)
+	  len = 0;
+	else if ((size_t)len >= sizeof(pbuf))
+	  len = (int)sizeof(pbuf) - 1;
+	lj_buf_putmem(sb, pbuf, (MSize)len);
+      }
+#else
       lj_strfmt_putptr(sb, va_arg(argp, void *));
+#endif
       break;
     case STRFMT_ERR:
 #if LJ_54

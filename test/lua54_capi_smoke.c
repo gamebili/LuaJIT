@@ -2501,6 +2501,17 @@ static void test_stack_and_number_api(lua_State *L)
 	   strcmp(ret, "i=-123 u=\xe2\x82\xac f=1.0 d=7 c=A s=ok %") == 0,
 	"lua_pushfstring Lua 5.4 formats");
   lua_pop(L, 1);
+  {
+    const void *ptr = (const void *)0x1234;
+    char want[64];
+    int wantlen = snprintf(want, sizeof(want), "ptr=%p", ptr);
+    check(L, wantlen > 0 && wantlen < (int)sizeof(want),
+	  "lua_pushfstring pointer expected string");
+    ret = lua_pushfstring(L, "ptr=%p", ptr);
+    check(L, ret != NULL && strcmp(ret, want) == 0,
+	  "lua_pushfstring uses Lua 5.4 C pointer format");
+    lua_pop(L, 1);
+  }
   if (sizeof(lua_Integer) > sizeof(int)) {
     lua_Integer big40 = (lua_Integer)1024 * 1024 * 1024 * 1024;
     ret = lua_pushfstring(L, "big=%I", big40);
