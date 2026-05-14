@@ -2578,6 +2578,12 @@ static void test_stack_and_number_api(lua_State *L)
       lua_integer2str(ibuf, sizeof(ibuf), big40);
       check(L, strcmp(ibuf, "1099511627776") == 0,
 	    "lua_integer2str keeps wider 64-bit C integer width");
+      lua_integer2str(ibuf, sizeof(ibuf), LUA_MAXINTEGER);
+      check(L, strcmp(ibuf, "9223372036854775807") == 0,
+	    "lua_integer2str keeps LUA_MAXINTEGER");
+      lua_integer2str(ibuf, sizeof(ibuf), LUA_MININTEGER);
+      check(L, strcmp(ibuf, "-9223372036854775808") == 0,
+	    "lua_integer2str keeps LUA_MININTEGER");
     }
     check(L, LUA_MAXUNSIGNED == (lua_Unsigned)~(lua_Unsigned)0,
 	  "LUA_MAXUNSIGNED");
@@ -2622,6 +2628,28 @@ static void test_stack_and_number_api(lua_State *L)
     lua_pushliteral(L, "1099511627776");
     check(L, lua_tointegerx(L, -1, &ok) == big40 && ok,
 	  "lua_tointegerx accepts wider exact 64-bit string integer");
+    lua_pop(L, 1);
+    lua_pushinteger(L, LUA_MAXINTEGER);
+    check(L, lua_isinteger(L, -1), "lua_isinteger accepts LUA_MAXINTEGER");
+    check(L, lua_tointegerx(L, -1, &ok) == LUA_MAXINTEGER && ok,
+	  "lua_tointegerx accepts pushed LUA_MAXINTEGER");
+    lua_pop(L, 1);
+    lua_pushinteger(L, LUA_MININTEGER);
+    check(L, lua_isinteger(L, -1), "lua_isinteger accepts LUA_MININTEGER");
+    check(L, lua_tointegerx(L, -1, &ok) == LUA_MININTEGER && ok,
+	  "lua_tointegerx accepts pushed LUA_MININTEGER");
+    lua_pop(L, 1);
+    lua_pushliteral(L, "9223372036854775807");
+    check(L, lua_tointegerx(L, -1, &ok) == LUA_MAXINTEGER && ok,
+	  "lua_tointegerx accepts string LUA_MAXINTEGER");
+    lua_pop(L, 1);
+    lua_pushliteral(L, "-9223372036854775808");
+    check(L, lua_tointegerx(L, -1, &ok) == LUA_MININTEGER && ok,
+	  "lua_tointegerx accepts string LUA_MININTEGER");
+    lua_pop(L, 1);
+    lua_pushliteral(L, "9223372036854775808");
+    check(L, lua_tointegerx(L, -1, &ok) == 0 && !ok,
+	  "lua_tointegerx rejects string above LUA_MAXINTEGER");
     lua_pop(L, 1);
   }
 
@@ -3572,17 +3600,40 @@ static void test_compare_len_arith(lua_State *L)
     check_integer(L, -1, big40 + 3,
 		  "lua_arith preserves wider 64-bit add result");
     lua_pop(L, 1);
+    lua_pushinteger(L, LUA_MAXINTEGER);
+    lua_pushinteger(L, 1);
+    lua_arith(L, LUA_OPADD);
+    check_integer(L, -1, LUA_MININTEGER,
+		  "lua_arith wraps LUA_MAXINTEGER add result");
+    lua_pop(L, 1);
+    lua_pushinteger(L, LUA_MININTEGER);
+    lua_pushinteger(L, 1);
+    lua_arith(L, LUA_OPSUB);
+    check_integer(L, -1, LUA_MAXINTEGER,
+		  "lua_arith wraps LUA_MININTEGER subtract result");
+    lua_pop(L, 1);
     lua_pushinteger(L, big40 + 7);
     lua_pushinteger(L, 4);
     lua_arith(L, LUA_OPIDIV);
     check_integer(L, -1, (big40 + 7) / 4,
 		  "lua_arith preserves wider 64-bit idiv result");
     lua_pop(L, 1);
+    lua_pushinteger(L, LUA_MININTEGER);
+    lua_pushinteger(L, -1);
+    lua_arith(L, LUA_OPIDIV);
+    check_integer(L, -1, LUA_MININTEGER,
+		  "lua_arith wraps LUA_MININTEGER idiv by -1");
+    lua_pop(L, 1);
     lua_pushinteger(L, big40 + 7);
     lua_pushinteger(L, 4);
     lua_arith(L, LUA_OPMOD);
     check_integer(L, -1, 3,
 		  "lua_arith preserves wider 64-bit mod result");
+    lua_pop(L, 1);
+    lua_pushinteger(L, LUA_MININTEGER);
+    lua_pushinteger(L, -1);
+    lua_arith(L, LUA_OPMOD);
+    check_integer(L, -1, 0, "lua_arith LUA_MININTEGER mod by -1");
     lua_pop(L, 1);
     lua_pushliteral(L, "9007199254740993");
     lua_pushinteger(L, 0);
@@ -3648,6 +3699,11 @@ static void test_compare_len_arith(lua_State *L)
     lua_arith(L, LUA_OPBNOT);
     check_integer(L, -1, (lua_Integer)~(lua_Unsigned)big40,
 		  "lua_arith preserves wider 64-bit bnot result");
+    lua_pop(L, 1);
+    lua_pushinteger(L, LUA_MAXINTEGER);
+    lua_arith(L, LUA_OPBNOT);
+    check_integer(L, -1, LUA_MININTEGER,
+		  "lua_arith bnot handles LUA_MAXINTEGER");
     lua_pop(L, 1);
   }
 
