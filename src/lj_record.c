@@ -652,6 +652,12 @@ static int rec_for_allint(cTValue *tv)
   return tvisint(&tv[FORL_IDX]) && tvisint(&tv[FORL_STOP]) &&
 	 tvisint(&tv[FORL_STEP]);
 }
+
+static int rec_for_hasi64(cTValue *tv)
+{
+  return tvisi64(&tv[FORL_IDX]) || tvisi64(&tv[FORL_STOP]) ||
+	 tvisi64(&tv[FORL_STEP]);
+}
 #endif
 
 /* Return the direction of the FOR loop iterator.
@@ -727,6 +733,8 @@ static void rec_for_loop(jit_State *J, const BCIns *fori, ScEvEntry *scev,
   cTValue *tv = &J->L->base[ra];
   TRef idx = J->base[ra+FORL_IDX];
 #if LJ_54 && LJ_DUALNUM
+  if (rec_for_hasi64(tv))
+    lj_trace_err(J, LJ_TRERR_GFAIL);
   int intmode = rec_for_lua54_intmode(tv);
   IRType t = idx ? tref_type(idx) :
 	     intmode ? lj_opt_narrow_forl(J, tv) : IRT_NUM;
@@ -785,6 +793,10 @@ static LoopEvent rec_for(jit_State *J, const BCIns *fori, int isforl)
   TRef stop;
   IRType t;
   /* Avoid semantic mismatches and always failing guards. */
+#if LJ_54 && LJ_DUALNUM
+  if (rec_for_hasi64(tv))
+    lj_trace_err(J, LJ_TRERR_GFAIL);
+#endif
   if ((tvisnum(&tv[FORL_IDX]) && tvisnan(&tv[FORL_IDX])) ||
       (tvisnum(&tv[FORL_STOP]) && tvisnan(&tv[FORL_STOP])) ||
       (tvisnum(&tv[FORL_STEP]) && tvisnan(&tv[FORL_STEP])) ||

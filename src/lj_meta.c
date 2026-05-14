@@ -898,6 +898,63 @@ int lj_meta_call(lua_State *L, TValue *func, TValue *top)
 }
 
 /* Helper for FORI. Coercion. */
+#if LJ_54
+static int meta_for_ivalue(cTValue *o, int64_t *ip)
+{
+  if (tvisint(o)) {
+    *ip = (int64_t)intV(o);
+    return 1;
+  } else if (tvisi64(o)) {
+    *ip = i64V(o);
+    return 1;
+  }
+  return 0;
+}
+
+static void meta_for_tonum(TValue *o)
+{
+  if (tvisint(o))
+    setnumV(o, (lua_Number)intV(o));
+  else if (tvisi64(o))
+    setnumV(o, (lua_Number)i64V(o));
+}
+
+static void meta_for_forcei64(lua_State *L, TValue *o, int64_t i)
+{
+  GCint64 *i64;
+  lj_gc_check(L);
+  i64 = lj_obj_newint64(L, i);
+  seti64V(L, o, i64);
+}
+
+static int meta_for_limiti64(lua_State *L, TValue *o, int64_t step)
+{
+  int64_t i;
+  if (meta_for_ivalue(o, &i))
+    return 1;
+  if (tvisnum(o)) {
+    lua_Number n = numV(o);
+    lua_Number ni = step < 0 ? -lj_vm_floor(-n) : lj_vm_floor(n);
+    if (ni >= (-9223372036854775807.0 - 1.0) &&
+	ni < 9223372036854775808.0) {
+      i = lj_num2i64(ni);
+      if ((lua_Number)i == ni) {
+	lj_obj_setint64(L, o, i);
+	return 1;
+      }
+    }
+    if (n > 0 && step > 0) {
+      lj_obj_setint64(L, o, (int64_t)9223372036854775807LL);
+      return 1;
+    } else if (n < 0 && step < 0) {
+      lj_obj_setint64(L, o, (int64_t)(-9223372036854775807LL - 1LL));
+      return 1;
+    }
+  }
+  return 0;
+}
+#endif
+
 void LJ_FASTCALL lj_meta_for(lua_State *L, TValue *o)
 {
 #if LJ_54
@@ -917,29 +974,27 @@ void LJ_FASTCALL lj_meta_for(lua_State *L, TValue *o)
     ** are tagged integers. A float limit is rounded toward the loop direction,
     ** but a float init/step must keep the loop variable floating.
     */
-    if (!initstr && !stepstr && tvisint(o) && tvisint(o+2)) {
-      if (!tvisint(o+1)) {
-	lua_Number n = numV(o+1);
-	lua_Number ni = intV(o+2) < 0 ? -lj_vm_floor(-n) : lj_vm_floor(n);
-	if (ni >= -2147483648.0 && ni <= 2147483647.0)
-	  setintV(o+1, (int32_t)ni);
-	else if (n > 0 && intV(o+2) > 0)
-	  setintV(o+1, 2147483647);
-	else if (n < 0 && intV(o+2) < 0)
-	  setintV(o+1, (int32_t)0x80000000u);
-	else {
-	  /* Out-of-range float limits on the opposite side must make the loop
-	  ** skip. Widening lets the existing float FORI comparison decide that
-	  ** without inventing a sentinel integer outside the current TValue range.
-	  */
-	  setnumV(o, (lua_Number)intV(o));
-	  setnumV(o+2, (lua_Number)intV(o+2));
-	}
+    int64_t init, step;
+    if (!initstr && !stepstr &&
+	meta_for_ivalue(o, &init) && meta_for_ivalue(o+2, &step)) {
+      UNUSED(init);
+      if (!meta_for_limiti64(L, o+1, step)) {
+	/* Out-of-range float limits on the opposite side must make the loop
+	** skip. Widening lets the existing float FORI comparison decide that
+	** without inventing a sentinel integer outside the TValue range.
+	*/
+	meta_for_tonum(o);
+	meta_for_tonum(o+2);
+      } else if (tvisi64(o) || tvisi64(o+1) || tvisi64(o+2)) {
+	/* The VM dispatches the boxed int64 FORI/FORL helper from the index
+	** tag. If only the limit or step is boxed, promote the index too.
+	*/
+	meta_for_forcei64(L, o, init);
       }
     } else {
-      if (tvisint(o)) setnumV(o, (lua_Number)intV(o));
-      if (tvisint(o+1)) setnumV(o+1, (lua_Number)intV(o+1));
-      if (tvisint(o+2)) setnumV(o+2, (lua_Number)intV(o+2));
+      meta_for_tonum(o);
+      meta_for_tonum(o+1);
+      meta_for_tonum(o+2);
     }
 #else
     /* Ensure all slots are integers or all slots are numbers. */
@@ -968,22 +1023,10 @@ void LJ_FASTCALL lj_meta_for(lua_State *L, TValue *o)
 }
 
 #if LJ_54
-static int meta_for_ivalue(cTValue *o, int64_t *ip)
-{
-  if (tvisint(o)) {
-    *ip = (int64_t)intV(o);
-    return 1;
-  } else if (tvisi64(o)) {
-    *ip = i64V(o);
-    return 1;
-  }
-  return 0;
-}
-
 static void meta_for_setidx(lua_State *L, TValue *o, int64_t i)
 {
   if (tvisi64(o))
-    gco2i64(gcV(o))->i = i;
+    meta_for_forcei64(L, o, i);
   else
     lj_obj_setint64(L, o, i);
 }
@@ -1003,7 +1046,7 @@ int lj_meta_fori64(lua_State *L, TValue *o, int isforl)
     overflow = step > 0 ? idx < oldidx : idx > oldidx;
     meta_for_setidx(L, &o[FORL_IDX], idx);
   } else if (tvisi64(&o[FORL_IDX])) {
-    lj_obj_setint64(L, &o[FORL_IDX], idx);
+    meta_for_setidx(L, &o[FORL_IDX], idx);
   }
   if (overflow) {
     ok = 0;

@@ -1806,6 +1806,27 @@ for i = 1, "x" do end]], "bad 'for' limit", "got string"):match(":2:", 1, true) 
   assert(fortypes(1, "3", 1) == "integer:1,integer:2,integer:3")
   assert(fortypes(1, 3, "1") == "float:1.0,float:2.0,float:3.0")
   assert(fortypes("0x1", "0x3") == "float:1.0,float:2.0,float:3.0")
+  local cross32_for = {}
+  for i = 2147483646, 2147483648 do
+    cross32_for[#cross32_for+1] = math.type(i)..":"..tostring(i)
+    assert(#cross32_for <= 4)
+  end
+  assert(table.concat(cross32_for, ",") ==
+	 "integer:2147483646,integer:2147483647,integer:2147483648")
+  cross32_for = {}
+  for i = 2147483648, 2147483646, -1 do
+    cross32_for[#cross32_for+1] = math.type(i)..":"..tostring(i)
+    assert(#cross32_for <= 4)
+  end
+  assert(table.concat(cross32_for, ",") ==
+	 "integer:2147483648,integer:2147483647,integer:2147483646")
+  local float_i64_limit = {}
+  for i = 2147483646.0, 2147483648, 1.0 do
+    float_i64_limit[#float_i64_limit+1] = math.type(i)..":"..tostring(i)
+    assert(#float_i64_limit <= 4)
+  end
+  assert(table.concat(float_i64_limit, ",") ==
+	 "float:2147483646.0,float:2147483647.0,float:2147483648.0")
   local boxed_for = {}
   for i = 2147483648, 2147483650 do
     boxed_for[#boxed_for+1] = i
