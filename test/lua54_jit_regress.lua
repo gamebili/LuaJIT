@@ -1996,9 +1996,13 @@ do
       if found == nil and err == "no file ''" then
 	n = n + 1
       end
+      found, err = package.searchpath(1099511627776, "?.lua")
+      if found == nil and err:find("1099511627776.lua", 1, true) then
+	n = n + 1
+      end
     end
-    assert(n == 160)
-  end, "Lua 5.4 package.searchpath empty template")
+    assert(n == 240)
+  end, "Lua 5.4 package.searchpath string coercion")
 end
 
 do
@@ -2019,6 +2023,7 @@ do
       if math.type(stamp) == "integer" then n = n + 1 end
       if os.date("%Y-%m-%d", stamp) == "2020-05-07" then n = n + 1 end
       if os.date("!\0\0", stamp) == "\0\0" then n = n + 1 end
+      if os.date(1099511627776, stamp) == "1099511627776" then n = n + 1 end
       if os.difftime(stamp + 7, stamp) == 7 then n = n + 1 end
       if future_supported and math.type(future_stamp) == "integer" and
 	 os.difftime(future_stamp + 7, future_stamp) == 7 and
@@ -2043,7 +2048,7 @@ do
       if (os.getenv("PATH") ~= nil) == path_present then n = n + 1 end
       if type(os.setlocale(nil, "time")) == "string" then n = n + 1 end
     end
-    assert(n == 560 + (future_supported and 80 or 0))
+    assert(n == 640 + (future_supported and 80 or 0))
   end, "Lua 5.4 os date/time helpers")
 
   assert_records_trace(function()

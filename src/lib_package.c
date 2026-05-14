@@ -77,7 +77,7 @@ static const char *package_checkstr_named54(lua_State *L, int narg,
   if (o < L->top) {
     if (tvisstr(o)) {
       return strdata(strV(o));
-    } else if (tvisnumber(o)) {
+    } else if (tvisnumber(o) || tvisi64(o)) {
       GCstr *s = lj_strfmt_number(L, o);
       setstrV(L, o, s);
       return strdata(s);

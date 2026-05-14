@@ -4333,6 +4333,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  add PC, 4
     |.if DUALNUM
     |  cmp RB, LJ_TISNUM; jne >7
+#if LJ_54
+    |  cmp dword [KBASE+RD*8+4], LJ_TINT64; je ->vmeta_equal_i64
+#endif
     |  cmp dword [KBASE+RD*8+4], LJ_TISNUM; jne >8
     |  mov RB, dword [KBASE+RD*8]
     |  cmp RB, dword [BASE+RA*8]
@@ -4352,6 +4355,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
 #endif
     |  ja >3
     |  // RA is a number.
+#if LJ_54
+    |  cmp dword [KBASE+RD*8+4], LJ_TINT64; je ->vmeta_equal_i64
+#endif
     |  cmp dword [KBASE+RD*8+4], LJ_TISNUM; jb >1
     |  // RA is a number, RD is an integer.
     |  cvtsi2sd xmm0, dword [KBASE+RD*8]

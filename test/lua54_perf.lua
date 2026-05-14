@@ -545,6 +545,11 @@ local function package_helpers(n)
     if found == nil and searcherr == "no file ''" then
       sum = sum + 1
     end
+
+    found, searcherr = package.searchpath(1099511627776, "?.lua")
+    if found == nil and searcherr:find("1099511627776.lua", 1, true) then
+      sum = sum + 1
+    end
   end
 
   package.loaded.__lua54_perf_loaded = nil
@@ -612,6 +617,9 @@ local function os_helpers(n)
       sum = sum + 1
     end
     if os.date("!\0\0", os_time_stamp) == "\0\0" then sum = sum + 1 end
+    if os.date(1099511627776, os_time_stamp) == "1099511627776" then
+      sum = sum + 1
+    end
     if os.difftime(os_time_stamp + 7, os_time_stamp) == 7 then
       sum = sum + 1
     end
@@ -897,6 +905,8 @@ local function number_string_helpers(n)
     if tostring(1.0) == "1.0" then sum = sum + 1 end
     if ("x" .. 1.0) == "x1.0" then sum = sum + 1 end
     if table.concat(concat_numbers, ",") == "1.0,2,3.5" then sum = sum + 1 end
+    if table.concat({ "a", "b" }, 1099511627776) ==
+       "a1099511627776b" then sum = sum + 1 end
   end
   return sum
 end
@@ -1375,7 +1385,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_package = timeit(mode_name..":package_helpers",
 			      package_helpers, iter_n)
-  assert(r_package == iter_n * 5)
+  assert(r_package == iter_n * 6)
 
   local _, r_debug = timeit(mode_name..":debug_helpers",
 			    debug_helpers, iter_n)
@@ -1386,7 +1396,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   assert(r_many_upvalue == iter_n)
 
   local _, r_os = timeit(mode_name..":os_helpers", os_helpers, iter_n)
-  assert(r_os == iter_n * (12 + (os_future_supported and 1 or 0)))
+  assert(r_os == iter_n * (13 + (os_future_supported and 1 or 0)))
 
   local _, r_io = timeit(mode_name..":io_helpers", io_helpers, iter_n)
   assert(r_io == iter_n * 9)
@@ -1397,7 +1407,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_number_string = timeit(mode_name..":number_string_helpers",
 				    number_string_helpers, iter_n)
-  assert(r_number_string == iter_n * 4)
+  assert(r_number_string == iter_n * 5)
 
   local _, r_random = timeit(mode_name..":random_helpers",
 			     random_helpers, iter_n)

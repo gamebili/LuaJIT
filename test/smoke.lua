@@ -2313,6 +2313,12 @@ assert(math.tointeger("12") == 12)
 assert(math.tointeger(12.0) == 12)
 assert(math.tointeger(12.5) == nil)
 assert(math.tointeger(2147483648) == 2147483648)
+do
+  local f64 = 1099511627776.0
+  assert(f64 == 1099511627776)
+  assert(not (f64 ~= 1099511627776))
+end
+assert(table.concat({ "a", "b" }, 1099511627776) == "a1099511627776b")
 assert(math.ult(1, 2) == true)
 assert(math.ult(2, 1) == false)
 assert(math.ult(1, -1) == true)
@@ -4142,6 +4148,10 @@ do
   assert(found == nil)
   assert(not searcherr:match("^\n\t"))
   assert(searcherr:match("\n\tno file") ~= nil)
+  found, searcherr = package.searchpath(1099511627776, "?.lua")
+  assert(found == nil and searcherr:find("1099511627776.lua", 1, true) ~= nil)
+  found, searcherr = package.searchpath("__lua54_missing__", 1099511627776)
+  assert(found == nil and searcherr:find("1099511627776", 1, true) ~= nil)
   local empty_found, empty_err = package.searchpath("__lua54_missing__", "?.lua;;")
   assert(empty_found == nil and empty_err:match("no file ''", 1, true) ~= nil)
   local no_path_found, no_path_err = package.searchpath("__lua54_missing__", "")
@@ -4654,6 +4664,7 @@ end
 do
   assert(os.date("") == "")
   assert(os.date("!") == "")
+  assert(os.date(1099511627776, 0) == "1099511627776")
   assert(os.date("\0\0") == "\0\0")
   assert(os.date("!\0\0") == "\0\0")
   do
@@ -4958,6 +4969,10 @@ assert(assert(load([[
   ok, err = pcall(io.popen, "lua54", true)
   assert(ok == false and tostring(err):find("to 'io.popen'", 1, true) and
 	 tostring(err):find("string expected", 1, true))
+  do
+    local nf, nerr = io.open(1099511627776, "r")
+    assert(nf == nil and tostring(nerr):find("1099511627776", 1, true))
+  end
   ok, err = pcall(io.read, {})
   assert(ok == false and tostring(err):find("bad argument #1 to 'io.read'",
 					    1, true) and
@@ -5012,6 +5027,8 @@ assert(assert(load([[
     local f <close> = assert(io.open(fname, "w+"))
     f:write("abcdef")
     assert(f:seek("set", "2") == 2)
+    local pos = f:seek("set", 1099511627776)
+    assert(pos == 1099511627776 and math.type(pos) == "integer")
     -- Lua 5.4 requires seek offsets to be exact integers.  The compat path
     -- must not silently truncate fraction numbers or numeric strings.
     local ok, err = pcall(function() return f:seek("set", 1.5) end)

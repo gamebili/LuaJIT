@@ -217,7 +217,7 @@ static GCstr *io_checkstr_named54(lua_State *L, int narg, const char *fname)
   if (o < L->top) {
     if (tvisstr(o)) {
       return strV(o);
-    } else if (tvisnumber(o)) {
+    } else if (tvisnumber(o) || tvisi64(o)) {
       GCstr *s = lj_strfmt_number(L, o);
       setstrV(L, o, s);
       return s;
@@ -287,12 +287,14 @@ static int64_t io_checkseekofs54(lua_State *L)
   if (o >= L->top || tvisnil(o))
     return 0;
   if (tvisstr(o)) {
-    if (!lj_strscan_number(strV(o), &tmp))
+    if (!lj_strscan_number54(L, strV(o), &tmp))
       io_seekargtype54(L, "number");
     o = &tmp;
   }
   if (tvisint(o)) {
     return (int64_t)intV(o);
+  } else if (tvisi64(o)) {
+    return (int64_t)i64V(o);
   } else if (tvisnum(o)) {
     lua_Number n = numV(o);
     int64_t k;
@@ -326,12 +328,14 @@ static size_t io_checksetvbufsize54(lua_State *L)
   if (o >= L->top || tvisnil(o))
     return LUAL_BUFFERSIZE;
   if (tvisstr(o)) {
-    if (!lj_strscan_number(strV(o), &tmp))
+    if (!lj_strscan_number54(L, strV(o), &tmp))
       io_setvbufargtype54(L, "number");
     o = &tmp;
   }
   if (tvisint(o)) {
     k = (int64_t)intV(o);
+  } else if (tvisi64(o)) {
+    k = (int64_t)i64V(o);
   } else if (tvisnum(o)) {
     lua_Number n = numV(o);
     /* setvbuf's size is also a Lua 5.4 integer parameter. Reject fractions
@@ -359,6 +363,8 @@ static MSize io_checkreadlen54(lua_State *L, int cidx, int narg)
   lua_Number n;
   if (tvisint(o))
     return (MSize)intV(o);
+  if (tvisi64(o))
+    return (MSize)i64V(o);
   n = numV(o);
   /* Numeric read lengths are lua_Integer values in Lua 5.4.  Preserve the
   ** legacy negative-size path for now, but reject fractions before they are
@@ -548,7 +554,7 @@ static int io_file_read(lua_State *L, IOFileUD *iof, int start,
 #else
 	  lj_err_arg(L, n+1, LJ_ERR_INVFMT);
 #endif
-      } else if (tvisnumber(L->base+n)) {
+      } else if (tvisnumber(L->base+n) || tvisi64(L->base+n)) {
 #if LJ_54
 	ok = io_file_readlen(L, fp, io_checkreadlen54(L, n+1,
 						      n+1-argshift));
@@ -804,7 +810,7 @@ LJLIB_CF(io_method_seek)
 #else
   ofs = (int64_t)ftell(fp);
 #endif
-  setint64V(L->top-1, ofs);
+  lj_obj_setint64(L, L->top-1, ofs);
   return 1;
 }
 
@@ -969,7 +975,7 @@ static int io_std_getset(lua_State *L, ptrdiff_t id, const char *mode
       /* Lua 5.4 accepts file handles or path strings here; other objects must
       ** report the FILE* expectation so __name-based diagnostics stay intact.
       */
-      if (!tvisstr(L->base) && !tvisnumber(L->base))
+      if (!tvisstr(L->base) && !tvisnumber(L->base) && !tvisi64(L->base))
 	io_argtype54(L, fname, 1, LUA_FILEHANDLE);
       (void)io_checkstr_named54(L, 1, fname);
 #endif

@@ -3684,11 +3684,19 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |7:  // RA is not an integer.
 #if LJ_54
-    |  cmp ITYPEd, LJ_TINT64; je >5
+    |  cmp ITYPEd, LJ_TINT64; jne >6
+    |  mov RD, [KBASE+RD*8]
+    |  jmp >5
+    |6:
 #endif
     |  ja >3
     |  // RA is a number.
     |  mov RD, [KBASE+RD*8]
+#if LJ_54
+    |  mov ITYPE, RD
+    |  sar ITYPE, 47
+    |  cmp ITYPEd, LJ_TINT64; je >5
+#endif
     |  checkint RD, >1
     |  // RA is a number, RD is an integer.
     |  cvtsi2sd xmm0, RDd
@@ -3700,8 +3708,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  ucomisd xmm0, xmm1
     |  jmp >4
 #if LJ_54
-    |5:  // RA is a boxed int64, RD is a numeric constant.
-    |  mov RD, [KBASE+RD*8]
+    |5:  // RA is a number or boxed int64, RD is a numeric constant.
     |.if X64WIN
     |  mov CARG1, RB
     |  mov RB, BASE
