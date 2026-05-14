@@ -2300,6 +2300,9 @@ end
 assert(math.maxinteger == 9223372036854775807)
 assert(math.mininteger == -9223372036854775808)
 assert(math.maxinteger > 0 and math.mininteger < 0)
+assert(0x7fffffffffffffff == math.maxinteger)
+assert(0x8000000000000000 == math.mininteger)
+assert(0xffffffffffffffff == -1)
 assert(9223372036854775807 + 1 == math.mininteger)
 assert(math.type(9223372036854775807 + 1) == "integer")
 assert(0x8000000000000000 - 1 == math.maxinteger)
@@ -2313,11 +2316,20 @@ assert(math.tointeger("12") == 12)
 assert(math.tointeger(12.0) == 12)
 assert(math.tointeger(12.5) == nil)
 assert(math.tointeger(2147483648) == 2147483648)
+assert(math.tointeger("9223372036854775807") == math.maxinteger)
+assert(math.tointeger("-9223372036854775808") == math.mininteger)
+assert(math.tointeger("9223372036854775808") == nil)
+assert(math.tointeger("-9223372036854775809") == math.mininteger)
 do
   local f64 = 1099511627776.0
   assert(f64 == 1099511627776)
   assert(not (f64 ~= 1099511627776))
+  assert(9223372036854775807.0 > math.maxinteger)
 end
+assert(string.format("%d", math.maxinteger) == "9223372036854775807")
+assert(string.format("%d", math.mininteger) == "-9223372036854775808")
+assert(string.format("%u", -1) == "18446744073709551615")
+assert(string.format("%x", -1) == "ffffffffffffffff")
 assert(table.concat({ "a", "b" }, 1099511627776) == "a1099511627776b")
 assert(math.ult(1, 2) == true)
 assert(math.ult(2, 1) == false)
@@ -4044,6 +4056,12 @@ do
   local j_size = string.packsize("j")
   assert(j_size == (math.maxinteger > 0x7fffffff and 8 or 4))
   assert(string.packsize("jT") == j_size + string.packsize("T"))
+  do
+    local a, apos = string.unpack("<j", string.pack("<j", math.maxinteger))
+    local b, bpos = string.unpack("<j", string.pack("<j", math.mininteger))
+    assert(a == math.maxinteger and b == math.mininteger)
+    assert(apos == j_size + 1 and bpos == j_size + 1)
+  end
   do
     local a, b, pos = string.unpack("<jT", string.pack("<jT", -2, 5))
     assert(a == -2 and b == 5 and pos == j_size + string.packsize("T") + 1)

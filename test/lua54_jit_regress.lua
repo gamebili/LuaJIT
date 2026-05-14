@@ -994,11 +994,21 @@ do
 
   assert_records_trace(function()
     local n = 0
+    local wide = "1099511627776"
+    local max = "9223372036854775807"
+    local over = "9223372036854775808"
     for _ = 1, 80 do
       n = n + assert(math.tointeger("123"))
+      local w = assert(math.tointeger(wide))
+      local m = assert(math.tointeger(max))
+      if w == 1099511627776 and m == math.maxinteger and
+	 math.type(w) == "integer" and math.type(m) == "integer" then
+	n = n + 1
+      end
+      assert(math.tointeger(over) == nil)
       assert(math.tointeger(1.5) == nil)
     end
-    assert(n == 9840)
+    assert(n == 9920)
   end, "Lua 5.4 math.tointeger")
 
   assert_records_trace(function()

@@ -818,6 +818,9 @@ local function number_pack_helpers(n)
   local base16_dynamic_num = 16.0
   local base10_dynamic_string = "10"
   local base16_dynamic_string = "0x10"
+  local tointeger_wide = "1099511627776"
+  local tointeger_max = "9223372036854775807"
+  local tointeger_over = "9223372036854775808"
   local old_numeric = os.setlocale(nil, "numeric")
   assert(os.setlocale("C", "numeric"))
   for _ = 1, n do
@@ -836,6 +839,13 @@ local function number_pack_helpers(n)
     -- locale here so this helper has a deterministic expected count.
     if tonumber(comma_const_input) == nil then sum = sum + 1 end
     sum = sum + assert(math.tointeger("123"))
+    local ti_wide = assert(math.tointeger(tointeger_wide))
+    local ti_max = assert(math.tointeger(tointeger_max))
+    if ti_wide == 1099511627776 and ti_max == math.maxinteger and
+       math.type(ti_wide) == "integer" and math.type(ti_max) == "integer" then
+      sum = sum + 1
+    end
+    if math.tointeger(tointeger_over) == nil then sum = sum + 1 end
     if math.tointeger(1.5) == nil then sum = sum + 1 end
     if math.ult(1, -1) and not math.ult(-1, 1) then sum = sum + 1 end
     local ok_fmod_missing, err_fmod_missing = pcall(math.fmod)
@@ -1405,7 +1415,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_number_pack = timeit(mode_name..":number_pack_helpers",
 				  number_pack_helpers, iter_n)
-  assert(r_number_pack == iter_n * 163)
+  assert(r_number_pack == iter_n * 165)
 
   local _, r_number_string = timeit(mode_name..":number_string_helpers",
 				    number_string_helpers, iter_n)
