@@ -1109,6 +1109,7 @@ static void test_jit_allocator_record_failure(lua_State *L, lua_State *T,
     "end\n";
   int limit;
   int saw_jit_failure = 0;
+  int saw_partial_cleanup = 0;
   int status = luaL_dostring(T,
     "local okjit, jitmod = pcall(require, 'jit')\n"
     "local okopt, jitopt = pcall(require, 'jit.opt')\n"
@@ -1128,6 +1129,9 @@ static void test_jit_allocator_record_failure(lua_State *L, lua_State *T,
 
   for (limit = 1; limit <= 16; limit++) {
     int before_fails;
+    int before_frees;
+    int before_live;
+    int failed;
     status = luaL_dostring(T,
       "local jitmod = require('jit')\n"
       "local jitopt = require('jit.opt')\n"
@@ -1145,6 +1149,8 @@ static void test_jit_allocator_record_failure(lua_State *L, lua_State *T,
     status = lua_pcall(T, 0, 1, 0);
     check(L, status == LUA_OK, "strict allocator JIT probe factory");
 
+    before_live = ctx->live_blocks;
+    before_frees = ctx->frees;
     before_fails = ctx->call_fails;
     ctx->fail_once_alloc = 1;
     ctx->fail_at_alloc = ctx->alloc_requests + limit;
@@ -1156,10 +1162,16 @@ static void test_jit_allocator_record_failure(lua_State *L, lua_State *T,
 	  "JIT allocator failure aborts trace without Lua error");
     check(L, lua_tonumber(T, -1) == (lua_Number)97740,
 	  "JIT allocator failure preserves interpreter result");
-    if (ctx->call_fails > before_fails)
+    failed = ctx->call_fails > before_fails;
+    if (failed)
       saw_jit_failure = 1;
     lua_settop(T, 0);
     lua_gc(T, LUA_GCCOLLECT, 0);
+    lua_gc(T, LUA_GCCOLLECT, 0);
+    if (failed && ctx->frees > before_frees)
+      saw_partial_cleanup = 1;
+    check(L, ctx->live_blocks <= before_live,
+	  "JIT allocator failure does not leak live blocks");
     check(L, ctx->bad_osize == 0,
 	  "JIT allocator failure preserves block sizes");
     check(L, ctx->missing_ptr == 0,
@@ -1176,6 +1188,7 @@ static void test_jit_allocator_record_failure(lua_State *L, lua_State *T,
   check(L, status == LUA_OK, "strict allocator JIT failure reset");
   lua_pop(T, 1);
   check(L, saw_jit_failure, "JIT allocator failure exercised");
+  check(L, saw_partial_cleanup, "JIT allocator failure cleanup exercised");
 }
 
 static void test_state_allocator_api(lua_State *L)
