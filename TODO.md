@@ -104,8 +104,8 @@
   - 当前进展：`LUA_INTEGER_FRMLEN` / `LUA_INTEGER_FMT` / `LUAI_UACINT` 已按 `lua_Integer` 的 `ptrdiff_t` 头文件 ABI 调整，`lua_integer2str()` 在外部 C 侧格式化 `2147483648` 和 `2^40` 这类超 32 位但可由 `lua_Integer` 表示的值时不再截断；这只修正 C 头文件格式 ABI，不代表 VM 已能以 integer subtype 保存该值。
   - 当前进展：`string.pack` / `string.unpack` 的显式 `i8` / `I8` 已桥接到公开 `lua_Integer` 宽度，当前 number 表面可精确表示的 64 位值（例如 `2^40` / `-2^40`）可 roundtrip，`I8` 也保留 unsigned modulo 输入（例如 `-1`）的 8 字节布局；`j` / `J` 默认宽度已跟随当前 `math.maxinteger` 推导出的 bitwise integer 位宽，Lua smoke 固定了 `math.mininteger` / `math.maxinteger` 的 `j` roundtrip 和 `J` 的 unsigned modulo 输入。
   - 当前进展：Lua smoke 已固定 64 位整数字面量边界、`math.tointeger()` 的 `math.mininteger` / `math.maxinteger` / 越界 nil、VM 位运算/整除/比较、`string.pack("j/J")` 默认宽度，以及 `string.format` 的 `maxinteger`/`mininteger` 边界。
-  - 已知差异：`table.unpack` 超大区间边界和剩余 C API runtime 边界仍没有完整 Lua 5.4 64 位整数语义。
-  - 对照结论：官方 `testes/math.lua` / `testes/bitwise.lua` / `testes/strings.lua` / `testes/tpack.lua` 已能按当前 64-bit boxed integer 配置跑通；剩余风险集中在超大 `table.unpack` 区间、剩余 C API runtime 边界，以及各目标平台 ABI/artifact 验证，不能再用单个库函数补丁硬凑。
+  - 已知差异：剩余 C API runtime 边界仍没有完整 Lua 5.4 64 位整数语义。
+  - 对照结论：官方 `testes/math.lua` / `testes/bitwise.lua` / `testes/strings.lua` / `testes/tpack.lua` 已能按当前 64-bit boxed integer 配置跑通；剩余风险集中在剩余 C API runtime 边界，以及各目标平台 ABI/artifact 验证，不能再用单个库函数补丁硬凑。
   - 需要补测试：64 位 `math.random(0)` 全范围和剩余 C API `lua_Integer` 边界。
   - 实现重点：需要统一 TValue 表示、数值转换、字符串扫描、格式化、运算符和库函数的整数路径。
 

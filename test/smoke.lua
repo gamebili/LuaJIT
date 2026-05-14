@@ -95,9 +95,22 @@ do
   })
   n, a, b, c = select("#", table.unpack(proxy)), table.unpack(proxy)
   assert(n == 3 and a == "1" and b == "2" and c == "3")
+  local wide_proxy = setmetatable({}, {
+    __index = function(_, k) return k end,
+  })
+  n, a, b = select("#", table.unpack(wide_proxy, -1099511627776,
+				     -1099511627775)),
+	    table.unpack(wide_proxy, -1099511627776, -1099511627775)
+  assert(n == 2 and a == -1099511627776 and b == -1099511627775)
+  assert(math.type(a) == "integer" and math.type(b) == "integer")
+  assert(select("#", table.unpack({}, math.maxinteger, math.mininteger)) == 0)
+  local ok, err = pcall(table.unpack, {}, 1, math.maxinteger)
+  assert(ok == false and err:find("too many results to unpack", 1, true))
+  ok, err = pcall(table.unpack, {}, math.mininteger, math.maxinteger)
+  assert(ok == false and err:find("too many results to unpack", 1, true))
   assert(select(1, pcall(table.unpack, {}, 1.2)) == false)
   assert(select(1, pcall(table.unpack, {}, 1, 1.2)) == false)
-  local ok, err = pcall(table.unpack)
+  ok, err = pcall(table.unpack)
   assert(ok == false and err:match("attempt to get length") ~= nil)
   assert(select("#", table.unpack(nil, 1, 0)) == 0)
   ok, err = pcall(table.unpack, nil, 1, 1)
