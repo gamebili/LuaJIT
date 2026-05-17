@@ -1786,6 +1786,13 @@ static int push_answer(lua_State *L)
   return 1;
 }
 
+static int capi_gc_reentry(lua_State *L)
+{
+  lua_pushinteger(L, lua_gc(L, LUA_GCCOUNT));
+  lua_pushinteger(L, lua_gc(L, LUA_GCGEN, 0, 0));
+  return 2;
+}
+
 static int capi_transfer_cfunc(lua_State *L)
 {
   check_integer(L, 1, 1, "capi transfer C arg 1");
@@ -5777,6 +5784,22 @@ static void test_warning_and_gc_api(lua_State *L)
 	"LUA_GCINC updates stepmul");
   oldmode = lua_gc(L, LUA_GCGEN, 21, 155);
   check(L, oldmode == LUA_GCINC, "LUA_GCGEN stores parameters");
+
+  lua_pushcfunction(L, capi_gc_reentry);
+  lua_setglobal(L, "capi_gc_reentry");
+  status = luaL_dostring(L,
+    "local a, b\n"
+    "do\n"
+    "  local x = setmetatable({}, { __gc = function()\n"
+    "    a, b = capi_gc_reentry()\n"
+    "  end })\n"
+    "  x = nil\n"
+    "end\n"
+    "collectgarbage('collect')\n"
+    "assert(a == -1 and b == -1)\n");
+  check(L, status == LUA_OK, "lua_gc rejects C API reentry in finalizer");
+  lua_pushnil(L);
+  lua_setglobal(L, "capi_gc_reentry");
 
   memset(&ar, 0, sizeof(ar));
   lua_pushcfunction(L, push_answer);

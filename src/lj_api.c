@@ -2937,6 +2937,8 @@ LUA_API int lua_gc(lua_State *L, int what, int data)
   int data2 = 0;
   int data3 = 0;
   va_list argp;
+  if (g->hookmask & HOOK_GC)
+    return -1;
   va_start(argp, what);
   /* Lua 5.4 exposes lua_gc() as a vararg API. */
   switch (what) {
