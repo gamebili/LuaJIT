@@ -3,6 +3,7 @@
 */
 
 #include <stdio.h>
+#include <string.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -39,10 +40,23 @@ static void check(lua_State *L, int cond, const char *msg)
   }
 }
 
+static int checkunsigned_arg(lua_State *L)
+{
+  luaL_checkunsigned(L, 1);
+  return 0;
+}
+
+static int optunsigned_arg(lua_State *L)
+{
+  luaL_optunsigned(L, 1, (lua_Unsigned)77u);
+  return 0;
+}
+
 int main(void)
 {
   lua_State *L = luaL_newstate();
   int ok = 0;
+  int status;
   lua_Unsigned wide = (lua_Unsigned)0xffffffffu + (lua_Unsigned)1u;
 
   check(L, L != NULL, "luaL_newstate");
@@ -80,6 +94,30 @@ int main(void)
 	"luaL_optunsigned default");
   check(L, luaL_optint(L, 1, 78) == 78, "luaL_optint default");
   check(L, luaL_optlong(L, 1, 79L) == 79L, "luaL_optlong default");
+
+  lua_pushnumber(L, (lua_Number)1.5);
+  ok = 1;
+  check(L, lua_tounsignedx(L, -1, &ok) == 0 && !ok,
+	"lua_tounsignedx rejects fraction");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, checkunsigned_arg);
+  lua_pushnumber(L, (lua_Number)1.5);
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_checkunsigned rejects fraction");
+  check(L, strstr(lua_tostring(L, -1),
+		  "number has no integer representation") != NULL,
+	"luaL_checkunsigned fraction error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, optunsigned_arg);
+  lua_pushnumber(L, (lua_Number)1.5);
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_optunsigned rejects fraction");
+  check(L, strstr(lua_tostring(L, -1),
+		  "number has no integer representation") != NULL,
+	"luaL_optunsigned fraction error");
+  lua_pop(L, 1);
 
   if (wide > (lua_Unsigned)0xffffffffu) {
     lua_pushunsigned(L, wide);
