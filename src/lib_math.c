@@ -901,9 +901,9 @@ LUALIB_API int luaopen_math(lua_State *L)
   lua_setfield(L, -2, "tointeger");
   lua_pushcfunction(L, lj_cf_math_ult);
   lua_setfield(L, -2, "ult");
-  lua_pushcfunction(L, lj_cf_math_min54);
+  lj_lib_pushcf(L, lj_cf_math_min54, FF_math_min);
   lua_setfield(L, -2, "min");
-  lua_pushcfunction(L, lj_cf_math_max54);
+  lj_lib_pushcf(L, lj_cf_math_max54, FF_math_max);
   lua_setfield(L, -2, "max");
   lj_lib_pushcf(L, lj_cf_math_floor54, FF_math_floor);
   lua_setfield(L, -2, "floor");

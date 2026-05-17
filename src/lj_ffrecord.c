@@ -1253,6 +1253,34 @@ static void LJ_FASTCALL recff_math_pow(jit_State *J, RecordFFData *rd)
 
 static void LJ_FASTCALL recff_math_minmax(jit_State *J, RecordFFData *rd)
 {
+#if LJ_54 && LJ_DUALNUM
+  if (J->base[0] && recff_lua54_tv_isinteger(&rd->argv[0]) &&
+      recff_lua54_tref_isinteger(J->base[0])) {
+    uint32_t op = rd->data;
+    BCReg i;
+    int64_t best = recff_lua54_tv_i64(&rd->argv[0]);
+    TRef tr = recff_lua54_i64ref(J, J->base[0]);
+    for (i = 1; J->base[i] != 0; i++) {
+      int64_t ai;
+      TRef tr2;
+      if (!recff_lua54_tv_isinteger(&rd->argv[i]) ||
+	  !recff_lua54_tref_isinteger(J->base[i]))
+	goto nyi;
+      ai = recff_lua54_tv_i64(&rd->argv[i]);
+      tr2 = recff_lua54_i64ref(J, J->base[i]);
+      if ((op == IR_MIN && ai < best) || (op == IR_MAX && ai > best))
+	best = ai;
+      tr = emitir(IRT(op, IRT_I64), tr, tr2);
+    }
+    J->base[0] = recff_lua54_i64result(J, tr, best);
+    return;
+  }
+nyi:
+  /* Lua 5.4 math.min/max use ordinary '<' and must keep string, float NaN
+  ** selection and metamethod semantics. Record only the integer-only subset.
+  */
+  recff_nyiu(J, rd);
+#else
   TRef tr = lj_ir_tonumber(J, J->base[0]);
   uint32_t op = rd->data;
   BCReg i;
@@ -1267,6 +1295,7 @@ static void LJ_FASTCALL recff_math_minmax(jit_State *J, RecordFFData *rd)
     tr = emitir(IRT(op, t), tr, tr2);
   }
   J->base[0] = tr;
+#endif
 }
 
 #if LJ_54

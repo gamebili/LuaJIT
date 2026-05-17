@@ -863,6 +863,14 @@ local function number_pack_helpers(n)
 	sum = sum + 1
       end
     end
+    do
+      local mn = math.min(ti_wide + 2, ti_wide, ti_wide + 1)
+      local mx = math.max(ti_wide - 2, ti_wide, ti_wide - 1)
+      if mn == ti_wide and mx == ti_wide and
+	 math.type(mn) == "integer" and math.type(mx) == "integer" then
+	sum = sum + 1
+      end
+    end
     if math.tointeger(tointeger_over) == nil then sum = sum + 1 end
     if math.tointeger(1.5) == nil then sum = sum + 1 end
     if math.ult(1, -1) and not math.ult(-1, 1) then sum = sum + 1 end
@@ -1436,7 +1444,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_number_pack = timeit(mode_name..":number_pack_helpers",
 				  number_pack_helpers, iter_n)
-  assert(r_number_pack == iter_n * 168)
+  assert(r_number_pack == iter_n * 169)
 
   local _, r_number_string = timeit(mode_name..":number_string_helpers",
 				    number_string_helpers, iter_n)

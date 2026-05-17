@@ -712,6 +712,34 @@ do
   end, "Lua 5.4 math.type")
 
   assert_records_ir_op(function()
+    local function min_loop(a, b, c)
+      local n = 0
+      for _ = 1, 80 do
+	local x = math.min(a, b, c)
+	if x == 1099511627776 and math.type(x) == "integer" then
+	  n = n + 1
+	end
+      end
+      return n
+    end
+    assert(min_loop(1099511627778, 1099511627776, 1099511627777) == 80)
+  end, "Lua 5.4 int64 math.min", "MIN")
+
+  assert_records_ir_op(function()
+    local function max_loop(a, b, c)
+      local n = 0
+      for _ = 1, 80 do
+	local x = math.max(a, b, c)
+	if x == 1099511627778 and math.type(x) == "integer" then
+	  n = n + 1
+	end
+      end
+      return n
+    end
+    assert(max_loop(1099511627776, 1099511627778, 1099511627777) == 80)
+  end, "Lua 5.4 int64 math.max", "MAX")
+
+  assert_records_ir_op(function()
     local n = 0
     for _ = 1, 80 do
       if math.abs(-1099511627776) == 1099511627776 then n = n + 1 end
