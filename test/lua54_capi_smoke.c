@@ -914,6 +914,26 @@ static const char lua54_table_growth_chunk[] =
   "for i = 1, 128 do assert(t[i] == i) end\n"
   "return t[4096.5]\n";
 
+static const char lua54_table_shrink_failure_chunk[] =
+  "local after = ...\n"
+  "local okjit, jitmod = pcall(require, 'jit')\n"
+  "if okjit then jitmod.off() end\n"
+  "local keys = {}\n"
+  "for i = 1, 32 do keys[i] = {} end\n"
+  "local t = {}\n"
+  "for i = 1, 256 do t[i] = i end\n"
+  "for i = 65, 256 do t[i] = nil end\n"
+  "local function insert_all()\n"
+  "  for i = 1, #keys do t[keys[i]] = i end\n"
+  "end\n"
+  "strict_fail_once_after_alloc(after)\n"
+  "local ok = pcall(insert_all)\n"
+  "local old_ok = t[1] == 1 and t[64] == 64 and "
+  "t[65] == nil and t[256] == nil\n"
+  "local new_seen = 0\n"
+  "for i = 1, #keys do if t[keys[i]] ~= nil then new_seen = new_seen + 1 end end\n"
+  "return ok, old_ok, new_seen\n";
+
 static int fail_load_array_after_alloc(lua_State *L)
 {
   void *ud = NULL;
@@ -1047,6 +1067,71 @@ static void test_table_allocator_failure(lua_State *L, lua_State *T,
   check(L, saw_table_failure, "table allocator failure exercised");
   check(L, saw_partial_cleanup,
 	"table partial allocation cleanup exercised");
+}
+
+static void test_table_shrink_allocator_failure(lua_State *L, lua_State *T,
+						StrictAllocCtx *ctx)
+{
+  int limit;
+  int saw_shrink_failure = 0;
+  int saw_partial_cleanup = 0;
+  int status;
+  lua_gc(T, LUA_GCCOLLECT, 0);
+  lua_settop(T, 0);
+  status = luaL_loadbufferx(T, lua54_table_shrink_failure_chunk,
+			    sizeof(lua54_table_shrink_failure_chunk) - 1u,
+			    "=strict-table-shrink-failure", "t");
+  check(L, status == LUA_OK, "table shrink allocator failure probe load");
+  for (limit = 1; limit <= 2; limit++) {
+    int before_live;
+    int before_fails;
+    int before_frees;
+    int failed;
+    int ok;
+    int old_ok;
+    lua_Integer new_seen;
+    lua_gc(T, LUA_GCCOLLECT, 0);
+    before_live = ctx->live_blocks;
+    before_fails = ctx->call_fails;
+    before_frees = ctx->frees;
+    lua_pushvalue(T, 1);
+    lua_pushinteger(T, limit);
+    status = lua_pcall(T, 1, 3, 0);
+    ctx->fail_at_alloc = 0;
+    ctx->fail_once_alloc = 0;
+    check(L, status == LUA_OK,
+	  "table shrink allocator failure returns status tuple");
+    ok = lua_toboolean(T, -3);
+    old_ok = lua_toboolean(T, -2);
+    new_seen = lua_tointeger(T, -1);
+    failed = !ok;
+    if (failed) {
+      saw_shrink_failure = 1;
+      check(L, ctx->call_fails > before_fails,
+	    "table shrink allocator failure must come from allocator");
+      check(L, old_ok && new_seen == 0,
+	    "table shrink allocation failure keeps old table state");
+    } else {
+      check(L, new_seen == 32,
+	    "table shrink allocator success inserts all hash keys");
+      check(L, ctx->call_fails == before_fails,
+	    "table shrink allocator success must not hide allocator failure");
+    }
+    lua_settop(T, 1);
+    lua_gc(T, LUA_GCCOLLECT, 0);
+    lua_gc(T, LUA_GCCOLLECT, 0);
+    if (failed && ctx->frees > before_frees)
+      saw_partial_cleanup = 1;
+    check(L, ctx->bad_osize == 0 && ctx->missing_ptr == 0,
+	  "table shrink allocator failure preserves block sizes");
+    check(L, ctx->live_blocks == before_live,
+	  "table shrink allocator failure releases partial allocations");
+  }
+  lua_settop(T, 0);
+  check(L, saw_shrink_failure,
+	"table shrink allocator failure exercised");
+  check(L, saw_partial_cleanup,
+	"table shrink allocator failure cleanup exercised");
 }
 
 static void test_jit_allocator_trace_flush(lua_State *L, lua_State *T,
@@ -1353,6 +1438,7 @@ static void test_state_allocator_api(lua_State *L)
 	"table repartition must tolerate allocator refusing shrink");
   check(L, strict_ctx.shrink_fails == 0,
 	"table repartition must not use in-place shrink");
+  test_table_shrink_allocator_failure(L, T, &strict_ctx);
   test_table_allocator_failure(L, T, &strict_ctx);
   test_newthread_allocator_failure(L, T, &strict_ctx);
   test_newuserdatauv_allocator_failure(L, T, &strict_ctx);
