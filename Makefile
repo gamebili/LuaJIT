@@ -186,6 +186,7 @@ smoketest-lua54compat:
 	./src/luajit test/lua54_gc_regress.lua
 	LUA_PATH_5_4='./src/?.lua;./src/?/init.lua;;' ./src/luajit test/lua54_jit_regress.lua
 	./src/luajit test/lua54_tpack_regress.lua
+	./src/luajit test/lua54_stdlib_edges.lua
 	./src/luajit test/lua54_vm_backend_static.lua
 	./src/luajit test/lua54_vm_backend_dynasm.lua
 	LUA_PATH_5_4='./src/?.lua;./src/?/init.lua;;' ./src/luajit test/smoke.lua lua54compat
