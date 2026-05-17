@@ -71,6 +71,11 @@ local function expect_fail(name, args, needle, opts)
 	 name .. " missing error fragment " .. needle .. ": " .. r.err)
 end
 
+local function expect_script_fail(name, src, needle)
+  local script = writefile(note(prefix .. name .. ".lua"), src)
+  expect_fail(name, q(script), needle)
+end
+
 local function expect_contains(name, text, needle)
   assert(text:find(needle, 1, true),
 	 name .. " missing fragment " .. needle .. ": " .. text)
@@ -122,6 +127,23 @@ local ok, err = pcall(function()
 
   expect_ok("compact_e", "-eprint(1) -ea=3 -e " .. q("print(a)"), "1\n3\n")
 
+  local r = run("version_exec", "-v -e " .. q("print'hello'"))
+  assert(r.ok, "version + exec failed: " .. r.err)
+  expect_contains("version line", r.out, "Lua 5.4.8")
+  expect_contains("version copyright", r.out, "PUC-Rio")
+  expect_contains("version continued chunk", r.out, "\nhello\n")
+  assert(r.err == "", "version stderr mismatch: " .. r.err)
+
+  for _, opt in ipairs({ "-h", "---", "-Ex", "-vv", "-iv" }) do
+    local name = "bad_option_" .. opt:gsub("[^%w]", "_")
+    expect_fail(name, opt, "unrecognized option '" .. opt .. "'")
+  end
+  expect_fail("bad_missing_e", "-e", "'-e' needs argument")
+  expect_fail("bad_missing_l", "-l", "'-l' needs argument")
+  expect_fail("bad_missing_e_before_option", "-e -v", "'-e' needs argument")
+  expect_fail("bad_missing_l_before_option", "-l -e", "'-l' needs argument")
+  expect_fail("bad_e_syntax", "-e a", "syntax error")
+
   local many = writefile(note(prefix .. "many.lua"), "print(({...})[30])\n")
   expect_ok("many_args", q(many) .. string.rep(" a", 30), "a\n")
 
@@ -133,6 +155,42 @@ local ok, err = pcall(function()
   assert(debug_run.out == "", "debug.debug stdout mismatch: " .. debug_run.out)
   assert(debug_run.err == "lua_debug> 1000lua_debug> ",
 	 "debug.debug stderr mismatch: " .. debug_run.err)
+
+  local arg_not_table = writefile(note(prefix .. "arg_not_table.lua"), "\n")
+  expect_fail("arg_not_table", "-e " .. q("arg = 1") .. " -",
+	      "'arg' is not a table", { stdin = arg_not_table })
+
+  expect_script_fail("error_object_table", "error({})\n",
+		     "(error object is a table value)")
+  expect_script_fail("error_object_boolean", "error(false)\n",
+		     "(error object is a boolean value)")
+  expect_script_fail("error_object_nil", "error(nil)\n",
+		     "(error object is a nil value)")
+  expect_script_fail("error_object_tostring",
+		     "error(setmetatable({}, {__tostring=function() return 'OBJ54' end}))\n",
+		     "OBJ54")
+  expect_script_fail("error_object_line", [[
+debug = require "debug"
+m = {x=0}
+setmetatable(m, {__tostring = function(x)
+  return tostring(debug.getinfo(4).currentline + x.x)
+end})
+error(m)
+]], ": 6")
+
+  r = run("warn_error_recovery",
+	  "-e " .. q("warn('@on'); local ok = pcall(warn, 'SHOULD NOT APPEAR', {}); assert(not ok); warn('VISIBLE')"))
+  assert(r.ok, "warning recovery failed: " .. r.err)
+  assert(r.out == "", "warning recovery stdout mismatch: " .. r.out)
+  expect_contains("warning recovery visible", r.err, "Lua warning: VISIBLE")
+  expect_not_contains("warning recovery hidden", r.err, "SHOULD NOT APPEAR")
+
+  r = run("print_tolstring",
+	  "-e " .. q("local old=tostring; tostring=nil; print(setmetatable({}, {__tostring=function() return 'PRINT54' end})); tostring=function() return {} end; print('RAW54'); tostring=old"))
+  assert(r.ok, "print tostring isolation failed: " .. r.err)
+  assert(r.out == "PRINT54\nRAW54\n",
+	 "print tostring isolation stdout mismatch: " .. r.out)
+  assert(r.err == "", "print tostring isolation stderr mismatch: " .. r.err)
 
   local empty_prompts = "-e " .. q("_PROMPT='' _PROMPT2=''") .. " -i"
   local interactive_expr = writefile(note(prefix .. "interactive_expr.lua"),
@@ -231,6 +289,18 @@ local e1 <close> = setmetatable({}, {
 os.exit(true, true)
 ]])
   expect_ok("exit_close", q(exit_close), "120\nOk\n")
+
+  local close_finalizer_reentry = writefile(note(prefix .. "close_finalizer_reentry.lua"), [[
+setmetatable({}, {__gc = function() print(1) end})
+setmetatable({}, {__gc = function()
+  print(2)
+  setmetatable({}, {__gc = function() print(3) end})
+  print(collectgarbage())
+  os.exit(0, true)
+end})
+]])
+  expect_ok("close_finalizer_reentry", q(close_finalizer_reentry),
+	    "2\nnil\n1\n")
 end)
 
 cleanup()
