@@ -255,7 +255,7 @@
   - 已覆盖：无 declared uservalue 的内置 userdata、indexed 参数表面、`setuservalue` 返回值、C API 声明两个 user values 后的 get/set/out-of-range 行为，C 创建 userdata 后通过 Lua `debug.getuservalue` / `debug.setuservalue` 读写 declared slot，full userdata 的 `<close>` 自动作用域退出，以及 `lua_toclose()` 的显式/自动关闭路径。
 
 - [ ] 真实 Lua 5.4 GC 模式。
-  - 当前状态：`collectgarbage("generational")` / `"incremental"` 已从纯返回值 shim 推进到保存 Lua 5.4 mode 参数；底层仍未完成真正 age/list 分代收集。
+  - 当前状态：`collectgarbage("generational")` / `"incremental"` 已从纯返回值 shim 推进到保存 Lua 5.4 mode 参数；从 incremental 切回 generational 时会按官方行为执行一次完整收集来建立模式基线，并保留 stopped-GC 状态；底层仍未完成真正 age/list 分代收集。
   - 当前进展：Lua 5.4 兼容构建的公开初始 `stepmul` 已对齐 Lua 5.4，`collectgarbage("setstepmul", n)` 首次返回 `100`；默认 LuaJIT 构建仍保留原 `LUAI_GCMUL`。
   - 当前进展：经本机 Lua 5.4.8 对照，`collectgarbage("minor")` / `"major"` 不是官方有效选项，当前 invalid option 行为已进入 smoke。
   - 当前进展：`setpause` / `setstepmul` 参数会按 Lua 5.4 公开表面压到 `0..1000`，并按 4 的粒度向下取整。

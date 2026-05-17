@@ -936,6 +936,28 @@ do
   assert(collectgarbage("incremental") == "generational")
   assert(collectgarbage("incremental") == "incremental")
   assert(collectgarbage("generational") == "incremental")
+  do
+    local n = 0
+    local mt = { __gc = function() n = n + 1 end }
+    collectgarbage("incremental")
+    do
+      local x = setmetatable({}, mt)
+      x = nil
+    end
+    collectgarbage("stop")
+    assert(collectgarbage("generational") == "incremental")
+    assert(n == 1)
+    assert(collectgarbage("isrunning") == false)
+    do
+      local x = setmetatable({}, mt)
+      x = nil
+    end
+    assert(collectgarbage("incremental") == "generational")
+    assert(n == 1)
+    collectgarbage("restart")
+    collectgarbage("collect")
+    assert(n == 2)
+  end
   assert(type(collectgarbage("count", true, true)) == "number")
   assert(type(collectgarbage(nil, true)) == "number")
   assert(collectgarbage("collect", true, true) == 0)

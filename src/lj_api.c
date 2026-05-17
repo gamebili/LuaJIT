@@ -2913,6 +2913,15 @@ static MSize gc_param_lua54(int data)
     return 1000;
   return (MSize)(data & ~3);
 }
+
+static void gc_fullgc_preserve_stop54(lua_State *L)
+{
+  global_State *g = G(L);
+  int wasstopped = (g->gc.threshold == LJ_MAX_MEM);
+  lj_gc_fullgc(L);
+  if (wasstopped)
+    g->gc.threshold = LJ_MAX_MEM;
+}
 #endif
 
 #if LJ_54
@@ -3012,6 +3021,8 @@ LUA_API int lua_gc(lua_State *L, int what, int data)
   case LUA_GCGEN:
     res = g->gc_mode54 ? LUA_GCGEN : LUA_GCINC;
 #if LJ_54
+    if (!g->gc_mode54)
+      gc_fullgc_preserve_stop54(L);
     if (data != 0)
       g->gc_genminormul54 = (MSize)(uint8_t)data;
     if (data2 != 0)
