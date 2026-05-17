@@ -83,6 +83,7 @@ LJ_FUNC int LJ_FASTCALL lj_gc_step_jit(global_State *g, MSize steps);
 LJ_FUNC void lj_gc_fullgc(lua_State *L);
 
 #if LJ_54
+LJ_FUNC void lj_gc_gen_whitelist54(global_State *g);
 #define LJ_GC_FIN_CHECK_CYCLES	32
 static LJ_AINLINE void lj_gc_arm_table_finalizer(global_State *g)
 {

@@ -3062,6 +3062,8 @@ LUA_API int lua_gc(lua_State *L, int what, int data)
       g->gc.stepmul = gc_param_lua54(data2);
     if (data3 != 0)
       g->gc_stepsize54 = (MSize)(uint8_t)data3;
+    if (g->gc_mode54)
+      lj_gc_gen_whitelist54(g);
 #endif
     g->gc_mode54 = 0;
     break;

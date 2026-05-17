@@ -43,38 +43,106 @@ static GCSize gc_stepsize54(global_State *g)
   return ((GCSize)1) << bits;
 }
 
-static void gc_age_chain54(GCobj *o, uint8_t age)
+static GCSize gc_gen_threshold54(global_State *g)
+{
+  GCSize minor = (g->gc.total / 100) * g->gc_genminormul54;
+  if (minor > LJ_MAX_MEM - g->gc.total)
+    return LJ_MAX_MEM;
+  return g->gc.total + minor;
+}
+
+static void gc_gen_blacken_old54(global_State *g, GCobj *o)
+{
+  setgcage(o, LJ_GC_AGE_OLD);
+  if (o->gch.gct == ~LJ_TTHREAD) {
+    o->gch.marked &= (uint8_t)~LJ_GC_COLORS;
+    setgcrefr(o->gch.gclist, g->gc.grayagain);
+    setgcref(g->gc.grayagain, o);
+  } else {
+    o->gch.marked = (uint8_t)((o->gch.marked & (uint8_t)~LJ_GC_COLORS) |
+			      LJ_GC_BLACK);
+  }
+}
+
+static void gc_gen_blacken_chain54(global_State *g, GCobj *o)
 {
   while (o) {
-    setgcage(o, age);
+    gc_gen_blacken_old54(g, o);
     o = gcnext(o);
   }
 }
 
-static void gc_age_mmudata54(global_State *g, uint8_t age)
+static void gc_gen_blacken_mmudata54(global_State *g)
 {
   GCobj *root = gcref(g->gc.mmudata);
   GCobj *o = root;
   if (o) {
     do {
-      setgcage(o, age);
+      gc_gen_blacken_old54(g, o);
       o = gcnext(o);
     } while (o != root);
   }
 }
 
-static void gc_age_all_old54(global_State *g)
+static void gc_gen_enter54(global_State *g)
 {
   MSize i;
-  gc_age_chain54(gcref(g->gc.root), LJ_GC_AGE_OLD);
-  gc_age_mmudata54(g, LJ_GC_AGE_OLD);
+  setgcrefnull(g->gc.gray);
+  setgcrefnull(g->gc.grayagain);
+  setgcrefnull(g->gc.weak);
+  gc_gen_blacken_chain54(g, gcref(g->gc.root));
+  gc_gen_blacken_mmudata54(g);
   if (g->str.tab) {
     for (i = g->str.mask; i != ~(MSize)0; i--) {
       GCobj *o = (GCobj *)(gcrefu(g->str.tab[i]) & ~(uintptr_t)1);
-      gc_age_chain54(o, LJ_GC_AGE_OLD);
+      gc_gen_blacken_chain54(g, o);
     }
   }
-  g->strempty.age = LJ_GC_AGE_OLD;
+  gc_gen_blacken_old54(g, obj2gco(&g->strempty));
+  g->gc.state = GCSpropagate;
+  g->gc_genactive54 = 1;
+}
+
+static void gc_whitelist_chain54(global_State *g, GCobj *o)
+{
+  while (o) {
+    setgcage(o, LJ_GC_AGE_NEW);
+    makewhite(g, o);
+    o = gcnext(o);
+  }
+}
+
+static void gc_whitelist_mmudata54(global_State *g)
+{
+  GCobj *root = gcref(g->gc.mmudata);
+  GCobj *o = root;
+  if (o) {
+    do {
+      setgcage(o, LJ_GC_AGE_NEW);
+      makewhite(g, o);
+      o = gcnext(o);
+    } while (o != root);
+  }
+}
+
+void lj_gc_gen_whitelist54(global_State *g)
+{
+  MSize i;
+  setgcrefnull(g->gc.gray);
+  setgcrefnull(g->gc.grayagain);
+  setgcrefnull(g->gc.weak);
+  gc_whitelist_chain54(g, gcref(g->gc.root));
+  gc_whitelist_mmudata54(g);
+  if (g->str.tab) {
+    for (i = g->str.mask; i != ~(MSize)0; i--) {
+      GCobj *o = (GCobj *)(gcrefu(g->str.tab[i]) & ~(uintptr_t)1);
+      gc_whitelist_chain54(g, o);
+    }
+  }
+  setgcage(obj2gco(&g->strempty), LJ_GC_AGE_NEW);
+  makewhite(g, obj2gco(&g->strempty));
+  g->gc.state = GCSpause;
+  g->gc_genactive54 = 0;
 }
 #endif
 
@@ -946,6 +1014,10 @@ int LJ_FASTCALL lj_gc_step(lua_State *L)
   GCSize lim;
   int32_t ostate = g->vmstate;
   setvmstate(g, GC);
+#if LJ_54
+  if (g->gc_mode54 && g->gc_genactive54)
+    lj_gc_gen_whitelist54(g);
+#endif
   if (g->gc.stepmul == 0) {
     lim = LJ_MAX_MEM;
   } else {
@@ -963,12 +1035,17 @@ int LJ_FASTCALL lj_gc_step(lua_State *L)
     lim -= (GCSize)gc_onestep(L);
     if (g->gc.state == GCSpause) {
 #if LJ_54
-      if (g->gc.fin_check != 0) {
-	g->gc.fin_check--;
-	g->gc.threshold = g->gc.total;
+      if (g->gc_mode54) {
+	gc_gen_enter54(g);
+	if (g->gc.fin_check != 0) {
+	  g->gc.fin_check--;
+	  g->gc.threshold = g->gc.total;
+	} else {
+	  g->gc.threshold = gc_gen_threshold54(g);
+	}
       } else
 #endif
-      g->gc.threshold = (g->gc.estimate/100) * g->gc.pause;
+	g->gc.threshold = (g->gc.estimate/100) * g->gc.pause;
       g->vmstate = ostate;
       return 1;  /* Finished a GC cycle. */
     }
@@ -1017,6 +1094,10 @@ void lj_gc_fullgc(lua_State *L)
   global_State *g = G(L);
   int32_t ostate = g->vmstate;
   setvmstate(g, GC);
+#if LJ_54
+  if (g->gc_mode54 && g->gc_genactive54)
+    lj_gc_gen_whitelist54(g);
+#endif
   if (g->gc.state <= GCSatomic) {  /* Caught somewhere in the middle. */
     setmref(g->gc.sweep, &g->gc.root);  /* Sweep everything (preserving it). */
     setgcrefnull(g->gc.gray);  /* Reset lists from partial propagation. */
@@ -1032,11 +1113,13 @@ void lj_gc_fullgc(lua_State *L)
   /* Now perform a full GC. */
   g->gc.state = GCSpause;
   do { gc_onestep(L); } while (g->gc.state != GCSpause);
-  g->gc.threshold = (g->gc.estimate/100) * g->gc.pause;
 #if LJ_54
-  if (g->gc_mode54)
-    gc_age_all_old54(g);
+  if (g->gc_mode54) {
+    gc_gen_enter54(g);
+    g->gc.threshold = gc_gen_threshold54(g);
+  } else
 #endif
+    g->gc.threshold = (g->gc.estimate/100) * g->gc.pause;
   g->vmstate = ostate;
 }
 
@@ -1170,4 +1253,3 @@ void *lj_mem_grow(lua_State *L, void *p, MSize *szp, MSize lim, MSize esz)
   *szp = sz;
   return p;
 }
-

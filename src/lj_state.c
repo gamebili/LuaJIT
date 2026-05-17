@@ -316,6 +316,7 @@ LUA_API lua_State *lua_newstate(lua_Alloc allocf, void *allocd)
   g->allocd = allocd;
   g->prng = prng;
   g->gc_mode54 = 1;  /* Lua 5.4 reports generational as the initial mode. */
+  g->gc_genactive54 = 0;
   g->gc_genminormul54 = 20;
   g->gc_genmajormul54 = 100;
   g->gc_stepsize54 = 13;
