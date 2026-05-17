@@ -1362,6 +1362,30 @@ static void LJ_FASTCALL recff_math_ldexp(jit_State *J, RecordFFData *rd)
   UNUSED(rd);
 }
 
+static void LJ_FASTCALL recff_math_atan(jit_State *J, RecordFFData *rd)
+{
+#if LJ_54 && LJ_DUALNUM
+  TRef tr = recff_lua54_checknumref(J, J->base[0], &rd->argv[0]);
+  if (J->base[1] && !tref_isnil(J->base[1])) {
+    TRef tr2 = recff_lua54_checknumref(J, J->base[1], &rd->argv[1]);
+    J->base[0] = lj_ir_call(J, IRCALL_atan2, tr, tr2);
+  } else {
+    J->base[0] = emitir(IRTN(IR_CALLN), tr, rd->data);
+  }
+#elif LJ_54
+  TRef tr = lj_ir_tonum(J, J->base[0]);
+  if (J->base[1] && !tref_isnil(J->base[1])) {
+    TRef tr2 = lj_ir_tonum(J, J->base[1]);
+    J->base[0] = lj_ir_call(J, IRCALL_atan2, tr, tr2);
+  } else {
+    J->base[0] = emitir(IRTN(IR_CALLN), tr, rd->data);
+  }
+#else
+  TRef tr = lj_ir_tonum(J, J->base[0]);
+  J->base[0] = emitir(IRTN(IR_CALLN), tr, rd->data);
+#endif
+}
+
 static void LJ_FASTCALL recff_math_call(jit_State *J, RecordFFData *rd)
 {
   TRef tr;

@@ -802,6 +802,32 @@ do
     assert(log_loop(100.0) == 80)
   end, "Lua 5.4 math.log nil base", "FPMATH")
 
+  assert_records_ir_call(function()
+    local function atan_loop(a, x)
+      local n = 0
+      local expected = math.atan(a, x)
+      for _ = 1, 80 do
+	local r = math.atan(a, x)
+	if r == expected and math.type(r) == "float" then n = n + 1 end
+      end
+      return n
+    end
+    assert(atan_loop(1099511627776, "2") == 80)
+  end, "Lua 5.4 boxed int64 math.atan2", "atan2")
+
+  assert_records_ir_call(function()
+    local function atan_nil_loop(a)
+      local n = 0
+      local expected = math.atan(a)
+      for _ = 1, 80 do
+	local r = math.atan(a, nil)
+	if r == expected and math.type(r) == "float" then n = n + 1 end
+      end
+      return n
+    end
+    assert(atan_nil_loop(100.0) == 80)
+  end, "Lua 5.4 math.atan nil base", "atan")
+
   assert_records_ir_op(function()
     local function round_loop(a, b)
       local n = 0

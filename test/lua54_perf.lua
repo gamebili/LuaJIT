@@ -821,6 +821,8 @@ local function number_pack_helpers(n)
   local pow_string_one = "1"
   local wide_sin_expected = math.sin(1099511627776)
   local wide_log2_expected = math.log(1099511627776, 2)
+  local wide_atan2_expected = math.atan(1099511627776, 2)
+  local atan_nil_expected = math.atan(100.0)
   local tointeger_wide = "1099511627776"
   local tointeger_max = "9223372036854775807"
   local tointeger_over = "9223372036854775808"
@@ -903,14 +905,20 @@ local function number_pack_helpers(n)
       local sqrt_str = math.sqrt(tointeger_wide)
       local log_wide = math.log(ti_wide, 2)
       local sin_wide = math.sin(ti_wide)
+      local atan_wide = math.atan(ti_wide, "2")
+      local atan_nil = math.atan(100.0, nil)
       if sqrt_wide == 1048576.0 and sqrt_str == 1048576.0 and
 	 log_wide == wide_log2_expected and
 	 sin_wide == wide_sin_expected and
+	 atan_wide == wide_atan2_expected and
+	 atan_nil == atan_nil_expected and
 	 math.log(100.0, nil) == math.log(100.0) and
 	 math.type(sqrt_wide) == "float" and
 	 math.type(sqrt_str) == "float" and
 	 math.type(log_wide) == "float" and
-	 math.type(sin_wide) == "float" then
+	 math.type(sin_wide) == "float" and
+	 math.type(atan_wide) == "float" and
+	 math.type(atan_nil) == "float" then
 	sum = sum + 1
       end
     end
