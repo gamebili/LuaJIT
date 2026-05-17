@@ -283,21 +283,6 @@ static void table_checkfunc_named54(lua_State *L, int narg,
     table_argtype_named54(L, narg, fname, "function");
 }
 
-static int32_t table_checkint_named54(lua_State *L, int narg,
-				      const char *fname)
-{
-  cTValue *o = L->base + narg-1;
-  int32_t i;
-  int isnum = 0;
-  if (o < L->top && table_toint32value54(o, &i, &isnum))
-    return i;
-  if (isnum)
-    table_argerror_named54(L, narg, fname,
-			   "number has no integer representation");
-  table_argtype_named54(L, narg, fname, "number");
-  return 0;  /* unreachable */
-}
-
 static int32_t table_len54(lua_State *L, GCtab *t, int narg)
 {
   cTValue *tabv = L->base + narg-1;
@@ -486,33 +471,29 @@ LJLIB_LUA(table_move) /*
 #if LJ_54
 static int lj_cf_table_remove54(lua_State *L)
 {
-  int32_t len;
-  int32_t pos;
+  lua_Integer len;
+  lua_Integer pos;
   cTValue *posv = L->base + 1;
   table_checktab_like54(L, 1, LJ_TABLE_TAB_RW|LJ_TABLE_TAB_L,
 			"table.remove");
-  len = table_len_obj54(L, 1);
+  len = table_len_integer_obj54(L, 1);
   pos = len;
   if (posv < L->top && !tvisnil(posv)) {
-    pos = table_checkint_named54(L, 2, "table.remove");
-    if (pos != len && (pos < 1 || pos-1 > len))
+    pos = table_checkinteger_named54(L, 2, "table.remove");
+    if (pos != len &&
+	(lua_Unsigned)pos - (lua_Unsigned)1 > (lua_Unsigned)len)
       table_argerror_named54(L, 2, "table.remove", "position out of bounds");
   }
-  if (pos >= 0 && pos <= len + 1) {
-    int32_t i, nilpos = pos < len ? len : pos;
-    /* Lua 5.4 table.remove reads and clears pos=size even when size is zero;
-    ** this is observable for tables with a value stored at integer key 0.
-    */
-    lua_geti(L, 1, pos);
-    for (i = pos; i < len; i++) {
-      lua_geti(L, 1, i+1);
-      lua_seti(L, 1, i);
-    }
-    lua_pushnil(L);
-    lua_seti(L, 1, nilpos);
-    return 1;
+  /* Lua 5.4 table.remove uses lua_Integer for both length and position,
+  ** including proxy tables whose __len returns keys outside the int32 range.
+  */
+  lua_geti(L, 1, pos);
+  for (; pos < len; pos++) {
+    lua_geti(L, 1, pos + 1);
+    lua_seti(L, 1, pos);
   }
-  setnilV(L->top++);
+  lua_pushnil(L);
+  lua_seti(L, 1, pos);
   return 1;
 }
 

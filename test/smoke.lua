@@ -3297,6 +3297,25 @@ do
   })
   assert(table.remove(proxy, 2) == 2)
   assert(base[1] == 1 and base[2] == 3 and base[3] == nil)
+  local big = 1099511627776
+  local nextbig = big + 1
+  local get_keys = {}
+  local set_keys = {}
+  local wide_proxy = setmetatable({}, {
+    __len = function() return big end,
+    __index = function(_, k)
+      get_keys[#get_keys + 1] = k
+      if k == big then return "wide-last" end
+    end,
+    __newindex = function(_, k, v)
+      assert(v == nil and math.type(k) == "integer")
+      set_keys[#set_keys + 1] = k
+    end,
+  })
+  assert(table.remove(wide_proxy, big) == "wide-last")
+  assert(table.remove(wide_proxy, nextbig) == nil)
+  assert(get_keys[1] == big and set_keys[1] == big)
+  assert(get_keys[2] == nextbig and set_keys[2] == nextbig)
 end
 do
   local ok, err = pcall(table.move, { 1, 2 }, 1.2, 2, 1, {})
