@@ -15,6 +15,25 @@ local function q(path)
   return '"' .. tostring(path):gsub('"', '\\"') .. '"'
 end
 
+local function shquote(s)
+  return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
+end
+
+local function sorted_env_keys(env)
+  local keys = {}
+  for k in pairs(env) do keys[#keys + 1] = k end
+  table.sort(keys)
+  return keys
+end
+
+local function batch_escape(s)
+  return tostring(s):gsub("%%", "%%%%")
+end
+
+local function batch_set_value(s)
+  return tostring(s):gsub("%%", "%%%%"):gsub('"', '^"')
+end
+
 local function readfile(path)
   local f = assert(io.open(path, "rb"))
   local data = f:read("*a")
@@ -43,7 +62,22 @@ local function run(name, args, opts)
   if args and args ~= "" then cmd = cmd .. " " .. args end
   if opts.stdin then cmd = cmd .. " < " .. q(opts.stdin) end
   cmd = cmd .. " > " .. q(out) .. " 2> " .. q(err)
-  if iswin then
+  if opts.env and iswin then
+    local bat = note(prefix .. name .. ".bat")
+    local lines = { "@echo off\n" }
+    for _, k in ipairs(sorted_env_keys(opts.env)) do
+      lines[#lines + 1] = ("set \"%s=%s\"\n"):format(k, batch_set_value(opts.env[k]))
+    end
+    lines[#lines + 1] = batch_escape(cmd) .. "\n"
+    writefile(bat, table.concat(lines))
+    cmd = "cmd /c " .. q(bat:gsub("/", "\\"))
+  elseif opts.env then
+    local envparts = {}
+    for _, k in ipairs(sorted_env_keys(opts.env)) do
+      envparts[#envparts + 1] = k .. "=" .. shquote(opts.env[k])
+    end
+    cmd = table.concat(envparts, " ") .. " " .. cmd
+  elseif iswin then
     cmd = 'cmd /c "' .. cmd .. '"'
   end
   local ok, why, code = os.execute(cmd)
@@ -134,6 +168,66 @@ local ok, err = pcall(function()
   expect_contains("version continued chunk", r.out, "\nhello\n")
   assert(r.err == "", "version stderr mismatch: " .. r.err)
 
+  r = run("env_init_versioned",
+	  "-e " .. q("assert(lua54_init_marker == 54)"),
+	  { env = {
+	      LUA_INIT = "error(10)",
+	      LUA_INIT_5_4 = "lua54_init_marker=54",
+	    } })
+  assert(r.ok, "versioned LUA_INIT failed: " .. r.err)
+
+  r = run("env_package_versioned",
+	  "-e " .. q("assert(package.path:find('v54/?.lua', 1, true) == 1); assert(package.cpath:find('v54/?.dll', 1, true) == 1)"),
+	  { env = {
+	      LUA_PATH = "old/?.lua",
+	      LUA_PATH_5_4 = "v54/?.lua",
+	      LUA_CPATH = "old/?.dll",
+	      LUA_CPATH_5_4 = "v54/?.dll",
+	    } })
+  assert(r.ok, "versioned package path failed: " .. r.err)
+
+  r = run("env_ignored_by_E",
+	  "-E -e " .. q("assert(not package.path:find('bad/', 1, true)); assert(not package.cpath:find('bad/', 1, true))"),
+	  { env = {
+	      LUA_INIT_5_4 = "error(10)",
+	      LUA_PATH_5_4 = "bad/?.lua",
+	      LUA_CPATH_5_4 = "bad/?.dll",
+	    } })
+  assert(r.ok, "-E environment isolation failed: " .. r.err)
+
+  local path_cases = {
+    {
+      name = "env_lua_path_semicolon",
+      value = ";",
+      code = "assert(package.path == ';')",
+    },
+    {
+      name = "env_lua_path_double",
+      value = ";;",
+      code = "local p=package.path; assert(p:sub(1,1) ~= ';' and p:sub(-1) ~= ';', p)",
+    },
+    {
+      name = "env_lua_path_suffix",
+      value = ";;b",
+      code = "local p=package.path; assert(p:sub(1,1) ~= ';' and p:sub(-2) == ';b', p)",
+    },
+    {
+      name = "env_lua_path_prefix",
+      value = "a;;",
+      code = "local p=package.path; assert(p:sub(1,2) == 'a;' and p:sub(-1) ~= ';', p)",
+    },
+    {
+      name = "env_lua_path_middle",
+      value = "a;b;;c",
+      code = "local p=package.path; assert(p:sub(1,4) == 'a;b;' and p:sub(-2) == ';c', p)",
+    },
+  }
+  for _, case in ipairs(path_cases) do
+    r = run(case.name, "-e " .. q(case.code),
+	    { env = { LUA_PATH = case.value } })
+    assert(r.ok, case.name .. " failed: " .. r.err)
+  end
+
   for _, opt in ipairs({ "-h", "---", "-Ex", "-vv", "-iv" }) do
     local name = "bad_option_" .. opt:gsub("[^%w]", "_")
     expect_fail(name, opt, "unrecognized option '" .. opt .. "'")
@@ -146,6 +240,33 @@ local ok, err = pcall(function()
 
   local many = writefile(note(prefix .. "many.lua"), "print(({...})[30])\n")
   expect_ok("many_args", q(many) .. string.rep(" a", 30), "a\n")
+
+  local loption_mod = writefile(note("test/lua54_standalone_loption_mod.lua"),
+				"print(1); a=2; return {x=15}\n")
+  local loption_other = writefile(note("test/lua54_standalone_loption_other.lua"),
+				  "print(a); print(_G.lua54_standalone_loption_mod.x)\n")
+  r = run("loption_multiple",
+	  "-l lua54_standalone_loption_mod -llua54_standalone_loption_other -e " .. q(""),
+	  { env = { LUA_PATH = "test/?.lua;;" } })
+  assert(r.ok, "multiple -l failed: " .. r.err)
+  assert(r.out == "1\n2\n15\n", "multiple -l stdout mismatch: " .. r.out)
+  assert(r.err == "", "multiple -l stderr mismatch: " .. r.err)
+
+  loption_mod = writefile(note("test/lua54_standalone_loption_alias.lua"),
+			  "return {x=16}\n")
+  r = run("loption_alias",
+	  "-l alias54=lua54_standalone_loption_alias -e " ..
+	  q("assert(alias54.x == 16 and _G.lua54_standalone_loption_alias == nil)"),
+	  { env = { LUA_PATH = "test/?.lua;;" } })
+  assert(r.ok, "-l alias failed: " .. r.err)
+
+  loption_mod = writefile(note("test/lua54_standalone_loption_v2-v2.lua"),
+			  "return {x=17}\n")
+  r = run("loption_version_suffix",
+	  "-l lua54_standalone_loption_v2-v2 -e " ..
+	  q("assert(lua54_standalone_loption_v2.x == 17 and _G['lua54_standalone_loption_v2-v2'] == nil)"),
+	  { env = { LUA_PATH = "test/?.lua;;" } })
+  assert(r.ok, "-l version suffix failed: " .. r.err)
 
   local debug_input = writefile(note(prefix .. "debug_input.lua"),
 				"io.stderr:write(1000)\ncont\n")
