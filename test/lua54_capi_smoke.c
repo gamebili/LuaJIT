@@ -1927,6 +1927,16 @@ static int laux_argexpected_table_arg(lua_State *L)
   return 0;
 }
 
+static int laux_argerror_fail(lua_State *L)
+{
+  return luaL_argerror(L, 1, "explicit laux failure");
+}
+
+static int laux_argerror_negative_arg(lua_State *L)
+{
+  return luaL_argerror(L, -1, "negative index failure");
+}
+
 static int laux_checktype_any_arg(lua_State *L)
 {
   luaL_checkany(L, 1);
@@ -4649,6 +4659,46 @@ static void test_lauxlib_api(lua_State *L)
 		  "table expected, got light userdata") != NULL,
 	"luaL_argexpected light userdata name");
   lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_argerror_fail);
+  lua_setglobal(L, "capi_argerror_fail");
+  status = luaL_loadstring(L, "capi_argerror_fail(false)");
+  check(L, status == LUA_OK, "luaL_argerror source global load");
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_argerror source global status");
+  check(L, strstr(lua_tostring(L, -1),
+		  "bad argument #1 to 'capi_argerror_fail'") != NULL &&
+	   strstr(lua_tostring(L, -1), "explicit laux failure") != NULL,
+	"luaL_argerror source global call name");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_argerror_negative_arg);
+  lua_setglobal(L, "capi_argerror_negative_arg");
+  status = luaL_loadstring(L, "capi_argerror_negative_arg('a', 'b')");
+  check(L, status == LUA_OK, "luaL_argerror negative index load");
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_argerror negative index status");
+  check(L, strstr(lua_tostring(L, -1),
+		  "bad argument #2 to 'capi_argerror_negative_arg'") != NULL &&
+	   strstr(lua_tostring(L, -1), "negative index failure") != NULL,
+	"luaL_argerror negative index normalization");
+  lua_pop(L, 1);
+
+  status = luaL_loadstring(L,
+    "local obj = { f = capi_argerror_fail }\n"
+    "obj:f()\n");
+  check(L, status == LUA_OK, "luaL_argerror method load");
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_argerror method status");
+  check(L, strstr(lua_tostring(L, -1),
+		  "calling 'f' on bad self") != NULL &&
+	   strstr(lua_tostring(L, -1), "explicit laux failure") != NULL,
+	"luaL_argerror method bad self text");
+  lua_pop(L, 1);
+  lua_pushnil(L);
+  lua_setglobal(L, "capi_argerror_fail");
+  lua_pushnil(L);
+  lua_setglobal(L, "capi_argerror_negative_arg");
 
   lua_pushcfunction(L, laux_checktype_any_arg);
   lua_newtable(L);
