@@ -2841,6 +2841,10 @@ static void test_stack_and_number_api(lua_State *L)
     check(L, lua_numbertointeger((lua_Number)big40, &iv) && iv == big40,
 	  "lua_numbertointeger accepts wider exact 64-bit header range");
     iv = 0;
+    check(L, lua_numbertointeger((lua_Number)LUA_MININTEGER, &iv) &&
+	     iv == LUA_MININTEGER,
+	  "lua_numbertointeger accepts LUA_MININTEGER bound");
+    iv = 0;
   }
   check(L, !lua_numbertointeger((lua_Number)LUA_MAXINTEGER + 1.0, &iv),
 	"lua_numbertointeger rejects upper exclusive bound");
