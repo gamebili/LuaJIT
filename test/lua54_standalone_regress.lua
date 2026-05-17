@@ -299,6 +299,19 @@ end})
 error(m)
 ]], ": 6")
 
+  for _, case in ipairs({
+    { name = "trace_math_abs", code = "math.abs(true)",
+      trace = "[C]: in function 'math.abs'" },
+    { name = "trace_table_concat", code = "table.concat(nil)",
+      trace = "[C]: in function 'table.concat'" },
+    { name = "trace_os_exit", code = "os.exit({})",
+      trace = "[C]: in function 'os.exit'" },
+  }) do
+    r = run(case.name, "-e " .. q(case.code))
+    assert(not r.ok, case.name .. " unexpectedly succeeded")
+    expect_contains(case.name .. " traceback", r.err, case.trace)
+  end
+
   r = run("warn_error_recovery",
 	  "-e " .. q("warn('@on'); local ok = pcall(warn, 'SHOULD NOT APPEAR', {}); assert(not ok); warn('VISIBLE')"))
   assert(r.ok, "warning recovery failed: " .. r.err)

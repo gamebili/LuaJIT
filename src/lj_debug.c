@@ -1083,6 +1083,47 @@ void lj_debug_dumpstack(lua_State *L, SBuf *sb, const char *fmt, int depth)
 #define TRACEBACK_LEVELS2	10
 #endif
 
+#if LJ_54
+static int debug_findfield54(lua_State *L, int objidx, int level)
+{
+  if (level == 0 || !lua_istable(L, -1))
+    return 0;
+  lua_pushnil(L);
+  while (lua_next(L, -2)) {
+    if (lua_type(L, -2) == LUA_TSTRING) {
+      if (lua_rawequal(L, objidx, -1)) {
+	lua_pop(L, 1);
+	return 1;
+      } else if (debug_findfield54(L, objidx, level - 1)) {
+	lua_pushliteral(L, ".");
+	lua_replace(L, -3);
+	lua_concat(L, 3);
+	return 1;
+      }
+    }
+    lua_pop(L, 1);
+  }
+  return 0;
+}
+
+static int debug_pushglobalfuncname54(lua_State *L, int funcidx)
+{
+  int top = lua_gettop(L);
+  lua_getfield(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
+  if (debug_findfield54(L, funcidx, 2)) {
+    const char *name = lua_tostring(L, -1);
+    if (name && strncmp(name, "_G.", 3) == 0) {
+      lua_pushstring(L, name + 3);
+      lua_replace(L, -2);
+    }
+    lua_remove(L, -2);
+    return 1;
+  }
+  lua_settop(L, top);
+  return 0;
+}
+#endif
+
 LUALIB_API void luaL_traceback (lua_State *L, lua_State *L1, const char *msg,
 				int level)
 {
@@ -1097,6 +1138,10 @@ LUALIB_API void luaL_traceback (lua_State *L, lua_State *L1, const char *msg,
   lua_pushliteral(L, "stack traceback:");
   while (lua_getstack(L1, level++, &ar)) {
     GCfunc *fn;
+#if LJ_54
+    const char *gname = NULL;
+    int gnameidx = 0;
+#endif
     if (level > lim) {
       if (!lua_getstack(L1, level + TRACEBACK_LEVELS2, &ar)) {
 	level--;
@@ -1116,7 +1161,23 @@ LUALIB_API void luaL_traceback (lua_State *L, lua_State *L1, const char *msg,
       continue;
     }
     lua_getinfo(L1, "Snlf", &ar);
-    fn = funcV(L1->top-1); L1->top--;
+    fn = funcV(L1->top-1);
+#if LJ_54
+    if (L == L1) {
+      int funcidx = lua_gettop(L);
+      if (debug_pushglobalfuncname54(L, funcidx)) {
+	lua_remove(L, funcidx);
+	gname = lua_tostring(L, -1);
+	gnameidx = lua_gettop(L);
+      } else {
+	lua_pop(L, 1);
+      }
+    } else {
+      L1->top--;
+    }
+#else
+    L1->top--;
+#endif
 #if LJ_54
     if (isffunc(fn) && !*ar.namewhat &&
 	(fn->c.ffid == LJ_FFID_PCALL || fn->c.ffid == LJ_FFID_XPCALL))
@@ -1141,6 +1202,8 @@ LUALIB_API void luaL_traceback (lua_State *L, lua_State *L1, const char *msg,
 	lua_pushliteral(L, " in function 'debug.traceback'");
       else if (*ar.what == 'C' && ar.name && strcmp(ar.name, "yield") == 0)
 	lua_pushliteral(L, " in function 'coroutine.yield'");
+      else if (*ar.what == 'C' && gname)
+	lua_pushfstring(L, " in function " LUA_QS, gname);
       else
 #endif
       lua_pushfstring(L, " in function " LUA_QS, ar.name);
@@ -1161,6 +1224,10 @@ LUALIB_API void luaL_traceback (lua_State *L, lua_State *L1, const char *msg,
 			ar.short_src, ar.linedefined);
       }
     }
+#if LJ_54
+    if (gnameidx)
+      lua_remove(L, gnameidx);
+#endif
     if ((int)(L->top - L->base) - top >= 15)
       lua_concat(L, (int)(L->top - L->base) - top);
   }
