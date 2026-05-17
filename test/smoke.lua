@@ -5380,6 +5380,20 @@ do
 end
 
 do
+  local fname = "lua54_loadfile_env.tmp"
+  os.remove(fname)
+  local f = assert(io.open(fname, "w"))
+  f:write("return x\n")
+  f:close()
+  local env = { x = "file-env" }
+  local loaded = assert(loadfile(fname, "t", env))
+  local name, value = debug.getupvalue(loaded, 1)
+  assert(name == "_ENV" and value == env)
+  assert(loaded() == "file-env")
+  assert(os.remove(fname))
+end
+
+do
   local fname = "lua54_loadfile_comment_binary.tmp"
   local f = assert(io.open(fname, "wb"))
   f:write("#this is a comment for a binary file\0\n",

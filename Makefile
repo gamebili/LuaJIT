@@ -172,7 +172,7 @@ amalg:
 
 clean:
 	$(MAKE) -C src clean
-	$(RM) lua54_valid_open_mode.tmp lua54_invalid_open_mode.tmp test/lua54_capi_hash_binary.tmp
+	$(RM) lua54_valid_open_mode.tmp lua54_invalid_open_mode.tmp lua54_loadfile_env.tmp test/lua54_capi_hash_binary.tmp
 
 smoketest:
 	$(MAKE) clean
