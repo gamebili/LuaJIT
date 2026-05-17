@@ -407,6 +407,7 @@
   - 当前进展：Lua 5.4 兼容模式下 `getmetatable()` 无参数已报 value error，并保留 `__metatable` 保护返回值。
   - 当前进展：debug 库整数边界已按 Lua 5.4 收紧，覆盖 stack level、local/upvalue index、hook count、traceback level、uservalue slot、`setcstacklimit`，以及超出 32-bit 但仍可表示为 `lua_Integer` 的 level 参数。
   - 当前进展：string / utf8 库的常见整数参数已按 Lua 5.4 收紧，覆盖 `string.byte`、`char`、`sub`、`rep`、`find`、`match`、`gmatch`、`gsub`、`pack`、`unpack` 以及 `utf8.char`、`codepoint`、`len`、`offset`，都会拒绝无整数表示的 number。
+  - 当前进展：`string.unpack()` 的初始位置已按官方 `posrelatI` 处理完整 `lua_Integer`，超大负位置会 clip 到字符串开头，例如 `string.unpack("b", "abc", -1099511627776)` 返回第一个字节和下一个位置。
   - 当前进展：pattern/replacement 的常见 Lua 5.4 错误文本已继续收紧，覆盖 `string.gsub` replacement 缺参/显式 nil/非法 boolean 的 `got no value` / `got nil` / `got boolean` 细节、invalid capture index `%0/%1/%2`、replacement 中孤立结尾 `%` 或非法 `%x` 用法，以及 `%b` 缺参数。
   - 当前进展：`string.char()` 的越界错误文本已收紧为 Lua 5.4 风格的 `value out of range`。
   - 当前进展：`utf8.char()` 对整数可表示但超出 0..0x7fffffff 扩展码点范围的输入，也已按 Lua 5.4 报 `value out of range`。

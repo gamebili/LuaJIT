@@ -112,6 +112,7 @@ local cases = {
   { "string.sub.noarg", "return string.sub()", err = "bad argument #1 to 'sub' (string expected, got no value)" },
   { "string.unpack.noarg", "return string.unpack()", err = "bad argument #1 to 'unpack' (string expected, got no value)" },
   { "string.unpack.short", "return string.unpack('i4', '')", err = "bad argument #2 to 'unpack' (data string too short)" },
+  { "string.unpack.wideneg", "return string.unpack('b', 'abc', -1099511627776)", ok = { "number:97", "number:2" } },
 
   { "table.concat.noarg", "return table.concat()", err = "bad argument #1 to 'concat' (table expected, got no value)" },
   { "table.concat.badsep", "return table.concat({}, true)", err = "bad argument #2 to 'concat' (string expected, got boolean)" },

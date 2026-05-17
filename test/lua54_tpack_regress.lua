@@ -83,4 +83,8 @@ do
   assert(i == 4 and p == 17)
   i, p = unpack("!4 i4", x, -#x)
   assert(i == 1 and p == 5)
+  i, p = unpack("b", "abc", -1099511627776)
+  assert(i == 97 and p == 2)
+  i, p = unpack("b", "abc", math.mininteger)
+  assert(i == 97 and p == 2)
 end

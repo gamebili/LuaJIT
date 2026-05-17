@@ -1549,7 +1549,9 @@ static int lj_cf_string_unpack(lua_State *L)
   const unsigned char *data =
     (const unsigned char *)string_checklstring_named54(L, 2, &len,
 						       fname);
-  lua_Integer init = string_optint_named54(L, 3, 1, fname);
+  cTValue *initv = L->base + 2;
+  lua_Integer init = (initv < L->top && !tvisnil(initv)) ?
+		     (lua_Integer)string_checkinteger64_named54(L, 3, fname) : 1;
   int64_t ipos;
   size_t pos;
   size_t maxalign = 1;
@@ -1558,8 +1560,13 @@ static int lj_cf_string_unpack(lua_State *L)
   /* Lua 5.4 posrelatI treats initial position 0 as byte 1; only
   ** negative positions are relative to the end of the string.
   */
-  ipos = init > 0 ? (int64_t)init :
-    init == 0 ? 1 : (int64_t)len + (int64_t)init + 1;
+  if (init > 0) {
+    ipos = (int64_t)init;
+  } else if (init == 0 || init < -(lua_Integer)len) {
+    ipos = 1;
+  } else {
+    ipos = (int64_t)((lua_Integer)len + init + 1);
+  }
   if (ipos < 1 || ipos > (int64_t)len + 1)
     string_argerror_named54(L, 3, fname,
 			    "initial position out of string");
