@@ -2127,10 +2127,12 @@ TRef lj_record_idx(jit_State *J, RecordIndex *ix)
 	  if (hasmm) {
 	    xref = lj_ir_call(J, IRCALL_lj_tab_geti64, ix->tab, i64ref);
 	    emitir(IRTG(IR_EQ, IRT_PGC), xref, trnull);
-	    if (lj_record_mm_lookup(J, ix, MM_newindex))
-	      goto handlemm;
-	    lj_assertJ(0, "inconsistent metamethod handling");
 	  }
+	  if (ix->idxchain && lj_record_mm_lookup(J, ix, MM_newindex)) {
+	    lj_assertJ(hasmm, "inconsistent metamethod handling");
+	    goto handlemm;
+	  }
+	  lj_assertJ(!hasmm, "inconsistent metamethod handling");
 	  xref = lj_ir_call(J, IRCALL_lj_tab_seti64, ix->tab, i64ref);
 	} else {
 	  xref = lj_ir_call(J, IRCALL_lj_tab_geti64, ix->tab, i64ref);

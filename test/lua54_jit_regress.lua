@@ -2952,6 +2952,26 @@ do
     assert(n == 560)
   end, "Lua 5.4 boxed int64 table key value lookup", "lj_tab_geti64")
 
+  assert_records_ir_call(function()
+    local key = 1099511627776
+    local t = {}
+    local hits = 0
+    local function run(v)
+      for _ = 1, 80 do
+	t[key] = v
+	t[key] = nil
+      end
+    end
+    run("direct")
+    setmetatable(t, {
+      __newindex = function(_, k, v)
+	if k == key and v == "via-mm" then hits = hits + 1 end
+      end
+    })
+    run("via-mm")
+    assert(hits == 80 and t[key] == nil)
+  end, "Lua 5.4 int64 table __newindex guard", "lj_tab_seti64")
+
   local numeric = { 1.0, 2, 3.5 }
   assert_records_trace(function()
     local n = 0
