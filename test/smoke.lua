@@ -3238,6 +3238,20 @@ do
     __index = function(_, k) return tostring(k) end,
   })
   assert(table.concat(proxy, ",") == "1,2,3")
+  local big = 1099511627776
+  local seen_key
+  local wide_proxy = setmetatable({}, {
+    __len = function() return big end,
+    __index = function(_, k)
+      seen_key = k
+      if k == big then return "wide" end
+    end,
+  })
+  assert(table.concat(wide_proxy, ",", big) == "wide")
+  assert(seen_key == big and math.type(seen_key) == "integer")
+  seen_key = nil
+  assert(table.concat(wide_proxy, ",", big + 1) == "")
+  assert(seen_key == nil)
   ok, err = pcall(table.concat, { 1, 2, 3 }, ",", 1.2, 2)
   assert(ok == false and err:match("number has no integer representation") ~= nil)
   ok, err = pcall(table.concat, { 1, 2, 3 }, ",", 1, 2.2)

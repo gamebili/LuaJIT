@@ -324,21 +324,6 @@ static lua_Integer table_checkinteger_named54(lua_State *L, int narg,
   return 0;  /* unreachable */
 }
 
-static int32_t table_len_obj54(lua_State *L, int narg)
-{
-  TValue *o = L->base + narg-1;
-  int32_t len;
-  if (o < L->top && tvistab(o))
-    return table_len54(L, tabV(o), narg);
-  lua_len(L, narg);
-  if (!table_toint32value54(L->top-1, &len, NULL)) {
-    L->top--;
-    luaL_error(L, "object length is not an integer");
-  }
-  L->top--;
-  return len;
-}
-
 static lua_Integer table_len_integer_obj54(lua_State *L, int narg)
 {
   TValue *o = L->base + narg-1;
@@ -602,7 +587,7 @@ LJLIB_CF(table_concat)		LJLIB_REC(.)
 #endif
 #if LJ_54
   } else {
-    e = table_len_obj54(L, 1);
+    e = table_len_integer_obj54(L, 1);
 #else
   } else {
     e = (int32_t)lj_tab_len(t);
