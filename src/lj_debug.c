@@ -1163,8 +1163,11 @@ LUALIB_API void luaL_traceback (lua_State *L, lua_State *L1, const char *msg,
     lua_getinfo(L1, "Snlf", &ar);
     fn = funcV(L1->top-1);
 #if LJ_54
-    if (L == L1) {
-      int funcidx = lua_gettop(L);
+    {
+      int funcidx;
+      if (L != L1)
+	lua_xmove(L1, L, 1);
+      funcidx = lua_gettop(L);
       if (debug_pushglobalfuncname54(L, funcidx)) {
 	lua_remove(L, funcidx);
 	gname = lua_tostring(L, -1);
@@ -1172,8 +1175,6 @@ LUALIB_API void luaL_traceback (lua_State *L, lua_State *L1, const char *msg,
       } else {
 	lua_pop(L, 1);
       }
-    } else {
-      L1->top--;
     }
 #else
     L1->top--;

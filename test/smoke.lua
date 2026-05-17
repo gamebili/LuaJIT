@@ -3689,6 +3689,13 @@ do
     local ctrace = debug.traceback(nil)
     assert(ctrace:find("[C]: in ?", 1, true) ~= nil)
     assert(ctrace:find("[C]: at 0x", 1, true) == nil)
+    local co = coroutine.create(function()
+      return math.abs(true)
+    end)
+    local ok = coroutine.resume(co)
+    assert(ok == false)
+    local cotrace = debug.traceback(co)
+    assert(cotrace:find("[C]: in function 'math.abs'", 1, true) ~= nil)
   end
   do
     local stripped = assert(load(string.dump(assert(load([[

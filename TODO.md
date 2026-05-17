@@ -36,7 +36,8 @@
    - 当前进展：line hook 已按启用 hook 的具体 frame/line 做同一行跳过，call hook 内启用 line hook 不再误跳过被调函数首行；一行函数入口会按 Lua 5.4 报告定义行；hook 回调帧的 `debug.getinfo(..., "n")` / traceback 已能显示 `hook '?'`。
    - 当前进展：普通 Lua call/return、vararg return、tailcall transfer、普通 C 函数 call/return、fast C 函数 return、`pcall` / `xpcall` 合成 C return 已进入 smoke；字符串算术错误在 hook 内 protected call 下可被捕获。
   - 当前进展：metamethod/finalizer 的 debug 名字、`for iterator` 名字反推、traceback 大栈裁剪格式、stripped chunk 的 `(no name)` upvalue 和无行号 line hook `nil` 参数已按官方 Lua 5.4.8 `testes/db.lua` 收口。
-  - 当前进展：stripped chunk 中 Lua 层 `error()` / C 层 `luaL_error()` 通过 `luaL_where()` 时会在 `currentline == -1` 下省略位置前缀，不再误拼 `?:-1:`；VM 运算/类型等 runtime 错误仍保留官方可见的 stripped `?:-1:` 诊断。
+   - 当前进展：stripped chunk 中 Lua 层 `error()` / C 层 `luaL_error()` 通过 `luaL_where()` 时会在 `currentline == -1` 下省略位置前缀，不再误拼 `?:-1:`；VM 运算/类型等 runtime 错误仍保留官方可见的 stripped `?:-1:` 诊断。
+   - 当前进展：`luaL_traceback()` 会对同线程和目标 coroutine 栈上的 C 函数执行 `_LOADED` 反查，按 Lua 5.4 输出 `math.abs` / `table.concat` 这类限定名，不再在 `debug.traceback(co)` 中退回短名。
    - 当前进展：Android ARM64 VM 已补 fast function / ordinary C function return hook transfer，并保留第二层 tailcall marker；`math.sin` / `select` / nested tailcall 的 debug transfer 和 `istailcall` smoke 已在设备侧通过。
    - 验证状态：官方 Lua 5.4.8 `testes/db.lua` 当前已通过；该批次没有已知剩余阻塞。
 
