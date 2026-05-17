@@ -300,7 +300,7 @@
   - 当前进展：外部兼容头下的 `lua_gettable()`、`lua_getfield()`、`lua_geti()`、`lua_rawget()`、`lua_rawgeti()`、`lua_rawgetp()` 已通过 `*54` 包装入口返回取到值的 Lua 类型，并用官方函数名的源级别别名支持外部代码按 Lua 5.4 签名取函数指针；内部仍保留 LuaJIT 旧 `void` ABI。
   - 当前进展：外部兼容头下的 `lua_geti()` / `lua_seti()` / `lua_rawgeti()` / `lua_rawseti()` 索引参数已通过 Lua 5.4 表面暴露为 `lua_Integer`，并支持按官方函数名取函数指针；非 32 位 key 会走 generic/raw key 路径，避免截断回 LuaJIT 当前 32 位整数表槽。
   - 当前进展：Lua 5.4 外部兼容头已把 `lua_load(L, reader, data, chunkname, mode)` 映射到五参数 `lua_load54()` wrapper，并支持按官方 `lua_load` 名取函数指针；内部旧四参数 `lua_load()` 和 LuaJIT 扩展 `lua_loadx()` ABI 保持不变，但外部 5.4 头不再暴露 `lua_loadx`。C API smoke 覆盖 text reader 模式加载、binary-only 模式拒绝 text chunk、LuaJIT binary reader 模式加载以及 text-only 模式拒绝 binary chunk，负向编译 gate 覆盖 `lua_loadx` 不泄露。
-  - 当前进展：Lua 5.4 外部兼容头已把 `lua_dump(L, writer, data, strip)` 映射到 `lua_dump54()`，并支持按官方 `lua_dump` 名取函数指针；内部旧 3 参数 `lua_dump()` ABI 保持不变，`strip` 会转发到 LuaJIT bytecode writer。
+  - 当前进展：Lua 5.4 外部兼容头已把 `lua_dump(L, writer, data, strip)` 映射到 `lua_dump54()`，并支持按官方 `lua_dump` 名取函数指针；内部旧 3 参数 `lua_dump()` ABI 保持不变，`strip` 会转发到 LuaJIT bytecode writer，writer 回调返回的非零失败码会按 C API 返回值传播。
   - 当前进展：Lua 5.4 外部兼容头已把 `lua_insert()` / `lua_remove()` / `lua_replace()` 暴露为官方宏，映射到 `lua_rotate()` / `lua_copy()`，默认构建仍保留 LuaJIT 旧函数 ABI。
   - 当前进展：Lua 5.4 外部兼容头已通过 `lua_pushlstring54()` / `lua_pushstring54()` wrapper 暴露 `lua_pushlstring()` / `lua_pushstring()` 的官方返回值表面，并支持按官方函数名取函数指针；默认构建仍保留 LuaJIT 5.1 的 `void` 头文件 ABI。
   - 当前进展：Lua 5.4 外部兼容头已把 `lua_tonumber()` / `lua_tointeger()` 暴露为官方宏，映射到 `lua_tonumberx(..., NULL)` / `lua_tointegerx(..., NULL)`；默认构建仍保留 LuaJIT 旧函数 ABI。

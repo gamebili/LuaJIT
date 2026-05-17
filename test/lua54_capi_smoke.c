@@ -2392,6 +2392,14 @@ static int dump_writer(lua_State *L, const void *p, size_t sz, void *ud)
   return 0;
 }
 
+static int dump_fail_writer(lua_State *L, const void *p, size_t sz, void *ud)
+{
+  int *calls = (int *)ud;
+  (void)L; (void)p; (void)sz;
+  ++*calls;
+  return 77;
+}
+
 static int pushfstring_bad_format(lua_State *L)
 {
   lua_pushfstring(L, "%Z");
@@ -5371,6 +5379,7 @@ static void test_dump_api(lua_State *L)
   DumpBuffer full;
   DumpBuffer stripped;
   CApiReaderCtx reader;
+  int fail_calls = 0;
   int status;
 
   memset(&full, 0, sizeof(full));
@@ -5386,6 +5395,9 @@ static void test_dump_api(lua_State *L)
 	"lua_dump function pointer stripped");
   check(L, stripped.len > 0 && stripped.len <= full.len,
 	"lua_dump stripped length");
+  check(L, lua_dump_sig(L, dump_fail_writer, &fail_calls, 0) == 77,
+	"lua_dump writer failure status");
+  check(L, fail_calls > 0, "lua_dump writer failure callback");
   lua_pop(L, 1);
 
   status = luaL_loadbufferx(L, stripped.data, stripped.len, "=dumped", "b");
