@@ -67,6 +67,9 @@ local cases = {
   { "debug.upvaluejoin.badfunc1", "return debug.upvaluejoin(true, 1, function() end, 1)", err = "bad argument #1 to 'upvaluejoin' (function expected, got boolean)" },
   { "debug.upvaluejoin.badfunc2", "return debug.upvaluejoin(function() end, 1, true, 1)", err = "bad argument #2 to 'upvaluejoin' (invalid upvalue index)" },
 
+  { "io.seek.wide", "local f = assert(io.tmpfile()); return f:seek('set', 2147483648)", err = "bad argument #2 to 'seek' (not an integer in proper range)" },
+  { "io.seek.widestr", "local f = assert(io.tmpfile()); return f:seek('set', '2147483648')", err = "bad argument #2 to 'seek' (not an integer in proper range)" },
+
   { "math.abs.bad", "return math.abs(true)", err = "bad argument #1 to 'abs' (number expected, got boolean)" },
   { "math.atan.noarg", "return math.atan()", err = "bad argument #1 to 'atan' (number expected, got no value)" },
   { "math.ceil.bad", "return math.ceil(true)", err = "bad argument #1 to 'ceil' (number expected, got boolean)" },

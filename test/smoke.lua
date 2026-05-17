@@ -5205,11 +5205,15 @@ assert(assert(load([[
     local f <close> = assert(io.open(fname, "w+"))
     f:write("abcdef")
     assert(f:seek("set", "2") == 2)
-    local pos = f:seek("set", 1099511627776)
-    assert(pos == 1099511627776 and math.type(pos) == "integer")
+    local ok, err = pcall(function() return f:seek("set", 2147483648) end)
+    assert(ok == false and tostring(err):find("not an integer in proper range", 1, true))
+    ok, err = pcall(function() return f:seek("set", "2147483648") end)
+    assert(ok == false and tostring(err):find("not an integer in proper range", 1, true))
+    ok, err = pcall(function() return f:seek("set", 1099511627776) end)
+    assert(ok == false and tostring(err):find("not an integer in proper range", 1, true))
     -- Lua 5.4 requires seek offsets to be exact integers.  The compat path
     -- must not silently truncate fraction numbers or numeric strings.
-    local ok, err = pcall(function() return f:seek("set", 1.5) end)
+    ok, err = pcall(function() return f:seek("set", 1.5) end)
     assert(ok == false and tostring(err):find("integer representation", 1, true))
     ok, err = pcall(function() return f:seek("set", "1.5") end)
     assert(ok == false and tostring(err):find("integer representation", 1, true))

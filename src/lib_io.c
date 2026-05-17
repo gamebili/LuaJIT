@@ -284,6 +284,7 @@ static int64_t io_checkseekofs54(lua_State *L)
 {
   TValue tmp;
   cTValue *o = L->base+2;
+  int64_t k;
   if (o >= L->top || tvisnil(o))
     return 0;
   if (tvisstr(o)) {
@@ -292,12 +293,11 @@ static int64_t io_checkseekofs54(lua_State *L)
     o = &tmp;
   }
   if (tvisint(o)) {
-    return (int64_t)intV(o);
+    k = (int64_t)intV(o);
   } else if (tvisi64(o)) {
-    return (int64_t)i64V(o);
+    k = (int64_t)i64V(o);
   } else if (tvisnum(o)) {
     lua_Number n = numV(o);
-    int64_t k;
     /* file:seek takes a lua_Integer offset in Lua 5.4.  Do not truncate
     ** fractions or decimal strings such as "1.5" before passing them to C.
     */
@@ -308,10 +308,17 @@ static int64_t io_checkseekofs54(lua_State *L)
     if ((lua_Number)k != n)
       io_methodargerror54(L, "seek", 2,
 			  "number has no integer representation");
-    return k;
+  } else {
+    io_seekargtype54(L, "number");
+    k = 0;  /* Unreachable. */
   }
-  io_seekargtype54(L, "number");
-  return 0;  /* Unreachable. */
+#if defined(__MINGW32__) || (!LJ_TARGET_POSIX && \
+    !(defined(_MSC_VER) && _MSC_VER >= 1400))
+  if (k < (int64_t)LONG_MIN || k > (int64_t)LONG_MAX)
+    io_methodargerror54(L, "seek", 2,
+			"not an integer in proper range");
+#endif
+  return k;
 }
 
 static void io_setvbufargtype54(lua_State *L, const char *xname)
