@@ -399,6 +399,10 @@ error(m)
 			     "os.exit(" .. code .. ", true)\n")
     expect_ok("exit_" .. code, q(script), "")
   end
+  expect_ok("exit_wide_status",
+	    "-e " .. q("os.exit(1099511627776, true)"), "")
+  expect_ok("exit_wide_string_status",
+	    "-e " .. q("os.exit('1099511627776', true)"), "")
   expect_exit_failure("exit_1", "1")
   expect_exit_failure("exit_false", "false")
 

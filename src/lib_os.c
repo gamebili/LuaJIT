@@ -132,8 +132,8 @@ static time_t os_checktime_named54(lua_State *L, int narg, const char *fname)
   return (time_t)k;
 }
 
-static int32_t os_optint_named54(lua_State *L, int narg, int32_t def,
-				 const char *fname)
+static int os_optint_named54(lua_State *L, int narg, int def,
+			     const char *fname)
 {
   TValue tmp;
   cTValue *o = L->base + narg-1;
@@ -141,26 +141,28 @@ static int32_t os_optint_named54(lua_State *L, int narg, int32_t def,
   if (o >= L->top || tvisnil(o))
     return def;
   if (tvisstr(o)) {
-    if (!lj_strscan_number(strV(o), &tmp))
+    if (!lj_strscan_number54(L, strV(o), &tmp))
       os_argtype_named54(L, narg, fname, "number");
     o = &tmp;
   }
   if (tvisint(o)) {
-    return intV(o);
+    k = (int64_t)intV(o);
+  } else if (tvisi64(o)) {
+    k = (int64_t)i64V(o);
   } else if (tvisnum(o)) {
     lua_Number n = numV(o);
-    if (!(n >= -2147483648.0 && n <= 2147483647.0))
+    if (!(n >= (lua_Number)INT64_MIN && n < -((lua_Number)INT64_MIN)))
       os_argerror_named54(L, narg, fname,
 			  "number has no integer representation");
     k = lj_num2i64(n);
     if ((lua_Number)k != n)
       os_argerror_named54(L, narg, fname,
 			  "number has no integer representation");
-    return (int32_t)k;
   } else {
     os_argtype_named54(L, narg, fname, "number");
-    return 0;  /* Unreachable. */
+    k = 0;  /* Unreachable. */
   }
+  return (int)k;
 }
 
 static void os_checktab_named54(lua_State *L, int narg, const char *fname)
