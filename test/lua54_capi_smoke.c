@@ -5392,6 +5392,14 @@ static void test_dump_api(lua_State *L)
   lua_call(L, 1, 1);
   check_integer(L, -1, 42, "lua_dump stripped roundtrip");
   lua_pop(L, 1);
+
+  status = luaL_loadbufferx(L, stripped.data, stripped.len, "=dumped", "t");
+  check(L, status == LUA_ERRSYNTAX,
+	"luaL_loadbufferx text mode rejects binary");
+  check(L, strstr(lua_tostring(L, -1),
+		  "attempt to load a binary chunk (mode is 't')") != NULL,
+	"luaL_loadbufferx binary wrong mode error");
+  lua_pop(L, 1);
 }
 
 static void test_warning_and_gc_api(lua_State *L)
