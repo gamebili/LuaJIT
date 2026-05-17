@@ -179,19 +179,19 @@
   - 已覆盖：`tostring`、`type` 不受 `__name` 影响、非字符串 `__name` 被忽略、`__tostring` 返回 string/number 成功和返回 table 等其它值失败、`math.abs` 参数类型错误、`coroutine.resume` / `coroutine.close` / `coroutine.isyieldable` 线程类型错误、`coroutine.isyieldable([co])` 可选 thread 参数、`coroutine` 基础参数错误函数名、普通源码调用和局部别名调用下的 `status` / `create` / `wrap` / `isyieldable` / `resume` / `close` 调用点名、`status` / `create` / `wrap` / `isyieldable` / `resume` / `close` tail-position 源码调用和局部别名调用点名、`resume` / `close` wrapper 缺参 vs 显式 nil 区分、`coroutine.close()` 成功路径单返回值、running / normal coroutine 状态错误文本、`luaL_tolstring`。
   - 说明：其他函数名/逐字错误文本继续归入“标准库错误消息与边界参数完全对齐”。
 
-- [ ] `tonumber` 和 `string.format` 的 Lua 5.4 数值格式规则。
+- [x] `tonumber` 和 `string.format` 的 Lua 5.4 数值格式规则。
   - 当前状态：已补 `tonumber("0x10", 16) == nil`；`tonumber` 的显式 base 参数会拒绝无整数表示的 number，仍接受字符串数字；`tonumber()` 在 Lua 5.4 兼容模式下已拒绝 C 风格 `inf` / `infinity` / `nan` 字符串和 LuaJIT 扩展 `0b` / `0B` 二进制前缀字符串；整数格式 `%d`/`%i`/`%u`/`%x`/`%o` 和字符格式 `%c` 已拒绝无整数表示的 number/string number；`string.format("%q", number)` 已输出可读回文本，覆盖整数、十六进制浮点、负零、NaN 和正负无穷；`%q` 对 table 等没有 Lua 字面量形式的值会报错，不再走 `__tostring`；`string.format("%p", nil/boolean/number)` 已输出 `(null)`，GC 对象继续使用平台 C `%p` 文本，并用 C API smoke 固定无宽度、宽度和左对齐时都跟随宿主 C 指针 ABI。
   - 当前进展：`string.format` 已按 Lua 5.4 校验格式规格长度、各转换允许的 flag/precision、`%q` 禁止 modifier、缺少参数报 `no value`；格式项缺少实参时会先报 `bad argument ... (no value)`，即使该格式项本身是 invalid 或 too-long；带宽度/精度的 `%s` 遇到内嵌 NUL 会报 `string contains zeros`，裸 `%s` 仍保留 Lua 字符串字节；`%a` / `%A` 只接受裸转换，flag、width 或 precision modifier 会按官方报 `modifiers for format '%a'/'%A' not implemented`。
   - 当前进展：`string.format()` 的格式规格长度阈值已按 Lua 5.4 `MAX_FORMAT - 10` 对齐，21 位 width 或 19 位 precision 这类总长度达到 23 字节的格式项会报 `invalid format (too long)`，不再误报 `invalid conversion specification`。
   - 当前进展：`string.format("%s")` 已按 Lua 5.4 通过 `__tostring` 转换 table/userdata，缺少 `__tostring` 时使用 `__name` 作为类型名前缀；`__tostring` 返回 table 等非 string/number 值时会报 `'__tostring' must return a string`，不再把错误返回值继续格式化。
   - 当前进展：JIT recorder 已支持 `string.format("%s", number)` 和带宽度的 `%s` number 路径；记录时先把 integer/float TRef 转成字符串，避免旧 recorder 对非 string `%s` 直接 NYI，同时保留 object / `__tostring` 复杂表面在解释器里做运行期校验。
-  - 当前进展：`string.format("%q", math.mininteger)` 在当前 32 位整数表面下会输出可重新读回的 `(-2147483647 - 1)` 形态；`%u` / `%x` / `%X` / `%o` 的 32 位负整数格式已按当前公开 unsigned 表面截断，不再把 `0xFFFFFFFF` 扩成 64 位宽度。
+  - 当前进展：`string.format("%q", math.mininteger)` 会输出可重新读回的 64-bit integer 形态；`%d` / `%i`、`%u` / `%x` / `%X` / `%o` 已按公开 `lua_Integer` / `lua_Unsigned` 宽度覆盖 `math.mininteger`、`math.maxinteger` 和 `-1` 的十进制/无符号/十六进制边界。
   - 当前进展：`string.format()` 的 Lua 5.4 非法格式错误已区分未知转换和非法规格；`%I` / `%U` / `%F` 这类未知转换保持 `invalid conversion '...' to 'format'`，`%3.1p` / `%#p` 等合法转换的非法 flag/precision 组合会报 `invalid conversion specification: '...'`。
   - 当前进展：tail-position Lua wrapper 中的 `return string.format(...)` 会在 Lua 5.4 兼容模式下保留调用帧，因此 formatter 解析/规格错误会按官方带源码调用点位置，不再被 tail call 优化擦掉；格式串由 `string.rep()` 等嵌套调用动态拼接、或经 local/upvalue alias 调用 `string.format` 时也会保留同一源码前缀。
   - 当前进展：`string.format()` 参数错误会按 Lua 5.4 恢复源级调用名；direct `pcall(string.format, ...)` 保持 `string.format`，源码字段调用显示 `format`，局部/upvalue alias 显示 alias 名。
   - 当前进展：`tonumber(str, base)` 的显式 base 越界错误已按官方 Lua 5.4 报到 `tonumber`，覆盖 base 为 1 和 37 的 `base out of range`，不再从内部参数检查显示为 `?`。
   - 已覆盖：base16 的 `0x` 前缀、base34 下 `x` 仍作为有效数字、base 参数 fraction number 报错、base 字符串数字转换、`tonumber` 拒绝 `inf` / `infinity` / `nan` 及大小写/符号/空白变体、`0b` / `0B` 及符号/空白变体、locale 小数点为逗号时 `tonumber("3,4")` 成功、`%d` 严格整数检查、`%c` fraction number 报错和字符串数字转换、`%q` nil/boolean/integer/float/negative-zero/NaN/Inf/string 基础输出、`%q` table/`__tostring` table 报错、`%p` nil/boolean/number/string/长字符串对象身份/width/left-align、`%a` / `%A` modifier 错误、invalid/too-long 格式项缺实参的 `no value` 优先级、`%s` NUL modifier、`%s` number JIT trace、`__tostring`、`__name` 和非法 `__tostring` 返回值边界、未知转换与非法格式规格错误文本。
-  - 剩余：完整 64 位整数格式归入整数语义继续处理。
+  - 验证状态：`cmd /c build.bat lua54` 已通过，覆盖官方 Lua 5.4.8 `strings.lua` / `math.lua`、Lua 5.4 smoke 中的扩展数字拒绝、locale 数字、严格整数格式、`%q` / `%p` / `%a` / `%s` / invalid format 文本，以及 64-bit integer 格式边界；该条没有已知剩余缺口。
 
 - [ ] 字符串到数字的运算转换细节。
   - 当前状态：普通算术路径已在 Lua 5.4 dual-number 兼容构建下保留字符串数字转换后的 integer/float 子类型；`//` / `%` helper 已支持字符串数字并尊重显式 string metatable；bitwise helper 继续拒绝 string；Lua 5.4 兼容模式下通用字符串数字转换已拒绝 `inf` / `nan` / `0b` 等 LuaJIT 扩展数字文本。
