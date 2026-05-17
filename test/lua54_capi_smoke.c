@@ -5332,10 +5332,17 @@ static void test_lauxlib_api(lua_State *L)
 	"luaL_loadfilex hash binary body write");
   check(L, fclose(tmpf) == 0, "luaL_loadfilex hash binary close");
   status = luaL_loadfilex(L, binname, "b");
-  remove(binname);
   check(L, status == LUA_OK, "luaL_loadfilex hash binary mode");
   lua_call(L, 0, 1);
   check_integer(L, -1, 79, "luaL_loadfilex hash binary result");
+  lua_pop(L, 1);
+  status = luaL_loadfilex(L, binname, "t");
+  remove(binname);
+  check(L, status == LUA_ERRSYNTAX,
+	"luaL_loadfilex text mode rejects hash binary");
+  check(L, strstr(lua_tostring(L, -1),
+		  "attempt to load a binary chunk (mode is 't')") != NULL,
+	"luaL_loadfilex hash binary wrong mode error");
   lua_pop(L, 1);
 
   reader.src = "return 64";
