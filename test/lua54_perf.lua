@@ -818,6 +818,7 @@ local function number_pack_helpers(n)
   local base16_dynamic_num = 16.0
   local base10_dynamic_string = "10"
   local base16_dynamic_string = "0x10"
+  local pow_string_one = "1"
   local tointeger_wide = "1099511627776"
   local tointeger_max = "9223372036854775807"
   local tointeger_over = "9223372036854775808"
@@ -853,10 +854,16 @@ local function number_pack_helpers(n)
       local mul = ti_wide * 3
       local neg = -ti_wide
       local pow = ti_wide ^ 1
+      local pow_str_exp = ti_wide ^ pow_string_one
+      local pow_str_base = tointeger_wide ^ 1
       if add == 1099511627779 and mul == 3298534883328 and
 	 neg == -1099511627776 and pow == 1099511627776.0 and
+	 pow_str_exp == 1099511627776.0 and
+	 pow_str_base == 1099511627776.0 and
 	 math.type(add) == "integer" and math.type(mul) == "integer" and
-	 math.type(neg) == "integer" and math.type(pow) == "float" then
+	 math.type(neg) == "integer" and math.type(pow) == "float" and
+	 math.type(pow_str_exp) == "float" and
+	 math.type(pow_str_base) == "float" then
 	sum = sum + 1
       end
     end

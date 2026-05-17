@@ -154,6 +154,23 @@ static TRef rec_lua54_numref(jit_State *J, TRef tr)
   return emitir(IRTN(IR_CONV), rec_lua54_i64ref(J, tr), IRCONV_NUM_I64_SIGNED);
 }
 
+static TRef rec_lua54_tonumref(jit_State *J, TRef tr, cTValue *tv)
+{
+  if (rec_lua54_tref_isnumeric(tr))
+    return rec_lua54_numref(J, tr);
+  if (tvisstr(tv) && tref_isstr(tr)) {
+    TValue tmp;
+    TRef fmt;
+    if (!lj_strscan_number54(J->L, strV(tv), &tmp))
+      return 0;
+    fmt = lj_ir_call(J, IRCALL_lj_strscan_numtype54s, tr);
+    emitir(IRTGI(IR_EQ), fmt,
+	   lj_ir_kint(J, rec_lua54_tv_isinteger(&tmp) ? 1 : 2));
+    return lj_ir_call(J, IRCALL_lj_strscan_tonum54s, tr);
+  }
+  return 0;
+}
+
 static TRef rec_lua54_i64result(jit_State *J, TRef tr, int64_t rv)
 {
   if (rv >= LJ_LUA54_I32_MIN && rv <= LJ_LUA54_I32_MAX) {
@@ -3009,16 +3026,24 @@ void lj_record_ins(jit_State *J)
 
   case BC_POW:
 #if LJ_54 && LJ_DUALNUM
-    if (rec_lua54_tref_isnumeric(rb) && rec_lua54_tref_isnumeric(rc)) {
-      rc = emitir(IRTN(IR_POW), rec_lua54_numref(J, rb),
-		  rec_lua54_numref(J, rc));
-      break;
+    {
+      TRef nb = rec_lua54_tonumref(J, rb, rbv);
+      TRef nc = rec_lua54_tonumref(J, rc, rcv);
+      if (nb && nc) {
+	rc = emitir(IRTN(IR_POW), nb, nc);
+	break;
+      }
     }
 #endif
-    if (tref_isnumber_str(rb) && tref_isnumber_str(rc))
+    if (tref_isnumber_str(rb) && tref_isnumber_str(rc)) {
+#if LJ_54 && LJ_DUALNUM
+      if (tvisstr(rbv) || tvisstr(rcv))
+	lj_trace_err(J, LJ_TRERR_BADTYPE);
+#endif
       rc = lj_opt_narrow_arith(J, rb, rc, rbv, rcv, IR_POW);
-    else
-      rc = rec_mm_arith(J, &ix, MM_pow);
+      break;
+    }
+    rc = rec_mm_arith(J, &ix, MM_pow);
     break;
 
   /* -- Miscellaneous ops ------------------------------------------------- */

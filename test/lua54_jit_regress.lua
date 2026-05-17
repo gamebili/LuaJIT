@@ -836,6 +836,22 @@ do
     assert(pow_loop(1099511627776, 1) == 80)
   end, "Lua 5.4 boxed int64 power", "POW")
 
+  assert_records_ir_op(function()
+    local function pow_loop(a, b, c)
+      local n = 0
+      for _ = 1, 80 do
+	local x = a ^ b
+	local y = c ^ 1
+	if x == 1099511627776.0 and y == 1099511627776.0 and
+	   math.type(x) == "float" and math.type(y) == "float" then
+	  n = n + 1
+	end
+      end
+      return n
+    end
+    assert(pow_loop(1099511627776, "1", "1099511627776") == 80)
+  end, "Lua 5.4 mixed int64 string power", "POW")
+
   assert_records_trace(function()
     local x = 0
     for _ = 1, 80 do
