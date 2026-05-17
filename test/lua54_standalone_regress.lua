@@ -71,6 +71,24 @@ local function expect_fail(name, args, needle, opts)
 	 name .. " missing error fragment " .. needle .. ": " .. r.err)
 end
 
+local function expect_contains(name, text, needle)
+  assert(text:find(needle, 1, true),
+	 name .. " missing fragment " .. needle .. ": " .. text)
+end
+
+local function expect_not_contains(name, text, needle)
+  assert(not text:find(needle, 1, true),
+	 name .. " unexpected fragment " .. needle .. ": " .. text)
+end
+
+local function count_lines(text, want)
+  local n = 0
+  for line in (text .. "\n"):gmatch("(.-)\n") do
+    if line == want then n = n + 1 end
+  end
+  return n
+end
+
 local function expect_exit_failure(name, code)
   local script = note(prefix .. name .. ".lua")
   writefile(script, "os.exit(" .. code .. ", true)\n")
@@ -115,6 +133,66 @@ local ok, err = pcall(function()
   assert(debug_run.out == "", "debug.debug stdout mismatch: " .. debug_run.out)
   assert(debug_run.err == "lua_debug> 1000lua_debug> ",
 	 "debug.debug stderr mismatch: " .. debug_run.err)
+
+  local empty_prompts = "-e " .. q("_PROMPT='' _PROMPT2=''") .. " -i"
+  local interactive_expr = writefile(note(prefix .. "interactive_expr.lua"),
+				     "10\n")
+  local r = run("interactive_expr", empty_prompts,
+		{ stdin = interactive_expr })
+  assert(r.ok, "interactive expression failed: " .. r.err)
+  expect_contains("interactive expression stdout", r.out, "\n10\n")
+  assert(r.err == "", "interactive expression stderr mismatch: " .. r.err)
+
+  local interactive_print = writefile(note(prefix .. "interactive_print.lua"),
+				      "10\n")
+  r = run("interactive_print_error", "-e " .. q("print=nil") .. " -i",
+	  { stdin = interactive_print })
+  assert(r.ok, "interactive print error run failed: " .. r.err)
+  expect_contains("interactive print error", r.err, "error calling 'print'")
+
+  local interactive_multiline = writefile(note(prefix .. "interactive_multiline.lua"),
+					  "(6*2-6) -- ===\na =\n10\nprint(a)\na\n")
+  r = run("interactive_multiline", empty_prompts,
+	  { stdin = interactive_multiline })
+  assert(r.ok, "interactive multiline failed: " .. r.err)
+  expect_contains("interactive multiline result", r.out, "\n6\n")
+  assert(count_lines(r.out, "10") >= 2,
+	 "interactive multiline missing repeated 10: " .. r.out)
+  expect_not_contains("interactive multiline syntax", r.out .. r.err,
+		      "unexpected symbol")
+  expect_not_contains("interactive multiline nil", r.out, "\nnil\n")
+
+  local interactive_longstring = writefile(note(prefix .. "interactive_longstring.lua"),
+					   "a = [[b\nc\nd\ne]]\n=a\n")
+  r = run("interactive_longstring", empty_prompts,
+	  { stdin = interactive_longstring })
+  assert(r.ok, "interactive long string failed: " .. r.err)
+  expect_contains("interactive long string b", r.out, "\nb\n")
+  expect_contains("interactive long string c", r.out, "\nc\n")
+  expect_contains("interactive long string d", r.out, "\nd\n")
+  expect_contains("interactive long string e", r.out, "\ne\n")
+  expect_not_contains("interactive long string syntax", r.out .. r.err,
+		      "syntax error")
+  expect_not_contains("interactive long string unfinished", r.out .. r.err,
+		      "unfinished long string")
+
+  local prompt_meta = writefile(note(prefix .. "interactive_prompt_meta.lua"),
+				" --\na = 2\n")
+  r = run("interactive_prompt_meta",
+	  "-e " .. q("local C=0; _PROMPT=setmetatable({},{__tostring=function() C=C+1; return C end})") .. " -i",
+	  { stdin = prompt_meta })
+  assert(r.ok, "interactive prompt metamethod failed: " .. r.err)
+  expect_contains("interactive prompt metamethod", r.out, "\n123\n")
+  expect_not_contains("interactive prompt fallback", r.out, "> > >")
+
+  local interactive_interrupt = writefile(note(prefix .. "interactive_interrupt.lua"),
+					  "a.\n")
+  r = run("interactive_interrupt", "-i", { stdin = interactive_interrupt })
+  assert(r.ok, "interactive interrupt run failed")
+  expect_contains("interactive interrupt error", r.err,
+		  "<name> expected near <eof>")
+  expect_not_contains("interactive interrupt old quotes", r.err,
+		      "'<name>' expected")
 
   expect_ok("first_line_comment",
 	    q(writefile(note(prefix .. "first_line_comment.lua"),
