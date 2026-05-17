@@ -1407,8 +1407,14 @@ static void LJ_FASTCALL recff_math_call(jit_State *J, RecordFFData *rd)
 
 static void LJ_FASTCALL recff_math_pow(jit_State *J, RecordFFData *rd)
 {
+#if LJ_54 && LJ_DUALNUM
+  TRef tr = recff_lua54_checknumref(J, J->base[0], &rd->argv[0]);
+  TRef tr2 = recff_lua54_checknumref(J, J->base[1], &rd->argv[1]);
+  J->base[0] = emitir(IRTN(IR_POW), tr, tr2);
+#else
   J->base[0] = lj_opt_narrow_arith(J, J->base[0], J->base[1],
 				   &rd->argv[0], &rd->argv[1], IR_POW);
+#endif
   UNUSED(rd);
 }
 

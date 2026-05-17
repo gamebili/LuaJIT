@@ -23,6 +23,134 @@ assert(mantissa == 0.5 and exponent == 4)
 assert(math.ldexp(mantissa, exponent) == 8)
 
 do
+  local ok_util, jutil = pcall(require, "jit.util")
+  if ok_util then
+    local bit = require("bit")
+    local vmdef = require("jit.vmdef")
+
+    local function trace_highwater()
+      local n = 0
+      for i = 1, 1000 do
+	if jutil.traceinfo(i) then n = i end
+      end
+      return n
+    end
+    jit.off(trace_highwater, true)
+
+    local function trace_has_ir_op(first_trace, last_trace, opname)
+      for tr = first_trace, last_trace do
+	if jutil.traceinfo(tr) then
+	  for ins = 1, 1000 do
+	    local _, ot = jutil.traceir(tr, ins)
+	    if not ot then break end
+	    local opidx = bit.rshift(ot, 8)
+	    local op = vmdef.irnames:sub(opidx * 6 + 1, opidx * 6 + 6)
+	    if op:gsub("%s+$", "") == opname then return true end
+	  end
+	end
+      end
+      return false
+    end
+
+    local function trace_has_ir_call(first_trace, last_trace, callname)
+      for tr = first_trace, last_trace do
+	if jutil.traceinfo(tr) then
+	  for ins = 1, 1000 do
+	    local _, ot, _, op2 = jutil.traceir(tr, ins)
+	    if not ot then break end
+	    local opidx = bit.rshift(ot, 8)
+	    local op = vmdef.irnames:sub(opidx * 6 + 1, opidx * 6 + 6)
+	    op = op:gsub("%s+$", "")
+	    if (op == "CALLN" or op == "CALLA" or op == "CALLL" or
+		op == "CALLS") and vmdef.ircall[op2] == callname then
+	      return true
+	    end
+	  end
+	end
+      end
+      return false
+    end
+
+    local function assert_records_ir_op(fn, what, opname)
+      jit.off()
+      jit.flush()
+      collectgarbage()
+      jit.on()
+      jit.opt.start("hotloop=1", "hotexit=1")
+      local before = trace_highwater()
+      fn()
+      local after = trace_highwater()
+      assert(after > before, what .. " did not record a trace")
+      assert(trace_has_ir_op(before + 1, after, opname),
+	     what .. " did not record IR_" .. opname)
+    end
+
+    local function assert_records_ir_call(fn, what, callname)
+      jit.off()
+      jit.flush()
+      collectgarbage()
+      jit.on()
+      jit.opt.start("hotloop=1", "hotexit=1")
+      local before = trace_highwater()
+      fn()
+      local after = trace_highwater()
+      assert(after > before, what .. " did not record a trace")
+      assert(trace_has_ir_call(before + 1, after, callname),
+	     what .. " did not record " .. callname)
+    end
+
+    for _, name in ipairs{
+      "atan2", "pow", "log10", "sinh", "cosh", "tanh", "frexp", "ldexp",
+    } do
+      assert(jutil.funcinfo(math[name]).ffid,
+	     "compat math." .. name .. " must keep fast-function id")
+    end
+
+    assert_records_ir_op(function()
+      local n = 0
+      for _ = 1, 80 do
+	local r = math.pow(1099511627776, "1")
+	if r == 1099511627776.0 and math.type(r) == "float" then
+	  n = n + 1
+	end
+      end
+      assert(n == 80)
+    end, "compat math.pow int64", "POW")
+
+    assert_records_ir_call(function()
+      local n = 0
+      local expected = math.atan2(1099511627776, "2")
+      for _ = 1, 80 do
+	local r = math.atan2(1099511627776, "2")
+	if r == expected and math.type(r) == "float" then n = n + 1 end
+      end
+      assert(n == 80)
+    end, "compat math.atan2 int64", "atan2")
+
+    assert_records_ir_call(function()
+      local n = 0
+      for _ = 1, 80 do
+	if math.log10("100") == 2.0 then n = n + 1 end
+      end
+      assert(n == 80)
+    end, "compat math.log10 string", "log10")
+
+    assert_records_ir_op(function()
+      local function ldexp_loop(a, e)
+	local n = 0
+	for _ = 1, 80 do
+	  if math.ldexp(a, e) == 2199023255552.0 then
+	    n = n + 1
+	  end
+	end
+	return n
+      end
+      assert(ldexp_loop(1099511627776, 1) == 80)
+    end, "compat math.ldexp int64", "LDEXP")
+  end
+end
+
+do
   local calls = 0
   local mt = {
     __lt = function(a, b)

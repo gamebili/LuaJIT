@@ -878,21 +878,21 @@ LUALIB_API int luaopen_math(lua_State *L)
   lua_pushnil(L); lua_setfield(L, -2, "frexp");
   lua_pushnil(L); lua_setfield(L, -2, "ldexp");
 #else
-  lua_pushcfunction(L, lj_cf_math_atan2_compat54);
+  lj_lib_pushcf(L, lj_cf_math_atan2_compat54, FF_math_atan2);
   lua_setfield(L, -2, "atan2");
-  lua_pushcfunction(L, lj_cf_math_pow_compat54);
+  lj_lib_pushcf(L, lj_cf_math_pow_compat54, FF_math_pow);
   lua_setfield(L, -2, "pow");
-  lua_pushcfunction(L, lj_cf_math_log10_compat54);
+  lj_lib_pushcf(L, lj_cf_math_log10_compat54, FF_math_log10);
   lua_setfield(L, -2, "log10");
-  lua_pushcfunction(L, lj_cf_math_sinh_compat54);
+  lj_lib_pushcf(L, lj_cf_math_sinh_compat54, FF_math_sinh);
   lua_setfield(L, -2, "sinh");
-  lua_pushcfunction(L, lj_cf_math_cosh_compat54);
+  lj_lib_pushcf(L, lj_cf_math_cosh_compat54, FF_math_cosh);
   lua_setfield(L, -2, "cosh");
-  lua_pushcfunction(L, lj_cf_math_tanh_compat54);
+  lj_lib_pushcf(L, lj_cf_math_tanh_compat54, FF_math_tanh);
   lua_setfield(L, -2, "tanh");
-  lua_pushcfunction(L, lj_cf_math_frexp_compat54);
+  lj_lib_pushcf(L, lj_cf_math_frexp_compat54, FF_math_frexp);
   lua_setfield(L, -2, "frexp");
-  lua_pushcfunction(L, lj_cf_math_ldexp_compat54);
+  lj_lib_pushcf(L, lj_cf_math_ldexp_compat54, FF_math_ldexp);
   lua_setfield(L, -2, "ldexp");
 #endif
   lua_pushcfunction(L, lj_cf_math_type);
