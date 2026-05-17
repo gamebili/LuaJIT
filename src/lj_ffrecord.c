@@ -485,6 +485,8 @@ static void LJ_FASTCALL recff_lua54_bit(jit_State *J, RecordFFData *rd)
   {
     int64_t ai, bi;
     TRef ta, tb;
+    if (tvisstr(&rd->argv[0]) || tvisstr(&rd->argv[1]))
+      goto nyi;
     if (!recff_lua54_tv_toi64(&rd->argv[0], &ai) ||
 	!recff_lua54_tv_toi64(&rd->argv[1], &bi))
       goto nyi;
@@ -519,6 +521,8 @@ static void LJ_FASTCALL recff_lua54_bnot(jit_State *J, RecordFFData *rd)
   {
     int64_t ai;
     TRef ta, tr;
+    if (tvisstr(&rd->argv[0]))
+      goto nyi;
     if (!recff_lua54_tv_toi64(&rd->argv[0], &ai))
       goto nyi;
     ta = recff_lua54_toi64ref(J, J->base[0], &rd->argv[0]);
@@ -542,6 +546,8 @@ static void LJ_FASTCALL recff_lua54_shift(jit_State *J, RecordFFData *rd)
   {
     int64_t a, sh;
     TRef ta, tsh;
+    if (tvisstr(&rd->argv[0]) || tvisstr(&rd->argv[1]))
+      goto nyi;
     if (!recff_lua54_tv_toi64(&rd->argv[0], &a) ||
 	!recff_lua54_tv_toi64(&rd->argv[1], &sh))
       goto nyi;

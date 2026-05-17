@@ -2015,9 +2015,18 @@ return true
   do
     local ok, err = pcall(assert(load("return 3.5 & 1")))
     assert(ok == false and err:match("integer representation") ~= nil)
-    assert(assert(load([[return "3" & 1]]))() == 1)
-    assert(assert(load([[return 1 & "3"]]))() == 1)
-    assert(assert(load([[local x = "3"; return x & 1]]))() == 1)
+    ok, err = pcall(assert(load([[return "3" & 1]])))
+    assert(ok == false and err:match("bitwise operation") ~= nil and
+           err:match("string value") ~= nil and
+           err:find("constant '3'", 1, true) ~= nil)
+    ok, err = pcall(assert(load([[return 1 & "3"]])))
+    assert(ok == false and err:match("bitwise operation") ~= nil and
+           err:match("string value") ~= nil and
+           err:find("constant '3'", 1, true) ~= nil)
+    ok, err = pcall(assert(load([[local x = "3"; return x & 1]])))
+    assert(ok == false and err:match("bitwise operation") ~= nil and
+           err:match("string value") ~= nil and
+           err:match("local 'x'") ~= nil)
     ok, err = pcall(assert(load("return true & 1")))
     assert(ok == false and err:match("bitwise operation") ~= nil and
            err:match("boolean value") ~= nil)
@@ -2029,7 +2038,20 @@ return true
     assert(ok == false and err:match("bitwise operation") ~= nil and
            err:match("table value") ~= nil and
            err:match("local 't'") ~= nil)
-    assert(assert(load([[return ~"3"]]))() == -4)
+    local string_bitwise_errors = {
+      { [[return "7" & 3]], "constant '7'" },
+      { [[return "7" | 3]], "constant '7'" },
+      { [[return "7" ~ 3]], "constant '7'" },
+      { [[return ~"3"]], "constant '3'" },
+      { [[return "1" << 2]], "constant '1'" },
+      { [[return "8" >> 1]], "constant '8'" },
+    }
+    for _, case in ipairs(string_bitwise_errors) do
+      ok, err = pcall(assert(load(case[1])))
+      assert(ok == false and err:match("bitwise operation") ~= nil and
+             err:match("string value") ~= nil and
+             err:find(case[2], 1, true) ~= nil)
+    end
     _G.__lua54_named_bitwise = setmetatable({}, { __name = "Lua54Bitwise" })
     ok, err = pcall(assert(load("return __lua54_named_bitwise & 1")))
     assert(ok == false and err:match("bitwise operation") ~= nil and
@@ -2048,8 +2070,9 @@ return true
       old[name] = string_mt["__"..name]
       string_mt["__"..name] = function(a, b) return name, a, b end
     end
-    assert(assert(load([[return "7" & 3]]))() == 3)
     local cases = {
+      { [[return "7" & 3]], "band" },
+      { [[return 3 & "7"]], "band" },
       { [[return "x" | 3]], "bor" },
       { [[return "x" ~ 3]], "bxor" },
       { [[return ~"x"]], "bnot" },

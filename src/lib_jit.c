@@ -280,12 +280,13 @@ static const char *lua54_operand_source(lua_State *L, int narg,
 static lua_Integer lua54_checkintop(lua_State *L, int narg)
 {
   lua_Integer i;
-  int isnum;
-  if (!lua54_tointeger(L, narg, &i, &isnum)) {
+  int isnum = 0;
+  cTValue *o = L->base + narg-1;
+  if ((o < L->top && tvisstr(o)) ||
+      !lua54_tointeger(L, narg, &i, &isnum)) {
     if (isnum)
       lua54_argerr_numint(L, narg);
     else {
-      cTValue *o = L->base + narg-1;
       MSize tlen;
       const char *tname;
       if (o >= L->top)
@@ -305,6 +306,19 @@ static lua_Integer lua54_checkintop(lua_State *L, int narg)
     }
   }
   return i;
+}
+
+static int lua54_tobitinteger(lua_State *L, int narg, lua_Integer *ip,
+			      int *isnum)
+{
+  cTValue *o = L->base + narg-1;
+  if (isnum) *isnum = 0;
+  /* Lua 5.4 never applies string-to-number coercion to bitwise operators.
+  ** A string operand may still be handled by an explicit string metatable.
+  */
+  if (o < L->top && tvisstr(o))
+    return 0;
+  return lua54_tointeger(L, narg, ip, isnum);
 }
 
 static void lua54_binop_error(lua_State *L, const char *opname)
@@ -562,7 +576,8 @@ LJLIB_CF(jit__lua54_band_c)		LJLIB_REC(lua54_bit IR_BAND)
 {
   int ia, ib;
   lua_Integer a, b;
-  if (!lua54_tointeger(L, 1, &a, &ia) || !lua54_tointeger(L, 2, &b, &ib)) {
+  if (!lua54_tobitinteger(L, 1, &a, &ia) ||
+      !lua54_tobitinteger(L, 2, &b, &ib)) {
     if (lua54_callbinmeta(L, "__band", 0))
       return 1;
     a = lua54_checkintop(L, 1);
@@ -576,7 +591,8 @@ LJLIB_CF(jit__lua54_bor_c)		LJLIB_REC(lua54_bit IR_BOR)
 {
   int ia, ib;
   lua_Integer a, b;
-  if (!lua54_tointeger(L, 1, &a, &ia) || !lua54_tointeger(L, 2, &b, &ib)) {
+  if (!lua54_tobitinteger(L, 1, &a, &ia) ||
+      !lua54_tobitinteger(L, 2, &b, &ib)) {
     if (lua54_callbinmeta(L, "__bor", 0))
       return 1;
     a = lua54_checkintop(L, 1);
@@ -590,7 +606,8 @@ LJLIB_CF(jit__lua54_bxor_c)		LJLIB_REC(lua54_bit IR_BXOR)
 {
   int ia, ib;
   lua_Integer a, b;
-  if (!lua54_tointeger(L, 1, &a, &ia) || !lua54_tointeger(L, 2, &b, &ib)) {
+  if (!lua54_tobitinteger(L, 1, &a, &ia) ||
+      !lua54_tobitinteger(L, 2, &b, &ib)) {
     if (lua54_callbinmeta(L, "__bxor", 0))
       return 1;
     a = lua54_checkintop(L, 1);
@@ -604,7 +621,7 @@ LJLIB_CF(jit__lua54_bnot_c)		LJLIB_REC(lua54_bnot IR_BNOT)
 {
   int isnum;
   lua_Integer a;
-  if (!lua54_tointeger(L, 1, &a, &isnum)) {
+  if (!lua54_tobitinteger(L, 1, &a, &isnum)) {
     if (lua54_callbinmeta(L, "__bnot", 1))
       return 1;
     a = lua54_checkintop(L, 1);
@@ -632,7 +649,8 @@ LJLIB_CF(jit__lua54_shl_c)		LJLIB_REC(lua54_shift IR_BSHL)
 {
   int ia, ib;
   lua_Integer a, sh;
-  if (!lua54_tointeger(L, 1, &a, &ia) || !lua54_tointeger(L, 2, &sh, &ib)) {
+  if (!lua54_tobitinteger(L, 1, &a, &ia) ||
+      !lua54_tobitinteger(L, 2, &sh, &ib)) {
     if (lua54_callbinmeta(L, "__shl", 0))
       return 1;
     a = lua54_checkintop(L, 1);
@@ -645,7 +663,8 @@ LJLIB_CF(jit__lua54_shr_c)		LJLIB_REC(lua54_shift IR_BSHR)
 {
   int ia, ib;
   lua_Integer a, sh;
-  if (!lua54_tointeger(L, 1, &a, &ia) || !lua54_tointeger(L, 2, &sh, &ib)) {
+  if (!lua54_tobitinteger(L, 1, &a, &ia) ||
+      !lua54_tobitinteger(L, 2, &sh, &ib)) {
     if (lua54_callbinmeta(L, "__shr", 0))
       return 1;
     a = lua54_checkintop(L, 1);

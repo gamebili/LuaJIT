@@ -110,6 +110,19 @@ local function assert_records_ir_op(fn, what, opname)
 	 what .. " did not record IR_" .. opname)
 end
 
+local function assert_no_ir_op(fn, what, opname)
+  jitmod.off()
+  jitmod.flush()
+  collectgarbage()
+  jitmod.on()
+  jit.opt.start("hotloop=1", "hotexit=1")
+  local before = trace_highwater()
+  fn()
+  local after = trace_highwater()
+  assert(not trace_has_ir_op(before + 1, after, opname),
+	 what .. " unexpectedly recorded IR_" .. opname)
+end
+
 local function assert_records_ir_call(fn, what, callname)
   jitmod.off()
   jitmod.flush()
@@ -1087,15 +1100,22 @@ do
     assert(x == 1099511627776 and math.type(x) == "integer")
   end, "Lua 5.4 float int64 bitwise coercion", "BAND")
 
-  assert_records_ir_op(function()
+  assert_no_ir_op(function()
     local a = "1099511627776"
     local b = "1099511628031"
-    local x = 0
-    for _ = 1, 80 do
-      x = a & b
+    local function bad_bitwise()
+      return a & b
     end
-    assert(x == 1099511627776 and math.type(x) == "integer")
-  end, "Lua 5.4 string int64 bitwise coercion", "BAND")
+    local n = 0
+    for _ = 1, 80 do
+      local ok, err = pcall(bad_bitwise)
+      if not ok and err:find("bitwise operation", 1, true) and
+	 err:find("string value", 1, true) then
+	n = n + 1
+      end
+    end
+    assert(n == 80)
+  end, "Lua 5.4 string int64 bitwise rejects coercion", "BAND")
 
   assert_records_ir_op(function()
     local a = 1099511627776
@@ -1125,15 +1145,22 @@ do
     assert(x == 1099511627776 and math.type(x) == "integer")
   end, "Lua 5.4 float int64 shift coercion", "BSHL")
 
-  assert_records_ir_op(function()
+  assert_no_ir_op(function()
     local a = "1.0"
     local sh = "40"
-    local x = 0
-    for _ = 1, 80 do
-      x = a << sh
+    local function bad_shift()
+      return a << sh
     end
-    assert(x == 1099511627776 and math.type(x) == "integer")
-  end, "Lua 5.4 string int64 shift coercion", "BSHL")
+    local n = 0
+    for _ = 1, 80 do
+      local ok, err = pcall(bad_shift)
+      if not ok and err:find("bitwise operation", 1, true) and
+	 err:find("string value", 1, true) then
+	n = n + 1
+      end
+    end
+    assert(n == 80)
+  end, "Lua 5.4 string int64 shift rejects coercion", "BSHL")
 
   assert_records_ir_op(function()
     local a = 2199023255552

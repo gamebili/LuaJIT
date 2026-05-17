@@ -193,12 +193,14 @@
   - 已覆盖：base16 的 `0x` 前缀、base34 下 `x` 仍作为有效数字、base 参数 fraction number 报错、base 字符串数字转换、`tonumber` 拒绝 `inf` / `infinity` / `nan` 及大小写/符号/空白变体、`0b` / `0B` 及符号/空白变体、locale 小数点为逗号时 `tonumber("3,4")` 成功、`%d` 严格整数检查、`%c` fraction number 报错和字符串数字转换、`%q` nil/boolean/integer/float/negative-zero/NaN/Inf/string 基础输出、`%q` table/`__tostring` table 报错、`%p` nil/boolean/number/string/长字符串对象身份/width/left-align、`%a` / `%A` modifier 错误、invalid/too-long 格式项缺实参的 `no value` 优先级、`%s` NUL modifier、`%s` number JIT trace、`__tostring`、`__name` 和非法 `__tostring` 返回值边界、未知转换与非法格式规格错误文本。
   - 验证状态：`cmd /c build.bat lua54` 已通过，覆盖官方 Lua 5.4.8 `strings.lua` / `math.lua`、Lua 5.4 smoke 中的扩展数字拒绝、locale 数字、严格整数格式、`%q` / `%p` / `%a` / `%s` / invalid format 文本，以及 64-bit integer 格式边界；该条没有已知剩余缺口。
 
-- [ ] 字符串到数字的运算转换细节。
-  - 当前状态：普通算术路径已在 Lua 5.4 dual-number 兼容构建下保留字符串数字转换后的 integer/float 子类型；`//` / `%` helper 已支持字符串数字并尊重显式 string metatable；bitwise helper 继续拒绝 string；Lua 5.4 兼容模式下通用字符串数字转换已拒绝 `inf` / `nan` / `0b` 等 LuaJIT 扩展数字文本。
+- [x] 字符串到数字的运算转换细节。
+  - 当前状态：普通算术路径已在 Lua 5.4 dual-number 兼容构建下保留字符串数字转换后的 integer/float 子类型；`//` / `%` helper 已支持字符串数字并尊重显式 string metatable；bitwise helper 已禁止 string-to-integer coercion，默认对 string 操作数报 Lua 5.4 bitwise 错误，并在显式 string metatable 提供 `__band` / `__bor` / `__bxor` / `__bnot` / `__shl` / `__shr` 时优先调用元方法；Lua 5.4 兼容模式下通用字符串数字转换已拒绝 `inf` / `nan` / `0b` 等 LuaJIT 扩展数字文本。
   - 当前进展：普通算术中字符串无法转换且无元方法时，错误文本已按 Lua 5.4 报具体操作名和左右操作数类型，例如 `attempt to add a 'string' with a 'number'`。
   - 当前进展：字符串 metatable 显式提供 `__add` / `__mul` / `__unm` 时，会优先于字符串数字转换执行，覆盖 `"1" + 2`、`2 + "1"`、`"1" * 2` 和 `-"1"`。
-  - 已知差异：Lua 5.4 把字符串到数字的算术转换放到 string 库元方法层，算术可转换但位运算不可转换；当前 PC x64 兼容 smoke 已用 dual-number 覆盖常见字符串算术子类型，非 dual-number 兼容层仍只能提供降级表面。
-  - 已覆盖：`"1" + "2"` / `"1" + 2` 的 integer 结果、`"1.0" + 2` / `"1e0" + 2` 的 float 结果、`"5" % "2"`、变量 integer `%`、integer `% 0` 错误和 `-"1"` 的 integer 结果、字符串算术元方法优先级、普通算术字符串失败路径、`//` 字符串失败路径、`math.abs()` / `math.tointeger()` / `math.type()` 以及 C API 数字转换拒绝扩展数字文本，同时保留 `"1e9999"` 溢出为无穷大的 Lua 5.4 行为。
+  - 当前进展：JIT recorder 已停止把 string bitwise / shift 样本记录成整数 `BAND` / `BSHL` trace；string 操作数会退回解释器，由运行期 helper 统一执行元方法查找或 Lua 5.4 错误路径。
+  - 对照结论：Lua 5.4 的字符串数字算术可转换，但位运算不可转换；当前 PC x64 Lua 5.4 compat dual-number gate 已覆盖这一分流。
+  - 已覆盖：`"1" + "2"` / `"1" + 2` 的 integer 结果、`"1.0" + 2` / `"1e0" + 2` 的 float 结果、`"5" % "2"`、变量 integer `%`、integer `% 0` 错误和 `-"1"` 的 integer 结果、字符串算术元方法优先级、普通算术字符串失败路径、`//` 字符串失败路径、`"3" & 1`、`1 & "3"`、`~"3"`、`"1" << 2`、`"8" >> 1` 的 bitwise string 错误、string metatable bitwise/idiv/mod 元方法优先级、JIT string bitwise/shift 不记录 `BAND` / `BSHL`、`math.abs()` / `math.tointeger()` / `math.type()` 以及 C API 数字转换拒绝扩展数字文本，同时保留 `"1e9999"` 溢出为无穷大的 Lua 5.4 行为。
+  - 验证状态：`cmd /c build.bat lua54` 已通过，覆盖 Lua 5.4 smoke、JIT 回归、官方 Lua 5.4.8 `math.lua` / `bitwise.lua` / `bwcoercion.lua` / `strings.lua`，该条没有当前 PC x64 兼容构建下的已知剩余缺口。
 
 - [x] `string.gmatch` 的 `init` 参数和空匹配推进语义。
   - 当前状态：第三个 `init` 参数已按 Lua 5.4 规则处理正数、负数和越界起点。
