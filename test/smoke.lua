@@ -5369,6 +5369,17 @@ do
 end
 
 do
+  local fname = "lua54_missing_loadfile.tmp"
+  os.remove(fname)
+  local f, err, code = loadfile(fname)
+  assert(f == nil and code == nil and
+         err:find("cannot open " .. fname .. ":", 1, true) ~= nil)
+  local ok, derr = pcall(dofile, fname)
+  assert(ok == false and
+         tostring(derr):find("cannot open " .. fname .. ":", 1, true) ~= nil)
+end
+
+do
   local fname = "lua54_loadfile_comment_binary.tmp"
   local f = assert(io.open(fname, "wb"))
   f:write("#this is a comment for a binary file\0\n",
