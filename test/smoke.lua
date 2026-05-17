@@ -1403,6 +1403,25 @@ do
       assert(ok == true and value == "raw pcall close")
       ok, value = resume(co)
       assert(ok == true and value == "done")
+      local raw_reg_pcall = debug.getregistry()._LUA54_RAW_PCALL
+      co = create(function()
+        local x <close> = setmetatable({}, {
+          __close = function()
+            coroutine.yield("hidden raw pcall close")
+          end,
+        })
+        return "hidden done"
+      end)
+      debug.getregistry()._LUA54_RAW_PCALL = nil
+      pcall = function()
+        error("registry raw pcall hijacked", 0)
+      end
+      ok, value = resume(co)
+      pcall = raw_pcall
+      debug.getregistry()._LUA54_RAW_PCALL = raw_reg_pcall
+      assert(ok == true and value == "hidden raw pcall close")
+      ok, value = resume(co)
+      assert(ok == true and value == "hidden done")
       return true
     ]]))())
   end

@@ -192,6 +192,18 @@ void lj_close_mark(lua_State *L, TValue *slot)
   L->closelist = cs;
 }
 
+static const uint8_t close_raw_pcall_key = 0;
+
+void lj_close_setrawpcall(lua_State *L, cTValue *pcall)
+{
+  GCtab *reg = tabV(registry(L));
+  TValue key, *slot;
+  setrawlightudV(&key, (void *)&close_raw_pcall_key);
+  slot = lj_tab_set(L, reg, &key);
+  copyTV(L, slot, pcall);
+  lj_gc_anybarriert(L, reg);
+}
+
 static CloseState **close_findunwind(lua_State *L, ptrdiff_t levelofs)
 {
   CloseState **pcs = (CloseState **)&L->closelist;
@@ -273,7 +285,13 @@ int lj_close_unwind_pcall(lua_State *L)
 static cTValue *close_raw_pcall(lua_State *L)
 {
   GCtab *reg = tabV(registry(L));
-  cTValue *pcall = lj_tab_getstr(reg, lj_str_newlit(L, "_LUA54_RAW_PCALL"));
+  TValue key;
+  cTValue *pcall;
+  setrawlightudV(&key, (void *)&close_raw_pcall_key);
+  pcall = lj_tab_get(L, reg, &key);
+  if (pcall && tvisfunc(pcall))
+    return pcall;
+  pcall = lj_tab_getstr(reg, lj_str_newlit(L, "_LUA54_RAW_PCALL"));
   if (pcall && tvisfunc(pcall))
     return pcall;
   pcall = lj_tab_getint(reg, LUA_RIDX_GLOBALS);

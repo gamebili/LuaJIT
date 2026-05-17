@@ -38,6 +38,7 @@
 #include "lj_strscan.h"
 #include "lj_strfmt.h"
 #include "lj_lib.h"
+#include "lj_close.h"
 
 #include "luajit.h"
 
@@ -1735,6 +1736,7 @@ LUALIB_API int luaopen_base(lua_State *L)
   lua_pushcfunction(L, lj_cf_getmetatable54);
   lua_setglobal(L, "getmetatable");
   lua_getglobal(L, "pcall");
+  lj_close_setrawpcall(L, L->top-1);
   lua_setfield(L, LUA_REGISTRYINDEX, "_LUA54_RAW_PCALL");
   lua_getglobal(L, "xpcall");
   /* Internal close dispatch must call the real xpcall without exposing this
