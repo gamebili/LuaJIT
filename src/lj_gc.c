@@ -155,10 +155,11 @@ static void gc_link_mmudata(global_State *g, GCobj *o)
 #if LJ_54
 static int gc_isweakkey(cTValue *o)
 {
-  /* Lua weak keys only apply to collectable keys except strings. Strings are
-  ** interned and treated as strong keys, matching the existing weak clear path.
+  /* Lua weak keys only apply to collectable keys except strings and int64
+  ** values. Strings are interned and int64 values are numeric values; both are
+  ** treated as strong keys, matching the existing weak clear path.
   */
-  return tvisgcv(o) && !tvisstr(o);
+  return tvisgcv(o) && !tvisstr(o) && !tvisi64(o);
 }
 
 static int gc_isreachable_weakkey(cTValue *o)
@@ -556,13 +557,19 @@ static void gc_sweepstr(global_State *g, GCRef *chain)
 }
 
 /* Check whether we can clear a key or a value slot from a table. */
-static int gc_mayclear(cTValue *o, int val)
+static int gc_mayclear(global_State *g, cTValue *o, int val)
 {
   if (tvisgcv(o)) {  /* Only collectable objects can be weak references. */
     if (tvisstr(o)) {  /* But strings cannot be used as weak references. */
       gc_mark_str(strV(o));  /* And need to be marked. */
       return 0;
     }
+#if LJ_54
+    if (tvisi64(o)) {  /* Lua 5.4 integers are numeric values, too. */
+      gc_markobj(g, gcV(o));
+      return 0;
+    }
+#endif
     if (iswhite(gcV(o)))
       return 1;  /* Object is about to be collected. */
     if (tvisudata(o) && val && isfinalized(udataV(o)))
@@ -583,7 +590,7 @@ static void gc_clearweak(global_State *g, GCobj *o)
       for (i = 0; i < asize; i++) {
 	/* Clear array slot when value is about to be collected. */
 	TValue *tv = arrayslot(t, i);
-	if (gc_mayclear(tv, 1))
+	if (gc_mayclear(g, tv, 1))
 	  setnilV(tv);
       }
     }
@@ -595,19 +602,20 @@ static void gc_clearweak(global_State *g, GCobj *o)
 	/* Clear hash slot when key or value is about to be collected. */
 #if LJ_54
 	if (!tvisnil(&n->val)) {
-	  int clear = ((t->marked & LJ_GC_WEAKVAL) && gc_mayclear(&n->val, 1));
+	  int clear = ((t->marked & LJ_GC_WEAKVAL) &&
+		       gc_mayclear(g, &n->val, 1));
 	  /* For weak-kv tables, a dead value clears the entry. Check it before
 	  ** key liveness, otherwise a string key would be marked even though its
 	  ** entry is about to disappear.
 	  */
 	  if (!clear && (t->marked & LJ_GC_WEAKKEY))
-	    clear = gc_mayclear(&n->key, 0);
+	    clear = gc_mayclear(g, &n->key, 0);
 	  if (clear)
 	    setnilV(&n->val);
 	}
 #else
-	if (!tvisnil(&n->val) && (gc_mayclear(&n->key, 0) ||
-				  gc_mayclear(&n->val, 1)))
+	if (!tvisnil(&n->val) && (gc_mayclear(g, &n->key, 0) ||
+				  gc_mayclear(g, &n->val, 1)))
 	  setnilV(&n->val);
 #endif
       }

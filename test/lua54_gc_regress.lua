@@ -112,6 +112,31 @@ assert(next(weak) == nil)
 assert(weak[string.rep("b", 100)] == nil)
 
 do
+  local function wideint()
+    return tonumber("1099511627776")
+  end
+
+  local weak_values = setmetatable({}, { __mode = "v" })
+  weak_values.slot = wideint()
+  collectgarbage("collect")
+  collectgarbage("collect")
+  assert(weak_values.slot == wideint(),
+    "weak value table must not clear 64-bit integer values")
+
+  for _, mode in ipairs({ "k", "kv" }) do
+    local weak_keys = setmetatable({}, { __mode = mode })
+    do
+      local key = wideint()
+      weak_keys[key] = "wide"
+    end
+    collectgarbage("collect")
+    collectgarbage("collect")
+    assert(weak_keys[wideint()] == "wide",
+      "weak key table must not clear 64-bit integer keys")
+  end
+end
+
+do
   local opts = {
     false, "collect", "step", "count", "isrunning", "stop", "restart",
     "setpause", "setstepmul", "incremental", "generational",
