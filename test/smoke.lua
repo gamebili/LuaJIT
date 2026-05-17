@@ -2367,6 +2367,16 @@ assert(9223372036854775807 + 1 == math.mininteger)
 assert(math.type(9223372036854775807 + 1) == "integer")
 assert(0x8000000000000000 - 1 == math.maxinteger)
 assert(math.type(0x8000000000000000 - 1) == "integer")
+do
+  local i32min = -2147483648
+  local zero = 0
+  assert(-i32min == 2147483648)
+  assert(math.type(-i32min) == "integer")
+  assert(-zero == 0)
+  assert(math.type(-zero) == "integer")
+  assert(math.abs(i32min) == 2147483648)
+  assert(math.type(math.abs(i32min)) == "integer")
+end
 assert(3037000499 * 3037000499 == 9223372030926249001)
 assert(math.type(3037000499 * 3037000499) == "integer")
 assert(type(math.tointeger) == "function")

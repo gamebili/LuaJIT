@@ -1664,6 +1664,9 @@ static void build_subroutines(BuildCtx *ctx)
   |  eor CARG2w, CARG1w, CARG1w, asr #31
   |   movz CARG3, #0x41e0, lsl #48	// 2^31.
   |  subs CARG1w, CARG2w, CARG1w, asr #31
+#if LJ_54
+  |  bmi ->fff_fallback
+#endif
   |   add_TISNUM CARG1, CARG1
 #if !LJ_54
   |  csel CARG1, CARG1, CARG3, pl
@@ -2996,6 +2999,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
   |  negs TMP0w, TMP0w
 #if !LJ_54
   |   movz CARG3, #0x41e0, lsl #48	// 2^31.
+#endif
+#if LJ_54
+  |  bvs ->vmeta_unm
 #endif
   |   add_TISNUM TMP0, TMP0
 #if !LJ_54

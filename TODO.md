@@ -88,6 +88,7 @@
 
 - [ ] 完整 Lua 5.4 64 位整数语义。
   - 当前状态：PC x64 Lua 5.4 compat dual-number 构建已把公开 `math.mininteger` / `math.maxinteger`、TValue boxed integer、算术、bitwise、字符串扫描/格式化、C API 常用路径和 JIT IR 主要子集推进到 64 位 integer 表面；剩余风险主要是跨平台 artifact/runtime、C API 深边界和 ABI 验证。
+  - 当前进展：解释器、常量折叠和 `math.abs` 的 int32 最小值边界已改走 Lua 5.4 integer 环绕语义，`-(-2147483648)` / `math.abs(-2147483648)` 会生成 boxed `2147483648`，而 `-0` / `local z=0; -z` 保持 integer `0`，不再退回旧 LuaJIT float `-0.0` / 32-bit 环绕表面；所有 VM 后端的 `BC_UNM` / `math.abs` 分支同步改为在溢出时交给 64-bit helper。
   - 当前进展：numeric `for` 的解释器/VM 路径已能在 init/limit/step 任一控制槽为 boxed int64 时保持 integer 模式，跨 `2147483647` / `2147483648`、反向跨界、`math.mininteger` / `math.maxinteger` 和 `math.huge` / `-math.huge` limit 饱和边界均按 Lua 5.4 运行；隐藏 FOR index 更新会分配新的 boxed integer，避免污染共享的 `GCint64` 值。
   - 当前进展：JIT recorder 已开始记录三控制槽均为 integer 子类型的 boxed int64 numeric `for` 正/负步长子集；控制槽在 trace 内转为 raw `IRT_I64`，用 64-bit add/compare guard 推进，再按结果范围恢复 int32 或 boxed int64 TValue 循环变量。可按步长方向取整的 float limit 会在 FORI helper 阶段归一为 integer limit，并已覆盖从 int32 控制变量跨入 boxed int64 的 trace 边界。x64/x86 VM 模板的 boxed int64 `BC_JFORI` 路径已在 `branchPC` 后重新载入 trace id，避免已编译 trace 重入时把分支目标误当 trace 编号。
   - 当前进展：`math.type()` 在非 dual-number 构建下会把当前 32 位范围内可精确表示为整数的 number 报告为 `integer`；`math.floor`、`math.ceil`、`math.modf` 的整数部分会尽量返回当前兼容整数表面。

@@ -2085,7 +2085,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  checkint RB, >3
   |  cmp RBd, 0; jns ->fff_resi
 #if LJ_54
-  |  neg RBd; js ->fff_resi
+  |  neg RBd; js ->fff_fallback
 #else
   |  neg RBd; js >2
 #endif
@@ -3839,8 +3839,10 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |.if DUALNUM
     |  checkint RB, >5
     |  neg RBd
+#if LJ_54
+    |  jo ->vmeta_unm
+#else
     |  jz >3
-#if !LJ_54
     |  jo >4
 #endif
     |  setint RB

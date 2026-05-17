@@ -1790,7 +1790,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  bgez TMP3, ->fff_restv
   |.  settp CARG1, TISNUM
 #if LJ_54
-  |  b ->fff_restv
+  |  b ->fff_fallback
   |.  nop
 #else
   |  li CARG1, 0x41e0			// 2^31 as a double.
@@ -3984,16 +3984,21 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |    daddu RA, BASE, RA
     |  gettp CARG3, CARG1
     |  bne CARG3, TISNUM, >2
-|.  lui TMP1, 0x8000
-  |  sextw CARG1, CARG1
-#if !LJ_54
-  |  beq CARG1, TMP1, ->vmeta_unm	// Meta handler deals with -2^31.
-|.  negu CARG1, CARG1
+    |.  lui TMP1, 0x8000
+    |  sextw CARG1, CARG1
+#if LJ_54
+    |  beq CARG1, TMP1, ->vmeta_unm	// Meta helper boxes 2^31.
+    |.  negu CARG1, CARG1
 #else
-  |  negu CARG1, CARG1
+    |  beq CARG1, TMP1, ->vmeta_unm	// Meta handler deals with -2^31.
+    |.  negu CARG1, CARG1
 #endif
-  |  beqz CARG1, >3
+#if LJ_54
+    |  zextw CARG1, CARG1
+#else
+    |  beqz CARG1, >3
     |.  zextw CARG1, CARG1
+#endif
     |  settp CARG1, TISNUM
     |1:
     |  ins_next1

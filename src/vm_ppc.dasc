@@ -2109,14 +2109,14 @@ static void build_subroutines(BuildCtx *ctx)
   |  sub CARG1, TMP2, TMP1
   |  cmplw CARG1, TMP0
 #if LJ_54
-  |  beq ->fff_resi
+  |  beq ->fff_fallback
 #else
   |  beq >1
 #endif
   |.else
   |  sub. CARG1, TMP2, TMP1
 #if LJ_54
-  |  blt ->fff_resi
+  |  blt ->fff_fallback
 #else
   |  blt >1
 #endif
@@ -4126,16 +4126,22 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |.if GPR64
   |  lus TMP2, 0x8000
   |  neg. TMP0, TMP0
-  |  beq >8
-  |  cmplw TMP0, TMP2
 #if !LJ_54
+  |  beq >8
+#endif
+  |  cmplw TMP0, TMP2
+#if LJ_54
+  |  beq ->vmeta_unm
+#else
   |  beq >4
 #endif
 |.else
   |  nego. TMP0, TMP0
-  |  beq >8
 #if !LJ_54
+  |  beq >8
   |  bso >4
+#else
+  |  bso ->vmeta_unm
 #endif
     |1:
     |.endif

@@ -2524,7 +2524,13 @@ static void bcemit_unop(FuncState *fs, BCOp op, ExpDesc *e)
 	if (tvisint(o)) {
 	  int32_t k = intV(o), negk = (int32_t)(~(uint32_t)k+1u);
 #if LJ_54
-	  setintV(o, negk);
+	  if (k == negk) {
+	    lj_obj_setint64(fs->L, o,
+	      (int64_t)(lua_Integer)((lua_Unsigned)0 - (lua_Unsigned)(lua_Integer)k));
+	    const_anchor_i64(fs, o);
+	  } else {
+	    setintV(o, negk);
+	  }
 #else
 	  if (k == negk)
 	    setnumV(o, -(lua_Number)k);

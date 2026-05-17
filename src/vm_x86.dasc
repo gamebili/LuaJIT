@@ -2518,7 +2518,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  mov RB, dword [BASE]
   |  cmp RB, 0; jns ->fff_resi
 #if LJ_54
-  |  neg RB; js ->fff_resi
+  |  neg RB; js ->fff_fallback
 #else
   |  neg RB; js >1
 #endif
@@ -4466,8 +4466,10 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  checkint RD, >5
     |  mov RB, [BASE+RD*8]
     |  neg RB
+#if LJ_54
+    |  jo ->vmeta_unm
+#else
     |  jz >3
-#if !LJ_54
     |  jo >4
 #endif
     |  mov dword [BASE+RA*8+4], LJ_TISNUM

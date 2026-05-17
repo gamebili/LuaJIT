@@ -231,7 +231,12 @@ LJLIB_ASM(math_abs)		LJLIB_REC(.)
   cTValue *o = L->base;
   if (o < L->top && tvisint(o)) {
     int32_t i = intV(o);
-    setintV(L->base-1-LJ_FR2, i < 0 ? (int32_t)(0u - (uint32_t)i) : i);
+    if (i < 0) {
+      lj_obj_setint64(L, L->base-1-LJ_FR2,
+	(int64_t)(lua_Integer)((lua_Unsigned)0 - (lua_Unsigned)(lua_Integer)i));
+    } else {
+      setintV(L->base-1-LJ_FR2, i);
+    }
   } else if (o < L->top && tvisi64(o)) {
     lua_Integer i = (lua_Integer)i64V(o);
     if (i < 0)

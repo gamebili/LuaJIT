@@ -1734,7 +1734,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  bgez SFARG1LO, ->fff_restv
   |.  nop
 #if LJ_54
-  |  b ->fff_restv
+  |  b ->fff_fallback
   |.  nop
 #else
   |  lui SFARG1HI, 0x41e0		// 2^31 as a double.
@@ -3745,13 +3745,16 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |   addu RA, BASE, RA
     |  bne SFARG1HI, TISNUM, >2
     |.  lw SFARG1LO, LO(RB)
-  |  beqz SFARG1LO, >3
-|.  lui TMP1, 0x8000
-#if !LJ_54
-  |  beq SFARG1LO, TMP1, ->vmeta_unm	// Meta handler deals with -2^31.
-|.  negu SFARG1LO, SFARG1LO
+#if LJ_54
+    |  beqz SFARG1LO, >1
+    |.  lui TMP1, 0x8000
+    |  beq SFARG1LO, TMP1, ->vmeta_unm	// Meta helper boxes 2^31.
+    |.  negu SFARG1LO, SFARG1LO
 #else
-  |  negu SFARG1LO, SFARG1LO
+    |  beqz SFARG1LO, >3
+    |.  lui TMP1, 0x8000
+    |  beq SFARG1LO, TMP1, ->vmeta_unm	// Meta handler deals with -2^31.
+    |.  negu SFARG1LO, SFARG1LO
 #endif
     |1:
     |  ins_next1

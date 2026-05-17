@@ -1576,6 +1576,9 @@ static void build_subroutines(BuildCtx *ctx)
   |  bne ->fff_restv
   |  cmp CARG1, #0
   |  rsbslt CARG1, CARG1, #0
+#if LJ_54
+  |  bvs ->fff_fallback
+#endif
 #if !LJ_54
   |  ldrdvs CARG12, <9
 #endif
@@ -3280,11 +3283,13 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  checktp CARG2, LJ_TISNUM
     |  bhi ->vmeta_unm
     |  eorne CARG2, CARG2, #0x80000000
-  |  bne >5
-  |  rsbs CARG1, CARG1, #0
-  |  ldrdeq CARG12, >8
-#if !LJ_54
-  |  ldrdvs CARG12, >9
+    |  bne >5
+    |  rsbs CARG1, CARG1, #0
+#if LJ_54
+    |  bvs ->vmeta_unm
+#else
+    |  ldrdeq CARG12, >8
+    |  ldrdvs CARG12, >9
 #endif
     |5:
     |  strd CARG12, [BASE, RA]
