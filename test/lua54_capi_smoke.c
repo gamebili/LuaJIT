@@ -1467,8 +1467,8 @@ static int checkinteger_arg(lua_State *L)
 
 static int checknumber_arg(lua_State *L)
 {
-  luaL_checknumber(L, 1);
-  return 0;
+  lua_pushnumber(L, luaL_checknumber(L, 1));
+  return 1;
 }
 
 static int checkudata_arg(lua_State *L)
@@ -4340,6 +4340,38 @@ static void test_lauxlib_api(lua_State *L)
     check(L, status == LUA_OK, "luaL_optinteger wider default status");
     check_integer(L, -1, (lua_Integer)2048 * 1024 * 1024,
 		  "luaL_optinteger wider default");
+    lua_pop(L, 1);
+    lua_pushcfunction(L, checknumber_arg);
+    lua_pushinteger(L, big40);
+    status = lua_pcall(L, 1, 1, 0);
+    check(L, status == LUA_OK,
+	  "luaL_checknumber accepts boxed 64-bit integer");
+    check(L, lua_tonumber(L, -1) == (lua_Number)big40,
+	  "luaL_checknumber boxed 64-bit integer");
+    lua_pop(L, 1);
+    lua_pushcfunction(L, checknumber_arg);
+    lua_pushliteral(L, "1099511627776");
+    status = lua_pcall(L, 1, 1, 0);
+    check(L, status == LUA_OK,
+	  "luaL_checknumber accepts wider 64-bit string number");
+    check(L, lua_tonumber(L, -1) == (lua_Number)big40,
+	  "luaL_checknumber wider 64-bit string number");
+    lua_pop(L, 1);
+    lua_pushcfunction(L, optnumber_arg);
+    lua_pushinteger(L, big40);
+    status = lua_pcall(L, 1, 1, 0);
+    check(L, status == LUA_OK,
+	  "luaL_optnumber accepts boxed 64-bit integer");
+    check(L, lua_tonumber(L, -1) == (lua_Number)big40,
+	  "luaL_optnumber boxed 64-bit integer");
+    lua_pop(L, 1);
+    lua_pushcfunction(L, optnumber_arg);
+    lua_pushliteral(L, "1099511627776");
+    status = lua_pcall(L, 1, 1, 0);
+    check(L, status == LUA_OK,
+	  "luaL_optnumber accepts wider 64-bit string number");
+    check(L, lua_tonumber(L, -1) == (lua_Number)big40,
+	  "luaL_optnumber wider 64-bit string number");
     lua_pop(L, 1);
   }
 
