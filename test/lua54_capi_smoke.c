@@ -3782,6 +3782,14 @@ static void test_compare_len_arith(lua_State *L)
   lua_arith(L, LUA_OPIDIV);
   check_integer(L, -1, 2, "lua_arith idiv");
   lua_pop(L, 1);
+
+  lua_pushinteger(L, 2);
+  lua_pushinteger(L, 3);
+  lua_arith(L, LUA_OPPOW);
+  check(L, !lua_isinteger(L, -1) && lua_tonumber(L, -1) == (lua_Number)8,
+	"lua_arith pow returns float subtype");
+  lua_pop(L, 1);
+
   if (sizeof(lua_Integer) > sizeof(int)) {
     lua_Integer big40 = (lua_Integer)1024 * 1024 * 1024 * 1024;
     lua_Integer big53 = (((lua_Integer)1) << 53) + 1;
@@ -3796,6 +3804,12 @@ static void test_compare_len_arith(lua_State *L)
     lua_arith(L, LUA_OPADD);
     check_integer(L, -1, LUA_MININTEGER,
 		  "lua_arith wraps LUA_MAXINTEGER add result");
+    lua_pop(L, 1);
+    lua_pushinteger(L, big40);
+    lua_pushinteger(L, 3);
+    lua_arith(L, LUA_OPMUL);
+    check_integer(L, -1, big40 * 3,
+		  "lua_arith preserves wider 64-bit multiply result");
     lua_pop(L, 1);
     lua_pushinteger(L, LUA_MININTEGER);
     lua_pushinteger(L, 1);
@@ -3843,6 +3857,28 @@ static void test_compare_len_arith(lua_State *L)
     lua_arith(L, LUA_OPMOD);
     check_integer(L, -1, 3,
 		  "lua_arith preserves wider string mod result");
+    lua_pop(L, 1);
+    lua_pushinteger(L, big40);
+    lua_arith(L, LUA_OPUNM);
+    check_integer(L, -1, -big40,
+		  "lua_arith preserves wider 64-bit unary minus result");
+    lua_pop(L, 1);
+    lua_pushinteger(L, LUA_MININTEGER);
+    lua_arith(L, LUA_OPUNM);
+    check_integer(L, -1, LUA_MININTEGER,
+		  "lua_arith wraps LUA_MININTEGER unary minus");
+    lua_pop(L, 1);
+    lua_pushliteral(L, "1099511627776");
+    lua_arith(L, LUA_OPUNM);
+    check_integer(L, -1, -big40,
+		  "lua_arith preserves wider string unary minus result");
+    lua_pop(L, 1);
+    lua_pushinteger(L, big40);
+    lua_pushinteger(L, 1);
+    lua_arith(L, LUA_OPPOW);
+    check(L, !lua_isinteger(L, -1) &&
+	     lua_tonumber(L, -1) == (lua_Number)big40,
+	  "lua_arith wider 64-bit pow returns float subtype");
     lua_pop(L, 1);
     lua_pushinteger(L, big40);
     lua_pushinteger(L, big40 + 0x123);
