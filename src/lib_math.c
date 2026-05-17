@@ -369,7 +369,7 @@ LJLIB_ASM(math_atan2)		LJLIB_REC(.)
   return FFH_RETRY;
 }
 LJLIB_ASM_(math_pow)		LJLIB_REC(.)
-LJLIB_ASM_(math_fmod)
+LJLIB_ASM_(math_fmod)		LJLIB_REC(lua54_fmod)
 
 LJLIB_ASM(math_ldexp)		LJLIB_REC(.)
 {
@@ -913,7 +913,7 @@ LUALIB_API int luaopen_math(lua_State *L)
   lua_setfield(L, -2, "modf");
   lua_pushcfunction(L, lj_cf_math_atan54);
   lua_setfield(L, -2, "atan");
-  lua_pushcfunction(L, lj_cf_math_fmod54);
+  lj_lib_pushcf(L, lj_cf_math_fmod54, FF_math_fmod);
   lua_setfield(L, -2, "fmod");
   lua_pushcfunction(L, lj_cf_math_deg54);
   lua_setfield(L, -2, "deg");

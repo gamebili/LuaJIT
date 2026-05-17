@@ -1212,6 +1212,32 @@ static void LJ_FASTCALL recff_math_modf(jit_State *J, RecordFFData *rd)
   recff_nyiu(J, rd);
 }
 
+static void LJ_FASTCALL recff_lua54_fmod(jit_State *J, RecordFFData *rd)
+{
+#if LJ_54 && LJ_DUALNUM
+  if (recff_lua54_tv_isinteger(&rd->argv[0]) &&
+      recff_lua54_tv_isinteger(&rd->argv[1]) &&
+      recff_lua54_tref_isinteger(J->base[0]) &&
+      recff_lua54_tref_isinteger(J->base[1])) {
+    int64_t a = recff_lua54_tv_i64(&rd->argv[0]);
+    int64_t b = recff_lua54_tv_i64(&rd->argv[1]);
+    TRef tb, tr;
+    int64_t r;
+    if (b == 0) {
+      recff_nyiu(J, rd);
+      return;
+    }
+    tb = recff_lua54_i64ref(J, J->base[1]);
+    emitir(IRTG(IR_NE, IRT_I64), tb, lj_ir_kint64(J, 0));
+    tr = emitir(IRT(IR_MOD, IRT_I64), recff_lua54_i64ref(J, J->base[0]), tb);
+    r = (a == (int64_t)U64x(80000000,00000000) && b == -1) ? 0 : a % b;
+    J->base[0] = recff_lua54_i64result(J, tr, r);
+    return;
+  }
+#endif
+  recff_nyiu(J, rd);
+}
+
 /* Record unary math.* functions, mapped to IR_FPMATH opcode. */
 static void LJ_FASTCALL recff_math_unary(jit_State *J, RecordFFData *rd)
 {

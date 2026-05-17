@@ -1051,6 +1051,17 @@ do
   end, "Lua 5.4 string int64 modulo",
   { "lj_strscan_toint6454", "lj_obj_i64mod" })
 
+  assert_records_ir_op(function()
+    local a = -1099511627777
+    local b = 3
+    local x = 0
+    for _ = 1, 80 do
+      x = x + math.fmod(a, b)
+      x = x + math.fmod(math.mininteger, -1)
+    end
+    assert(x == -160 and math.type(math.fmod(a, b)) == "integer")
+  end, "Lua 5.4 boxed int64 math.fmod", "MOD")
+
   assert_records_trace(function()
     local n = 0
     for i = "1", "80" do
