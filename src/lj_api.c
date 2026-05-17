@@ -2925,17 +2925,25 @@ LUA_API int lua_gc(lua_State *L, int what, int data)
   int res = 0;
 #if LJ_54
   int data = 0;
+  int data2 = 0;
+  int data3 = 0;
   va_list argp;
   va_start(argp, what);
-  /* Lua 5.4 exposes lua_gc() as a vararg API. The LuaJIT collector still
-  ** ignores GEN/INC tuning parameters, so only options that use the legacy
-  ** single integer argument need to consume one here.
-  */
+  /* Lua 5.4 exposes lua_gc() as a vararg API. */
   switch (what) {
   case LUA_GCSTEP:
   case LUA_GCSETPAUSE:
   case LUA_GCSETSTEPMUL:
     data = va_arg(argp, int);
+    break;
+  case LUA_GCGEN:
+    data = va_arg(argp, int);
+    data2 = va_arg(argp, int);
+    break;
+  case LUA_GCINC:
+    data = va_arg(argp, int);
+    data2 = va_arg(argp, int);
+    data3 = va_arg(argp, int);
     break;
   default:
     break;
@@ -3002,12 +3010,25 @@ LUA_API int lua_gc(lua_State *L, int what, int data)
     res = (g->gc.threshold != LJ_MAX_MEM);
     break;
   case LUA_GCGEN:
-    /* This reports the Lua 5.4 mode surface; LuaJIT's collector is unchanged. */
     res = g->gc_mode54 ? LUA_GCGEN : LUA_GCINC;
+#if LJ_54
+    if (data != 0)
+      g->gc_genminormul54 = (MSize)(uint8_t)data;
+    if (data2 != 0)
+      g->gc_genmajormul54 = gc_param_lua54(data2);
+#endif
     g->gc_mode54 = 1;
     break;
   case LUA_GCINC:
     res = g->gc_mode54 ? LUA_GCGEN : LUA_GCINC;
+#if LJ_54
+    if (data != 0)
+      g->gc.pause = gc_param_lua54(data);
+    if (data2 != 0)
+      g->gc.stepmul = gc_param_lua54(data2);
+    if (data3 != 0)
+      g->gc_stepsize54 = (MSize)(uint8_t)data3;
+#endif
     g->gc_mode54 = 0;
     break;
   default:

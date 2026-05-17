@@ -666,7 +666,10 @@ typedef struct global_State {
   uint8_t warn_on;	/* Warning state for Lua 5.4 warn(). */
   uint8_t warn_cont;	/* Warning output is continuing without a newline. */
   uint8_t warn_disabled; /* lua_setwarnf(NULL) disables lua_warning() entirely. */
-  uint8_t gc_mode54;	/* Reported GC mode for Lua 5.4 collectgarbage(). */
+  uint8_t gc_mode54;	/* Declared Lua 5.4 GC mode. */
+  MSize gc_genminormul54;  /* Lua 5.4 generational minor multiplier. */
+  MSize gc_genmajormul54;  /* Lua 5.4 generational major multiplier. */
+  MSize gc_stepsize54;	/* Lua 5.4 incremental step-size parameter. */
   lua_WarnFunction warnf;  /* Optional Lua 5.4 C warning callback. */
   void *warnud;
   StrInternState str;	/* String interning. */

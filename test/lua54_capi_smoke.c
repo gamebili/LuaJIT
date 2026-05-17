@@ -5769,6 +5769,14 @@ static void test_warning_and_gc_api(lua_State *L)
   check(L, oldmode == LUA_GCGEN, "LUA_GCINC previous mode");
   oldmode = lua_gc(L, LUA_GCGEN, 0, 0);
   check(L, oldmode == LUA_GCINC, "LUA_GCGEN previous mode");
+  oldmode = lua_gc(L, LUA_GCINC, 321, 432, 13);
+  check(L, oldmode == LUA_GCGEN, "LUA_GCINC updates previous mode");
+  check(L, lua_gc(L, LUA_GCSETPAUSE, 200) == 320,
+	"LUA_GCINC updates pause");
+  check(L, lua_gc(L, LUA_GCSETSTEPMUL, 100) == 432,
+	"LUA_GCINC updates stepmul");
+  oldmode = lua_gc(L, LUA_GCGEN, 21, 155);
+  check(L, oldmode == LUA_GCINC, "LUA_GCGEN stores parameters");
 
   memset(&ar, 0, sizeof(ar));
   lua_pushcfunction(L, push_answer);

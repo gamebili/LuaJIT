@@ -957,6 +957,9 @@ do
 	   "generational")
     assert(collectgarbage("generational", 20, 30, 40) == "incremental")
     assert(collectgarbage("incremental", 200, 300, 12, 9) == "generational")
+    assert(collectgarbage("incremental", 321, 432, 13) == "incremental")
+    assert(collectgarbage("setpause", 200) == 320)
+    assert(collectgarbage("setstepmul", 100) == 432)
     expect_gc_int_error("generational", 2, "integer representation", 20.5)
     expect_gc_int_error("generational", 3, "integer representation", 20, 30.5)
     expect_gc_int_error("generational", 2, "number expected, got boolean",

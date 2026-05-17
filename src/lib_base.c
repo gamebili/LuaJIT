@@ -201,12 +201,13 @@ static lua_Integer base_checkinteger_named54(lua_State *L, int narg,
   return (lua_Integer)k;
 }
 
-static void base_checkoptint_named54(lua_State *L, int narg,
-				     const char *fname)
+static int32_t base_optint_named54(lua_State *L, int narg,
+				   const char *fname)
 {
   cTValue *o = L->base + narg-1;
   if (o < L->top && !tvisnil(o))
-    (void)base_checkinteger_named54(L, narg, fname);
+    return (int32_t)base_checkinteger_named54(L, narg, fname);
+  return 0;
 }
 #endif
 
@@ -1170,14 +1171,11 @@ LJLIB_CF(collectgarbage)
 	(s->len == 11 && memcmp(optstr, "incremental", 11) == 0)) {
       int isgen = (s->len == 12);
       const char *old = G(L)->gc_mode54 ? "generational" : "incremental";
-      /* The collector implementation is still LuaJIT's, but Lua 5.4 exposes
-      ** optional integer tuning arguments for these modes. Validate them before
-      ** the shim returns so bad hot-path calls and __gc reentry match 5.4.
-      */
-      base_checkoptint_named54(L, 2, "collectgarbage");
-      base_checkoptint_named54(L, 3, "collectgarbage");
+      int32_t data = base_optint_named54(L, 2, "collectgarbage");
+      int32_t data2 = base_optint_named54(L, 3, "collectgarbage");
+      int32_t data3 = 0;
       if (!isgen)
-	base_checkoptint_named54(L, 4, "collectgarbage");
+	data3 = base_optint_named54(L, 4, "collectgarbage");
       if (G(L)->hookmask & HOOK_GC) {
 	/* Lua 5.4 makes collectgarbage non-reentrant from __gc callbacks, but
 	** still validates the option before returning nil.
@@ -1185,10 +1183,10 @@ LJLIB_CF(collectgarbage)
 	setnilV(L->top++);
 	return 1;
       }
-      /* LuaJIT does not implement Lua 5.4's generational collector, but the
-      ** option is accepted so 5.4 code can switch modes without hard failure.
-      */
-      G(L)->gc_mode54 = (uint8_t)isgen;
+      if (isgen)
+	(void)lua_gc(L, LUA_GCGEN, data, data2);
+      else
+	(void)lua_gc(L, LUA_GCINC, data, data2, data3);
       lua_pushstring(L, old);
       return 1;
     }
