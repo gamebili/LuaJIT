@@ -373,6 +373,13 @@ error(m)
   expect_not_contains("interactive interrupt old quotes", r.err,
 		      "'<name>' expected")
 
+  local interactive_exit = writefile(note(prefix .. "interactive_exit.lua"),
+				     "os.exit()\n")
+  r = run("interactive_exit_nojit", "-i", { stdin = interactive_exit })
+  assert(r.ok, "interactive os.exit failed: " .. r.err)
+  expect_not_contains("interactive os.exit JIT status", r.out .. r.err,
+		      "JIT:")
+
   expect_ok("first_line_comment",
 	    q(writefile(note(prefix .. "first_line_comment.lua"),
 			"#comment in 1st line without newline")), "")
