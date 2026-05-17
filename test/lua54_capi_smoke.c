@@ -2919,6 +2919,10 @@ static void test_stack_and_number_api(lua_State *L)
     check(L, lua_tointegerx(L, -1, &ok) == big40 && ok,
 	  "lua_tointegerx accepts wider exact 64-bit string integer");
     lua_pop(L, 1);
+    lua_pushliteral(L, "1099511627776");
+    check(L, lua_tonumberx(L, -1, &ok) == (lua_Number)big40 && ok,
+	  "lua_tonumberx accepts wider exact 64-bit string number");
+    lua_pop(L, 1);
     lua_pushinteger(L, LUA_MAXINTEGER);
     check(L, lua_isinteger(L, -1), "lua_isinteger accepts LUA_MAXINTEGER");
     check(L, lua_tointegerx(L, -1, &ok) == LUA_MAXINTEGER && ok,
