@@ -1016,6 +1016,19 @@ do
     assert(select(1, pcall(collectgarbage, "step", 1099511627776)) == true)
     assert(collectgarbage("setpause", "123") == 200)
     assert(collectgarbage("setstepmul", "123") == 100)
+    collectgarbage("incremental", 200, 100, 1)
+    collectgarbage("collect")
+    local t = {}
+    for i = 1, 20000 do t[i] = { i } end
+    t = nil
+    assert(collectgarbage("step", 0) == false)
+    collectgarbage("incremental", 200, 100, 24)
+    collectgarbage("collect")
+    t = {}
+    for i = 1, 20000 do t[i] = { i } end
+    t = nil
+    assert(collectgarbage("step", 0) == true)
+    collectgarbage("incremental", 200, 100, 13)
     collectgarbage("stop")
     assert(collectgarbage("isrunning") == false)
     collectgarbage("collect")

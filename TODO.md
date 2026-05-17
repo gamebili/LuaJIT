@@ -262,6 +262,7 @@
   - 当前进展：`step` / `setpause` / `setstepmul` 的第二参数已拒绝无整数表示的 number，仍接受字符串数字。
   - 当前进展：`generational(minormul, majormul)` / `incremental(pause, stepmul, stepsize)` 的可选整数参数已按官方 Lua 5.4.8 做类型和整数表示校验；`incremental` 会同步更新公开 `pause` / `stepmul` 配置，`generational` 会保存 minor/major 配置供后续分代调度使用；多余参数保持忽略，`__gc` finalizer 内合法 mode 调用仍返回 `nil`，非法可选参数仍会先报错。
   - 当前进展：Lua 5.4 C API 的 `lua_gc()` 在 `__gc` finalizer 内会按官方规则对所有 option 返回 `-1`，避免 C finalizer 重入驱动 collector。
+  - 当前进展：`incremental(..., stepsize)` 保存的 Lua 5.4 step-size 参数已接入 LuaJIT 兼容构建的实际 GC step 粒度；默认使用 Lua 5.4 的 `13`（8KB）调度基数，非 5.4 构建保留旧 LuaJIT `GCSTEPSIZE`；incremental 模式下 `collectgarbage("step", 0)` 已改为不消费旧 debt 的单次 basic step，generational 模式下仍以完整收集近似一次 young collection，避免在真正 age/list 分代落地前漏收。
   - 当前进展：无调参 GC 命令的多余参数已按官方 Lua 5.4.8 忽略，覆盖默认 `collectgarbage(nil, extra)` 以及 `"count"` / `"collect"` / `"stop"` / `"restart"` / `"isrunning"`；`step` / `setpause` / `setstepmul` 仍只校验其第 2 个可选整数参数，mode 命令仍只校验官方定义的可选整数参数。
   - 已覆盖：`generational`/`incremental` 参数和旧模式返回、mode 可选整数/字符串整数参数、mode 可选参数 fraction/boolean 错误、finalizer 内 mode 可选参数错误、`minor`/`major` invalid option、`setpause` 初始返回 `200`、`setstepmul` 初始返回 `100`，以及负数、非 4 对齐值、超过 1000、fraction number、string number 的参数边界。
   - 实现重点：如果不重做 GC，至少要明确哪些行为是 shim，哪些行为可以做到语义兼容。

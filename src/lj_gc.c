@@ -34,6 +34,16 @@
 #define GCSWEEPCOST	10
 #define GCFINALIZECOST	100
 
+#if LJ_54
+static GCSize gc_stepsize54(global_State *g)
+{
+  MSize bits = g->gc_stepsize54;
+  if (bits >= sizeof(GCSize) * 8)
+    return LJ_MAX_MEM;
+  return ((GCSize)1) << bits;
+}
+#endif
+
 /* Macros to set GCobj colors and flags. */
 #define white2gray(x)		((x)->gch.marked &= (uint8_t)~LJ_GC_WHITES)
 #define gray2black(x)		((x)->gch.marked |= LJ_GC_BLACK)
@@ -894,12 +904,25 @@ static size_t gc_onestep(lua_State *L)
 int LJ_FASTCALL lj_gc_step(lua_State *L)
 {
   global_State *g = G(L);
+#if LJ_54
+  GCSize stepsize = gc_stepsize54(g);
+#else
+  GCSize stepsize = GCSTEPSIZE;
+#endif
   GCSize lim;
   int32_t ostate = g->vmstate;
   setvmstate(g, GC);
-  lim = (GCSTEPSIZE/100) * g->gc.stepmul;
-  if (lim == 0)
+  if (g->gc.stepmul == 0) {
     lim = LJ_MAX_MEM;
+  } else {
+    GCSize stepunit = stepsize/100;
+    if (stepunit == 0)
+      lim = 1;
+    else if (stepunit > LJ_MAX_MEM / g->gc.stepmul)
+      lim = LJ_MAX_MEM;
+    else
+      lim = stepunit * g->gc.stepmul;
+  }
   if (g->gc.total > g->gc.threshold)
     g->gc.debt += g->gc.total - g->gc.threshold;
   do {
@@ -916,7 +939,7 @@ int LJ_FASTCALL lj_gc_step(lua_State *L)
       return 1;  /* Finished a GC cycle. */
     }
   } while (sizeof(lim) == 8 ? ((int64_t)lim > 0) : ((int32_t)lim > 0));
-  if (g->gc.debt < GCSTEPSIZE) {
+  if (g->gc.debt < stepsize) {
 #if LJ_54
     if (g->gc.fin_check != 0)
       g->gc.threshold = g->gc.total;
@@ -926,7 +949,7 @@ int LJ_FASTCALL lj_gc_step(lua_State *L)
     g->vmstate = ostate;
     return -1;
   } else {
-    g->gc.debt -= GCSTEPSIZE;
+    g->gc.debt -= stepsize;
     g->gc.threshold = g->gc.total;
     g->vmstate = ostate;
     return 0;
