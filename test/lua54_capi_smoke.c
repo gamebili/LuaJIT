@@ -2864,6 +2864,27 @@ static void test_stack_and_number_api(lua_State *L)
   }
   lua_pop(L, 1);
 
+  if (sizeof(lua_Integer) > sizeof(int)) {
+    lua_Integer big40 = (lua_Integer)1024 * 1024 * 1024 * 1024;
+    int count = 0;
+    lua_newtable(L);
+    lua_pushinteger(L, big40);
+    lua_pushliteral(L, "next-big40");
+    lua_rawset(L, -3);
+    lua_pushnil(L);
+    while (lua_next(L, -2) != 0) {
+      check(L, lua_isinteger(L, -2),
+	    "lua_next preserves 64-bit integer key subtype");
+      check_integer(L, -2, big40,
+		    "lua_next preserves 64-bit integer key value");
+      check_string(L, -1, "next-big40", "lua_next 64-bit key value");
+      count++;
+      lua_pop(L, 1);
+    }
+    check(L, count == 1, "lua_next traverses 64-bit integer key");
+    lua_pop(L, 1);
+  }
+
   lua_pushliteral(L, "a");
   lua_pushliteral(L, "b");
   lua_pushliteral(L, "c");
