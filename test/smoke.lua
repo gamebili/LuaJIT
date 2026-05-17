@@ -2384,6 +2384,15 @@ do
   assert(seen_pos and seen_neg)
   assert(t[1099511627776] == "wide")
   assert(t[-1099511627776] == "neg-wide")
+  assert(not pcall(next, t, f64))
+  local hashints = { [0] = "zero", [-1] = "neg", [2147483647] = "max32" }
+  local seen_hashints = {}
+  for k, v in pairs(hashints) do
+    assert(math.type(k) == "integer")
+    seen_hashints[v] = true
+  end
+  assert(seen_hashints.zero and seen_hashints.neg and seen_hashints.max32)
+  assert(not pcall(next, { [1.0] = "one" }, 1.0))
   local hi = {}
   hi[9007199254740992.0] = "exact-float"
   hi[9007199254740993] = "integer"

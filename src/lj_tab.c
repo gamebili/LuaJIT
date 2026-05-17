@@ -33,6 +33,21 @@ static LJ_AINLINE Node *hashi64(const GCtab *t, int64_t key)
   return hashnum(t, &k);
 }
 
+static LJ_AINLINE int keyindexeq(cTValue *a, cTValue *b)
+{
+#if LJ_54
+  if (itype(a) != itype(b))
+    return 0;
+  if (tvisint(a))
+    return intV(a) == intV(b);
+  if (tvisi64(a))
+    return i64V(a) == i64V(b);
+  if (tvisnum(a))
+    return numV(a) == numV(b);
+#endif
+  return lj_obj_equal(a, b);
+}
+
 #if LJ_54
 static int tab_numtoint64key(lua_Number n, int64_t *ip)
 {
@@ -83,8 +98,9 @@ static TValue *tab_setint64key(lua_State *L, GCtab *t, int64_t key)
 /* Hash an arbitrary key and return its anchor position in the hash table. */
 static Node *hashkey(const GCtab *t, cTValue *key)
 {
-  lj_assertX(!tvisint(key), "attempt to hash integer");
-  if (tvisstr(key))
+  if (tvisint(key))
+    return hashi64(t, (int64_t)intV(key));
+  else if (tvisstr(key))
     return hashstr(t, strV(key));
   else if (tvisi64(key))
     return hashi64(t, i64V(key));
@@ -448,8 +464,13 @@ void lj_tab_resize(lua_State *L, GCtab *t, uint32_t asize, uint32_t hbits)
 
 static uint32_t countint(cTValue *key, uint32_t *bins)
 {
-  lj_assertX(!tvisint(key), "bad integer key");
-  if (tvisi64(key)) {
+  if (tvisint(key)) {
+    int32_t k = intV(key);
+    if ((uint32_t)k < LJ_MAX_ASIZE) {
+      bins[(k > 2 ? lj_fls((uint32_t)(k-1)) : 0)]++;
+      return 1;
+    }
+  } else if (tvisi64(key)) {
     int64_t k = i64V(key);
     if (k >= 0 && k < LJ_MAX_ASIZE) {
       bins[lj_fls((uint32_t)k)]++;
@@ -540,6 +561,19 @@ cTValue * LJ_FASTCALL lj_tab_getinth(GCtab *t, int32_t key)
 {
   TValue k;
   Node *n;
+#if LJ_54
+  setintV(&k, key);
+  n = hashkey(t, &k);
+  do {
+    if (!tvisnil(&n->val)) {
+      if (tvisint(&n->key) && intV(&n->key) == key)
+	return &n->val;
+      if (tvisnum(&n->key) && n->key.n == (lua_Number)key)
+	return &n->val;
+    }
+  } while ((n = nextnode(n)));
+  return NULL;
+#else
   k.n = (lua_Number)key;
   n = hashnum(t, &k);
   do {
@@ -547,6 +581,7 @@ cTValue * LJ_FASTCALL lj_tab_getinth(GCtab *t, int32_t key)
       return &n->val;
   } while ((n = nextnode(n)));
   return NULL;
+#endif
 }
 
 cTValue *lj_tab_getstr(GCtab *t, const GCstr *key)
@@ -692,6 +727,19 @@ TValue *lj_tab_setinth(lua_State *L, GCtab *t, int32_t key)
 {
   TValue k;
   Node *n;
+#if LJ_54
+  setintV(&k, key);
+  n = hashkey(t, &k);
+  do {
+    if (!tvisnil(&n->val)) {
+      if (tvisint(&n->key) && intV(&n->key) == key)
+	return &n->val;
+      if (tvisnum(&n->key) && n->key.n == (lua_Number)key)
+	return &n->val;
+    }
+  } while ((n = nextnode(n)));
+  return lj_tab_newkey(L, t, &k);
+#else
   k.n = (lua_Number)key;
   n = hashnum(t, &k);
   do {
@@ -699,6 +747,7 @@ TValue *lj_tab_setinth(lua_State *L, GCtab *t, int32_t key)
       return &n->val;
   } while ((n = nextnode(n)));
   return lj_tab_newkey(L, t, &k);
+#endif
 }
 
 TValue *lj_tab_setstr(lua_State *L, GCtab *t, const GCstr *key)
@@ -759,13 +808,17 @@ TValue *lj_tab_set(lua_State *L, GCtab *t, cTValue *key)
 /* Get the successor traversal index of a key. */
 uint32_t LJ_FASTCALL lj_tab_keyindex(GCtab *t, cTValue *key)
 {
+#if !LJ_54
   TValue tmp;
+#endif
   if (tvisint(key)) {
     int32_t k = intV(key);
     if ((uint32_t)k < t->asize)
       return (uint32_t)k + 1;
+#if !LJ_54
     setnumV(&tmp, (lua_Number)k);
     key = &tmp;
+#endif
   } else if (tvisi64(key)) {
     int64_t k = i64V(key);
     if (k >= 0 && (uint64_t)k < (uint64_t)t->asize)
@@ -780,7 +833,7 @@ uint32_t LJ_FASTCALL lj_tab_keyindex(GCtab *t, cTValue *key)
     Node *n = hashkey(t, key);
     do {
       if (!tvisnil(&n->val)) {
-	if (lj_obj_equal(&n->key, key))
+	if (keyindexeq(&n->key, key))
 	  return t->asize + (uint32_t)((n+1) - noderef(t->node));
       } else {
 	/* GC keeps nil-valued dead keys in the hash chain so traversal and

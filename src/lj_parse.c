@@ -3670,7 +3670,10 @@ static void fs_fixup_k(FuncState *fs, GCproto *pt, void *kptr)
     Node *n = &node[i];
     if (tvhaskslot(&n->val)) {
       ptrdiff_t kidx = (ptrdiff_t)tvkslot(&n->val);
-      lj_assertFS(!tvisint(&n->key), "unexpected integer key");
+      if (tvisint(&n->key)) {
+	TValue *tv = &((TValue *)kptr)[kidx];
+	setintV(tv, intV(&n->key));
+      } else
 #if LJ_54 && LJ_DUALNUM
       if (tvistab(&n->key) && (tabV(&n->key)->flags54 & LUA54_KNUM_BOX)) {
 	GCtab *box = tabV(&n->key);
