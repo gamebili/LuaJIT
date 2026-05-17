@@ -131,7 +131,7 @@
   - 当前进展：官方 `testes/bwcoercion.lua` 通过 string metatable 覆盖 bitwise/idiv 字符串边界；当前 lowered helper 已规整 metamethod 返回栈，只返回 metamethod 第一个结果，不再把原操作数漏成额外返回值。
   - 当前进展：lowered helper 的原始数值结果路径也已规整返回槽；`local a, b = "1.0" // "2"` 不再把左操作数字符串漏到 `a`，只返回单个 Lua 5.4 结果。
   - 已覆盖：左右操作数元方法、反向查找、无元方法时报错、元方法返回值透传；一元 `~` 按 Lua 5.4 传入两份同一操作数。
-  - 剩余边界：原始位运算数值路径当前按公开 32 位 integer 表面 wrap/zero-fill shift；完整 64 位整数/TValue/JIT 语义归入“完整 Lua 5.4 64 位整数语义”继续处理。
+  - 当前进展：原始位运算数值路径已按公开 `lua_Integer` / `lua_Unsigned` 宽度运行，覆盖 `1 << 63 == math.mininteger`、`(1 << 63) >> 63 == 1`、`-1 >> 1 == math.maxinteger`、`-1 << 63 == math.mininteger` 和 `~0 == -1`；JIT recorder 对这些 full-width 64-bit wrap/zero-fill shift 边界也已进入回归和 perf smoke。更深的 64-bit TValue/JIT 剩余语义继续归入“完整 Lua 5.4 64 位整数语义”。
 
 - [x] `__le` 元方法不应再由 `__lt` 模拟。
   - 当前状态：只定义 `__lt` 的 table 做 `a <= b` 时不再走旧 Lua 5.1 风格的 `not (b < a)` 模拟路径，缺少 `__le` 会直接报错。

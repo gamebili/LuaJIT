@@ -1158,6 +1158,21 @@ do
   end, "Lua 5.4 boxed int64 shift right/negative/out-of-range")
 
   assert_records_ir_op(function()
+    local function edge_loop(one, negone, zero, sh)
+      local n = 0
+      for _ = 1, 80 do
+	if (one << sh) == math.mininteger then n = n + 1 end
+	if ((one << sh) >> sh) == 1 then n = n + 1 end
+	if (negone >> 1) == math.maxinteger then n = n + 1 end
+	if (negone << sh) == math.mininteger then n = n + 1 end
+	if (~zero) == -1 then n = n + 1 end
+      end
+      return n
+    end
+    assert(edge_loop(1, -1, 0, 63) == 400)
+  end, "Lua 5.4 full-width int64 bitwise edges", "BSHR")
+
+  assert_records_ir_op(function()
     local a = 1099511627776
     local x = 0
     for _ = 1, 80 do
