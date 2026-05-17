@@ -819,6 +819,8 @@ local function number_pack_helpers(n)
   local base10_dynamic_string = "10"
   local base16_dynamic_string = "0x10"
   local pow_string_one = "1"
+  local wide_sin_expected = math.sin(1099511627776)
+  local wide_log2_expected = math.log(1099511627776, 2)
   local tointeger_wide = "1099511627776"
   local tointeger_max = "9223372036854775807"
   local tointeger_over = "9223372036854775808"
@@ -893,6 +895,22 @@ local function number_pack_helpers(n)
     do
       local fm = math.fmod(-ti_wide - 1, 3)
       if fm == -2 and math.type(fm) == "integer" then
+	sum = sum + 1
+      end
+    end
+    do
+      local sqrt_wide = math.sqrt(ti_wide)
+      local sqrt_str = math.sqrt(tointeger_wide)
+      local log_wide = math.log(ti_wide, 2)
+      local sin_wide = math.sin(ti_wide)
+      if sqrt_wide == 1048576.0 and sqrt_str == 1048576.0 and
+	 log_wide == wide_log2_expected and
+	 sin_wide == wide_sin_expected and
+	 math.log(100.0, nil) == math.log(100.0) and
+	 math.type(sqrt_wide) == "float" and
+	 math.type(sqrt_str) == "float" and
+	 math.type(log_wide) == "float" and
+	 math.type(sin_wide) == "float" then
 	sum = sum + 1
       end
     end
@@ -1473,7 +1491,9 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_number_pack = timeit(mode_name..":number_pack_helpers",
 				  number_pack_helpers, iter_n)
-  assert(r_number_pack == iter_n * 170)
+  assert(r_number_pack == iter_n * 172,
+	 "number_pack_helpers expected "..(iter_n * 172)..
+	 " got "..r_number_pack)
 
   local _, r_number_string = timeit(mode_name..":number_string_helpers",
 				    number_string_helpers, iter_n)

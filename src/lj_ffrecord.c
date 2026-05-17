@@ -339,6 +339,47 @@ static TRef recff_lua54_i64ref(jit_State *J, TRef tr)
   return emitir(IRT(IR_FLOAD, IRT_I64), tr, IRFL_INT64_VALUE);
 }
 
+static TRef recff_lua54_numref(jit_State *J, TRef tr)
+{
+  if (tref_isnum(tr))
+    return tr;
+  if (tref_isinteger(tr))
+    return emitir(IRTN(IR_CONV), tr, IRCONV_NUM_INT);
+  if (recff_lua54_tref_isi64(tr))
+    return emitir(IRTN(IR_CONV), recff_lua54_i64ref(J, tr),
+		  RECFF_IRCONV_NUM_I64_SIGNED);
+  return 0;
+}
+
+static TRef recff_lua54_tonumref(jit_State *J, TRef tr, cTValue *tv)
+{
+  TRef tn;
+  if (!tr)
+    return 0;
+  tn = recff_lua54_numref(J, tr);
+  if (tn)
+    return tn;
+  if (tvisstr(tv) && tref_isstr(tr)) {
+    TValue tmp;
+    TRef fmt;
+    if (!lj_strscan_number54(J->L, strV(tv), &tmp))
+      return 0;
+    fmt = lj_ir_call(J, IRCALL_lj_strscan_numtype54s, tr);
+    emitir(IRTGI(IR_EQ), fmt,
+	   lj_ir_kint(J, recff_lua54_tv_isinteger(&tmp) ? 1 : 2));
+    return lj_ir_call(J, IRCALL_lj_strscan_tonum54s, tr);
+  }
+  return 0;
+}
+
+static TRef recff_lua54_checknumref(jit_State *J, TRef tr, cTValue *tv)
+{
+  TRef tn = recff_lua54_tonumref(J, tr, tv);
+  if (!tn)
+    lj_trace_err(J, LJ_TRERR_BADTYPE);
+  return tn;
+}
+
 static TRef recff_lua54_toi64ref(jit_State *J, TRef tr, cTValue *tv)
 {
   if (recff_lua54_tv_isinteger(tv)) {
@@ -1149,7 +1190,12 @@ static void LJ_FASTCALL recff_math_abs(jit_State *J, RecordFFData *rd)
     return;
   }
 #endif
-  TRef tr = lj_ir_tonum(J, J->base[0]);
+  TRef tr;
+#if LJ_54 && LJ_DUALNUM
+  tr = recff_lua54_checknumref(J, J->base[0], &rd->argv[0]);
+#else
+  tr = lj_ir_tonum(J, J->base[0]);
+#endif
   J->base[0] = emitir(IRTN(IR_ABS), tr, lj_ir_ksimd(J, LJ_KSIMD_ABS));
   UNUSED(rd);
 }
@@ -1241,20 +1287,35 @@ static void LJ_FASTCALL recff_lua54_fmod(jit_State *J, RecordFFData *rd)
 /* Record unary math.* functions, mapped to IR_FPMATH opcode. */
 static void LJ_FASTCALL recff_math_unary(jit_State *J, RecordFFData *rd)
 {
-  J->base[0] = emitir(IRTN(IR_FPMATH), lj_ir_tonum(J, J->base[0]), rd->data);
+  TRef tr;
+#if LJ_54 && LJ_DUALNUM
+  tr = recff_lua54_checknumref(J, J->base[0], &rd->argv[0]);
+#else
+  tr = lj_ir_tonum(J, J->base[0]);
+#endif
+  J->base[0] = emitir(IRTN(IR_FPMATH), tr, rd->data);
 }
 
 /* Record math.log. */
 static void LJ_FASTCALL recff_math_log(jit_State *J, RecordFFData *rd)
 {
+#if LJ_54 && LJ_DUALNUM
+  TRef tr = recff_lua54_checknumref(J, J->base[0], &rd->argv[0]);
+  if (J->base[1] && !tref_isnil(J->base[1])) {
+#else
   TRef tr = lj_ir_tonum(J, J->base[0]);
   if (J->base[1]) {
+#endif
 #ifdef LUAJIT_NO_LOG2
     uint32_t fpm = IRFPM_LOG;
 #else
     uint32_t fpm = IRFPM_LOG2;
 #endif
+#if LJ_54 && LJ_DUALNUM
+    TRef trb = recff_lua54_checknumref(J, J->base[1], &rd->argv[1]);
+#else
     TRef trb = lj_ir_tonum(J, J->base[1]);
+#endif
     tr = emitir(IRTN(IR_FPMATH), tr, fpm);
     trb = emitir(IRTN(IR_FPMATH), trb, fpm);
     trb = emitir(IRTN(IR_DIV), lj_ir_knum_one(J), trb);
@@ -1269,8 +1330,13 @@ static void LJ_FASTCALL recff_math_log(jit_State *J, RecordFFData *rd)
 /* Record math.atan2. */
 static void LJ_FASTCALL recff_math_atan2(jit_State *J, RecordFFData *rd)
 {
+#if LJ_54 && LJ_DUALNUM
+  TRef tr = recff_lua54_checknumref(J, J->base[0], &rd->argv[0]);
+  TRef tr2 = recff_lua54_checknumref(J, J->base[1], &rd->argv[1]);
+#else
   TRef tr = lj_ir_tonum(J, J->base[0]);
   TRef tr2 = lj_ir_tonum(J, J->base[1]);
+#endif
   J->base[0] = lj_ir_call(J, IRCALL_atan2, tr, tr2);
   UNUSED(rd);
 }
@@ -1278,9 +1344,17 @@ static void LJ_FASTCALL recff_math_atan2(jit_State *J, RecordFFData *rd)
 /* Record math.ldexp. */
 static void LJ_FASTCALL recff_math_ldexp(jit_State *J, RecordFFData *rd)
 {
+#if LJ_54 && LJ_DUALNUM
+  TRef tr = recff_lua54_checknumref(J, J->base[0], &rd->argv[0]);
+#else
   TRef tr = lj_ir_tonum(J, J->base[0]);
+#endif
 #if LJ_TARGET_X86ORX64
+#if LJ_54 && LJ_DUALNUM
+  TRef tr2 = recff_lua54_checknumref(J, J->base[1], &rd->argv[1]);
+#else
   TRef tr2 = lj_ir_tonum(J, J->base[1]);
+#endif
 #else
   TRef tr2 = lj_opt_narrow_toint(J, J->base[1]);
 #endif
@@ -1290,7 +1364,12 @@ static void LJ_FASTCALL recff_math_ldexp(jit_State *J, RecordFFData *rd)
 
 static void LJ_FASTCALL recff_math_call(jit_State *J, RecordFFData *rd)
 {
-  TRef tr = lj_ir_tonum(J, J->base[0]);
+  TRef tr;
+#if LJ_54 && LJ_DUALNUM
+  tr = recff_lua54_checknumref(J, J->base[0], &rd->argv[0]);
+#else
+  tr = lj_ir_tonum(J, J->base[0]);
+#endif
   J->base[0] = emitir(IRTN(IR_CALLN), tr, rd->data);
 }
 

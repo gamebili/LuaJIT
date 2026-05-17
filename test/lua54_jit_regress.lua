@@ -748,6 +748,61 @@ do
   end, "Lua 5.4 boxed int64 math.abs", "NEG")
 
   assert_records_ir_op(function()
+    local function sqrt_log_loop(a)
+      local n = 0
+      local expected_log = math.log(a, 2)
+      for _ = 1, 80 do
+	local r = math.sqrt(a)
+	local l = math.log(a, 2)
+	if r == 1048576.0 and l == expected_log and
+	   math.type(r) == "float" and math.type(l) == "float" then
+	  n = n + 1
+	end
+      end
+      return n
+    end
+    assert(sqrt_log_loop(1099511627776) == 80)
+  end, "Lua 5.4 boxed int64 math.sqrt/log", "FPMATH")
+
+  assert_records_ir_op(function()
+    local function sin_loop(a)
+      local n = 0
+      local expected = math.sin(a)
+      for _ = 1, 80 do
+	local r = math.sin(a)
+	if r == expected and math.type(r) == "float" then n = n + 1 end
+      end
+      return n
+    end
+    assert(sin_loop(1099511627776) == 80)
+  end, "Lua 5.4 boxed int64 math.call", "CALLN")
+
+  assert_records_ir_calls(function()
+    local function sqrt_loop(s)
+      local n = 0
+      for _ = 1, 80 do
+	local r = math.sqrt(s)
+	if r == 1048576.0 and math.type(r) == "float" then n = n + 1 end
+      end
+      return n
+    end
+    assert(sqrt_loop("1099511627776") == 80)
+  end, "Lua 5.4 string int64 math.sqrt",
+  { "lj_strscan_numtype54s", "lj_strscan_tonum54s" })
+
+  assert_records_ir_op(function()
+    local function log_loop(a)
+      local n = 0
+      local expected = math.log(a)
+      for _ = 1, 80 do
+	if math.log(a, nil) == expected then n = n + 1 end
+      end
+      return n
+    end
+    assert(log_loop(100.0) == 80)
+  end, "Lua 5.4 math.log nil base", "FPMATH")
+
+  assert_records_ir_op(function()
     local function round_loop(a, b)
       local n = 0
       for _ = 1, 80 do
