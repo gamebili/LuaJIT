@@ -2369,15 +2369,16 @@ static void capture_warning(void *ud, const char *msg, int tocont)
 static const char *capi_reader(lua_State *L, void *ud, size_t *sz)
 {
   CApiReaderCtx *ctx = (CApiReaderCtx *)ud;
+  const char *src = ctx->src;
   (void)L;
-  if (ctx->src == NULL) {
+  if (src == NULL) {
     *sz = 0;
     return NULL;
   }
   *sz = ctx->len;
   ctx->src = NULL;
   ctx->len = 0;
-  return "return 64";
+  return src;
 }
 
 static int dump_writer(lua_State *L, const void *p, size_t sz, void *ud)
@@ -5369,6 +5370,7 @@ static void test_dump_api(lua_State *L)
   const char *src = "return function(a) return a + 1 end";
   DumpBuffer full;
   DumpBuffer stripped;
+  CApiReaderCtx reader;
   int status;
 
   memset(&full, 0, sizeof(full));
@@ -5399,6 +5401,25 @@ static void test_dump_api(lua_State *L)
   check(L, strstr(lua_tostring(L, -1),
 		  "attempt to load a binary chunk (mode is 't')") != NULL,
 	"luaL_loadbufferx binary wrong mode error");
+  lua_pop(L, 1);
+
+  reader.src = stripped.data;
+  reader.len = stripped.len;
+  status = lua_load_sig(L, capi_reader, &reader, "=dumped-reader", "b");
+  check(L, status == LUA_OK, "lua_load binary reader mode");
+  lua_pushinteger(L, 41);
+  lua_call(L, 1, 1);
+  check_integer(L, -1, 42, "lua_load binary reader result");
+  lua_pop(L, 1);
+
+  reader.src = stripped.data;
+  reader.len = stripped.len;
+  status = lua_load_sig(L, capi_reader, &reader, "=dumped-reader", "t");
+  check(L, status == LUA_ERRSYNTAX,
+	"lua_load text mode rejects binary reader");
+  check(L, strstr(lua_tostring(L, -1),
+		  "attempt to load a binary chunk (mode is 't')") != NULL,
+	"lua_load binary reader wrong mode error");
   lua_pop(L, 1);
 }
 
