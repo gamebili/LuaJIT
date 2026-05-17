@@ -5399,6 +5399,12 @@ static void test_dump_api(lua_State *L)
 	"lua_dump writer failure status");
   check(L, fail_calls > 0, "lua_dump writer failure callback");
   lua_pop(L, 1);
+  fail_calls = 0;
+  lua_pushcfunction(L, checkinteger_arg);
+  check(L, lua_dump_sig(L, dump_fail_writer, &fail_calls, 0) == 1,
+	"lua_dump C function status");
+  check(L, fail_calls == 0, "lua_dump C function skips writer");
+  lua_pop(L, 1);
 
   status = luaL_loadbufferx(L, stripped.data, stripped.len, "=dumped", "b");
   check(L, status == LUA_OK, "lua_dump stripped reload");
