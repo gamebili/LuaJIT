@@ -2415,6 +2415,28 @@ static const char *pushvfstring_wrap(lua_State *L, const char *fmt, ...)
   return ret;
 }
 
+static int arith_string_bor(lua_State *L)
+{
+  lua_pushliteral(L, "1099511627776");
+  lua_pushinteger(L, 7);
+  lua_arith(L, LUA_OPBOR);
+  return 1;
+}
+
+static int arith_string_bnot(lua_State *L)
+{
+  lua_pushliteral(L, "7");
+  lua_arith(L, LUA_OPBNOT);
+  return 1;
+}
+
+static int arith_string_bor_meta(lua_State *L)
+{
+  (void)L;
+  lua_pushliteral(L, "api-bor-meta");
+  return 1;
+}
+
 static void test_stack_and_number_api(lua_State *L)
 {
   static const char light_key;
@@ -3755,6 +3777,8 @@ static void test_compare_len_arith(lua_State *L)
 {
   static const char pointer_key;
   int rtype;
+  int status;
+  const char *errmsg;
   RawGetI54Sig rawgeti_compat_sig = lua_rawgeti54;
   RawSetI54Sig rawseti_compat_sig = lua_rawseti54;
 
@@ -3973,12 +3997,44 @@ static void test_compare_len_arith(lua_State *L)
     check_integer(L, -1, 1,
 		  "lua_arith preserves wider 64-bit negative shift result");
     lua_pop(L, 1);
+
+    lua_pushcfunction(L, arith_string_bor);
+    status = lua_pcall(L, 0, 1, 0);
+    check(L, status == LUA_ERRRUN,
+	  "lua_arith string bitwise rejects string");
+    errmsg = lua_tostring(L, -1);
+    check(L, errmsg != NULL &&
+	     strstr(errmsg, "bitwise operation") != NULL &&
+	     strstr(errmsg, "string value") != NULL,
+	  "lua_arith string bitwise error text");
+    lua_pop(L, 1);
+
+    lua_pushcfunction(L, arith_string_bnot);
+    status = lua_pcall(L, 0, 1, 0);
+    check(L, status == LUA_ERRRUN,
+	  "lua_arith string bnot rejects string");
+    errmsg = lua_tostring(L, -1);
+    check(L, errmsg != NULL &&
+	     strstr(errmsg, "bitwise operation") != NULL &&
+	     strstr(errmsg, "string value") != NULL,
+	  "lua_arith string bnot error text");
+    lua_pop(L, 1);
+
+    lua_pushliteral(L, "");
+    check(L, lua_getmetatable(L, -1) == 1,
+	  "lua_arith string metatable available");
+    lua_pushcfunction(L, arith_string_bor_meta);
+    lua_setfield(L, -2, "__bor");
     lua_pushliteral(L, "1099511627776");
     lua_pushinteger(L, 7);
     lua_arith(L, LUA_OPBOR);
-    check_integer(L, -1, big40 + 7,
-		  "lua_arith preserves wider 64-bit string bit result");
+    check_string(L, -1, "api-bor-meta",
+		 "lua_arith string bitwise uses string metatable");
     lua_pop(L, 1);
+    lua_pushnil(L);
+    lua_setfield(L, -2, "__bor");
+    lua_pop(L, 2);
+
     lua_pushinteger(L, big40);
     lua_arith(L, LUA_OPBNOT);
     check_integer(L, -1, (lua_Integer)~(lua_Unsigned)big40,

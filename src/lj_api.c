@@ -1459,12 +1459,13 @@ static int api_rawarith_bit54(lua_State *L, TValue *res, cTValue *a,
   lua_Integer ia, ib;
   lua_Unsigned ua, ub;
   if (op == LUA_OPBNOT) {
-    if (!luaV_tointeger54(a, &ia, NULL))
+    if (tvisstr(a) || !luaV_tointeger54(a, &ia, NULL))
       return 0;
     lj_obj_setint64(L, res, (int64_t)(lua_Integer)~(lua_Unsigned)ia);
     return 1;
   }
-  if (!luaV_tointeger54(a, &ia, NULL) ||
+  if (tvisstr(a) || tvisstr(b) ||
+      !luaV_tointeger54(a, &ia, NULL) ||
       !luaV_tointeger54(b, &ib, NULL))
     return 0;
   ua = (lua_Unsigned)ia;
@@ -1487,6 +1488,37 @@ static int api_rawarith_bit54(lua_State *L, TValue *res, cTValue *a,
     return 1;
   default:
     return 0;
+  }
+}
+
+static int api_isbitop54(int op)
+{
+  return op == LUA_OPBNOT || op == LUA_OPBAND || op == LUA_OPBOR ||
+	 op == LUA_OPBXOR || op == LUA_OPSHL || op == LUA_OPSHR;
+}
+
+static int api_tobitinteger54(cTValue *o, lua_Integer *ip)
+{
+  return !tvisstr(o) && luaV_tointeger54(o, ip, NULL);
+}
+
+static void api_arith_biterror54(lua_State *L, cTValue *a, cTValue *b,
+				 int unary)
+{
+  lua_Integer i;
+  cTValue *bad;
+  if (api_tvisnumber(a) && (unary || api_tvisnumber(b))) {
+    if (!api_tobitinteger54(a, &i) ||
+	(!unary && !api_tobitinteger54(b, &i)))
+      lj_err_caller(L, LJ_ERR_NUMINT);
+  }
+  bad = !api_tvisnumber(a) ? a : b;
+  {
+    MSize tlen;
+    const char *tname = lj_meta_objtypename(L, bad, &tlen);
+    UNUSED(tlen);
+    lj_err_callermsg(L, lj_strfmt_pushf(L,
+      "attempt to perform bitwise operation on a %s value", tname));
   }
 }
 #endif
@@ -1732,6 +1764,10 @@ LUA_API void lua_arith(lua_State *L, int op)
     api_call_arith_meta(L, res, a, b, mo);
     return;
   }
+#if LJ_54
+  if (api_isbitop54(op))
+    api_arith_biterror54(L, a, b, unary);
+#endif
   lj_err_optype(L, a, LJ_ERR_OPARITH);
 }
 
