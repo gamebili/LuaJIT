@@ -257,6 +257,7 @@
 - [ ] 真实 Lua 5.4 GC 模式。
   - 当前状态：`collectgarbage("generational")` / `"incremental"` 已从纯返回值 shim 推进到保存 Lua 5.4 mode 参数；从 incremental 切回 generational 时会按官方行为执行一次完整收集来建立模式基线，并保留 stopped-GC 状态；底层仍未完成真正 age/list 分代收集。
   - 当前进展：Lua 5.4 兼容构建已为 GC 对象头增加独立 `age` 字段和 `new/survival/old0/old1/old/touched1/touched2` 宏，避免挤占 LuaJIT `marked` 位和 cdata 高位，为真正分代链表与 barrier 演进做结构准备。
+  - 当前进展：generational 模式下 full cycle 完成后会扫描 root、finalizer 队列和字符串表，把存活对象 age 归为 `old`，建立后续 young/survival/old1 演进所需的 major baseline。
   - 当前进展：Lua 5.4 兼容构建的公开初始 `stepmul` 已对齐 Lua 5.4，`collectgarbage("setstepmul", n)` 首次返回 `100`；默认 LuaJIT 构建仍保留原 `LUAI_GCMUL`。
   - 当前进展：经本机 Lua 5.4.8 对照，`collectgarbage("minor")` / `"major"` 不是官方有效选项，当前 invalid option 行为已进入 smoke。
   - 当前进展：`setpause` / `setstepmul` 参数会按 Lua 5.4 公开表面压到 `0..1000`，并按 4 的粒度向下取整。

@@ -42,6 +42,40 @@ static GCSize gc_stepsize54(global_State *g)
     return LJ_MAX_MEM;
   return ((GCSize)1) << bits;
 }
+
+static void gc_age_chain54(GCobj *o, uint8_t age)
+{
+  while (o) {
+    setgcage(o, age);
+    o = gcnext(o);
+  }
+}
+
+static void gc_age_mmudata54(global_State *g, uint8_t age)
+{
+  GCobj *root = gcref(g->gc.mmudata);
+  GCobj *o = root;
+  if (o) {
+    do {
+      setgcage(o, age);
+      o = gcnext(o);
+    } while (o != root);
+  }
+}
+
+static void gc_age_all_old54(global_State *g)
+{
+  MSize i;
+  gc_age_chain54(gcref(g->gc.root), LJ_GC_AGE_OLD);
+  gc_age_mmudata54(g, LJ_GC_AGE_OLD);
+  if (g->str.tab) {
+    for (i = g->str.mask; i != ~(MSize)0; i--) {
+      GCobj *o = (GCobj *)(gcrefu(g->str.tab[i]) & ~(uintptr_t)1);
+      gc_age_chain54(o, LJ_GC_AGE_OLD);
+    }
+  }
+  g->strempty.age = LJ_GC_AGE_OLD;
+}
 #endif
 
 /* Macros to set GCobj colors and flags. */
@@ -999,6 +1033,10 @@ void lj_gc_fullgc(lua_State *L)
   g->gc.state = GCSpause;
   do { gc_onestep(L); } while (g->gc.state != GCSpause);
   g->gc.threshold = (g->gc.estimate/100) * g->gc.pause;
+#if LJ_54
+  if (g->gc_mode54)
+    gc_age_all_old54(g);
+#endif
   g->vmstate = ostate;
 }
 
