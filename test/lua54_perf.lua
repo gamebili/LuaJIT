@@ -827,6 +827,11 @@ local function number_pack_helpers(n)
   local tointeger_wide = "1099511627776"
   local tointeger_max = "9223372036854775807"
   local tointeger_over = "9223372036854775808"
+  local tonumber_int64_constants = {
+    "9223372036854775807",
+    "1099511627776",
+    "123",
+  }
   local old_numeric = os.setlocale(nil, "numeric")
   assert(os.setlocale("C", "numeric"))
   for _ = 1, n do
@@ -844,6 +849,20 @@ local function number_pack_helpers(n)
     -- Locale-sensitive comma constants must stay in the perf window. Force C
     -- locale here so this helper has a deterministic expected count.
     if tonumber(comma_const_input) == nil then sum = sum + 1 end
+    for _, s in ipairs(tonumber_int64_constants) do
+      local v = tonumber(s)
+      if s == "9223372036854775807" then
+	if v == math.maxinteger and math.type(v) == "integer" then
+	  sum = sum + 1
+	end
+      elseif s == "1099511627776" then
+	if v == 1099511627776 and math.type(v) == "integer" then
+	  sum = sum + 1
+	end
+      elseif v == 123 and math.type(v) == "integer" then
+	sum = sum + 1
+      end
+    end
     sum = sum + assert(math.tointeger("123"))
     local ti_wide = assert(math.tointeger(tointeger_wide))
     local ti_max = assert(math.tointeger(tointeger_max))
@@ -1588,8 +1607,8 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_number_pack = timeit(mode_name..":number_pack_helpers",
 				  number_pack_helpers, iter_n)
-  assert(r_number_pack == iter_n * 173,
-	 "number_pack_helpers expected "..(iter_n * 173)..
+  assert(r_number_pack == iter_n * 176,
+	 "number_pack_helpers expected "..(iter_n * 176)..
 	 " got "..r_number_pack)
 
   local _, r_number_string = timeit(mode_name..":number_string_helpers",

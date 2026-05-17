@@ -1575,6 +1575,39 @@ do
 end
 
 do
+  local int64_strings = {
+    "9223372036854775807",
+    "1099511627776",
+    "123",
+  }
+
+  local function tonumber_no_base_int64_constants()
+    local n = 0
+    for _ = 1, 80 do
+      for _, s in ipairs(int64_strings) do
+	local v = tonumber(s)
+	if s == "9223372036854775807" then
+	  if v == math.maxinteger and math.type(v) == "integer" then
+	    n = n + 1
+	  end
+	elseif s == "1099511627776" then
+	  if v == 1099511627776 and math.type(v) == "integer" then
+	    n = n + 1
+	  end
+	else
+	  if v == 123 and math.type(v) == "integer" then n = n + 1 end
+	end
+      end
+    end
+    return n
+  end
+
+  assert_records_ir_call(function()
+    assert(tonumber_no_base_int64_constants() == 240)
+  end, "Lua 5.4 tonumber no-base constant int64 recorder", "lj_obj_newint64")
+end
+
+do
   local function tonumber_no_base_invalid_mix(bad_word, bad_suffix)
     local n = 0
     for _ = 1, 80 do

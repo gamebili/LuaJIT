@@ -853,10 +853,16 @@ static void recff_lua54_tonumber_strref(jit_State *J, RecordFFData *rd,
   GCstr *str = strV(&rd->argv[0]);
   TRef fmt = lj_ir_call(J, runtime_locale ? IRCALL_lj_strscan_numtype54s :
 			IRCALL_lj_strscan_numtype54, tr);
-  if (lj_strscan_number(str, tmp)) {
+  if (lj_strscan_number54(J->L, str, tmp)) {
     if (tvisint(tmp)) {
       emitir(IRTGI(IR_EQ), fmt, lj_ir_kint(J, 1));
       J->base[0] = lj_ir_call(J, IRCALL_lj_strscan_toint54, tr);
+    } else if (tvisi64(tmp)) {
+      int64_t i64 = i64V(tmp);
+      TRef i64ref;
+      emitir(IRTGI(IR_EQ), fmt, lj_ir_kint(J, 1));
+      i64ref = lj_ir_call(J, IRCALL_lj_strscan_toint6454, tr);
+      J->base[0] = recff_lua54_i64result(J, i64ref, i64);
     } else {
       emitir(IRTGI(IR_EQ), fmt, lj_ir_kint(J, 2));
       /* Comma decimal-point constants depend on the active numeric locale.
@@ -943,9 +949,16 @@ static void LJ_FASTCALL recff_tonumber(jit_State *J, RecordFFData *rd)
 	recff_lua54_tonumber_strref(J, rd, tr, &tmp, 1);
 	return;
       }
-      if (lj_strscan_number(strV(&rd->argv[0]), &tmp)) {
-	J->base[0] = tvisint(&tmp) ? lj_ir_kint(J, intV(&tmp)) :
-				     lj_ir_knum(J, numV(&tmp));
+      if (lj_strscan_number54(J->L, strV(&rd->argv[0]), &tmp)) {
+	if (tvisint(&tmp)) {
+	  J->base[0] = lj_ir_kint(J, intV(&tmp));
+	} else if (tvisi64(&tmp)) {
+	  int64_t i64 = i64V(&tmp);
+	  J->base[0] = recff_lua54_i64result(J,
+			    lj_ir_kint64(J, (uint64_t)i64), i64);
+	} else {
+	  J->base[0] = lj_ir_knum(J, numV(&tmp));
+	}
       } else {
 	J->base[0] = TREF_NIL;
       }
