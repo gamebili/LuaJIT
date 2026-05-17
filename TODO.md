@@ -318,7 +318,7 @@
   - 当前进展：`lua_callk` / `lua_pcallk` 的 yielding callee 基础恢复已补；非 NULL continuation 且当前 C frame 可 yield 时会使用 resume-style VM 调用，避免普通 `vm_call` 的不可 yield C frame，首次 yield 重新抛给外层 coroutine，后续 `lua_resume54()` 先恢复 Lua callee，完成后再调用保存的 C continuation。
   - 剩余边界：跨非 x64/arm64 平台的同批验证仍需继续补强；当前实现仍是 C API wrapper 配合 resume-style VM 调用，不是最终统一的 VM continuation frame 设计。
   - 需要补常量/类型/宏：继续核对完整 ABI 细节。
-  - 需要清理/兼容旧 API：默认构建保留 LuaJIT/Lua 5.1 API；Lua 5.4 外部兼容头已隐藏一批旧 5.1/LuaJIT 表面、旧 lauxlib 注册入口、`luaL_typerror`、`luaL_putchar` 和 `luaL_findtable`，并补了常见 getter/number 转换/字符串 push 返回值签名和栈操作宏表面，但仍需继续核对更多旧兼容宏和完整 ABI 细节。
+  - 需要清理/兼容旧 API：默认构建保留 LuaJIT/Lua 5.1 API；Lua 5.4 外部兼容头已隐藏一批旧 5.1/LuaJIT 表面、旧 lauxlib 注册入口、`luaL_typerror`、`luaL_putchar` 和 `luaL_findtable`，并补了常见 getter/number 转换/字符串 push 返回值签名和栈操作宏表面；负向编译门禁也覆盖 `lua_strlen`、`lua_open`、`lua_getregistry`、`lua_getgccount`、`lua_Chunkreader` 和 `lua_Chunkwriter` 不会泄露到外部 Lua 5.4 头。仍需继续核对更多旧兼容宏和完整 ABI 细节。
   - 需要补内存分配语义：继续核对 allocator shrink 失败在 parser 精确数组收缩等非 GC-opportunistic 路径中的回滚/报错契约，避免把可忽略失败和必须改变逻辑尺寸的收缩混为一类；table resize 的 grow 与 array shrink 分配失败已有严格 allocator 回归，JIT trace buffer grow/record failure 也已有严格 allocator 回归，后续主要补更多平台和更大 profile。
   - 当前进展：已补默认构建 C API smoke，覆盖旧 LuaJIT 5.1 头文件宏和 ABI 入口仍可编译、链接、运行。
   - 需要补测试：更完整 ABI 兼容测试，以及更多旧 LuaJIT API 在默认构建下不受影响的覆盖。
