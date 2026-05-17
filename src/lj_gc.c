@@ -1051,10 +1051,15 @@ void lj_gc_barrierf(global_State *g, GCobj *o, GCobj *v)
 	     "bad GC state");
   lj_assertG(o->gch.gct != ~LJ_TTAB, "barrier object is not a table");
   /* Preserve invariant during propagation. Otherwise it doesn't matter. */
-  if (g->gc.state == GCSpropagate || g->gc.state == GCSatomic)
+  if (g->gc.state == GCSpropagate || g->gc.state == GCSatomic) {
     gc_mark(g, v);  /* Move frontier forward. */
-  else
+#if LJ_54
+    if (g->gc_mode54 && isoldgc(o) && !isoldgc(v))
+      setgcage(v, LJ_GC_AGE_OLD0);
+#endif
+  } else {
     makewhite(g, o);  /* Make it white to avoid the following barrier. */
+  }
 }
 
 /* Specialized barrier for closed upvalue. Pass &uv->tv. */
