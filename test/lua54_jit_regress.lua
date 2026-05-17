@@ -1097,6 +1097,20 @@ do
     assert(n == 9920)
   end, "Lua 5.4 math.tointeger")
 
+  assert_records_ir_op(function()
+    local function ult_loop(a, b, c)
+      local n = 0
+      for _ = 1, 80 do
+	if math.ult(a, b) and math.ult(c, -1) and not math.ult(-1, c) then
+	  n = n + 1
+	end
+      end
+      return n
+    end
+    assert(ult_loop(1099511627776, "1099511627777",
+		    "9223372036854775807") == 80)
+  end, "Lua 5.4 int64 math.ult", "ULT")
+
   assert_records_trace(function()
     local n = 0
     local function set_global_abs_alias()

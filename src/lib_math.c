@@ -631,7 +631,7 @@ static int lj_cf_math_ldexp_compat54(lua_State *L)
 }
 #endif
 
-static int lj_cf_math_ult(lua_State *L)
+LJLIB_CF(math_ult)		LJLIB_REC(lua54_ult)
 {
   lua_Integer a, b;
   int isnum;
@@ -899,7 +899,7 @@ LUALIB_API int luaopen_math(lua_State *L)
   lua_setfield(L, -2, "type");
   lua_pushcfunction(L, lj_cf_math_tointeger);
   lua_setfield(L, -2, "tointeger");
-  lua_pushcfunction(L, lj_cf_math_ult);
+  lj_lib_pushcf(L, lj_cf_math_ult, FF_math_ult);
   lua_setfield(L, -2, "ult");
   lj_lib_pushcf(L, lj_cf_math_min54, FF_math_min);
   lua_setfield(L, -2, "min");

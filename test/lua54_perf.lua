@@ -873,7 +873,11 @@ local function number_pack_helpers(n)
     end
     if math.tointeger(tointeger_over) == nil then sum = sum + 1 end
     if math.tointeger(1.5) == nil then sum = sum + 1 end
-    if math.ult(1, -1) and not math.ult(-1, 1) then sum = sum + 1 end
+    if math.ult(1, -1) and not math.ult(-1, 1) and
+       math.ult(ti_wide, ti_wide + 1) and math.ult(ti_max, -1) and
+       not math.ult(-1, ti_max) then
+      sum = sum + 1
+    end
     local ok_fmod_missing, err_fmod_missing = pcall(math.fmod)
     local ok_fmod_nil, err_fmod_nil = pcall(function()
       return math.fmod(nil)

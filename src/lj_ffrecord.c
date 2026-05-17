@@ -520,6 +520,30 @@ nyi:
   recff_nyiu(J, rd);
 }
 
+static void LJ_FASTCALL recff_lua54_ult(jit_State *J, RecordFFData *rd)
+{
+#if LJ_DUALNUM
+  {
+    int64_t ai, bi;
+    TRef ta, tb;
+    int res;
+    if (!recff_lua54_tv_toi64(&rd->argv[0], &ai) ||
+	!recff_lua54_tv_toi64(&rd->argv[1], &bi))
+      goto nyi;
+    ta = recff_lua54_toi64ref(J, J->base[0], &rd->argv[0]);
+    tb = recff_lua54_toi64ref(J, J->base[1], &rd->argv[1]);
+    if (!ta || !tb)
+      goto nyi;
+    res = (lua_Unsigned)(lua_Integer)ai < (lua_Unsigned)(lua_Integer)bi;
+    emitir(IRTG(res ? IR_ULT : IR_UGE, IRT_I64), ta, tb);
+    J->base[0] = res ? TREF_TRUE : TREF_FALSE;
+    return;
+  }
+nyi:
+#endif
+  recff_nyiu(J, rd);
+}
+
 static void LJ_FASTCALL recff_lua54_idivmod(jit_State *J, RecordFFData *rd)
 {
 #if LJ_DUALNUM
