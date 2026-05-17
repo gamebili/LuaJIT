@@ -3183,6 +3183,19 @@ do
   expect_bad_integer(string.gmatch, "abc", "b", 1.2)
   expect_bad_integer(string.gsub, "aaa", "a", "b", 1.2)
   do
+    local wide = 1099511627776
+    local bytes = { string.byte("abc", -wide, -1) }
+    assert(#bytes == 3 and bytes[1] == 97 and bytes[2] == 98 and bytes[3] == 99)
+    assert(select("#", string.byte("abc", wide)) == 0)
+    assert(string.sub("abc", -wide, wide) == "abc")
+    local first, last = string.find("abc", "b", -wide, true)
+    assert(first == 2 and last == 2)
+    local none = string.gmatch("abc", ".", wide)
+    assert(none() == nil)
+    local iter = string.gmatch("abc", ".", -wide)
+    assert(iter() == "a")
+  end
+  do
     local function tail_byte_method(s)
       return s:byte({})
     end
@@ -3680,6 +3693,15 @@ do
     assert(ok_len_i == false and err_len_i:match("initial position out of bounds"))
     assert(ok_len_j == false and err_len_j:match("final position out of bounds"))
     assert(ok_off == false and err_off:match("position out of bounds"))
+  end
+  do
+    local wide = 1099511627776
+    local ok_len, err_len = pcall(utf8.len, "abc", -wide, -1)
+    local ok_off_pos, err_off_pos = pcall(utf8.offset, "abc", 1, wide)
+    local ok_off_neg, err_off_neg = pcall(utf8.offset, "abc", 1, -wide)
+    assert(ok_len == false and err_len:match("initial position out of bounds"))
+    assert(ok_off_pos == false and err_off_pos:match("position out of bounds"))
+    assert(ok_off_neg == false and err_off_neg:match("position out of bounds"))
   end
   assert(utf8.charpattern:find("\253", 1, true) ~= nil)
   do
