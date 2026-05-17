@@ -1257,6 +1257,28 @@ do
     collectgarbage()
   end, "Lua 5.4 boxed int64 numeric for negative trace", "lj_obj_newint64")
 
+  assert_records_ir_call(function()
+    local n, last, tlast = 0
+    for i = 2147483646, 2147483653 do
+      n = n + 1
+      last = i
+      tlast = math.type(i)
+    end
+    assert(n == 8 and last == 2147483653 and tlast == "integer")
+    collectgarbage()
+  end, "Lua 5.4 boxed int64 numeric for boundary trace", "lj_obj_newint64")
+
+  assert_records_ir_call(function()
+    local n, last, tlast = 0
+    for i = 2147483646, 2147483653.0 do
+      n = n + 1
+      last = i
+      tlast = math.type(i)
+    end
+    assert(n == 8 and last == 2147483653 and tlast == "integer")
+    collectgarbage()
+  end, "Lua 5.4 boxed int64 numeric for float limit trace", "lj_obj_newint64")
+
   assert_records_trace(function()
     local n = 0
     local wide = "1099511627776"
