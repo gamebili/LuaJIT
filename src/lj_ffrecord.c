@@ -235,6 +235,13 @@ static void LJ_FASTCALL recff_nyi(jit_State *J, RecordFFData *rd)
 #if LJ_DUALNUM
 #define RECFF_LUA54_I32_MAX		((int64_t)2147483647)
 #define RECFF_LUA54_I32_MIN		((int64_t)(-RECFF_LUA54_I32_MAX - 1))
+#if LJ_64
+#define RECFF_LUA54_API_MININTEGER	(-9223372036854775807.0 - 1.0)
+#define RECFF_LUA54_API_MAXINTEGER_EXCL	9223372036854775808.0
+#else
+#define RECFF_LUA54_API_MININTEGER	((lua_Number)LUA_MININTEGER)
+#define RECFF_LUA54_API_MAXINTEGER_EXCL	(-(lua_Number)LUA_MININTEGER)
+#endif
 #define RECFF_IRCONV_I64_INT_SEXT	((IRT_I64<<IRCONV_DSH)|IRT_INT|IRCONV_SEXT)
 #define RECFF_IRCONV_INT_I64_NARROW	((IRT_INT<<IRCONV_DSH)|IRT_I64)
 #define RECFF_IRCONV_I64_NUM		((IRT_I64<<IRCONV_DSH)|IRT_NUM)
@@ -258,6 +265,30 @@ static int recff_lua54_tv_isinteger(cTValue *tv)
 static int64_t recff_lua54_tv_i64(cTValue *tv)
 {
   return tvisint(tv) ? (int64_t)intV(tv) : (int64_t)i64V(tv);
+}
+
+static int recff_lua54_round_intvalue(cTValue *tv, uint32_t fpm, int64_t *ip)
+{
+  TValue tmp;
+  lua_Number n;
+  if (recff_lua54_tv_isinteger(tv)) {
+    *ip = recff_lua54_tv_i64(tv);
+    return 1;
+  } else if (tvisstr(tv)) {
+    if (!lj_strscan_number(strV(tv), &tmp))
+      return 0;
+    tv = &tmp;
+  }
+  if (!tvisnum(tv))
+    return 0;
+  n = lj_vm_foldfpm(numV(tv), fpm);
+  if (!(n >= RECFF_LUA54_API_MININTEGER &&
+	n < RECFF_LUA54_API_MAXINTEGER_EXCL))
+    return 0;
+  if (n != lj_vm_floor(n))
+    return 0;
+  *ip = (int64_t)lj_num2i64(n);
+  return 1;
 }
 
 static int recff_lua54_tv_toi64(cTValue *tv, int64_t *ip)
@@ -1103,14 +1134,29 @@ static void LJ_FASTCALL recff_math_abs(jit_State *J, RecordFFData *rd)
 static void LJ_FASTCALL recff_math_round(jit_State *J, RecordFFData *rd)
 {
   TRef tr = J->base[0];
+#if LJ_54 && LJ_DUALNUM
+  int64_t i;
+  if (recff_lua54_tref_isinteger(tr))
+    return;
+#endif
   if (!tref_isinteger(tr)) {  /* Pass through integers unmodified. */
     tr = emitir(IRTN(IR_FPMATH), lj_ir_tonum(J, tr), rd->data);
+#if LJ_54 && LJ_DUALNUM
+    if (recff_lua54_round_intvalue(&rd->argv[0], rd->data, &i)) {
+      TRef i64 = emitir(IRT(IR_CONV, IRT_I64), tr, RECFF_IRCONV_I64_NUM);
+      TRef back = emitir(IRTN(IR_CONV), i64, RECFF_IRCONV_NUM_I64_SIGNED);
+      emitir(IRTG(IR_EQ, IRT_NUM), back, tr);
+      J->base[0] = recff_lua54_i64result(J, i64, i);
+      return;
+    }
+#else
     /* Result is integral (or NaN/Inf), but may not fit an int32_t. */
     if (LJ_DUALNUM) {  /* Try to narrow using a guarded conversion to int. */
       lua_Number n = lj_vm_foldfpm(numberVnum(&rd->argv[0]), rd->data);
       if (lj_num2int_ok(n))
 	tr = emitir(IRTGI(IR_CONV), tr, IRCONV_INT_NUM|IRCONV_CHECK);
     }
+#endif
     J->base[0] = tr;
   }
 }

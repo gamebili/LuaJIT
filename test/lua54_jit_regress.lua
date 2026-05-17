@@ -719,6 +719,31 @@ do
     assert(n == 80)
   end, "Lua 5.4 boxed int64 math.abs", "NEG")
 
+  assert_records_ir_op(function()
+    local function round_loop(a, b)
+      local n = 0
+      for _ = 1, 80 do
+	local x = math.floor(a)
+	local y = math.ceil(b)
+	if x == 1099511627776 and y == 1099511627776 and
+	   math.type(x) == "integer" and math.type(y) == "integer" then
+	  n = n + 1
+	end
+      end
+      return n
+    end
+    assert(round_loop(1099511627776.5, 1099511627775.5) == 80)
+  end, "Lua 5.4 int64 math.floor/ceil", "FPMATH")
+
+  assert_records_trace(function()
+    local n = 0
+    for _ = 1, 80 do
+      local x = math.floor("1e20")
+      if x == 1e20 and math.type(x) == "float" then n = n + 1 end
+    end
+    assert(n == 80)
+  end, "Lua 5.4 non-integer math.floor string")
+
   assert_records_trace(function()
     local x = 0
     for _ = 1, 80 do

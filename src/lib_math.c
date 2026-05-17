@@ -17,6 +17,7 @@
 #include "lj_obj.h"
 #include "lj_debug.h"
 #include "lj_err.h"
+#include "lj_ff.h"
 #include "lj_frame.h"
 #include "lj_lib.h"
 #include "lj_meta.h"
@@ -904,9 +905,9 @@ LUALIB_API int luaopen_math(lua_State *L)
   lua_setfield(L, -2, "min");
   lua_pushcfunction(L, lj_cf_math_max54);
   lua_setfield(L, -2, "max");
-  lua_pushcfunction(L, lj_cf_math_floor54);
+  lj_lib_pushcf(L, lj_cf_math_floor54, FF_math_floor);
   lua_setfield(L, -2, "floor");
-  lua_pushcfunction(L, lj_cf_math_ceil54);
+  lj_lib_pushcf(L, lj_cf_math_ceil54, FF_math_ceil);
   lua_setfield(L, -2, "ceil");
   lua_pushcfunction(L, lj_cf_math_modf54);
   lua_setfield(L, -2, "modf");
