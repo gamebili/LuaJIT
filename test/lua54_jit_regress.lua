@@ -1246,6 +1246,17 @@ do
     collectgarbage()
   end, "Lua 5.4 boxed int64 numeric for trace", "lj_obj_newint64")
 
+  assert_records_ir_call(function()
+    local n, last = 0
+    for i = 1099511627855, 1099511627776, -1 do
+      n = n + 1
+      last = i
+    end
+    assert(n == 80 and last == 1099511627776 and
+	   math.type(last) == "integer")
+    collectgarbage()
+  end, "Lua 5.4 boxed int64 numeric for negative trace", "lj_obj_newint64")
+
   assert_records_trace(function()
     local n = 0
     local wide = "1099511627776"
