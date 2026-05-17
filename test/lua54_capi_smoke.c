@@ -2675,6 +2675,20 @@ static void test_stack_and_number_api(lua_State *L)
     check(L, ret != NULL && strcmp(ret, "vbig=1099511627776") == 0,
 	  "lua_pushvfstring keeps wider 64-bit C integer width");
     lua_pop(L, 1);
+    ret = lua_pushfstring(L, "imax=%I imin=%I",
+			  LUA_MAXINTEGER, LUA_MININTEGER);
+    check(L, ret != NULL &&
+	   strcmp(ret, "imax=9223372036854775807 "
+		       "imin=-9223372036854775808") == 0,
+	  "lua_pushfstring keeps lua_Integer limits");
+    lua_pop(L, 1);
+    ret = pushvfstring_wrap(L, "vlim=%I/%I",
+			    LUA_MAXINTEGER, LUA_MININTEGER);
+    check(L, ret != NULL &&
+	   strcmp(ret, "vlim=9223372036854775807/"
+		       "-9223372036854775808") == 0,
+	  "lua_pushvfstring keeps lua_Integer limits");
+    lua_pop(L, 1);
   }
 
   lua_pushcfunction(L, pushfstring_bad_format);
