@@ -711,6 +711,14 @@ do
     assert(n == 80)
   end, "Lua 5.4 math.type")
 
+  assert_records_ir_op(function()
+    local n = 0
+    for _ = 1, 80 do
+      if math.abs(-1099511627776) == 1099511627776 then n = n + 1 end
+    end
+    assert(n == 80)
+  end, "Lua 5.4 boxed int64 math.abs", "NEG")
+
   assert_records_trace(function()
     local x = 0
     for _ = 1, 80 do

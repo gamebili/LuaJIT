@@ -1078,6 +1078,22 @@ static void LJ_FASTCALL recff_next(jit_State *J, RecordFFData *rd)
 
 static void LJ_FASTCALL recff_math_abs(jit_State *J, RecordFFData *rd)
 {
+#if LJ_54 && LJ_DUALNUM
+  if (recff_lua54_tv_isinteger(&rd->argv[0])) {
+    int64_t iv = recff_lua54_tv_i64(&rd->argv[0]);
+    TRef tr = recff_lua54_i64ref(J, J->base[0]);
+    if (iv < 0) {
+      lua_Unsigned u = (lua_Unsigned)(lua_Integer)iv;
+      int64_t rv = (int64_t)(lua_Integer)((lua_Unsigned)0 - u);
+      emitir(IRTG(IR_LT, IRT_I64), tr, lj_ir_kint64(J, 0));
+      tr = emitir(IRT(IR_NEG, IRT_I64), tr, tr);
+      J->base[0] = recff_lua54_i64result(J, tr, rv);
+    } else {
+      emitir(IRTG(IR_GE, IRT_I64), tr, lj_ir_kint64(J, 0));
+    }
+    return;
+  }
+#endif
   TRef tr = lj_ir_tonum(J, J->base[0]);
   J->base[0] = emitir(IRTN(IR_ABS), tr, lj_ir_ksimd(J, LJ_KSIMD_ABS));
   UNUSED(rd);
