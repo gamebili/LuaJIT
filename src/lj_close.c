@@ -270,12 +270,26 @@ int lj_close_unwind_pcall(lua_State *L)
 }
 
 #if LJ_TARGET_ARM || LJ_TARGET_MIPS || LJ_TARGET_MIPS64 || LJ_TARGET_PPC || LJ_TARGET_X86 || LJ_TARGET_X64 || LJ_TARGET_ARM64
+static cTValue *close_raw_pcall(lua_State *L)
+{
+  GCtab *reg = tabV(registry(L));
+  cTValue *pcall = lj_tab_getstr(reg, lj_str_newlit(L, "_LUA54_RAW_PCALL"));
+  if (pcall && tvisfunc(pcall))
+    return pcall;
+  pcall = lj_tab_getint(reg, LUA_RIDX_GLOBALS);
+  if (pcall && tvistab(pcall)) {
+    pcall = lj_tab_getstr(tabV(pcall), lj_str_newlit(L, "pcall"));
+    if (pcall && tvisfunc(pcall))
+      return pcall;
+  }
+  return niltv(L);
+}
+
 static TValue *close_setup_cont(lua_State *L, cTValue *mo, TValue *slot,
 				cTValue *err, uint32_t contid)
 {
   TValue *top = L->top;
-  cTValue *gtv = lj_tab_getint(tabV(registry(L)), LUA_RIDX_GLOBALS);
-  cTValue *pcall = lj_tab_getstr(tabV(gtv), lj_str_newlit(L, "pcall"));
+  cTValue *pcall = close_raw_pcall(L);
   if (contid == LJ_CONT_CLOSE_RETURN || contid == LJ_CONT_CLOSE_RETURN_HOOK)
     L->close_pcall = 1;
 #if LJ_FR2

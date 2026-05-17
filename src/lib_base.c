@@ -1734,6 +1734,8 @@ LUALIB_API int luaopen_base(lua_State *L)
   lua_setglobal(L, "type");
   lua_pushcfunction(L, lj_cf_getmetatable54);
   lua_setglobal(L, "getmetatable");
+  lua_getglobal(L, "pcall");
+  lua_setfield(L, LUA_REGISTRYINDEX, "_LUA54_RAW_PCALL");
   lua_getglobal(L, "xpcall");
   /* Internal close dispatch must call the real xpcall without exposing this
   ** Lua compatibility wrapper to debug line hooks.

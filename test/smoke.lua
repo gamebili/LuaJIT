@@ -1384,6 +1384,30 @@ do
   end
   do
     assert(assert(load([[
+      local raw_pcall = pcall
+      local resume = coroutine.resume
+      local create = coroutine.create
+      local co = create(function()
+        local x <close> = setmetatable({}, {
+          __close = function()
+            coroutine.yield("raw pcall close")
+          end,
+        })
+        return "done"
+      end)
+      pcall = function()
+        error("global pcall hijacked", 0)
+      end
+      local ok, value = resume(co)
+      pcall = raw_pcall
+      assert(ok == true and value == "raw pcall close")
+      ok, value = resume(co)
+      assert(ok == true and value == "done")
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
       local events = {}
       local target
       local function hook(ev)
