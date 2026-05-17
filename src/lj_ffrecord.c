@@ -1161,6 +1161,33 @@ static void LJ_FASTCALL recff_math_round(jit_State *J, RecordFFData *rd)
   }
 }
 
+static void LJ_FASTCALL recff_math_modf(jit_State *J, RecordFFData *rd)
+{
+#if LJ_54 && LJ_DUALNUM
+  TRef tr = J->base[0];
+  int64_t i;
+  if (tr && recff_lua54_tref_isinteger(tr)) {
+    J->base[1] = lj_ir_knum_zero(J);
+    rd->nres = 2;
+    return;
+  }
+  if (tr && recff_lua54_round_intvalue(&rd->argv[0], IRFPM_TRUNC, &i)) {
+    TRef tn = lj_ir_tonum(J, tr);
+    TRef ti = emitir(IRTN(IR_FPMATH), tn, IRFPM_TRUNC);
+    TRef tf = emitir(IRTN(IR_SUB), tn, ti);
+    TRef i64 = emitir(IRT(IR_CONV, IRT_I64), ti, RECFF_IRCONV_I64_NUM);
+    TRef back = emitir(IRTN(IR_CONV), i64, RECFF_IRCONV_NUM_I64_SIGNED);
+    emitir(IRTG(IR_EQ, IRT_NUM), back, ti);
+    J->base[0] = recff_lua54_i64result(J, i64, i);
+    J->base[1] = tf;
+    rd->nres = 2;
+    return;
+  }
+#else
+#endif
+  recff_nyiu(J, rd);
+}
+
 /* Record unary math.* functions, mapped to IR_FPMATH opcode. */
 static void LJ_FASTCALL recff_math_unary(jit_State *J, RecordFFData *rd)
 {

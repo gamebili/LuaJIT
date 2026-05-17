@@ -744,6 +744,24 @@ do
     assert(n == 80)
   end, "Lua 5.4 non-integer math.floor string")
 
+  assert_records_ir_op(function()
+    local function modf_loop(a, b)
+      local n = 0
+      for _ = 1, 80 do
+	local i, f = math.modf(a)
+	local wi, wf = math.modf(b)
+	if i == 1099511627776 and f == 0.5 and
+	   math.type(i) == "integer" and math.type(f) == "float" and
+	   wi == 1099511627776 and wf == 0.0 and
+	   math.type(wi) == "integer" and math.type(wf) == "float" then
+	  n = n + 1
+	end
+      end
+      return n
+    end
+    assert(modf_loop(1099511627776.5, 1099511627776) == 80)
+  end, "Lua 5.4 int64 math.modf", "FPMATH")
+
   assert_records_trace(function()
     local x = 0
     for _ = 1, 80 do

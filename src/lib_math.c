@@ -325,7 +325,7 @@ LJLIB_ASM_(math_sinh)		LJLIB_REC(math_call IRCALL_sinh)
 LJLIB_ASM_(math_cosh)		LJLIB_REC(math_call IRCALL_cosh)
 LJLIB_ASM_(math_tanh)		LJLIB_REC(math_call IRCALL_tanh)
 LJLIB_ASM_(math_frexp)
-LJLIB_ASM_(math_modf)
+LJLIB_ASM_(math_modf)		LJLIB_REC(math_modf)
 
 LJLIB_ASM(math_log)		LJLIB_REC(math_log)
 {
@@ -909,7 +909,7 @@ LUALIB_API int luaopen_math(lua_State *L)
   lua_setfield(L, -2, "floor");
   lj_lib_pushcf(L, lj_cf_math_ceil54, FF_math_ceil);
   lua_setfield(L, -2, "ceil");
-  lua_pushcfunction(L, lj_cf_math_modf54);
+  lj_lib_pushcf(L, lj_cf_math_modf54, FF_math_modf);
   lua_setfield(L, -2, "modf");
   lua_pushcfunction(L, lj_cf_math_atan54);
   lua_setfield(L, -2, "atan");
