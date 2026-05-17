@@ -121,6 +121,9 @@ int main(void)
 
   if (wide > (lua_Unsigned)0xffffffffu) {
     lua_pushunsigned(L, wide);
+    check(L, lua_isinteger(L, -1), "lua_pushunsigned 64-bit subtype");
+    check(L, lua_tointegerx(L, -1, &ok) == (lua_Integer)wide && ok,
+	  "lua_pushunsigned 64-bit signed storage");
     check(L, lua_tounsigned(L, -1) == wide,
 	  "lua_tounsigned 64-bit value");
     check(L, lua_tounsignedx(L, -1, &ok) == wide && ok,
@@ -136,6 +139,9 @@ int main(void)
 	  "luaL_optunsigned 64-bit default");
 
     lua_pushunsigned(L, LUA_MAXUNSIGNED);
+    check(L, lua_isinteger(L, -1), "lua_pushunsigned max subtype");
+    check(L, lua_tointegerx(L, -1, &ok) == (lua_Integer)LUA_MAXUNSIGNED &&
+	  ok, "lua_pushunsigned max signed storage");
     check(L, lua_tounsigned(L, -1) == LUA_MAXUNSIGNED,
 	  "lua_tounsigned max unsigned wrap");
     lua_pop(L, 1);
