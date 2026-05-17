@@ -5194,6 +5194,12 @@ assert(assert(load([[
     f:seek("set", 0)
     local ok, err = pcall(function() return f:read(1.5) end)
     assert(ok == false and tostring(err):find("integer representation", 1, true))
+    ok, err = pcall(function() return f:read(1099511627776) end)
+    assert(ok == false and tostring(err):find("not enough memory", 1, true))
+    assert(f:seek() == 0)
+    ok, err = pcall(function() return f:read(-1099511627776) end)
+    assert(ok == false and tostring(err):find("not enough memory", 1, true))
+    assert(f:seek() == 0)
     ok, err = pcall(function() return f:read("2") end)
     assert(ok == false and tostring(err):find("bad argument #1 to 'read'", 1, true) and
 	   tostring(err):find("invalid format", 1, true))

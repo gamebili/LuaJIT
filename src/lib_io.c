@@ -369,21 +369,24 @@ static MSize io_checkreadlen54(lua_State *L, int cidx, int narg)
   int64_t k;
   lua_Number n;
   if (tvisint(o))
-    return (MSize)intV(o);
-  if (tvisi64(o))
-    return (MSize)i64V(o);
-  n = numV(o);
-  /* Numeric read lengths are lua_Integer values in Lua 5.4.  Preserve the
-  ** legacy negative-size path for now, but reject fractions before they are
-  ** truncated into a shorter read.
-  */
-  if (!(n >= (lua_Number)INT64_MIN && n < -((lua_Number)INT64_MIN)))
-    io_methodargerror54(L, "read", narg,
-			"number has no integer representation");
-  k = lj_num2i64(n);
-  if ((lua_Number)k != n)
-    io_methodargerror54(L, "read", narg,
-			"number has no integer representation");
+    k = (int64_t)intV(o);
+  else if (tvisi64(o))
+    k = (int64_t)i64V(o);
+  else {
+    n = numV(o);
+    /* Numeric read lengths are lua_Integer values in Lua 5.4.  Reject
+    ** fractions before they are truncated into a shorter read.
+    */
+    if (!(n >= (lua_Number)INT64_MIN && n < -((lua_Number)INT64_MIN)))
+      io_methodargerror54(L, "read", narg,
+			  "number has no integer representation");
+    k = lj_num2i64(n);
+    if ((lua_Number)k != n)
+      io_methodargerror54(L, "read", narg,
+			  "number has no integer representation");
+  }
+  if (k < 0 || (uint64_t)k > (uint64_t)~(MSize)0)
+    lj_err_mem(L);
   return (MSize)k;
 }
 #endif
