@@ -5309,6 +5309,13 @@ static void test_lauxlib_api(lua_State *L)
 	"luaL_loadfilex wrong mode error");
   lua_pop(L, 1);
 
+  status = luaL_loadfilex(L, "test/does_not_exist_lua54_capi.lua", "t");
+  check(L, status == LUA_ERRFILE, "luaL_loadfilex missing file status");
+  check(L, strstr(lua_tostring(L, -1),
+		  "cannot open test/does_not_exist_lua54_capi.lua:") != NULL,
+	"luaL_loadfilex missing file error");
+  lua_pop(L, 1);
+
   reader.src = "return 64";
   reader.len = 9;
   status = lua_load_sig(L, capi_reader, &reader, "=capi-reader", "t");
