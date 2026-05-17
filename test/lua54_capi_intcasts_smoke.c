@@ -53,6 +53,22 @@ int main(void)
 	"lua_tounsignedx");
   lua_pop(L, 1);
 
+  lua_pushinteger(L, (lua_Integer)-1);
+  check(L, lua_tounsigned(L, -1) == LUA_MAXUNSIGNED,
+	"lua_tounsigned negative wrap");
+  check(L, lua_tounsignedx(L, -1, &ok) == LUA_MAXUNSIGNED && ok,
+	"lua_tounsignedx negative wrap");
+  check(L, luaL_checkunsigned(L, 1) == LUA_MAXUNSIGNED,
+	"luaL_checkunsigned negative wrap");
+  lua_pop(L, 1);
+
+  lua_pushliteral(L, "-1");
+  check(L, lua_tounsignedx(L, -1, &ok) == LUA_MAXUNSIGNED && ok,
+	"lua_tounsignedx negative string wrap");
+  check(L, luaL_checkunsigned(L, 1) == LUA_MAXUNSIGNED,
+	"luaL_checkunsigned negative string wrap");
+  lua_pop(L, 1);
+
   lua_pushinteger(L, 42);
   check(L, luaL_checkunsigned(L, 1) == (lua_Unsigned)42u,
 	"luaL_checkunsigned");
