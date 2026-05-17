@@ -223,10 +223,13 @@ static int32_t debug_checkint_named54(lua_State *L, int narg,
   }
   if (tvisint(o))
     return intV(o);
+  if (tvisi64(o))
+    return (int32_t)i64V(o);
   if (!tvisnum(o))
     debug_argtype_named54(L, narg, fname, "number");
   n = numV(o);
-  if (!(n >= -2147483648.0 && n <= 2147483647.0))
+  if (!(n >= (-9223372036854775807.0 - 1.0) &&
+	n < 9223372036854775808.0))
     debug_argerror_named54(L, narg, fname,
 			   "number has no integer representation");
   k = lj_num2i64(n);

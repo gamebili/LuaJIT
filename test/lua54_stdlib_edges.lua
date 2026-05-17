@@ -44,6 +44,8 @@ local cases = {
 
   { "debug.gethook.bad", "return debug.gethook(true)", ok = { "nil:nil" } },
   { "debug.getinfo.badlevel", "return debug.getinfo(1.2)", err = "bad argument #1 to 'getinfo' (number has no integer representation)" },
+  { "debug.getinfo.widelevel", "return debug.getinfo(1099511627776, 'S').what", ok = { "string:C" } },
+  { "debug.getinfo.maxlevel", "return debug.getinfo(math.maxinteger)", ok = { "nil:nil" } },
   { "debug.getinfo.badwhat", "return debug.getinfo(1, 'z')", err = "bad argument #2 to 'getinfo' (invalid option)" },
   { "debug.getlocal.badarg", "return debug.getlocal(true, 1)", err = "bad argument #1 to 'getlocal' (number expected, got boolean)" },
   { "debug.getmetatable.noarg", "return debug.getmetatable()", err = "bad argument #1 to 'getmetatable' (value expected)" },
@@ -60,6 +62,7 @@ local cases = {
   { "debug.setuservalue.noarg", "return debug.setuservalue()", err = "bad argument #1 to 'setuservalue' (userdata expected, got no value)" },
   { "debug.setuservalue.badslot", "return debug.setuservalue({}, 1, true)", err = "bad argument #3 to 'setuservalue' (number expected, got boolean)" },
   { "debug.traceback.badthread", "return debug.traceback(true)", ok = { "boolean:true" } },
+  { "debug.traceback.widelevel", "return debug.traceback('m', 1099511627776):match('stack traceback') ~= nil", ok = { "boolean:true" } },
   { "debug.upvalueid.badfunc", "return debug.upvalueid(true, 1)", err = "bad argument #1 to 'upvalueid' (function expected, got boolean)" },
   { "debug.upvaluejoin.badfunc1", "return debug.upvaluejoin(true, 1, function() end, 1)", err = "bad argument #1 to 'upvaluejoin' (function expected, got boolean)" },
   { "debug.upvaluejoin.badfunc2", "return debug.upvaluejoin(function() end, 1, true, 1)", err = "bad argument #2 to 'upvaluejoin' (invalid upvalue index)" },

@@ -883,6 +883,11 @@ do
   expect_bad_integer(debug.getuservalue, io.stdout, 1.2)
   expect_bad_integer(debug.setuservalue, io.stdout, {}, 1.2)
   expect_bad_integer(debug.setcstacklimit, 1.2)
+  assert(debug.getinfo(1099511627776, "S").what == "C")
+  assert(debug.getinfo("1099511627776", "S").what == "C")
+  assert(debug.getinfo(math.maxinteger) == nil)
+  assert(debug.traceback("lua54 traceback wide", 1099511627776):
+	 find("stack traceback", 1, true) ~= nil)
   assert(debug.getinfo("1", "n") ~= nil)
 
   local function expect_level_error(fn, fname, narg, ...)
