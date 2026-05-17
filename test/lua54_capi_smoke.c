@@ -4428,7 +4428,9 @@ static void test_lauxlib_api(lua_State *L)
   void *ud;
   FILE *tmpf;
   const char *tmpname = "test/lua54_capi_dofile.tmp.lua";
+  const char *binname = "test/lua54_capi_hash_binary.tmp";
   CApiReaderCtx reader;
+  DumpBuffer dump;
 
   stream.f = NULL;
   stream.closef = NULL;
@@ -5314,6 +5316,26 @@ static void test_lauxlib_api(lua_State *L)
   check(L, strstr(lua_tostring(L, -1),
 		  "cannot open test/does_not_exist_lua54_capi.lua:") != NULL,
 	"luaL_loadfilex missing file error");
+  lua_pop(L, 1);
+
+  memset(&dump, 0, sizeof(dump));
+  status = luaL_loadbufferx(L, "return 79", 9, "=capi-dump-file", "t");
+  check(L, status == LUA_OK, "luaL_loadfilex binary setup load");
+  check(L, lua_dump_sig(L, dump_writer, &dump, 0) == 0,
+	"luaL_loadfilex binary setup dump");
+  lua_pop(L, 1);
+  tmpf = fopen(binname, "wb");
+  check(L, tmpf != NULL, "luaL_loadfilex hash binary temp open");
+  check(L, fputs("# lua54 capi binary\n", tmpf) >= 0,
+	"luaL_loadfilex hash binary header write");
+  check(L, fwrite(dump.data, 1, dump.len, tmpf) == dump.len,
+	"luaL_loadfilex hash binary body write");
+  check(L, fclose(tmpf) == 0, "luaL_loadfilex hash binary close");
+  status = luaL_loadfilex(L, binname, "b");
+  remove(binname);
+  check(L, status == LUA_OK, "luaL_loadfilex hash binary mode");
+  lua_call(L, 0, 1);
+  check_integer(L, -1, 79, "luaL_loadfilex hash binary result");
   lua_pop(L, 1);
 
   reader.src = "return 64";
