@@ -2907,6 +2907,10 @@ static void test_stack_and_number_api(lua_State *L)
     check(L, lua_tointegerx(L, -1, &ok) == big40 && ok,
 	  "lua_tointegerx accepts pushed wider 64-bit C integer");
     lua_pop(L, 1);
+    lua_pushinteger(L, big40);
+    check(L, lua_tonumberx(L, -1, &ok) == (lua_Number)big40 && ok,
+	  "lua_tonumberx accepts boxed wider 64-bit C integer");
+    lua_pop(L, 1);
     lua_pushnumber(L, (lua_Number)big40);
     check(L, lua_tointegerx(L, -1, &ok) == big40 && ok,
 	  "lua_tointegerx accepts wider exact 64-bit number");
