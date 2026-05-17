@@ -1623,6 +1623,15 @@ static int require_open_false(lua_State *L)
   return 1;
 }
 
+static int require_open_nil(lua_State *L)
+{
+  check_string(L, 1, "capi.nilmod",
+	       "luaL_requiref passes nil-returning module name");
+  require_open_count++;
+  lua_pushnil(L);
+  return 1;
+}
+
 static int checkversion_bad_version(lua_State *L)
 {
   luaL_checkversion_(L, LUA_VERSION_NUM - 1, LUAL_NUMSIZES);
@@ -5055,7 +5064,11 @@ static void test_lauxlib_api(lua_State *L)
   check(L, require_open_count == 1, "luaL_requiref calls opener once");
   lua_getfield(L, -1, "state");
   check_string(L, -1, "ready", "luaL_requiref module result");
-  lua_pop(L, 2);
+  lua_pop(L, 1);
+  lua_getglobal(L, "capi.mod");
+  lua_getfield(L, -1, "state");
+  check_string(L, -1, "ready", "luaL_requiref global result");
+  lua_pop(L, 3);
   luaL_requiref(L, "capi.mod", require_open, 1);
   check(L, require_open_count == 1, "luaL_requiref reuses loaded module");
   lua_pop(L, 1);
@@ -5071,6 +5084,27 @@ static void test_lauxlib_api(lua_State *L)
   lua_getfield(L, -1, "state");
   check_string(L, -1, "false-ready", "luaL_requiref false loaded result");
   lua_pop(L, 2);
+
+  before_count = require_open_count;
+  lua_pushliteral(L, "stale-global");
+  lua_setglobal(L, "capi.nilmod");
+  luaL_requiref(L, "capi.nilmod", require_open_nil, 1);
+  check(L, require_open_count == before_count + 1,
+	"luaL_requiref calls nil-returning opener");
+  check(L, lua_isnil(L, -1), "luaL_requiref nil result");
+  lua_pop(L, 1);
+  lua_getglobal(L, "capi.nilmod");
+  check(L, lua_isnil(L, -1), "luaL_requiref nil result clears global");
+  lua_pop(L, 1);
+  luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
+  lua_getfield(L, -1, "capi.nilmod");
+  check(L, lua_isnil(L, -1), "luaL_requiref nil result stays unloaded");
+  lua_pop(L, 2);
+  luaL_requiref(L, "capi.nilmod", require_open_nil, 0);
+  check(L, require_open_count == before_count + 2,
+	"luaL_requiref reloads nil-returning module");
+  check(L, lua_isnil(L, -1), "luaL_requiref nil reload result");
+  lua_pop(L, 1);
 
   check(L, luaL_fileresult(L, 1, NULL) == 1, "luaL_fileresult success arity");
   check(L, lua_toboolean(L, -1), "luaL_fileresult success value");
