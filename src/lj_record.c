@@ -69,6 +69,7 @@ static int rec_lua54_strcmp_locale(GCstr *a, GCstr *b, IROp op)
 #define LJ_LUA54_I32_MIN	((int64_t)(-LJ_LUA54_I32_MAX - 1))
 #define IRCONV_I64_INT_SEXT	((IRT_I64<<IRCONV_DSH)|IRT_INT|IRCONV_SEXT)
 #define IRCONV_INT_I64_NARROW	((IRT_INT<<IRCONV_DSH)|IRT_I64)
+#define IRCONV_I64_NUM		((IRT_I64<<IRCONV_DSH)|IRT_NUM)
 #define IRCONV_NUM_I64_SIGNED	((IRT_NUM<<IRCONV_DSH)|IRT_I64)
 
 static int rec_lua54_tref_isi64(TRef tr)
@@ -161,6 +162,29 @@ static TRef rec_lua54_i64ref(jit_State *J, TRef tr)
   lj_assertJ(rec_lua54_tref_isi64(tr), "bad int64 TValue ref");
   return emitir(IRT(IR_FLOAD, IRT_I64), tr, IRFL_INT64_VALUE);
 }
+
+#if LJ_54
+static TRef rec_lua54_table_i64key(jit_State *J, TRef key, cTValue *keyv)
+{
+  if (tvisi64(keyv)) {
+    return rec_lua54_i64ref(J, key);
+  } else if (tvisnum(keyv)) {
+    int64_t i64v;
+    TRef i64, back;
+    if (!rec_lua54_numtoint64_exact(numV(keyv), &i64v) || checki32(i64v))
+      return 0;
+    if (!tref_isnum(key))
+      return 0;
+    if (tref_isk(key))
+      return lj_ir_kint64(J, (uint64_t)i64v);
+    i64 = emitir(IRT(IR_CONV, IRT_I64), key, IRCONV_I64_NUM);
+    back = emitir(IRTN(IR_CONV), i64, IRCONV_NUM_I64_SIGNED);
+    emitir(IRTG(IR_EQ, IRT_NUM), back, key);
+    return i64;
+  }
+  return 0;
+}
+#endif
 
 static TRef rec_lua54_numref(jit_State *J, TRef tr)
 {
@@ -2066,11 +2090,61 @@ TRef lj_record_idx(jit_State *J, RecordIndex *ix)
   }
 
 #if LJ_54 && LJ_DUALNUM
-  if (tvisnum(&ix->keyv)) {
-    int64_t i64;
-    if (rec_lua54_numtoint64_exact(numV(&ix->keyv), &i64) &&
-	!checki32(i64))
-      lj_trace_err(J, LJ_TRERR_NYITMIX);
+  {
+    TRef i64ref = rec_lua54_table_i64key(J, ix->key, &ix->keyv);
+    if (i64ref) {
+      GCtab *tab = tabV(&ix->tabv);
+      TRef trnull = lj_ir_kkptr(J, NULL);
+      TRef xref;
+      ix->oldv = oldv = lj_tab_get(J->L, tab, &ix->keyv);
+      if (!ix->val) {
+	IRType t = itype2irt(oldv);
+	TRef res;
+	if (rec_tab_isweak(J, tab))
+	  lj_trace_err(J, LJ_TRERR_NYIWEAK);
+	xref = lj_ir_call(J, IRCALL_lj_tab_geti64, ix->tab, i64ref);
+	if (oldv == niltvg(J2G(J))) {
+	  emitir(IRTG(IR_EQ, IRT_PGC), xref, trnull);
+	  res = TREF_NIL;
+	} else {
+	  emitir(IRTG(IR_NE, IRT_PGC), xref, trnull);
+	  res = emitir(IRTG(IR_HLOAD, t), xref, 0);
+	}
+	if (t == IRT_NIL && ix->idxchain &&
+	    lj_record_mm_lookup(J, ix, MM_index))
+	  goto handlemm;
+	if (irtype_ispri(t))
+	  res = TREF_PRI(t);
+	return res;
+      } else {
+	GCtab *mt = tabref(tab->metatable);
+	if (tvisnil(oldv)) {
+	  int hasmm = 0;
+	  if (ix->idxchain && mt) {
+	    cTValue *mo = lj_tab_getstr(mt, mmname_str(J2G(J), MM_newindex));
+	    hasmm = mo && !tvisnil(mo);
+	  }
+	  if (hasmm) {
+	    xref = lj_ir_call(J, IRCALL_lj_tab_geti64, ix->tab, i64ref);
+	    emitir(IRTG(IR_EQ, IRT_PGC), xref, trnull);
+	    if (lj_record_mm_lookup(J, ix, MM_newindex))
+	      goto handlemm;
+	    lj_assertJ(0, "inconsistent metamethod handling");
+	  }
+	  xref = lj_ir_call(J, IRCALL_lj_tab_seti64, ix->tab, i64ref);
+	} else {
+	  xref = lj_ir_call(J, IRCALL_lj_tab_geti64, ix->tab, i64ref);
+	  emitir(IRTG(IR_NE, IRT_PGC), xref, trnull);
+	}
+	if (!LJ_DUALNUM && tref_isinteger(ix->val))
+	  ix->val = emitir(IRTN(IR_CONV), ix->val, IRCONV_NUM_INT);
+	emitir(IRT(IR_HSTORE, tref_type(ix->val)), xref, ix->val);
+	if (tref_isgcv(ix->val))
+	  emitir(IRT(IR_TBAR, IRT_NIL), ix->tab, 0);
+	J->needsnap = 1;
+	return 0;
+      }
+    }
   }
 #endif
 

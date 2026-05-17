@@ -2927,7 +2927,7 @@ do
 end
 
 do
-  assert_no_trace(function()
+  assert_records_ir_calls(function()
     local bigf = 1099511627776.0
     local t = {}
     for i = 1, 80 do
@@ -2938,7 +2938,19 @@ do
     local k, v = next(t)
     assert(k == 1099511627776 and math.type(k) == "integer")
     assert(v == "wide" and t[1099511627776] == "wide")
-  end, "Lua 5.4 exact int64 float table key")
+  end, "Lua 5.4 exact int64 float table key",
+     { "lj_tab_seti64", "lj_tab_geti64" })
+
+  assert_records_ir_call(function()
+    local base = 1099511627776
+    local t = { [base] = 7 }
+    local n = 0
+    for _ = 1, 80 do
+      local k = base + 0
+      n = n + t[k]
+    end
+    assert(n == 560)
+  end, "Lua 5.4 boxed int64 table key value lookup", "lj_tab_geti64")
 
   local numeric = { 1.0, 2, 3.5 }
   assert_records_trace(function()

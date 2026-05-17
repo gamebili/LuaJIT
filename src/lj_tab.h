@@ -67,6 +67,7 @@ LJ_FUNCA void lj_tab_reasize(lua_State *L, GCtab *t, uint32_t nasize);
 
 LJ_FUNCA cTValue * LJ_FASTCALL lj_tab_getinth(GCtab *t, int32_t key);
 LJ_FUNC cTValue *lj_tab_getstr(GCtab *t, const GCstr *key);
+LJ_FUNC cTValue *lj_tab_geti64(GCtab *t, int64_t key);
 LJ_FUNCA cTValue *lj_tab_get(lua_State *L, GCtab *t, cTValue *key);
 
 /* Caveat: all setters require a write barrier for the stored value. */
@@ -74,6 +75,7 @@ LJ_FUNCA cTValue *lj_tab_get(lua_State *L, GCtab *t, cTValue *key);
 LJ_FUNCA TValue *lj_tab_newkey(lua_State *L, GCtab *t, cTValue *key);
 LJ_FUNCA TValue *lj_tab_setinth(lua_State *L, GCtab *t, int32_t key);
 LJ_FUNC TValue *lj_tab_setstr(lua_State *L, GCtab *t, const GCstr *key);
+LJ_FUNC TValue *lj_tab_seti64(lua_State *L, GCtab *t, int64_t key);
 LJ_FUNC TValue *lj_tab_set(lua_State *L, GCtab *t, cTValue *key);
 
 #define inarray(t, key)		((MSize)(key) < (MSize)(t)->asize)

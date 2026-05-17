@@ -599,6 +599,17 @@ cTValue *lj_tab_getstr(GCtab *t, const GCstr *key)
   return NULL;
 }
 
+cTValue *lj_tab_geti64(GCtab *t, int64_t key)
+{
+#if LJ_54
+  return tab_getint64key(t, key);
+#else
+  UNUSED(t);
+  UNUSED(key);
+  return NULL;
+#endif
+}
+
 cTValue *lj_tab_get(lua_State *L, GCtab *t, cTValue *key)
 {
   Node *n;
@@ -761,6 +772,18 @@ TValue *lj_tab_setstr(lua_State *L, GCtab *t, const GCstr *key)
   } while ((n = nextnode(n)));
   setstrV(L, &k, key);
   return lj_tab_newkey(L, t, &k);
+}
+
+TValue *lj_tab_seti64(lua_State *L, GCtab *t, int64_t key)
+{
+#if LJ_54
+  return tab_setint64key(L, t, key);
+#else
+  UNUSED(L);
+  UNUSED(t);
+  UNUSED(key);
+  return NULL;
+#endif
 }
 
 TValue *lj_tab_set(lua_State *L, GCtab *t, cTValue *key)
