@@ -575,6 +575,6 @@
 - `_VERSION == "Lua 5.4"`、`jit.lua54compat == true`。
 - Lua 5.4 模式隐藏旧 Lua 5.1/LuaJIT API：`getfenv`、`setfenv`、`module`、`newproxy`、`loadstring`、全局 `unpack`、`bit` 等。
 - `rawlen`、`table.pack`、`table.unpack`、`table.move`、`coroutine.isyieldable([co])` 已可见并覆盖可选 thread 参数。
-- `load(..., env)` 和 `loadfile(..., env)` 已能让 chunk 使用传入环境。
+- `load(..., env)` 和 `loadfile(..., env)` 已能让 source / LuaJIT binary chunk 使用传入环境。
 - `pairs` 已支持 `__pairs`，包括 `__pairs` 在 coroutine 中 yield；`ipairs` 已按 Lua 5.4 使用普通索引访问，不走旧 `__ipairs`。
 - `package.searchers`、`require` loader data、nil-returning loader、loader error 不污染 `package.loaded`、`utf8` 基础库、`warn`、`math.randomseed(x, y)`、`math.random` 的基础 Lua 5.4 行为已进入 smoke 覆盖。
