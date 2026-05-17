@@ -818,6 +818,7 @@ local function number_pack_helpers(n)
   local base16_dynamic_num = 16.0
   local base10_dynamic_string = "10"
   local base16_dynamic_string = "0x10"
+  local base24_dynamic_num = 24
   local pow_string_one = "1"
   local wide_sin_expected = math.sin(1099511627776)
   local wide_log2_expected = math.log(1099511627776, 2)
@@ -959,6 +960,9 @@ local function number_pack_helpers(n)
       sum = sum + 1
     end
     if tonumber(base16_input, base16_dynamic_string) == 255 then
+      sum = sum + 1
+    end
+    if tonumber("\t10000000000\t", base24_dynamic_num) == 63403380965376 then
       sum = sum + 1
     end
     sum = sum + string.packsize("!8bi8")
@@ -1499,8 +1503,8 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_number_pack = timeit(mode_name..":number_pack_helpers",
 				  number_pack_helpers, iter_n)
-  assert(r_number_pack == iter_n * 172,
-	 "number_pack_helpers expected "..(iter_n * 172)..
+  assert(r_number_pack == iter_n * 173,
+	 "number_pack_helpers expected "..(iter_n * 173)..
 	 " got "..r_number_pack)
 
   local _, r_number_string = timeit(mode_name..":number_string_helpers",

@@ -112,11 +112,11 @@ int lj_strscan_rejectnum54(const char *sp, MSize len)
   return e - p >= 2 && p[0] == '0' && casecmp(p[1], 'b');
 }
 
-int lj_strscan_tobaseint54(GCstr *str, int32_t base, int32_t *ip)
+int lj_strscan_tobaseint54(GCstr *str, int32_t base, int64_t *ip)
 {
   const char *p = strdata(str);
   const char *pe = p + str->len;
-  uint32_t u = 0;
+  lua_Unsigned u = 0;
   int neg = 0;
   while (p < pe && lj_char_isspace((unsigned char)(*p))) p++;
   if (p < pe && *p == '-') { p++; neg = 1; }
@@ -128,12 +128,12 @@ int lj_strscan_tobaseint54(GCstr *str, int32_t base, int32_t *ip)
 		       (uint32_t)((*p | 0x20) - 'a' + 10);
       if (digit >= (uint32_t)base)
 	return 0;
-      u = u * (uint32_t)base + digit;
+      u = u * (lua_Unsigned)base + (lua_Unsigned)digit;
       p++;
     } while (p < pe && lj_char_isalnum((unsigned char)(*p)));
     while (p < pe && lj_char_isspace((unsigned char)(*p))) p++;
     if (p == pe) {
-      *ip = neg ? (int32_t)(~u + 1u) : (int32_t)u;
+      *ip = (int64_t)(lua_Integer)(neg ? ~u + 1u : u);
       return 1;
     }
   }
@@ -852,7 +852,7 @@ int32_t LJ_FASTCALL lj_strscan_tocheckint54(GCstr *str)
 int lj_strscan_tobaseintok54(GCstr *str, int32_t base)
 {
 #if LJ_54
-  int32_t i;
+  int64_t i;
   return lj_strscan_tobaseint54(str, base, &i);
 #else
   UNUSED(str); UNUSED(base);
@@ -860,10 +860,10 @@ int lj_strscan_tobaseintok54(GCstr *str, int32_t base)
 #endif
 }
 
-int32_t lj_strscan_tobaseintvalue54(GCstr *str, int32_t base)
+int64_t lj_strscan_tobaseintvalue54(GCstr *str, int32_t base)
 {
 #if LJ_54
-  int32_t i = 0;
+  int64_t i = 0;
   int ok = lj_strscan_tobaseint54(str, base, &i);
   lj_assertX(ok, "bad explicit-base integer string guard");
   if (!ok)

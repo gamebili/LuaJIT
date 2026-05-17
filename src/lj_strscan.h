@@ -26,7 +26,7 @@ LJ_FUNC StrScanFmt lj_strscan_scan(const uint8_t *p, MSize len, TValue *o,
 				   uint32_t opt);
 #if LJ_54
 LJ_FUNC int lj_strscan_rejectnum54(const char *p, MSize len);
-LJ_FUNC int lj_strscan_tobaseint54(GCstr *str, int32_t base, int32_t *ip);
+LJ_FUNC int lj_strscan_tobaseint54(GCstr *str, int32_t base, int64_t *ip);
 #endif
 LJ_FUNC int LJ_FASTCALL lj_strscan_num(GCstr *str, TValue *o);
 LJ_FUNC int LJ_FASTCALL lj_strscan_numtype54(GCstr *str);
@@ -40,7 +40,7 @@ LJ_FUNC int64_t LJ_FASTCALL lj_strscan_toint6454(GCstr *str);
 LJ_FUNC int LJ_FASTCALL lj_strscan_tocheckintok54(GCstr *str);
 LJ_FUNC int32_t LJ_FASTCALL lj_strscan_tocheckint54(GCstr *str);
 LJ_FUNC int lj_strscan_tobaseintok54(GCstr *str, int32_t base);
-LJ_FUNC int32_t lj_strscan_tobaseintvalue54(GCstr *str, int32_t base);
+LJ_FUNC int64_t lj_strscan_tobaseintvalue54(GCstr *str, int32_t base);
 #if LJ_DUALNUM
 LJ_FUNC int LJ_FASTCALL lj_strscan_number(GCstr *str, TValue *o);
 #if LJ_54

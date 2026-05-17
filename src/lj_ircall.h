@@ -168,7 +168,7 @@ typedef struct CCallInfo {
   _(ANY,	lj_strscan_tocheckintok54, 1, FN, INT, 0) \
   _(ANY,	lj_strscan_tocheckint54, 1, FN, INT, 0) \
   _(ANY,	lj_strscan_tobaseintok54, 2,  FN, INT, 0) \
-  _(ANY,	lj_strscan_tobaseintvalue54, 2, FN, INT, 0) \
+  _(ANY,	lj_strscan_tobaseintvalue54, 2, FN, I64, 0) \
   _(ANY,	lj_strfmt_int,		2,  FN, STR, CCI_L|CCI_T) \
   _(ANY,	lj_strfmt_num,		2,  FN, STR, CCI_L|CCI_T) \
   _(ANY,	lj_strfmt_char,		2,  FN, STR, CCI_L|CCI_T) \

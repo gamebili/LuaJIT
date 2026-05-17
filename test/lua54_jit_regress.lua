@@ -1404,6 +1404,19 @@ do
     end
     assert(n == 400)
   end, "Lua 5.4 tonumber explicit base")
+
+  assert_records_ir_call(function()
+    local n = 0
+    for _ = 1, 3 do
+      for i = 2, 36 do
+	local i2 = i * i
+	local i10 = i2 * i2 * i2 * i2 * i2
+	local v = tonumber("\t10000000000\t", i)
+	if v == i10 and math.type(v) == "integer" then n = n + 1 end
+      end
+    end
+    assert(n == 105)
+  end, "Lua 5.4 tonumber dynamic base 64-bit", "lj_strscan_tobaseintvalue54")
 end
 
 do

@@ -898,21 +898,29 @@ static void LJ_FASTCALL recff_tonumber(jit_State *J, RecordFFData *rd)
       emitir(IRTGI(IR_LE), trbase, lj_ir_kint(J, 36));
     }
     if (tref_isstr(tr)) {
-      int32_t v;
+      int64_t v;
+#if !LJ_DUALNUM
+      recff_nyiu(J, rd);
+      return;
+#else
       if (tref_isk(tr) && tref_isk(trbase)) {
 	J->base[0] = lj_strscan_tobaseint54(strV(&rd->argv[0]), i, &v) ?
-		     lj_ir_kint(J, v) : TREF_NIL;
+		     recff_lua54_i64result(J, lj_ir_kint64(J, (uint64_t)v),
+					   v) : TREF_NIL;
       } else {
 	TRef ok = lj_ir_call(J, IRCALL_lj_strscan_tobaseintok54, tr, trbase);
 	if (lj_strscan_tobaseint54(strV(&rd->argv[0]), i, &v)) {
+	  TRef i64;
 	  emitir(IRTGI(IR_EQ), ok, lj_ir_kint(J, 1));
-	  J->base[0] = lj_ir_call(J, IRCALL_lj_strscan_tobaseintvalue54,
-				  tr, trbase);
+	  i64 = lj_ir_call(J, IRCALL_lj_strscan_tobaseintvalue54,
+			   tr, trbase);
+	  J->base[0] = recff_lua54_i64result(J, i64, v);
 	} else {
 	  emitir(IRTGI(IR_EQ), ok, lj_ir_kint(J, 0));
 	  J->base[0] = TREF_NIL;
 	}
       }
+#endif
       return;
     }
     recff_nyiu(J, rd);  /* Explicit-base tonumber() requires a string arg. */
