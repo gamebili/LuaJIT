@@ -2894,6 +2894,19 @@ do
 end
 
 do
+  assert_no_trace(function()
+    local bigf = 1099511627776.0
+    local t = {}
+    for i = 1, 80 do
+      t[bigf] = i
+      t[bigf] = nil
+    end
+    t[bigf] = "wide"
+    local k, v = next(t)
+    assert(k == 1099511627776 and math.type(k) == "integer")
+    assert(v == "wide" and t[1099511627776] == "wide")
+  end, "Lua 5.4 exact int64 float table key")
+
   local numeric = { 1.0, 2, 3.5 }
   assert_records_trace(function()
     local n = 0

@@ -277,6 +277,25 @@ LJ_NORET static void err_limit(FuncState *fs, uint32_t limit, const char *what)
 #define tvhaskslot(o)	((o)->u32.hi == 0)
 #define tvkslot(o)	((o)->u32.lo)
 
+#if LJ_54 && LJ_DUALNUM
+static int const_num_exact_int64_float(cTValue *o)
+{
+  lua_Number n, ni;
+  int64_t k;
+  if (!tvisnum(o))
+    return 0;
+  n = numV(o);
+  if (!(n >= (-9223372036854775807.0 - 1.0) &&
+	n < 9223372036854775808.0))
+    return 0;
+  ni = lj_vm_floor(n);
+  if (n != ni)
+    return 0;
+  k = lj_num2i64(n);
+  return (lua_Number)k == n;
+}
+#endif
+
 /* Add a number constant. */
 static BCReg const_num(FuncState *fs, ExpDesc *e)
 {
@@ -289,7 +308,8 @@ static BCReg const_num(FuncState *fs, ExpDesc *e)
     int32_t k;
     UNUSED(k);
     if (tvisi64(&e->u.nval) || tvismzero(&e->u.nval) ||
-	lj_num2int_check(numV(&e->u.nval), i64, k)) {
+	lj_num2int_check(numV(&e->u.nval), i64, k) ||
+	const_num_exact_int64_float(&e->u.nval)) {
       GCtab *box = lj_tab_new(L, 1, 0);
       box->flags54 |= LUA54_KNUM_BOX;
       copyTV(L, arrayslot(box, 0), &e->u.nval);

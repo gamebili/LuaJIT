@@ -14,6 +14,7 @@
 #include "lj_err.h"
 #include "lj_str.h"
 #include "lj_tab.h"
+#include "lj_vm.h"
 
 /* -- Object hashing ------------------------------------------------------ */
 
@@ -31,6 +32,53 @@ static LJ_AINLINE Node *hashi64(const GCtab *t, int64_t key)
   setnumV(&k, (lua_Number)key);
   return hashnum(t, &k);
 }
+
+#if LJ_54
+static int tab_numtoint64key(lua_Number n, int64_t *ip)
+{
+  lua_Number ni;
+  int64_t k;
+  if (!(n >= (-9223372036854775807.0 - 1.0) &&
+	n < 9223372036854775808.0))
+    return 0;
+  ni = lj_vm_floor(n);
+  if (n != ni)
+    return 0;
+  k = lj_num2i64(n);
+  if ((lua_Number)k != n)
+    return 0;
+  *ip = k;
+  return 1;
+}
+
+static cTValue *tab_getint64key(GCtab *t, int64_t key)
+{
+  Node *n;
+  if (checki32(key))
+    return lj_tab_getint(t, (int32_t)key);
+  n = hashi64(t, key);
+  do {
+    if (!tvisnil(&n->val) && tvisi64(&n->key) && i64V(&n->key) == key)
+      return &n->val;
+  } while ((n = nextnode(n)));
+  return NULL;
+}
+
+static TValue *tab_setint64key(lua_State *L, GCtab *t, int64_t key)
+{
+  cTValue *oldv;
+  TValue k;
+  TValue *slot;
+  if (checki32(key))
+    return lj_tab_setint(L, t, (int32_t)key);
+  oldv = tab_getint64key(t, key);
+  if (oldv)
+    return (TValue *)oldv;
+  seti64V(L, &k, lj_obj_newint64(L, key));
+  slot = lj_tab_newkey(L, t, &k);
+  return slot;
+}
+#endif
 
 /* Hash an arbitrary key and return its anchor position in the hash table. */
 static Node *hashkey(const GCtab *t, cTValue *key)
@@ -534,6 +582,14 @@ cTValue *lj_tab_get(lua_State *L, GCtab *t, cTValue *key)
   } else if (tvisnum(key)) {
     int64_t i64;
     int32_t k;
+#if LJ_54
+    if (tab_numtoint64key(numV(key), &i64)) {
+      cTValue *tv = tab_getint64key(t, i64);
+      if (tv)
+	return tv;
+      return niltv(L);
+    }
+#endif
     if (lj_num2int_check(numV(key), i64, k)) {
       cTValue *tv = lj_tab_getint(t, k);
       if (tv)
@@ -671,6 +727,10 @@ TValue *lj_tab_set(lua_State *L, GCtab *t, cTValue *key)
   } else if (tvisnum(key)) {
     int64_t i64;
     int32_t k;
+#if LJ_54
+    if (tab_numtoint64key(numV(key), &i64))
+      return tab_setint64key(L, t, i64);
+#endif
     if (lj_num2int_check(numV(key), i64, k))
       return lj_tab_setint(L, t, k);
     if (tvisnan(key))

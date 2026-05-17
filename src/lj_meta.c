@@ -325,10 +325,7 @@ TValue *lj_meta_tset(lua_State *L, cTValue *o, cTValue *k)
 	lj_gc_anybarriert(L, t);
 	if (tv != niltv(L))
 	  return (TValue *)tv;
-	if (tvisnil(k)) lj_err_msg(L, LJ_ERR_NILIDX);
-	else if (tvisint(k)) { setnumV(&tmp, (lua_Number)intV(k)); k = &tmp; }
-	else if (tvisnum(k) && tvisnan(k)) lj_err_msg(L, LJ_ERR_NANIDX);
-	return lj_tab_newkey(L, t, k);
+	return lj_tab_set(L, t, k);
       }
     } else if (tvisnil(mo = lj_meta_lookup(L, o, MM_newindex))) {
       lj_err_optype(L, o, LJ_ERR_OPINDEX);

@@ -2365,6 +2365,40 @@ do
   assert(f64 == 1099511627776)
   assert(not (f64 ~= 1099511627776))
   assert(9223372036854775807.0 > math.maxinteger)
+  local t = {}
+  t[f64] = "wide"
+  t[-f64] = "neg-wide"
+  local seen_pos, seen_neg = false, false
+  for k, v in pairs(t) do
+    assert(math.type(k) == "integer")
+    if k == 1099511627776 then
+      assert(v == "wide")
+      seen_pos = true
+    elseif k == -1099511627776 then
+      assert(v == "neg-wide")
+      seen_neg = true
+    else
+      error("unexpected wide integer key")
+    end
+  end
+  assert(seen_pos and seen_neg)
+  assert(t[1099511627776] == "wide")
+  assert(t[-1099511627776] == "neg-wide")
+  local hi = {}
+  hi[9007199254740992.0] = "exact-float"
+  hi[9007199254740993] = "integer"
+  assert(hi[9007199254740992] == "exact-float")
+  assert(hi[9007199254740993] == "integer")
+  for k, v in pairs(hi) do
+    assert(math.type(k) == "integer")
+    if v == "exact-float" then
+      assert(k == 9007199254740992)
+    elseif v == "integer" then
+      assert(k == 9007199254740993)
+    else
+      error("unexpected high integer key")
+    end
+  end
 end
 assert(string.format("%d", math.maxinteger) == "9223372036854775807")
 assert(string.format("%d", math.mininteger) == "-9223372036854775808")

@@ -110,6 +110,23 @@ static int rec_lua54_tv_toint64(cTValue *tv, int64_t *ip)
   return 0;
 }
 
+static int rec_lua54_numtoint64_exact(lua_Number n, int64_t *ip)
+{
+  lua_Number ni;
+  int64_t k;
+  if (!(n >= (-9223372036854775807.0 - 1.0) &&
+	n < 9223372036854775808.0))
+    return 0;
+  ni = lj_vm_floor(n);
+  if (n != ni)
+    return 0;
+  k = lj_num2i64(n);
+  if ((lua_Number)k != n)
+    return 0;
+  *ip = k;
+  return 1;
+}
+
 static int rec_lua54_i64cmp(cTValue *a, cTValue *b, IROp op)
 {
   int64_t ia = rec_lua54_tv_i64(a);
@@ -2047,6 +2064,15 @@ TRef lj_record_idx(jit_State *J, RecordIndex *ix)
       return TREF_NIL;
     }
   }
+
+#if LJ_54 && LJ_DUALNUM
+  if (tvisnum(&ix->keyv)) {
+    int64_t i64;
+    if (rec_lua54_numtoint64_exact(numV(&ix->keyv), &i64) &&
+	!checki32(i64))
+      lj_trace_err(J, LJ_TRERR_NYITMIX);
+  }
+#endif
 
 #if LJ_54
   if (rec_is_longstr(&ix->keyv)) {
