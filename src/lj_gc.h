@@ -28,6 +28,21 @@ enum {
 #define LJ_GC_COLORS	(LJ_GC_WHITES | LJ_GC_BLACK)
 #define LJ_GC_WEAK	(LJ_GC_WEAKKEY | LJ_GC_WEAKVAL)
 
+#if LJ_54
+/* Object age in Lua 5.4 generational mode. */
+#define LJ_GC_AGE_NEW		0
+#define LJ_GC_AGE_SURVIVAL	1
+#define LJ_GC_AGE_OLD0		2
+#define LJ_GC_AGE_OLD1		3
+#define LJ_GC_AGE_OLD		4
+#define LJ_GC_AGE_TOUCHED1	5
+#define LJ_GC_AGE_TOUCHED2	6
+
+#define gcage(o)	((o)->gch.age)
+#define setgcage(o, a)	((o)->gch.age = (uint8_t)(a))
+#define isoldgc(o)	(gcage(o) > LJ_GC_AGE_SURVIVAL)
+#endif
+
 /* Macros to test and set GCobj colors. */
 #define iswhite(x)	((x)->gch.marked & LJ_GC_WHITES)
 #define isblack(x)	((x)->gch.marked & LJ_GC_BLACK)
@@ -37,7 +52,13 @@ enum {
 #define isdead(g, v)	((v)->gch.marked & otherwhite(g) & LJ_GC_WHITES)
 
 #define curwhite(g)	((g)->gc.currentwhite & LJ_GC_WHITES)
+#if LJ_54
+#define newwhite(g, x) \
+  (setgcage(obj2gco(x), LJ_GC_AGE_NEW), \
+   obj2gco(x)->gch.marked = (uint8_t)curwhite(g))
+#else
 #define newwhite(g, x)	(obj2gco(x)->gch.marked = (uint8_t)curwhite(g))
+#endif
 #define makewhite(g, x) \
   ((x)->gch.marked = ((x)->gch.marked & (uint8_t)~LJ_GC_COLORS) | curwhite(g))
 #define flipwhite(x)	((x)->gch.marked ^= LJ_GC_WHITES)
