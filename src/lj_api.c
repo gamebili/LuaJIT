@@ -3038,14 +3038,20 @@ LUA_API int lua_gc(lua_State *L, int what, int data)
   case LUA_GCGEN:
     res = g->gc_mode54 ? LUA_GCGEN : LUA_GCINC;
 #if LJ_54
-    if (!g->gc_mode54)
-      gc_fullgc_preserve_stop54(L);
-    if (data != 0)
-      g->gc_genminormul54 = (MSize)(uint8_t)data;
-    if (data2 != 0)
-      g->gc_genmajormul54 = gc_param_lua54(data2);
-#endif
+    {
+      int wasinc = !g->gc_mode54;
+      if (data != 0)
+	g->gc_genminormul54 = (MSize)(uint8_t)data;
+      if (data2 != 0)
+	g->gc_genmajormul54 = gc_param_lua54(data2);
+      g->gc_mode54 = 1;
+      if (wasinc) {
+	gc_fullgc_preserve_stop54(L);
+      }
+    }
+#else
     g->gc_mode54 = 1;
+#endif
     break;
   case LUA_GCINC:
     res = g->gc_mode54 ? LUA_GCGEN : LUA_GCINC;
