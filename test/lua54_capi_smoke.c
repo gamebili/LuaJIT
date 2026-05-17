@@ -2969,22 +2969,39 @@ static void test_stack_and_number_api(lua_State *L)
 
   if (sizeof(lua_Integer) > sizeof(int)) {
     lua_Integer big40 = (lua_Integer)1024 * 1024 * 1024 * 1024;
+    lua_Integer neg40 = -big40;
     int count = 0;
+    int seen_pos = 0;
+    int seen_neg = 0;
     lua_newtable(L);
     lua_pushinteger(L, big40);
     lua_pushliteral(L, "next-big40");
     lua_rawset(L, -3);
+    lua_pushinteger(L, neg40);
+    lua_pushliteral(L, "next-neg40");
+    lua_rawset(L, -3);
     lua_pushnil(L);
     while (lua_next(L, -2) != 0) {
+      lua_Integer key;
       check(L, lua_isinteger(L, -2),
 	    "lua_next preserves 64-bit integer key subtype");
-      check_integer(L, -2, big40,
-		    "lua_next preserves 64-bit integer key value");
-      check_string(L, -1, "next-big40", "lua_next 64-bit key value");
+      key = lua_tointeger(L, -2);
+      if (key == big40) {
+	check_string(L, -1, "next-big40",
+		     "lua_next positive 64-bit key value");
+	seen_pos = 1;
+      } else if (key == neg40) {
+	check_string(L, -1, "next-neg40",
+		     "lua_next negative 64-bit key value");
+	seen_neg = 1;
+      } else {
+	check(L, 0, "lua_next unexpected 64-bit key");
+      }
       count++;
       lua_pop(L, 1);
     }
-    check(L, count == 1, "lua_next traverses 64-bit integer key");
+    check(L, count == 2 && seen_pos && seen_neg,
+	  "lua_next traverses signed 64-bit integer keys");
     lua_pop(L, 1);
   }
 
@@ -4170,6 +4187,8 @@ static void test_compare_len_arith(lua_State *L)
     lua_Integer big2 = big + 1;
     lua_Integer big40 = (lua_Integer)1024 * 1024 * 1024 * 1024;
     lua_Integer big40b = big40 + 1;
+    lua_Integer neg40 = -big40;
+    lua_Integer neg40b = neg40 - 1;
     lua_pushinteger(L, big40);
     lua_pushinteger(L, big40b);
     check(L, lua_compare(L, -2, -1, LUA_OPLT),
@@ -4251,6 +4270,42 @@ static void test_compare_len_arith(lua_State *L)
 	  "lua_rawseti accepts wider 64-bit C integer key");
     check_string(L, -1, "raw-big40-seti",
 		 "lua_rawseti wider 64-bit key value");
+    lua_pop(L, 1);
+    lua_pushinteger(L, neg40);
+    lua_pushliteral(L, "geti-neg40-generic");
+    lua_rawset(L, -3);
+    rtype = lua_geti_sig(L, -1, neg40);
+    check(L, rtype == LUA_TSTRING,
+	  "lua_geti accepts negative wider 64-bit C integer key");
+    check_string(L, -1, "geti-neg40-generic",
+		 "lua_geti negative wider 64-bit key value");
+    lua_pop(L, 1);
+    lua_pushliteral(L, "seti-neg40-generic");
+    lua_seti(L, -2, neg40b);
+    lua_pushinteger(L, neg40b);
+    rtype = lua_rawget_sig(L, -2);
+    check(L, rtype == LUA_TSTRING,
+	  "lua_seti accepts negative wider 64-bit C integer key");
+    check_string(L, -1, "seti-neg40-generic",
+		 "lua_seti negative wider 64-bit key value");
+    lua_pop(L, 1);
+    lua_pushinteger(L, neg40);
+    lua_pushliteral(L, "raw-neg40-generic");
+    lua_rawset(L, -3);
+    rtype = lua_rawgeti_sig(L, -1, neg40);
+    check(L, rtype == LUA_TSTRING,
+	  "lua_rawgeti accepts negative wider 64-bit C integer key");
+    check_string(L, -1, "raw-neg40-generic",
+		 "lua_rawgeti negative wider 64-bit key value");
+    lua_pop(L, 1);
+    lua_pushliteral(L, "raw-neg40-seti");
+    lua_rawseti_sig(L, -2, neg40);
+    lua_pushinteger(L, neg40);
+    rtype = lua_rawget_sig(L, -2);
+    check(L, rtype == LUA_TSTRING,
+	  "lua_rawseti accepts negative wider 64-bit C integer key");
+    check_string(L, -1, "raw-neg40-seti",
+		 "lua_rawseti negative wider 64-bit key value");
     lua_pop(L, 1);
   }
 
