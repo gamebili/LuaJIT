@@ -1742,6 +1742,7 @@ LUALIB_API int luaopen_base(lua_State *L)
   /* Internal close dispatch must call the real xpcall without exposing this
   ** Lua compatibility wrapper to debug line hooks.
   */
+  lj_close_setrawxpcall(L, L->top-1);
   lua_pushvalue(L, -1);
   lua_setfield(L, LUA_REGISTRYINDEX, "_LUA54_RAW_XPCALL");
   if (luaL_loadstring(L,

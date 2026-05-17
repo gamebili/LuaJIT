@@ -783,11 +783,8 @@ static int lua54_pushclosecall(lua_State *L, cTValue *fn, cTValue *self,
 {
   TValue *top;
   L->close_pcall = 1;
-  lua_getfield(L, LUA_REGISTRYINDEX, "_LUA54_RAW_XPCALL");
-  if (lua_isnil(L, -1)) {
-    lua_pop(L, 1);
+  if (!lj_close_pushrawxpcall(L))
     lua_getglobal(L, "xpcall");
-  }
   top = L->top;
   copyTV(L, top++, fn);
   L->top = top;
@@ -803,11 +800,8 @@ static int lua54_pushnopclose(lua_State *L)
 {
   lj_state_checkstack(L, 5);
   L->close_pcall = 1;
-  lua_getfield(L, LUA_REGISTRYINDEX, "_LUA54_RAW_XPCALL");
-  if (lua_isnil(L, -1)) {
-    lua_pop(L, 1);
+  if (!lj_close_pushrawxpcall(L))
     lua_getglobal(L, "xpcall");
-  }
   lua_pushcfunction(L, lj_cf_jit__lua54_nopclose);
   lua_pushcfunction(L, lj_cf_jit__lua54_closemsgh);
   setnilV(L->top++);
@@ -821,11 +815,8 @@ static int lua54_pushcloseerror(lua_State *L)
   TValue *top;
   lj_state_checkstack(L, 5);
   L->close_pcall = 1;
-  lua_getfield(L, LUA_REGISTRYINDEX, "_LUA54_RAW_XPCALL");
-  if (lua_isnil(L, -1)) {
-    lua_pop(L, 1);
+  if (!lj_close_pushrawxpcall(L))
     lua_getglobal(L, "xpcall");
-  }
   lua_pushcfunction(L, lj_cf_jit__lua54_closeerror);
   lua_pushcfunction(L, lj_cf_jit__lua54_closemsgh);
   top = L->top;

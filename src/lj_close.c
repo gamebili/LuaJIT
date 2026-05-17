@@ -193,6 +193,7 @@ void lj_close_mark(lua_State *L, TValue *slot)
 }
 
 static const uint8_t close_raw_pcall_key = 0;
+static const uint8_t close_raw_xpcall_key = 0;
 
 void lj_close_setrawpcall(lua_State *L, cTValue *pcall)
 {
@@ -202,6 +203,34 @@ void lj_close_setrawpcall(lua_State *L, cTValue *pcall)
   slot = lj_tab_set(L, reg, &key);
   copyTV(L, slot, pcall);
   lj_gc_anybarriert(L, reg);
+}
+
+void lj_close_setrawxpcall(lua_State *L, cTValue *xpcall)
+{
+  GCtab *reg = tabV(registry(L));
+  TValue key, *slot;
+  setrawlightudV(&key, (void *)&close_raw_xpcall_key);
+  slot = lj_tab_set(L, reg, &key);
+  copyTV(L, slot, xpcall);
+  lj_gc_anybarriert(L, reg);
+}
+
+int lj_close_pushrawxpcall(lua_State *L)
+{
+  GCtab *reg = tabV(registry(L));
+  TValue key;
+  cTValue *xpcall;
+  setrawlightudV(&key, (void *)&close_raw_xpcall_key);
+  xpcall = lj_tab_get(L, reg, &key);
+  if (!(xpcall && tvisfunc(xpcall)))
+    xpcall = lj_tab_getstr(reg, lj_str_newlit(L, "_LUA54_RAW_XPCALL"));
+  if (xpcall && tvisfunc(xpcall)) {
+    lj_state_checkstack(L, 1);
+    copyTV(L, L->top, xpcall);
+    L->top++;
+    return 1;
+  }
+  return 0;
 }
 
 static CloseState **close_findunwind(lua_State *L, ptrdiff_t levelofs)

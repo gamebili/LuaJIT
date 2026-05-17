@@ -73,7 +73,7 @@
   - 实现约束：C-return close continuation 的原 C 返回计数保存在隐藏栈槽，而不是只放在线程全局字段；否则嵌套的 `pcall(__close, ...)` C-return 会在外层 C frame 仍有 close slot 时经过同一 `vm_returnc` 路径，覆盖外层返回窗口并导致多 close-yield 恢复崩溃。
   - 已排除方案：把 `lj_close_unwind()` 中的 C `lua_pcall` 直接换成 C `lua_call` 仍然会在第三个 close-yield 处报 `attempt to yield across C-call boundary`；问题不是 protected call 本身，而是 close 调度必须能从 VM continuation 恢复。
   - 当前进展：PC x64 close-active 动态 `return` 已改为 VM continuation：`RET` / `RET0` / `RET1` / `RETM` 在关闭前保存返回窗口、返回数量和 `MULTRES`，`__close` 内 yield / error / 动态启用 return hook 后都能恢复继续关闭或传播替换错误；`debug.getinfo()` 会隐藏内部 close pcall 并把 return hook 中的匿名 close C frame 命名为 `metamethod close`；generic-for closing value 只在运行期 `closelist` 非空时阻止热计数/JIT 记录，不再把所有泛型 for 函数标成 no-JIT。
-  - 当前进展：yieldable `__close` 的 VM continuation 会使用 base library 初始化时保存的 raw `pcall`，不再受用户改写 `_G.pcall` 或篡改 legacy registry 字符串键影响；动态 return 的 close-yield 路径已按官方 Lua 5.4 保持内部 protected call 隔离。
+  - 当前进展：yieldable `__close` 的 VM continuation 会使用 base library 初始化时保存的 raw `pcall`，不再受用户改写 `_G.pcall` 或篡改 legacy registry 字符串键影响；parser/helper close 路径也会使用隐藏 raw `xpcall`，不再受用户改写 `_G.xpcall` 或篡改 legacy registry 字符串键影响；动态 return 的 close-yield 路径已按官方 Lua 5.4 保持内部 protected call 隔离。
   - 需要补测试/实现：DynASM 模板生成已自动化，仍需在可用 32 位或交叉工具链时补 ARM/x86/MIPS/MIPS64/PPC artifact/runtime smoke；继续在 Android/iOS 实际平台批次验证 C API `lua_toclose` 正常 C 返回 close-yield 路径的 artifact 和 smoke。
   - 实现重点：普通 fall-through、固定返回值 return、动态多返回 return、break、goto、generic for 普通控制流退出、error unwind、coroutine reset/close 和 C API 弹栈关闭已先走 parser/helper/close-list/VM continuation 混合实现；完整实现仍需要在平台批次补齐真实 artifact/runtime 验证。
 

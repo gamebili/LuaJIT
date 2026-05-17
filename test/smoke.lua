@@ -1700,6 +1700,32 @@ do
   end
   do
     assert(assert(load([[
+      local raw_xpcall = xpcall
+      local raw_reg_xpcall = debug.getregistry()._LUA54_RAW_XPCALL
+      local log = {}
+      debug.getregistry()._LUA54_RAW_XPCALL = nil
+      xpcall = function()
+        error("global xpcall hijacked", 0)
+      end
+      local ok, value = pcall(function()
+        do
+          local x <close> = setmetatable({}, {
+            __close = function()
+              log[#log + 1] = "closed"
+            end,
+          })
+        end
+        return "ok"
+      end)
+      xpcall = raw_xpcall
+      debug.getregistry()._LUA54_RAW_XPCALL = raw_reg_xpcall
+      assert(ok == true and value == "ok")
+      assert(table.concat(log, ",") == "closed")
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
       local log = {}
       local mt = {
         __close = function(self, err)

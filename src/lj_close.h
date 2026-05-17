@@ -18,6 +18,8 @@ LJ_FUNC int lj_close_islast(lua_State *L, TValue *slot);
 LJ_FUNC void lj_close_mark(lua_State *L, TValue *slot);
 LJ_FUNC void lj_close_unmark(lua_State *L, TValue *slot);
 LJ_FUNC void lj_close_setrawpcall(lua_State *L, cTValue *pcall);
+LJ_FUNC void lj_close_setrawxpcall(lua_State *L, cTValue *xpcall);
+LJ_FUNC int lj_close_pushrawxpcall(lua_State *L);
 LJ_FUNC int lj_close_hasunwind(lua_State *L, TValue *level);
 LJ_FUNC int lj_close_unwind(lua_State *L, TValue *level);
 LJ_FUNC int lj_close_unwind_status(lua_State *L, TValue *level, int status);
