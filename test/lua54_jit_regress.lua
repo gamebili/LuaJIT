@@ -815,6 +815,28 @@ do
   end, "Lua 5.4 boxed int64 multiplication")
 
   assert_records_trace(function()
+    local x = 1099511627776
+    for _ = 1, 80 do
+      x = -x
+    end
+    assert(x == 1099511627776 and math.type(x) == "integer")
+  end, "Lua 5.4 boxed int64 unary minus")
+
+  assert_records_ir_op(function()
+    local function pow_loop(a, b)
+      local n = 0
+      for _ = 1, 80 do
+	local x = a ^ b
+	if x == 1099511627776.0 and math.type(x) == "float" then
+	  n = n + 1
+	end
+      end
+      return n
+    end
+    assert(pow_loop(1099511627776, 1) == 80)
+  end, "Lua 5.4 boxed int64 power", "POW")
+
+  assert_records_trace(function()
     local x = 0
     for _ = 1, 80 do
       x = 9223372036854775807 + 1

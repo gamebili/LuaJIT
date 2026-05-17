@@ -849,6 +849,18 @@ local function number_pack_helpers(n)
       sum = sum + 1
     end
     do
+      local add = ti_wide + 3
+      local mul = ti_wide * 3
+      local neg = -ti_wide
+      local pow = ti_wide ^ 1
+      if add == 1099511627779 and mul == 3298534883328 and
+	 neg == -1099511627776 and pow == 1099511627776.0 and
+	 math.type(add) == "integer" and math.type(mul) == "integer" and
+	 math.type(neg) == "integer" and math.type(pow) == "float" then
+	sum = sum + 1
+      end
+    end
+    do
       local f = math.floor(ti_wide + 0.5)
       local c = math.ceil(ti_wide - 0.5)
       if f == ti_wide and c == ti_wide and

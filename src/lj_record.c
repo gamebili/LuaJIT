@@ -3008,6 +3008,13 @@ void lj_record_ins(jit_State *J)
     break;
 
   case BC_POW:
+#if LJ_54 && LJ_DUALNUM
+    if (rec_lua54_tref_isnumeric(rb) && rec_lua54_tref_isnumeric(rc)) {
+      rc = emitir(IRTN(IR_POW), rec_lua54_numref(J, rb),
+		  rec_lua54_numref(J, rc));
+      break;
+    }
+#endif
     if (tref_isnumber_str(rb) && tref_isnumber_str(rc))
       rc = lj_opt_narrow_arith(J, rb, rc, rbv, rcv, IR_POW);
     else
