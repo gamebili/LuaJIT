@@ -1277,6 +1277,26 @@ do
     assert(n == 3240.0 and math.type(n) == "float")
   end, "Lua 5.4 numeric for string step")
 
+  assert_records_trace(function()
+    local n, last, tlast = 0
+    for i = 1099511627776.0, 1099511627855, 1 do
+      n = n + 1
+      last = i
+      tlast = math.type(i)
+    end
+    assert(n == 80 and last == 1099511627855.0 and tlast == "float")
+  end, "Lua 5.4 numeric for float init int64 range")
+
+  assert_records_trace(function()
+    local n, last, tlast = 0
+    for i = 1099511627776, 1099511627855, 1.0 do
+      n = n + 1
+      last = i
+      tlast = math.type(i)
+    end
+    assert(n == 80 and last == 1099511627855.0 and tlast == "float")
+  end, "Lua 5.4 numeric for float step int64 range")
+
   assert_records_ir_call(function()
     local n, last = 0
     for i = 1099511627776, 1099511627855 do

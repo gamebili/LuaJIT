@@ -116,12 +116,12 @@
   - 实现重点：需要统一 TValue 表示、数值转换、字符串扫描、格式化、运算符和库函数的整数路径。
 
 - [x] 数值 `for` 的 Lua 5.4 整数/浮点控制变量语义。
-  - 当前状态：Lua 5.4 数值 for 的运行期控制变量语义已覆盖 64 位 boxed integer 边界；JIT 已能记录正/负步长、integer-only boxed int64 FORL 子集，并覆盖可取整 float limit 归一后的 boxed int64 边界；float init/step 或对向越界 float limit 形成的 float-mode 循环、完整 SCEV 和更多后端 artifact 验证仍归入“完整 Lua 5.4 64 位整数语义”大项。
+  - 当前状态：Lua 5.4 数值 for 的运行期控制变量语义已覆盖 64 位 boxed integer 边界；JIT 已能记录正/负步长、integer-only boxed int64 FORL 子集，并覆盖可取整 float limit 归一后的 boxed int64 边界；float init/step 形成的 2^40 级别 float-mode 热循环已进入 JIT 回归，防止被 boxed-int64 FORL 路径重新窄化；对向越界 float limit、完整 SCEV 和更多后端 artifact 验证仍归入“完整 Lua 5.4 64 位整数语义”大项。
   - 当前进展：Lua 5.4 兼容模式已把常量 `0` / `0.0` step 从编译期错误改为运行期 `FORI` 前 helper 错误，和动态变量 `0`、字符串 `"0"` 一样在执行时统一报 `'for' step is zero`，可被官方 `checkerror(function() for ... do end end)` 捕获。
   - 当前进展：init/step 为 float 的循环会保持 float 控制变量；init/step 为 integer 且 limit 为 float 时会按步长方向取整，超出 int64 但同向无限延伸的 limit 会饱和到 `math.mininteger` / `math.maxinteger`，反向越界则切回 float 比较以保持跳过语义；官方 `testes/nextvar.lua` 当前已跑到 `OK`。
   - 当前进展：init 或 step 原始表达式为字符串时，即使字符串内容可表示为当前 integer，也会按 Lua 5.4 保持 float 控制变量；只有 limit 为字符串且 init/step 已是 integer 时，仍沿 integer FORL 路径。解释器和热循环 trace 均已加入回归。
   - 当前进展：JIT recorder 对接近当前 32 位 integer 边界、可能溢出的 integer numeric for 不再改录为 float trace，避免 `math.type(i)` 在热循环后从 `integer` 变成 `float`；同时低 `jit.opt` hotloop 配置下也不会把 `1.0, 10` 或 `-1, -10, -1.0` 这类 float 模式循环重新窄化成 integer trace。
-  - 已知差异：boxed int64 numeric `for` 的 JIT 记录当前只覆盖 integer-only 子集；float init/step 或对向越界 float limit 形成的 float-mode 循环、完整 SCEV 和跨后端快路径 artifact 仍归入 64 位 integer/TValue 批次。
+  - 已知差异：boxed int64 numeric `for` 的 JIT 记录当前只覆盖 integer-only 子集；float init/step 已有 2^40 级别 float-mode 热循环回归，对向越界 float limit、完整 SCEV 和跨后端快路径 artifact 仍归入 64 位 integer/TValue 批次。
   - 已覆盖：正/负步长边界、跨 32 位边界、`math.maxinteger` / `math.mininteger` 附近、`math.huge` / `-math.huge` limit 饱和、整数和浮点控制变量的类型、低 hotloop JIT trace 下 float 控制变量不被重新窄化、boxed int64 正/负步长热循环可记录并可重复重入 trace、可取整 float limit 归一后跨 32 位边界仍记录为 integer trace、boxed int64 hotloop 不崩溃，以及官方 Lua 5.4.8 `testes/nextvar.lua`。
 
 - [x] Lua 5.4 运算符元方法。

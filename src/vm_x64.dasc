@@ -5291,9 +5291,13 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  mov ITYPEd, eax
     |  mov BASE, L:RB->base
     |  mov RCd, [PC-4]
-    |  shr RCd, 16
     |  cmp ITYPEd, 0
-    |  jl ->vmeta_for
+    |  jge >9
+    |  movzx RAd, RCH
+    |  lea RA, [BASE+RA*8]
+    |  jmp ->vmeta_for
+    |9:
+    |  shr RCd, 16
     if (op == BC_FORI) {
       |  test ITYPEd, ITYPEd
       |  jnz <7

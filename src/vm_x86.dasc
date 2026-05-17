@@ -6143,9 +6143,13 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  mov L:RB, SAVE_L
     |  mov BASE, L:RB->base
     |  mov RC, [PC-4]
-    |  shr RC, 16
     |  cmp TMP1, 0
-    |  jl ->vmeta_for
+    |  jge >9
+    |  movzx RA, RCH
+    |  lea RA, [BASE+RA*8]
+    |  jmp ->vmeta_for
+    |9:
+    |  shr RC, 16
     if (op == BC_FORI) {
       |  cmp TMP1, 0
       |  jnz <7
