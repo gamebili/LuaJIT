@@ -137,6 +137,22 @@ local ok, err = pcall(function()
   end
   expect_exit_failure("exit_1", "1")
   expect_exit_failure("exit_false", "false")
+
+  local exit_close = writefile(note(prefix .. "exit_close.lua"), [[
+local x <close> = setmetatable({}, {
+  __close = function(self, err)
+    assert(err == nil)
+    print("Ok")
+  end
+})
+local e1 <close> = setmetatable({}, {
+  __close = function()
+    print(120)
+  end
+})
+os.exit(true, true)
+]])
+  expect_ok("exit_close", q(exit_close), "120\nOk\n")
 end)
 
 cleanup()
