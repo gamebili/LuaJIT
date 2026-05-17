@@ -118,7 +118,7 @@
   - 当前进展：Lua smoke 已固定 64 位整数字面量边界、`math.tointeger()` 的 `math.mininteger` / `math.maxinteger` / 越界 nil、VM 位运算/整除/比较、`string.pack("j/J")` 默认宽度，以及 `string.format` 的 `maxinteger`/`mininteger` 边界。
   - 已知差异：剩余 C API runtime 边界仍没有完整 Lua 5.4 64 位整数语义。
   - 对照结论：官方 `testes/math.lua` / `testes/bitwise.lua` / `testes/strings.lua` / `testes/tpack.lua` 已能按当前 64-bit boxed integer 配置跑通；剩余风险集中在剩余 C API runtime 边界，以及各目标平台 ABI/artifact 验证，不能再用单个库函数补丁硬凑。
-  - 当前进展：`luaL_Buffer` 的增长尺寸溢出已按官方 Lua 5.4 报运行期错误 `buffer too large`，并由 C API smoke 用自定义 allocator 固定巨大 buffer box 在错误展开时仍通过 `__close` 释放。
+  - 当前进展：`luaL_Buffer` 的增长尺寸溢出已按官方 Lua 5.4 报运行期错误 `buffer too large`，buffer box allocator 失败会以普通运行期错误返回 `not enough memory`，并由 C API smoke 用 strict/custom allocator 固定巨大 buffer box 在错误展开时仍通过 `__close` 释放。
   - 需要补测试：剩余 C API 深边界、ABI/跨平台 runtime 验证；allocator shrink/grow 主路径已有 strict allocator 回归，parser 精确数组收缩等内部特殊路径继续跟踪。
   - 实现重点：需要统一 TValue 表示、数值转换、字符串扫描、格式化、运算符和库函数的整数路径。
 

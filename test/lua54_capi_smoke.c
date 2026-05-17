@@ -1453,8 +1453,11 @@ static void test_state_allocator_api(lua_State *L)
   lua_pushcfunction(T, fail_growing_buffer);
   status = lua_pcall(T, 0, 0, 0);
   strict_fail_ctx.fail_grow = 0;
-  check(L, status == LUA_ERRMEM,
-	"luaL_Buffer failed grow reports memory error");
+  check(L, status == LUA_ERRRUN,
+	"luaL_Buffer failed grow reports runtime error");
+  check(L, lua_tostring(T, -1) != NULL &&
+	   strstr(lua_tostring(T, -1), "not enough memory") != NULL,
+	"luaL_Buffer failed grow error message");
   check(L, strict_fail_ctx.grow_fails > 0 &&
 	   strict_fail_ctx.max_failed_grow_nsize >= strict_fail_big * 2u,
 	"luaL_Buffer failed grow exercises allocator");
