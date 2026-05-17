@@ -734,6 +734,23 @@ static int return_big_buffer(lua_State *L)
   return 1;
 }
 
+static int return_big_addvalue_buffer(lua_State *L)
+{
+  luaL_Buffer src;
+  luaL_Buffer b;
+  size_t big = (size_t)LUAL_BUFFERSIZE * 18u;
+  char *p;
+  luaL_buffinit(L, &src);
+  p = luaL_prepbuffsize(&src, big);
+  memset(p, 'v', big);
+  luaL_pushresultsize(&src, big);
+  luaL_buffinit(L, &b);
+  lua_insert(L, -2);
+  luaL_addvalue(&b);
+  luaL_pushresult(&b);
+  return 1;
+}
+
 static int fail_growing_buffer(lua_State *L)
 {
   luaL_Buffer b;
@@ -1286,6 +1303,7 @@ static void test_state_allocator_api(lua_State *L)
   StrictAllocCtx strict_fail_ctx;
   size_t strict_big = (size_t)LUAL_BUFFERSIZE * 24u;
   size_t strict_fail_big = (size_t)LUAL_BUFFERSIZE * 16u;
+  size_t addvalue_big = (size_t)LUAL_BUFFERSIZE * 18u;
   size_t strict_len = 0;
   const char *strict_str;
   void *ud = NULL;
@@ -1419,6 +1437,24 @@ static void test_state_allocator_api(lua_State *L)
 	   strict_str[0] == 's' && strict_str[strict_big - 1] == 's',
 	"strict allocator luaL_Buffer result");
   lua_pop(T, 1);
+  lua_gc(T, LUA_GCCOLLECT, 0);
+  lua_gc(T, LUA_GCCOLLECT, 0);
+  check(L, !strict_alloc_has_block_at_least(&strict_ctx, addvalue_big),
+	"strict allocator luaL_addvalue starts without large buffer");
+  lua_pushcfunction(T, return_big_addvalue_buffer);
+  status = lua_pcall(T, 0, 1, 0);
+  check(L, status == LUA_OK, "strict allocator luaL_addvalue status");
+  strict_str = lua_tolstring(T, -1, &strict_len);
+  check(L, strict_str != NULL &&
+	   strict_len == addvalue_big &&
+	   strict_str[0] == 'v' &&
+	   strict_str[strict_len - 1] == 'v',
+	"strict allocator luaL_addvalue large result");
+  lua_pop(T, 1);
+  lua_gc(T, LUA_GCCOLLECT, 0);
+  lua_gc(T, LUA_GCCOLLECT, 0);
+  check(L, !strict_alloc_has_block_at_least(&strict_ctx, addvalue_big),
+	"strict allocator luaL_addvalue closes side buffer");
   lua_pushcfunction(T, enable_strict_shrink_fail_alloc);
   lua_setglobal(T, "enable_strict_shrink_fail_alloc");
   lua_pushcfunction(T, strict_fail_once_after_alloc);
