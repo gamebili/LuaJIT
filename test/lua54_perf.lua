@@ -1215,6 +1215,22 @@ local function int64_table_helpers(n)
   return sum
 end
 
+local function int64_numeric_for_helpers(n)
+  local sum = 0
+  for _ = 1, n do
+    local count, last = 0
+    for i = 1099511627776, 1099511627783 do
+      count = count + 1
+      last = i
+    end
+    if count == 8 and last == 1099511627783 and
+       math.type(last) == "integer" then
+      sum = sum + 1
+    end
+  end
+  return sum
+end
+
 local function floor_divmod(n)
   local sum = 0
   for i = 1, n do
@@ -1580,6 +1596,10 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   local _, r_int64_table = timeit(mode_name..":int64_table_helpers",
 				  int64_table_helpers, iter_n)
   assert(r_int64_table == iter_n * 3)
+
+  local _, r_int64_for = timeit(mode_name..":int64_numeric_for",
+				int64_numeric_for_helpers, iter_n)
+  assert(r_int64_for == iter_n)
 
   local t_floor, r_floor = timeit(mode_name..":floor_divmod", floor_divmod, arith_n)
   local t_lua54, r_lua54 = timeit(mode_name..":lua54_divmod", lua54_divmod, arith_n)

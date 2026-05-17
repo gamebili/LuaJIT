@@ -1235,16 +1235,16 @@ do
     assert(n == 3240.0 and math.type(n) == "float")
   end, "Lua 5.4 numeric for string step")
 
-  assert_no_trace(function()
+  assert_records_ir_call(function()
     local n, last = 0
-    for i = 2147483646, 2147483746 do
+    for i = 1099511627776, 1099511627855 do
       n = n + 1
       last = i
-      if n == 6 then break end
     end
-    assert(n == 6 and last == 2147483651 and math.type(last) == "integer")
+    assert(n == 80 and last == 1099511627855 and
+	   math.type(last) == "integer")
     collectgarbage()
-  end, "Lua 5.4 boxed int64 numeric for boundary")
+  end, "Lua 5.4 boxed int64 numeric for trace", "lj_obj_newint64")
 
   assert_records_trace(function()
     local n = 0

@@ -6153,6 +6153,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
       |  ins_next
     } else if (op == BC_JFORI) {
       |  branchPC RD
+      |  movzx RD, PC_RD
       |  cmp TMP1, 0
       |  jnz =>BC_JLOOP
       |  ins_next

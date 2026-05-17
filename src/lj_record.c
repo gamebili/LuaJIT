@@ -675,6 +675,78 @@ static int rec_for_hasi64(cTValue *tv)
   return tvisi64(&tv[FORL_IDX]) || tvisi64(&tv[FORL_STOP]) ||
 	 tvisi64(&tv[FORL_STEP]);
 }
+
+static int rec_for_i64mode(cTValue *tv)
+{
+  return rec_lua54_tv_isinteger(&tv[FORL_IDX]) &&
+	 rec_lua54_tv_isinteger(&tv[FORL_STOP]) &&
+	 rec_lua54_tv_isinteger(&tv[FORL_STEP]) &&
+	 rec_lua54_tv_i64(&tv[FORL_STEP]) > 0;
+}
+
+static LoopEvent rec_for_i64_iter(IROp *op, cTValue *o, int isforl)
+{
+  int64_t idx = rec_lua54_tv_i64(&o[FORL_IDX]);
+  int64_t stop = rec_lua54_tv_i64(&o[FORL_STOP]);
+  int64_t step = rec_lua54_tv_i64(&o[FORL_STEP]);
+  if (isforl)
+    idx = (int64_t)((lua_Unsigned)idx + (lua_Unsigned)step);
+  if (idx <= stop) {
+    *op = IR_LE;
+    return LOOPEV_ENTER;
+  }
+  *op = IR_GT;
+  return LOOPEV_LEAVE;
+}
+
+static TRef rec_for_i64_rawarg(jit_State *J, BCReg slot)
+{
+  return rec_lua54_i64ref(J, getslot(J, slot));
+}
+
+static void rec_for_i64_check(jit_State *J, TRef stop, TRef step)
+{
+  TRef maxv = lj_ir_kint64(J, (uint64_t)LUA_MAXINTEGER);
+  TRef zero = lj_ir_kint64(J, 0);
+  TRef maxstep;
+  emitir(IRTG(IR_GT, IRT_I64), step, zero);
+  maxstep = emitir(IRT(IR_SUB, IRT_I64), maxv, step);
+  emitir(IRTG(IR_LE, IRT_I64), stop, maxstep);
+}
+
+static void rec_for_loop_i64(jit_State *J, const BCIns *fori, ScEvEntry *scev,
+			     int init)
+{
+  BCReg ra = bc_a(*fori);
+  cTValue *tv = &J->L->base[ra];
+  TRef stop, step, idxobj, idx;
+  int64_t rv = rec_lua54_tv_i64(&tv[FORL_IDX]);
+  if (!rec_for_i64mode(tv))
+    lj_trace_err(J, LJ_TRERR_GFAIL);
+  stop = rec_for_i64_rawarg(J, ra+FORL_STOP);
+  step = rec_for_i64_rawarg(J, ra+FORL_STEP);
+  idxobj = getslot(J, ra+FORL_IDX);
+  idx = rec_lua54_i64ref(J, idxobj);
+  rec_for_i64_check(J, stop, step);
+  if (!init) {
+    int64_t istep = rec_lua54_tv_i64(&tv[FORL_STEP]);
+    rv = (int64_t)((lua_Unsigned)rv + (lua_Unsigned)istep);
+    idx = emitir(IRT(IR_ADD, IRT_I64), idx, step);
+    idxobj = rec_lua54_i64result(J, idx, rv);
+    J->base[ra+FORL_IDX] = idxobj;
+  }
+  J->base[ra+FORL_STOP] = getslot(J, ra+FORL_STOP);
+  J->base[ra+FORL_STEP] = getslot(J, ra+FORL_STEP);
+  J->base[ra+FORL_EXT] = idxobj;
+  scev->t.irt = IRT_I64;
+  scev->dir = 1;
+  scev->stop = tref_ref(stop);
+  scev->step = tref_ref(step);
+  scev->start = 0;
+  scev->idx = tref_ref(idx);
+  setmref(scev->pc, fori);
+  J->maxslot = ra+FORL_EXT+1;
+}
 #endif
 
 /* Return the direction of the FOR loop iterator.
@@ -750,8 +822,10 @@ static void rec_for_loop(jit_State *J, const BCIns *fori, ScEvEntry *scev,
   cTValue *tv = &J->L->base[ra];
   TRef idx = J->base[ra+FORL_IDX];
 #if LJ_54 && LJ_DUALNUM
-  if (rec_for_hasi64(tv))
-    lj_trace_err(J, LJ_TRERR_GFAIL);
+  if (rec_for_hasi64(tv)) {
+    rec_for_loop_i64(J, fori, scev, init);
+    return;
+  }
   int intmode = rec_for_lua54_intmode(tv);
   IRType t = idx ? tref_type(idx) :
 	     intmode ? lj_opt_narrow_forl(J, tv) : IRT_NUM;
@@ -811,8 +885,36 @@ static LoopEvent rec_for(jit_State *J, const BCIns *fori, int isforl)
   IRType t;
   /* Avoid semantic mismatches and always failing guards. */
 #if LJ_54 && LJ_DUALNUM
-  if (rec_for_hasi64(tv))
-    lj_trace_err(J, LJ_TRERR_GFAIL);
+  if (rec_for_hasi64(tv)) {
+    TRef stop;
+    ScEvEntry scev;
+    if (!isforl)
+      lj_trace_err(J, LJ_TRERR_GFAIL);
+    rec_for_loop_i64(J, fori, &scev, 0);
+    t = IRT_I64;
+    stop = scev.stop;
+    ev = rec_for_i64_iter(&op, tv, isforl);
+    if (ev == LOOPEV_LEAVE) {
+      J->maxslot = ra+FORL_EXT+1;
+      J->pc = fori+1;
+    } else {
+      J->maxslot = ra;
+      J->pc = fori+bc_j(*fori)+1;
+    }
+    lj_snap_add(J);
+
+    emitir(IRTG(op, t), scev.idx, stop);
+
+    if (ev == LOOPEV_LEAVE) {
+      J->maxslot = ra;
+      J->pc = fori+bc_j(*fori)+1;
+    } else {
+      J->maxslot = ra+FORL_EXT+1;
+      J->pc = fori+1;
+    }
+    J->needsnap = 1;
+    return ev;
+  }
 #endif
   if ((tvisnum(&tv[FORL_IDX]) && tvisnan(&tv[FORL_IDX])) ||
       (tvisnum(&tv[FORL_STOP]) && tvisnan(&tv[FORL_STOP])) ||

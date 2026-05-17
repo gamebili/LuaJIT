@@ -5303,6 +5303,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     } else if (op == BC_JFORI) {
       |  mov RDd, RCd
       |  branchPC RD
+      |  movzx RDd, PC_RD
       |  test ITYPEd, ITYPEd
       |  jnz =>BC_JLOOP
       |  ins_next
