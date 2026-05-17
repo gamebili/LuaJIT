@@ -976,8 +976,9 @@ static void test_parser_allocator_failure(lua_State *L, lua_State *T,
   int limit;
   int saw_load_failure = 0;
   int saw_partial_cleanup = 0;
+  int saw_success_after_failure = 0;
   lua_gc(T, LUA_GCCOLLECT, 0);
-  for (limit = 1; limit <= 48; limit++) {
+  for (limit = 1; limit <= 160; limit++) {
     int before_live = ctx->live_blocks;
     int before_fails = ctx->call_fails;
     int before_frees = ctx->frees;
@@ -994,6 +995,8 @@ static void test_parser_allocator_failure(lua_State *L, lua_State *T,
 	if (load_status == LUA_OK) {
 	  check(L, ctx->call_fails == before_fails,
 		"parser allocator success must not hide allocator failure");
+	  if (saw_load_failure)
+	    saw_success_after_failure = 1;
 	} else {
 	  check(L, load_status == LUA_ERRMEM,
 		"parser allocator failure reports memory error status");
@@ -1026,6 +1029,8 @@ static void test_parser_allocator_failure(lua_State *L, lua_State *T,
   check(L, saw_load_failure, "parser allocator failure exercised");
   check(L, saw_partial_cleanup,
 	"parser partial allocation cleanup exercised");
+  check(L, saw_success_after_failure,
+	"parser allocator failure scan reaches successful load boundary");
 }
 
 static void test_table_allocator_failure(lua_State *L, lua_State *T,
