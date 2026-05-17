@@ -163,6 +163,11 @@ do
 end
 assert(select(1, pcall(error, "lua54 error level", 1.2)) == false)
 do
+  local ok_wide_level, err_wide_level =
+    pcall(error, "lua54 wide level", 1099511627776)
+  assert(ok_wide_level == false and err_wide_level == "lua54 wide level")
+end
+do
   local ok, err = pcall(function() error(101) end)
   assert(ok == false and err == 101)
   local marker = { tag = "lua54-error-object" }
@@ -176,6 +181,11 @@ end
 assert(select(1, pcall(getmetatable)) == false)
 assert(select(1, pcall(select, 1.2, "a", "b")) == false)
 assert(select(1, pcall(select, -1.2, "a", "b")) == false)
+assert(select("#", select(1099511627776, "a", "b")) == 0)
+assert(select("#", select("1099511627776", "a", "b")) == 0)
+assert(select("#", select(math.maxinteger, "a", "b")) == 0)
+ok, err = pcall(select, -1099511627776, "a", "b")
+assert(ok == false and err:match("index out of range") ~= nil)
 do
   local ok, err = pcall(select, 0, "a")
   assert(ok == false and err:find("bad argument #1 to 'select'", 1, true) and
@@ -973,6 +983,7 @@ do
     assert(select(1, pcall(collectgarbage, "step", 1.2)) == false)
     assert(select(1, pcall(collectgarbage, "setpause", 123.5)) == false)
     assert(select(1, pcall(collectgarbage, "setstepmul", 123.5)) == false)
+    assert(select(1, pcall(collectgarbage, "step", 1099511627776)) == true)
     assert(collectgarbage("setpause", "123") == 200)
     assert(collectgarbage("setstepmul", "123") == 100)
     collectgarbage("stop")
@@ -2323,6 +2334,10 @@ do
     local ok, err = pcall(tonumber, "10", 1)
     assert(ok == false and err:find("bad argument #2 to 'tonumber' (base out of range)", 1, true))
     ok, err = pcall(tonumber, "10", 37)
+    assert(ok == false and err:find("bad argument #2 to 'tonumber' (base out of range)", 1, true))
+    ok, err = pcall(tonumber, "10", 1099511627776)
+    assert(ok == false and err:find("bad argument #2 to 'tonumber' (base out of range)", 1, true))
+    ok, err = pcall(tonumber, "10", "1099511627776")
     assert(ok == false and err:find("bad argument #2 to 'tonumber' (base out of range)", 1, true))
   end
   if jit and jit.opt then

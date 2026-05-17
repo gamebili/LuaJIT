@@ -166,8 +166,8 @@ static GCtab *base_checktab_named54(lua_State *L, int narg, const char *fname)
   return tabV(o);
 }
 
-static int32_t base_checkint_named54(lua_State *L, int narg,
-				     const char *fname)
+static lua_Integer base_checkinteger_named54(lua_State *L, int narg,
+					     const char *fname)
 {
   TValue tmp;
   cTValue *o = L->base + narg-1;
@@ -182,10 +182,13 @@ static int32_t base_checkint_named54(lua_State *L, int narg,
   }
   if (tvisint(o))
     return intV(o);
+  if (tvisi64(o))
+    return (lua_Integer)i64V(o);
   if (!tvisnum(o))
     base_argtype_named54(L, narg, fname, "number");
   n = numV(o);
-  if (!(n >= -2147483648.0 && n <= 2147483647.0)) {
+  if (!(n >= (-9223372036854775807.0 - 1.0) &&
+	n < 9223372036854775808.0)) {
     base_argerror_named54(L, narg, fname,
 			  "number has no integer representation");
   }
@@ -194,7 +197,7 @@ static int32_t base_checkint_named54(lua_State *L, int narg,
     base_argerror_named54(L, narg, fname,
 			  "number has no integer representation");
   }
-  return (int32_t)k;
+  return (lua_Integer)k;
 }
 
 static void base_checkoptint_named54(lua_State *L, int narg,
@@ -202,7 +205,7 @@ static void base_checkoptint_named54(lua_State *L, int narg,
 {
   cTValue *o = L->base + narg-1;
   if (o < L->top && !tvisnil(o))
-    (void)base_checkint_named54(L, narg, fname);
+    (void)base_checkinteger_named54(L, narg, fname);
 }
 #endif
 
@@ -665,7 +668,7 @@ LJLIB_CF(select)		LJLIB_REC(.)
     return 1;
   } else {
 #if LJ_54
-    int32_t i = base_checkint_named54(L, 1, "select");
+    lua_Integer i = base_checkinteger_named54(L, 1, "select");
 #else
     int32_t i = lj_lib_checkint(L, 1);
 #endif
@@ -689,7 +692,8 @@ LJLIB_ASM(tonumber)		LJLIB_REC(.)
   ** truncate fractions before the range check.
   */
   int hasbase = (L->base+1 < L->top && !tvisnil(L->base+1));
-  int32_t base = hasbase ? base_checkint_named54(L, 2, "tonumber") : 10;
+  lua_Integer ibase = hasbase ? base_checkinteger_named54(L, 2, "tonumber") : 10;
+  int32_t base = 10;
 #else
   int32_t base = lj_lib_optint(L, 2, 10);
 #endif
@@ -758,8 +762,9 @@ LJLIB_ASM(tonumber)		LJLIB_REC(.)
     unsigned long ul;
 #endif
 #if LJ_54
-    if (base < 2 || base > 36)
+    if (ibase < 2 || ibase > 36)
       base_argerror_named54(L, 2, "tonumber", "base out of range");
+    base = (int32_t)ibase;
 #else
     if (base < 2 || base > 36)
       lj_err_arg(L, 2, LJ_ERR_BASERNG);
@@ -865,8 +870,8 @@ LJLIB_ASM(tostring)		LJLIB_REC(.)
 LJLIB_CF(error)
 {
 #if LJ_54
-  int32_t level = (L->base+1 < L->top && !tvisnil(L->base+1)) ?
-		  base_checkint_named54(L, 2, "error") : 1;
+  lua_Integer level = (L->base+1 < L->top && !tvisnil(L->base+1)) ?
+		      base_checkinteger_named54(L, 2, "error") : 1;
 #else
   int32_t level = lj_lib_optint(L, 2, 1);
 #endif
@@ -878,7 +883,7 @@ LJLIB_CF(error)
       lua_isstring(L, 1) &&
 #endif
       level > 0) {
-    luaL_where(L, level);
+    luaL_where(L, level > 2147483647LL ? 2147483647 : (int)level);
     lua_pushvalue(L, 1);
     lua_concat(L, 2);
   }
@@ -1199,7 +1204,7 @@ LJLIB_CF(collectgarbage)
   if (opt == LUA_GCSTEP || opt == LUA_GCSETPAUSE ||
       opt == LUA_GCSETSTEPMUL) {
     data = (L->base+1 < L->top && !tvisnil(L->base+1)) ?
-	   base_checkint_named54(L, 2, "collectgarbage") : 0;
+	   (int32_t)base_checkinteger_named54(L, 2, "collectgarbage") : 0;
   } else {
     data = 0;
   }
