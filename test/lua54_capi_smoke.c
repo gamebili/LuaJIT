@@ -2430,6 +2430,20 @@ static int arith_string_bnot(lua_State *L)
   return 1;
 }
 
+static int arith_string_add_meta(lua_State *L)
+{
+  (void)L;
+  lua_pushliteral(L, "api-add-meta");
+  return 1;
+}
+
+static int arith_string_idiv_meta(lua_State *L)
+{
+  (void)L;
+  lua_pushliteral(L, "api-idiv-meta");
+  return 1;
+}
+
 static int arith_string_bor_meta(lua_State *L)
 {
   (void)L;
@@ -3851,6 +3865,21 @@ static void test_compare_len_arith(lua_State *L)
 	"lua_arith string float add subtype");
   lua_pop(L, 1);
 
+  lua_pushliteral(L, "");
+  check(L, lua_getmetatable(L, -1) == 1,
+	"lua_arith string add metatable available");
+  lua_pushcfunction(L, arith_string_add_meta);
+  lua_setfield(L, -2, "__add");
+  lua_pushliteral(L, "1");
+  lua_pushinteger(L, 2);
+  lua_arith(L, LUA_OPADD);
+  check_string(L, -1, "api-add-meta",
+	       "lua_arith string add uses string metatable");
+  lua_pop(L, 1);
+  lua_pushnil(L);
+  lua_setfield(L, -2, "__add");
+  lua_pop(L, 2);
+
   lua_pushinteger(L, 5);
   lua_pushinteger(L, 2);
   lua_arith(L, LUA_OPMOD);
@@ -3863,6 +3892,21 @@ static void test_compare_len_arith(lua_State *L)
   lua_arith(L, LUA_OPIDIV);
   check_integer(L, -1, 2, "lua_arith idiv");
   lua_pop(L, 1);
+
+  lua_pushliteral(L, "");
+  check(L, lua_getmetatable(L, -1) == 1,
+	"lua_arith string idiv metatable available");
+  lua_pushcfunction(L, arith_string_idiv_meta);
+  lua_setfield(L, -2, "__idiv");
+  lua_pushliteral(L, "7");
+  lua_pushinteger(L, 3);
+  lua_arith(L, LUA_OPIDIV);
+  check_string(L, -1, "api-idiv-meta",
+	       "lua_arith string idiv uses string metatable");
+  lua_pop(L, 1);
+  lua_pushnil(L);
+  lua_setfield(L, -2, "__idiv");
+  lua_pop(L, 2);
 
   lua_pushinteger(L, 2);
   lua_pushinteger(L, 3);

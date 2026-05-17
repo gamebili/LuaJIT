@@ -1753,6 +1753,15 @@ LUA_API void lua_arith(lua_State *L, int op)
   res = L->top - (unary ? 1 : 2);
   a = res;
   b = unary ? res : res+1;
+#if LJ_54
+  if (tvisstr(a) || (!unary && tvisstr(b))) {
+    mo = api_arith_meta(L, a, b, op, unary);
+    if (mo) {
+      api_call_arith_meta(L, res, a, b, mo);
+      return;
+    }
+  }
+#endif
   if (api_rawarith(L, res, a, b, op)) {
     if (!unary)
       L->top--;
