@@ -283,7 +283,7 @@ static size_t newbuffsize(luaL_Buffer *B, size_t sz)
 {
   size_t newsize = (B->size / 2) * 3;
   if (((size_t)~(size_t)0) - sz < B->n)
-    lj_err_mem(B->L);
+    luaL_error(B->L, "buffer too large");
   if (newsize < B->n + sz)
     newsize = B->n + sz;
   return newsize;

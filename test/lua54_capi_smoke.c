@@ -342,6 +342,17 @@ typedef struct ShrinkFailAllocCtx {
   size_t max_failed_shrink_osize;
 } ShrinkFailAllocCtx;
 
+typedef struct FakeHugeAllocCtx {
+  lua_Alloc oldf;
+  void *oldud;
+  size_t fake_threshold;
+  size_t fake_size;
+  int fake_allocs;
+  int fake_frees;
+  int fake_reallocs;
+  char fake_block;
+} FakeHugeAllocCtx;
+
 typedef struct StrictAllocBlock {
   void *ptr;
   size_t size;
@@ -575,6 +586,28 @@ static void *shrink_fail_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
   return realloc(ptr, nsize);
 }
 
+static void *fake_huge_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
+{
+  FakeHugeAllocCtx *ctx = (FakeHugeAllocCtx *)ud;
+  void *fake = (void *)&ctx->fake_block;
+  if (ptr == fake) {
+    if (nsize == 0) {
+      ctx->fake_frees++;
+      return NULL;
+    }
+    ctx->fake_reallocs++;
+    ctx->fake_size = nsize;
+    return fake;
+  }
+  if (ptr == NULL && nsize >= ctx->fake_threshold) {
+    ctx->fake_allocs++;
+    ctx->fake_size = nsize;
+    (void)osize;
+    return fake;
+  }
+  return ctx->oldf(ctx->oldud, ptr, osize, nsize);
+}
+
 static int strict_alloc_find(StrictAllocCtx *ctx, void *ptr)
 {
   int i;
@@ -764,6 +797,17 @@ static int fail_growing_buffer(lua_State *L)
   memset(p, 'u', big);
   luaL_pushresultsize(&b, big);
   return 1;
+}
+
+static int overflow_laux_buffer(lua_State *L)
+{
+  luaL_Buffer b;
+  size_t huge = ~(size_t)0 - 63u;
+  luaL_buffinit(L, &b);
+  (void)luaL_prepbuffsize(&b, huge);
+  luaL_addsize(&b, huge);
+  (void)luaL_prepbuffsize(&b, 128u);
+  return 0;
 }
 
 static void test_newstate_allocator_failure(lua_State *L)
@@ -4502,6 +4546,32 @@ static void test_upvalue_api54(lua_State *L)
   check(L, lua_gettop(L) == top, "upvalue api restores stack");
 }
 
+static void test_lauxlib_buffer_too_large(lua_State *L)
+{
+  FakeHugeAllocCtx ctx;
+  lua_State *T;
+  int status;
+  memset(&ctx, 0, sizeof(ctx));
+  T = luaL_newstate();
+  check(L, T != NULL, "luaL_Buffer overflow state");
+  ctx.oldf = lua_getallocf(T, &ctx.oldud);
+  ctx.fake_threshold = ~(size_t)0 / 2u;
+  lua_setallocf(T, fake_huge_alloc, &ctx);
+  lua_pushcfunction(T, overflow_laux_buffer);
+  status = lua_pcall(T, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_Buffer overflow status");
+  check(L, lua_tostring(T, -1) != NULL &&
+	   strstr(lua_tostring(T, -1), "buffer too large") != NULL,
+	"luaL_Buffer overflow error");
+  lua_pop(T, 1);
+  lua_close(T);
+  check(L, ctx.fake_allocs == 1, "luaL_Buffer overflow fake allocation");
+  check(L, ctx.fake_frees == 1, "luaL_Buffer overflow closes fake box");
+  check(L, ctx.fake_reallocs == 0, "luaL_Buffer overflow avoids fake grow");
+  check(L, ctx.fake_size >= ctx.fake_threshold,
+	"luaL_Buffer overflow exercised huge allocation");
+}
+
 static void test_lauxlib_api(lua_State *L)
 {
   luaL_Buffer b;
@@ -5385,6 +5455,8 @@ static void test_lauxlib_api(lua_State *L)
 	  "luaL_buffinitsize big result bytes");
     lua_pop(L, 1);
   }
+
+  test_lauxlib_buffer_too_large(L);
 
   luaL_buffinit(L, &b);
   luaL_addgsub(&b, "a?$?", "?", "Lua54");
