@@ -393,6 +393,44 @@ do
 end
 
 do
+  local k1 = 1099511627776
+  local k2 = k1 + 1
+  local keys = {}
+  for i = 1, 80 do keys[i] = (i % 2 == 0) and k1 or k2 end
+  local t = { [k1] = 11, [k2] = 13 }
+  assert(math.type(k1) == "integer" and math.type(k2) == "integer")
+
+  assert_records_trace(function()
+    local n = 0
+    for i = 1, 80 do
+      n = n + t[keys[i]]
+    end
+    assert(n == 960)
+  end, "Lua 5.4 boxed int64 table load")
+
+  assert_records_trace(function()
+    for i = 1, 80 do
+      t[keys[i]] = i
+    end
+  end, "Lua 5.4 boxed int64 table store")
+  assert(t[k1] == 80 and t[k2] == 79)
+
+  assert_records_trace(function()
+    local seen, sum = 0, 0
+    for _ = 1, 80 do
+      for k, v in pairs(t) do
+	assert(math.type(k) == "integer")
+	if k == k1 or k == k2 then
+	  seen = seen + 1
+	  sum = sum + v
+	end
+      end
+    end
+    assert(seen == 160 and sum == 12720)
+  end, "Lua 5.4 boxed int64 pairs")
+end
+
+do
   local t = setmetatable({ 1 }, {
     __index = function(_, k)
       if k <= 80 then return k end

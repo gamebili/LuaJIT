@@ -1108,6 +1108,16 @@ for i = 1, 256 do
   assert(a == b and string.format("%p", a) ~= string.format("%p", b))
   long_string_eq_pairs[i] = { a, b }
 end
+local int64_key_a = 1099511627776
+local int64_key_b = int64_key_a + 1
+assert(math.type(int64_key_a) == "integer" and
+       math.type(int64_key_b) == "integer")
+local int64_keys = {}
+for i = 1, 128 do
+  int64_keys[i] = (i % 2 == 0) and int64_key_a or int64_key_b
+end
+local int64_table = { [int64_key_a] = 23, [int64_key_b] = 29 }
+local int64_store_table = { [int64_key_a] = 0, [int64_key_b] = 0 }
 
 local function long_string_equality_helpers(n)
   local sum = 0
@@ -1181,6 +1191,26 @@ local function long_string_table_new_gc_store_helpers(n)
     if t[key] == long_string_new_gc_value then
       sum = sum + 1
     end
+  end
+  return sum
+end
+
+local function int64_table_helpers(n)
+  local sum = 0
+  for i = 1, n do
+    local key = int64_keys[((i - 1) % 128) + 1]
+    local expected = key == int64_key_a and 23 or 29
+    if int64_table[key] == expected then sum = sum + 1 end
+    int64_store_table[key] = i
+    if int64_store_table[key] == i then sum = sum + 1 end
+    local seen = 0
+    for k in pairs(int64_store_table) do
+      if math.type(k) == "integer" and
+	 (k == int64_key_a or k == int64_key_b) then
+	seen = seen + 1
+      end
+    end
+    if seen == 2 then sum = sum + 1 end
   end
   return sum
 end
@@ -1546,6 +1576,10 @@ local function run_suite(mode_name, enable_jit, opt_flags)
     timeit(mode_name..":long_string_table_new_gc_store",
 	   long_string_table_new_gc_store_helpers, iter_n)
   assert(r_long_string_new_gc_store == iter_n)
+
+  local _, r_int64_table = timeit(mode_name..":int64_table_helpers",
+				  int64_table_helpers, iter_n)
+  assert(r_int64_table == iter_n * 3)
 
   local t_floor, r_floor = timeit(mode_name..":floor_divmod", floor_divmod, arith_n)
   local t_lua54, r_lua54 = timeit(mode_name..":lua54_divmod", lua54_divmod, arith_n)
