@@ -4478,7 +4478,9 @@ static void test_compare_len_arith(lua_State *L)
 
 static void test_uservalue_api(lua_State *L)
 {
+  int status;
   int top;
+  int udidx;
   void *alias_ud;
   void *ud = lua_newuserdatauv(L, 4, 2);
   check(L, ud != NULL, "lua_newuserdatauv");
@@ -4520,6 +4522,49 @@ static void test_uservalue_api(lua_State *L)
 	"lua_getuservalue alias type");
   check_string(L, -1, "uv-alias", "lua_getuservalue alias value");
   lua_pop(L, 2);
+
+  udidx = lua_gettop(L);
+  status = luaL_dostring(L, "if jit then jit.off(); jit.flush() end");
+  check(L, status == LUA_OK, "userdata GC barrier JIT-off setup");
+  lua_gc(L, LUA_GCGEN, 1, 1000);
+  lua_gc(L, LUA_GCCOLLECT);
+  lua_gc(L, LUA_GCCOLLECT);
+
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushinteger(L, 73);
+  lua_setfield(L, -2, "value");
+  lua_setfield(L, -2, "child");
+  check(L, lua_setiuservalue(L, udidx, 2) == 1,
+	"lua_setiuservalue generational young graph");
+  lua_gc(L, LUA_GCSTEP, 0);
+  lua_gc(L, LUA_GCSTEP, 0);
+  check(L, lua_getiuservalue(L, udidx, 2) == LUA_TTABLE,
+	"lua_getiuservalue keeps generational graph root");
+  lua_getfield(L, -1, "child");
+  lua_getfield(L, -1, "value");
+  check_integer(L, -1, 73, "lua_setiuservalue keeps generational child");
+  lua_pop(L, 3);
+
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushinteger(L, 91);
+  lua_setfield(L, -2, "value");
+  lua_setfield(L, -2, "child");
+  check(L, lua_setmetatable(L, udidx) == 1,
+	"lua_setmetatable generational young graph");
+  lua_gc(L, LUA_GCSTEP, 0);
+  lua_gc(L, LUA_GCSTEP, 0);
+  check(L, lua_getmetatable(L, udidx) == 1,
+	"lua_getmetatable keeps generational graph root");
+  lua_getfield(L, -1, "child");
+  lua_getfield(L, -1, "value");
+  check_integer(L, -1, 91, "lua_setmetatable keeps generational child");
+  lua_pop(L, 3);
+
+  lua_gc(L, LUA_GCINC, 0, 0, 0);
+  status = luaL_dostring(L, "if jit then jit.on() end");
+  check(L, status == LUA_OK, "userdata GC barrier JIT restore");
 
   lua_getglobal(L, "debug");
   lua_getfield(L, -1, "getuservalue");
