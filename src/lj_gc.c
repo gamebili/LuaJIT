@@ -51,6 +51,15 @@ static GCSize gc_gen_threshold54(global_State *g)
   return g->gc.total + minor;
 }
 
+static int gc_gen_needmajor54(global_State *g)
+{
+  GCSize majorbase = g->gc.estimate;
+  GCSize majorinc = (majorbase / 100) * g->gc_genmajormul54;
+  if (majorinc > LJ_MAX_MEM - majorbase)
+    return 0;
+  return g->gc.total > majorbase + majorinc;
+}
+
 static void gc_gen_blacken_old54(global_State *g, GCobj *o)
 {
   setgcage(o, LJ_GC_AGE_OLD);
@@ -1181,7 +1190,6 @@ static void gc_gen_minor54(lua_State *L)
 {
   global_State *g = G(L);
   MSize i;
-  GCSize old = g->gc.total;
   lj_assertG(g->gc_mode54 && g->gc_genactive54,
 	     "bad state for generational minor collection");
   gc_gen_revisit_old54(g);
@@ -1192,8 +1200,6 @@ static void gc_gen_minor54(lua_State *L)
   gc_sweepgen54(L, g, &g->gc.root);
   gc_correctgraygen54(g);
   setgcrefnull(g->gc.weak);
-  if (old >= g->gc.total && g->gc.estimate > old - g->gc.total)
-    g->gc.estimate -= old - g->gc.total;
   while (gcref(g->gc.mmudata) != NULL)
     gc_finalize(L);
   g->gc.state = GCSpropagate;
@@ -1216,14 +1222,21 @@ int LJ_FASTCALL lj_gc_step(lua_State *L)
 #if LJ_54
   if (g->gc_mode54 && g->gc_genactive54) {
     if (g->gc.fin_check == 0 && gc_gen_canminor54(g)) {
-      if (tvref(g->jit_base)) {
-	g->gc.threshold = g->gc.total + stepsize;
+      if (gc_gen_needmajor54(g)) {
+	lj_gc_gen_whitelist54(g);
+	lj_gc_fullgc(L);
 	g->vmstate = ostate;
-	return -1;
+	return 1;
+      } else {
+	if (tvref(g->jit_base)) {
+	  g->gc.threshold = g->gc.total + stepsize;
+	  g->vmstate = ostate;
+	  return -1;
+	}
+	gc_gen_minor54(L);
+	g->vmstate = ostate;
+	return 1;
       }
-      gc_gen_minor54(L);
-      g->vmstate = ostate;
-      return 1;
     }
     lj_gc_gen_whitelist54(g);
   }

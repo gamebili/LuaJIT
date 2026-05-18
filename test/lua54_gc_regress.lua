@@ -92,6 +92,21 @@ do
   collectgarbage("collect")
   assert(weak.old == nil, "full major collection must clear old weak values")
 
+  collectgarbage("generational", 1, 1)
+  weak = setmetatable({}, { __mode = "v" })
+  old = {}
+  weak.old = old
+  collectgarbage("collect")
+  collectgarbage("collect")
+  old = nil
+  for _ = 1, 1000 do
+    local _ = { "major", {} }
+    collectgarbage("step", 1)
+    if weak.old == nil then break end
+  end
+  assert(weak.old == nil,
+    "generational major threshold must collect old weak values")
+
   if jitmod then
     jitmod.on()
   end

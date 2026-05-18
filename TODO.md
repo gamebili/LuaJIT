@@ -259,7 +259,7 @@
   - 当前进展：Lua 5.4 兼容构建已为 GC 对象头增加独立 `age` 字段和 `new/survival/old0/old1/old/touched1/touched2` 宏，避免挤占 LuaJIT `marked` 位和 cdata 高位，为真正分代链表与 barrier 演进做结构准备。
   - 当前进展：generational 模式下 full cycle 完成后会扫描 root、finalizer 队列和字符串表，把存活对象 age 归为 `old`，建立后续 young/survival/old1 演进所需的 major baseline。
   - 当前进展：generational major baseline 已开始维护颜色语义：存活对象进入 `old` 后保持 black，线程留在 `grayagain` 监视列表，后续调度使用 minor multiplier；切回 incremental 或开始下一轮 full-major 近似收集前会 whitelist 全量对象并清理 generational gray/weak 列表。
-  - 当前进展：generational 自动触发已从“每次 full-major 近似”推进到 young/minor 收集闭环：JIT 关闭且无 trace 对象时，minor 会重访 `old1` / `touched1` / `touched2` 对象和被监视线程，只释放未标记 young 对象，并按 `new -> survival -> old1 -> old`、`touched1 -> touched2 -> old` 推进 age；JIT 开启或存在 trace 对象时仍保守走 major 路径，避免 trace 生命周期和 minor sweep 混用。
+  - 当前进展：generational 自动触发已从“每次 full-major 近似”推进到 young/minor 收集闭环：JIT 关闭且无 trace 对象时，minor 会重访 `old1` / `touched1` / `touched2` 对象和被监视线程，只释放未标记 young 对象，并按 `new -> survival -> old1 -> old`、`touched1 -> touched2 -> old` 推进 age；minor 调度保留上次 major 后的 estimate，并在内存超过 `genmajormul` 增长阈值时回到 major 路径；JIT 开启或存在 trace 对象时仍保守走 major 路径，避免 trace 生命周期和 minor sweep 混用。
   - 当前进展：LuaJIT 写屏障已开始维护 Lua 5.4 age：old 非 table 对象 forward barrier 指向 young 对象时会把目标推进到 `old0`，old table backward barrier 会把 table 推进到 `touched1`。
   - 当前进展：Lua 5.4 兼容构建的公开初始 `stepmul` 已对齐 Lua 5.4，`collectgarbage("setstepmul", n)` 首次返回 `100`；默认 LuaJIT 构建仍保留原 `LUAI_GCMUL`。
   - 当前进展：经本机 Lua 5.4.8 对照，`collectgarbage("minor")` / `"major"` 不是官方有效选项，当前 invalid option 行为已进入 smoke。
