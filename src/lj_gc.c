@@ -729,18 +729,11 @@ static void gc_gen_revisit_mmudata54(global_State *g)
 
 static void gc_gen_revisit_old54(global_State *g)
 {
-  MSize i;
   if (gcref(g->gc.gray) != NULL)
     gc_propagate_gray(g);
   setgcrefnull(g->gc.gray);
   gc_gen_revisit_chain54(g, gcref(g->gc.root));
   gc_gen_revisit_mmudata54(g);
-  if (g->str.tab) {
-    for (i = g->str.mask; i != ~(MSize)0; i--) {
-      GCobj *o = (GCobj *)(gcrefu(g->str.tab[i]) & ~(uintptr_t)1);
-      gc_gen_revisit_chain54(g, o);
-    }
-  }
 }
 
 static int gc_gen_hastrace54(global_State *g)
