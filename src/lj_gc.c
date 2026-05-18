@@ -35,6 +35,8 @@
 #define GCFINALIZECOST	100
 
 #if LJ_54
+static size_t gc_propagate_gray(global_State *g);
+
 static GCSize gc_stepsize54(global_State *g)
 {
   MSize bits = g->gc_stepsize54;
@@ -728,6 +730,8 @@ static void gc_gen_revisit_mmudata54(global_State *g)
 static void gc_gen_revisit_old54(global_State *g)
 {
   MSize i;
+  if (gcref(g->gc.gray) != NULL)
+    gc_propagate_gray(g);
   setgcrefnull(g->gc.gray);
   gc_gen_revisit_chain54(g, gcref(g->gc.root));
   gc_gen_revisit_mmudata54(g);
@@ -1373,10 +1377,19 @@ void LJ_FASTCALL lj_gc_barrieruv(global_State *g, TValue *tv)
 {
 #define TV2MARKED(x) \
   (*((uint8_t *)(x) - offsetof(GCupval, tv) + offsetof(GCupval, marked)))
-  if (g->gc.state == GCSpropagate || g->gc.state == GCSatomic)
-    gc_mark(g, gcV(tv));
+#define TV2UPVAL(x) \
+  ((GCupval *)((uint8_t *)(x) - offsetof(GCupval, tv)))
+  if (g->gc.state == GCSpropagate || g->gc.state == GCSatomic) {
+    GCobj *v = gcV(tv);
+    gc_mark(g, v);
+#if LJ_54
+    if (g->gc_mode54 && isoldgc(obj2gco(TV2UPVAL(tv))) && !isoldgc(v))
+      setgcage(v, LJ_GC_AGE_OLD0);
+#endif
+  }
   else
     TV2MARKED(tv) = (TV2MARKED(tv) & (uint8_t)~LJ_GC_COLORS) | curwhite(g);
+#undef TV2UPVAL
 #undef TV2MARKED
 }
 

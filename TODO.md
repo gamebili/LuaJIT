@@ -261,6 +261,7 @@
   - 当前进展：generational major baseline 已开始维护颜色语义：存活对象进入 `old` 后保持 black，线程留在 `grayagain` 监视列表，后续调度使用 minor multiplier；切回 incremental 或开始下一轮 full-major 近似收集前会 whitelist 全量对象并清理 generational gray/weak 列表。
   - 当前进展：generational 自动触发和手动 `step` 已从“每次 full-major 近似”推进到 young/minor 收集闭环：JIT 关闭且无 trace 对象时，minor 会重访 `old1` / `touched1` / `touched2` 对象和被监视线程，只释放未标记 young 对象，并按 `new -> survival -> old1 -> old`、`touched1 -> touched2 -> old` 推进 age；manual `step(0)` 不再退化成 full-major，返回值按 Lua 5.4 generational 表面保持 false；`touched2` 对象再次 barrier 时只改回 gray/`touched1`，不重复挂入 `grayagain`，all-weak old table 的 minor 清理已对齐官方 `gengc.lua`；minor 调度保留上次 major 后的 estimate，并在内存超过 `genmajormul` 增长阈值时回到 major 路径；JIT 开启或存在 trace 对象时仍保守走 major 路径，避免 trace 生命周期和 minor sweep 混用。
   - 当前进展：JIT 开启时，手动 generational `step` 会直接执行一次保守 full-major 并仍返回 Lua 5.4 generational 表面的 false，避免只推进半截 incremental step 导致 weak table 清理不完整。
+  - 当前进展：generational minor 开始前会先传播写屏障已经挂入 `gray` 的新对象图；closed upvalue 写入 young 对象时会把目标提升为 `old0`，修复 old closed upvalue 持有 young table graph 后下一轮 minor 释放子对象的问题。
   - 当前进展：LuaJIT 写屏障已开始维护 Lua 5.4 age：old 非 table 对象 forward barrier 指向 young 对象时会把目标推进到 `old0`，old table backward barrier 会把 table 推进到 `touched1`。
   - 当前进展：Lua 5.4 兼容构建的公开初始 `stepmul` 已对齐 Lua 5.4，`collectgarbage("setstepmul", n)` 首次返回 `100`；默认 LuaJIT 构建仍保留原 `LUAI_GCMUL`。
   - 当前进展：经本机 Lua 5.4.8 对照，`collectgarbage("minor")` / `"major"` 不是官方有效选项，当前 invalid option 行为已进入 smoke。
@@ -268,7 +269,7 @@
   - 当前进展：`step` / `setpause` / `setstepmul` 的第二参数已拒绝无整数表示的 number，仍接受字符串数字。
   - 当前进展：`generational(minormul, majormul)` / `incremental(pause, stepmul, stepsize)` 的可选整数参数已按官方 Lua 5.4.8 做类型和整数表示校验；`incremental` 会同步更新公开 `pause` / `stepmul` 配置，`generational` 会在进入模式前保存 minor/major 配置供后续分代调度使用；多余参数保持忽略，`__gc` finalizer 内合法 mode 调用仍返回 `nil`，非法可选参数仍会先报错。
   - 当前进展：Lua 5.4 C API 的 `lua_gc()` 在 `__gc` finalizer 内会按官方规则对所有 option 返回 `-1`，避免 C finalizer 重入驱动 collector。
-  - 当前进展：`incremental(..., stepsize)` 保存的 Lua 5.4 step-size 参数已接入 LuaJIT 兼容构建的实际 GC step 粒度；默认使用 Lua 5.4 的 `13`（8KB）调度基数，非 5.4 构建保留旧 LuaJIT `GCSTEPSIZE`；incremental 模式下 `collectgarbage("step", 0)` 已改为不消费旧 debt 的单次 basic step，generational 模式下仍以完整收集近似一次 young collection，避免在真正 age/list 分代落地前漏收。
+  - 当前进展：`incremental(..., stepsize)` 保存的 Lua 5.4 step-size 参数已接入 LuaJIT 兼容构建的实际 GC step 粒度；默认使用 Lua 5.4 的 `13`（8KB）调度基数，非 5.4 构建保留旧 LuaJIT `GCSTEPSIZE`；incremental 模式下 `collectgarbage("step", 0)` 已改为不消费旧 debt 的单次 basic step；generational 模式在 JIT 关闭且无 trace 对象时走 minor step，JIT 开启或存在 trace 对象时仍保守走 major。
   - 当前进展：无调参 GC 命令的多余参数已按官方 Lua 5.4.8 忽略，覆盖默认 `collectgarbage(nil, extra)` 以及 `"count"` / `"collect"` / `"stop"` / `"restart"` / `"isrunning"`；`step` / `setpause` / `setstepmul` 仍只校验其第 2 个可选整数参数，mode 命令仍只校验官方定义的可选整数参数。
   - 已覆盖：`generational`/`incremental` 参数和旧模式返回、mode 可选整数/字符串整数参数、mode 可选参数 fraction/boolean 错误、finalizer 内 mode 可选参数错误、`minor`/`major` invalid option、`setpause` 初始返回 `200`、`setstepmul` 初始返回 `100`，以及负数、非 4 对齐值、超过 1000、fraction number、string number 的参数边界。
   - 实现重点：如果不重做 GC，至少要明确哪些行为是 shim，哪些行为可以做到语义兼容。

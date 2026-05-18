@@ -137,6 +137,28 @@ do
   assert(weak.old == nil,
     "generational major threshold must collect old weak values")
 
+  do
+    local setter, getter
+    do
+      local x
+      function setter(v) x = v end
+      function getter() return x end
+    end
+    collectgarbage("generational", 1, 1000)
+    collectgarbage("collect")
+    collectgarbage("collect")
+    local child = { value = 42 }
+    local young = { child = child }
+    setter(young)
+    young = nil
+    child = nil
+    collectgarbage("step", 0)
+    collectgarbage("step", 0)
+    local got = getter()
+    assert(got and got.child and got.child.value == 42,
+      "old closed upvalue barrier must keep young object graph")
+  end
+
   if jitmod then
     jitmod.on()
   end
