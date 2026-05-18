@@ -668,6 +668,180 @@ static void gc_sweepstr(global_State *g, GCRef *chain)
   setgcrefp(*chain, (gcrefu(q) | (u & 1)));
 }
 
+#if LJ_54
+static int gc_gen_revisit_age54(GCobj *o)
+{
+  uint8_t age = gcage(o);
+  return age == LJ_GC_AGE_OLD1 || age == LJ_GC_AGE_TOUCHED1 ||
+	 age == LJ_GC_AGE_TOUCHED2;
+}
+
+static int gc_gen_has_gclist54(GCobj *o)
+{
+  int gct = o->gch.gct;
+  return gct == ~LJ_TTAB || gct == ~LJ_TFUNC || gct == ~LJ_TTHREAD ||
+	 gct == ~LJ_TPROTO ||
+#if LJ_HASJIT
+	 gct == ~LJ_TTRACE ||
+#endif
+	 0;
+}
+
+static void gc_gen_revisit_obj54(global_State *g, GCobj *o)
+{
+  if (gc_gen_revisit_age54(o) && gc_gen_has_gclist54(o) && isblack(o)) {
+    o->gch.marked &= (uint8_t)~LJ_GC_BLACK;
+    setgcrefr(o->gch.gclist, g->gc.gray);
+    setgcref(g->gc.gray, o);
+  }
+}
+
+static void gc_gen_revisit_chain54(global_State *g, GCobj *o)
+{
+  while (o) {
+    gc_gen_revisit_obj54(g, o);
+    o = gcnext(o);
+  }
+}
+
+static void gc_gen_revisit_mmudata54(global_State *g)
+{
+  GCobj *root = gcref(g->gc.mmudata);
+  GCobj *o = root;
+  if (o) {
+    do {
+      gc_gen_revisit_obj54(g, o);
+      o = gcnext(o);
+    } while (o != root);
+  }
+}
+
+static void gc_gen_revisit_old54(global_State *g)
+{
+  MSize i;
+  setgcrefnull(g->gc.gray);
+  gc_gen_revisit_chain54(g, gcref(g->gc.root));
+  gc_gen_revisit_mmudata54(g);
+  if (g->str.tab) {
+    for (i = g->str.mask; i != ~(MSize)0; i--) {
+      GCobj *o = (GCobj *)(gcrefu(g->str.tab[i]) & ~(uintptr_t)1);
+      gc_gen_revisit_chain54(g, o);
+    }
+  }
+}
+
+static int gc_gen_hastrace54(global_State *g)
+{
+#if LJ_HASJIT
+  GCobj *o = gcref(g->gc.root);
+  while (o) {
+    if (o->gch.gct == ~LJ_TTRACE)
+      return 1;
+    o = gcnext(o);
+  }
+#else
+  UNUSED(g);
+#endif
+  return 0;
+}
+
+static int gc_gen_canminor54(global_State *g)
+{
+#if LJ_HASJIT
+  if (G2J(g)->flags & JIT_F_ON)
+    return 0;
+#endif
+  return !gc_gen_hastrace54(g);
+}
+
+static void gc_gen_keepblack54(GCobj *o)
+{
+  if (o->gch.gct != ~LJ_TTHREAD)
+    o->gch.marked = (uint8_t)((o->gch.marked & (uint8_t)~LJ_GC_COLORS) |
+			      LJ_GC_BLACK);
+}
+
+static void gc_gen_age_survivor54(global_State *g, GCobj *o)
+{
+  switch (gcage(o)) {
+  case LJ_GC_AGE_NEW:
+    setgcage(o, LJ_GC_AGE_SURVIVAL);
+    makewhite(g, o);
+    break;
+  case LJ_GC_AGE_SURVIVAL:
+  case LJ_GC_AGE_OLD0:
+    setgcage(o, LJ_GC_AGE_OLD1);
+    gc_gen_keepblack54(o);
+    break;
+  case LJ_GC_AGE_OLD1:
+    setgcage(o, LJ_GC_AGE_OLD);
+    gc_gen_keepblack54(o);
+    break;
+  case LJ_GC_AGE_TOUCHED1:
+    setgcage(o, LJ_GC_AGE_TOUCHED2);
+    gc_gen_keepblack54(o);
+    break;
+  case LJ_GC_AGE_TOUCHED2:
+    setgcage(o, LJ_GC_AGE_OLD);
+    gc_gen_keepblack54(o);
+    break;
+  default:
+    gc_gen_keepblack54(o);
+    break;
+  }
+}
+
+static GCRef *gc_sweepgen54(lua_State *L, global_State *g, GCRef *p)
+{
+  GCobj *o;
+  while ((o = gcref(*p)) != NULL) {
+    if (o->gch.gct == ~LJ_TTHREAD)
+      gc_sweepgen54(L, g, &gco2th(o)->openupval);
+    if (iswhite(o) && !isoldgc(o) && !(o->gch.marked & LJ_GC_FIXED)) {
+      setgcrefr(*p, o->gch.nextgc);
+      if (o == gcref(g->gc.root))
+	setgcrefr(g->gc.root, o->gch.nextgc);
+      gc_freefunc[o->gch.gct - ~LJ_TSTR](g, o);
+    } else {
+      gc_gen_age_survivor54(g, o);
+      p = &o->gch.nextgc;
+    }
+  }
+  return p;
+}
+
+static void gc_sweepstrgen54(global_State *g, GCRef *chain)
+{
+  uintptr_t u = gcrefu(*chain);
+  GCRef q;
+  GCRef *p = &q;
+  GCobj *o;
+  setgcrefp(q, (u & ~(uintptr_t)1));
+  while ((o = gcref(*p)) != NULL) {
+    if (iswhite(o) && !isoldgc(o) && !(o->gch.marked & LJ_GC_FIXED)) {
+      setgcrefr(*p, o->gch.nextgc);
+      lj_str_free(g, gco2str(o));
+    } else {
+      gc_gen_age_survivor54(g, o);
+      p = &o->gch.nextgc;
+    }
+  }
+  setgcrefp(*chain, (gcrefu(q) | (u & 1)));
+}
+
+static void gc_correctgraygen54(global_State *g)
+{
+  GCRef *p = &g->gc.grayagain;
+  GCobj *o;
+  while ((o = gcref(*p)) != NULL) {
+    if (iswhite(o))
+      setgcrefr(*p, o->gch.gclist);
+    else
+      p = &o->gch.gclist;
+  }
+}
+#endif
+
 /* Check whether we can clear a key or a value slot from a table. */
 static int gc_mayclear(global_State *g, cTValue *o, int val)
 {
@@ -1002,6 +1176,31 @@ static size_t gc_onestep(lua_State *L)
   }
 }
 
+#if LJ_54
+static void gc_gen_minor54(lua_State *L)
+{
+  global_State *g = G(L);
+  MSize i;
+  GCSize old = g->gc.total;
+  lj_assertG(g->gc_mode54 && g->gc_genactive54,
+	     "bad state for generational minor collection");
+  gc_gen_revisit_old54(g);
+  g->gc.state = GCSatomic;
+  atomic(g, L);
+  for (i = g->str.mask; i != ~(MSize)0; i--)
+    gc_sweepstrgen54(g, &g->str.tab[i]);
+  gc_sweepgen54(L, g, &g->gc.root);
+  gc_correctgraygen54(g);
+  setgcrefnull(g->gc.weak);
+  if (old >= g->gc.total && g->gc.estimate > old - g->gc.total)
+    g->gc.estimate -= old - g->gc.total;
+  while (gcref(g->gc.mmudata) != NULL)
+    gc_finalize(L);
+  g->gc.state = GCSpropagate;
+  g->gc.threshold = gc_gen_threshold54(g);
+}
+#endif
+
 /* Perform a limited amount of incremental GC steps. */
 int LJ_FASTCALL lj_gc_step(lua_State *L)
 {
@@ -1015,8 +1214,19 @@ int LJ_FASTCALL lj_gc_step(lua_State *L)
   int32_t ostate = g->vmstate;
   setvmstate(g, GC);
 #if LJ_54
-  if (g->gc_mode54 && g->gc_genactive54)
+  if (g->gc_mode54 && g->gc_genactive54) {
+    if (g->gc.fin_check == 0 && gc_gen_canminor54(g)) {
+      if (tvref(g->jit_base)) {
+	g->gc.threshold = g->gc.total + stepsize;
+	g->vmstate = ostate;
+	return -1;
+      }
+      gc_gen_minor54(L);
+      g->vmstate = ostate;
+      return 1;
+    }
     lj_gc_gen_whitelist54(g);
+  }
 #endif
   if (g->gc.stepmul == 0) {
     lim = LJ_MAX_MEM;

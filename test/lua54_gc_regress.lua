@@ -63,6 +63,40 @@ collectgarbage("collect")
 x, y, z = nil, nil, nil
 collectgarbage("collect")
 
+do
+  local jitmod = rawget(_G, "jit")
+  if jitmod then
+    jitmod.off()
+    jitmod.flush()
+  end
+
+  collectgarbage("generational", 1, 1000)
+  local weak = setmetatable({}, { __mode = "v" })
+  local old = {}
+  weak.old = old
+  collectgarbage("collect")
+  collectgarbage("collect")
+  old = nil
+
+  do
+    local young = {}
+    weak.young = young
+    young = nil
+  end
+  for _ = 1, 20000 do
+    local _ = {}
+  end
+
+  assert(weak.young == nil, "generational minor must clear young weak values")
+  assert(weak.old ~= nil, "generational minor must keep old weak values")
+  collectgarbage("collect")
+  assert(weak.old == nil, "full major collection must clear old weak values")
+
+  if jitmod then
+    jitmod.on()
+  end
+end
+
 local mt = { __mode = "k" }
 a = {{10}, {20}, {30}, {40}}
 setmetatable(a, mt)
