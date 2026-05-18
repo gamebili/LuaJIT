@@ -5784,6 +5784,8 @@ static void test_warning_and_gc_api(lua_State *L)
 	"LUA_GCINC updates stepmul");
   oldmode = lua_gc(L, LUA_GCGEN, 21, 155);
   check(L, oldmode == LUA_GCINC, "LUA_GCGEN stores parameters");
+  check(L, lua_gc(L, LUA_GCSTEP, 0) == 0,
+	"LUA_GCSTEP generational reports no incremental cycle");
 
   lua_pushcfunction(L, capi_gc_reentry);
   lua_setglobal(L, "capi_gc_reentry");

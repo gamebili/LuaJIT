@@ -122,8 +122,14 @@ static LJ_AINLINE void lj_gc_barrierback(global_State *g, GCtab *t)
   lj_assertG(g->gc.state != GCSfinalize && g->gc.state != GCSpause,
 	     "bad GC state");
 #if LJ_54
-  if (g->gc_mode54 && isoldgc(o))
+  if (g->gc_mode54 && isoldgc(o)) {
+    if (gcage(o) == LJ_GC_AGE_TOUCHED2) {
+      setgcage(o, LJ_GC_AGE_TOUCHED1);
+      black2gray(o);
+      return;
+    }
     setgcage(o, LJ_GC_AGE_TOUCHED1);
+  }
 #endif
   black2gray(o);
   setgcrefr(t->gclist, g->gc.grayagain);

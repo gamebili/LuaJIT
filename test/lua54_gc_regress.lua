@@ -92,6 +92,36 @@ do
   collectgarbage("collect")
   assert(weak.old == nil, "full major collection must clear old weak values")
 
+  collectgarbage("generational", 1, 1000)
+  weak = setmetatable({}, { __mode = "v" })
+  old = {}
+  weak.old = old
+  collectgarbage("collect")
+  collectgarbage("collect")
+  old = nil
+  do
+    local young = {}
+    weak.young = young
+    young = nil
+  end
+  assert(collectgarbage("step", 0) == false,
+    "generational manual step must report no completed incremental cycle")
+  assert(weak.young == nil,
+    "generational manual step must clear young weak values")
+  assert(weak.old ~= nil,
+    "generational manual step must not act as a full major collection")
+
+  collectgarbage("generational", 1, 1000)
+  weak = setmetatable({}, { __mode = "kv" })
+  collectgarbage("collect")
+  weak[1] = { 10 }
+  collectgarbage("step", 0)
+  collectgarbage("step", 0)
+  weak[1] = { 20 }
+  collectgarbage("step", 0)
+  assert(weak[1] == nil,
+    "generational touched2 weak table barrier must not re-link grayagain")
+
   collectgarbage("generational", 1, 1)
   weak = setmetatable({}, { __mode = "v" })
   old = {}
