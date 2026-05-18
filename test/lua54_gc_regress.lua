@@ -142,6 +142,25 @@ do
   end
 end
 
+do
+  local jitmod = rawget(_G, "jit")
+  if jitmod then
+    jitmod.flush()
+    jitmod.on()
+  end
+
+  collectgarbage("generational", 1, 1000)
+  local weak = setmetatable({}, { __mode = "kv" })
+  collectgarbage("collect")
+  weak[1] = { 10 }
+  collectgarbage("step", 0)
+  collectgarbage("step", 0)
+  weak[1] = { 20 }
+  collectgarbage("step", 0)
+  assert(weak[1] == nil,
+    "JIT-on generational manual step must complete conservative major work")
+end
+
 local mt = { __mode = "k" }
 a = {{10}, {20}, {30}, {40}}
 setmetatable(a, mt)

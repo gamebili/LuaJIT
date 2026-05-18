@@ -2922,6 +2922,16 @@ static void gc_fullgc_preserve_stop54(lua_State *L)
   if (wasstopped)
     g->gc.threshold = LJ_MAX_MEM;
 }
+
+static int gc_gen_manual_major54(global_State *g)
+{
+#if LJ_HASJIT
+  return (G2J(g)->flags & JIT_F_ON) != 0;
+#else
+  UNUSED(g);
+  return 0;
+#endif
+}
 #endif
 
 #if LJ_54
@@ -2989,6 +2999,11 @@ LUA_API int lua_gc(lua_State *L, int what, int data)
     int wasstopped = (g->gc.threshold == LJ_MAX_MEM);
 #if LJ_54
     int wasgen = g->gc_mode54;
+    if (wasgen && gc_gen_manual_major54(g)) {
+      gc_fullgc_preserve_stop54(L);
+      res = 0;
+      break;
+    }
     if (data == 0) {
       if (wasgen) {
 	g->gc.threshold = g->gc.total;
