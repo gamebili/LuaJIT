@@ -152,6 +152,36 @@ do
       "generational touched2 barrier must propagate gray table")
   end
 
+  do
+    local function noop() end
+    local old = { 10 }
+    collectgarbage("generational", 1, 1000)
+    collectgarbage("collect")
+    setmetatable(old, {})
+    collectgarbage("step", 0)
+    setmetatable(getmetatable(old), { __gc = noop })
+    collectgarbage("step", 0)
+    old = nil
+    collectgarbage("collect")
+
+    local anchor = { false }
+    local seen
+    local function gcf(obj)
+      anchor[1] = obj
+      obj = nil
+      collectgarbage("step", 0)
+      local mt = getmetatable(anchor[1])
+      seen = mt and mt.x
+    end
+    local obj = {}
+    collectgarbage("step", 0)
+    setmetatable(obj, { __gc = gcf, x = "+" })
+    obj = nil
+    collectgarbage("step", 0)
+    assert(seen == "+",
+      "generational full baseline must clear table finalizer check window")
+  end
+
   collectgarbage("generational", 1, 1)
   weak = setmetatable({}, { __mode = "v" })
   old = {}

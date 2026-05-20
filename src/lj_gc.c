@@ -188,6 +188,8 @@ static void gc_gen_enter54(global_State *g)
   g->gc_genactive54 = 1;
   g->gc_genrevisit54 = 0;
   g->gc_genlastatomic54 = 0;
+  /* A full baseline already handled pending table-finalizer responsiveness. */
+  g->gc.fin_check = 0;
 }
 
 static void gc_whitelist_chain54(global_State *g, GCobj *o)
