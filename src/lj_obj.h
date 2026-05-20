@@ -523,12 +523,13 @@ typedef struct GCtab {
   MRef freetop;		/* Top of free elements. */
 #endif
 #if LJ_54
-  uint8_t flags54;	/* Lua 5.4 table finalizer state. */
+  uint8_t flags54;	/* Lua 5.4 table finalizer/parser helper state. */
 #endif
 } GCtab;
 
 #if LJ_54
-#define LJ_TAB_HAS_GC	0x01	/* Metatable had __gc when assigned. */
+#define LJ_TAB_HAS_GC		0x01	/* Metatable had __gc when assigned. */
+#define LJ_TAB_GC_PENDING	0x02	/* Separated to finalizer queue. */
 #endif
 
 #define sizetabcolo(n)	((n)*sizeof(TValue) + sizeof(GCtab))

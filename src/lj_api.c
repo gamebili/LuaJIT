@@ -2233,7 +2233,8 @@ LUA_API int lua_setmetatable(lua_State *L, int idx)
       {
 	cTValue *gc = lj_tab_getstr(mt, mmname_str(g, MM_gc));
 	if (gc && !tvisnil(gc)) {
-	  t->flags54 |= LJ_TAB_HAS_GC;
+	  t->flags54 = (uint8_t)((t->flags54 | LJ_TAB_HAS_GC) &
+				 (uint8_t)~LJ_TAB_GC_PENDING);
 	  lj_gc_arm_table_finalizer(g);
 	}
       }

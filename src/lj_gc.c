@@ -334,7 +334,8 @@ size_t lj_gc_separateudata(global_State *g, int all)
 	** not when __gc is added later to the existing metatable.
 	*/
 	m += gc_sizetab(t);
-	t->flags54 &= (uint8_t)~LJ_TAB_HAS_GC;
+	t->flags54 = (uint8_t)((t->flags54 & (uint8_t)~LJ_TAB_HAS_GC) |
+			       LJ_TAB_GC_PENDING);
 	*p = o->gch.nextgc;
 	gc_link_mmudata(g, o);
 	continue;
@@ -865,6 +866,10 @@ static int gc_mayclear(global_State *g, cTValue *o, int val)
       return 1;  /* Object is about to be collected. */
     if (tvisudata(o) && val && isfinalized(udataV(o)))
       return 1;  /* Finalized userdata is dropped only from values. */
+#if LJ_54
+    if (tvistab(o) && val && (tabV(o)->flags54 & LJ_TAB_GC_PENDING))
+      return 1;  /* Tables pending finalization are dropped from values. */
+#endif
   }
   return 0;  /* Cannot clear. */
 }
@@ -1002,11 +1007,13 @@ static void gc_finalize(lua_State *L)
     ** The arming flag was cleared during separation, so it runs at most once
     ** unless user code assigns another __gc-bearing metatable later.
     */
+    GCtab *t = gco2tab(o);
+    t->flags54 &= (uint8_t)~LJ_TAB_GC_PENDING;
     setgcrefr(o->gch.nextgc, g->gc.root);
     setgcref(g->gc.root, o);
     makewhite(g, o);
     {
-      GCtab *mt = tabref(gco2tab(o)->metatable);
+      GCtab *mt = tabref(t->metatable);
       mo = mt ? lj_tab_getstr(mt, mmname_str(g, MM_gc)) : NULL;
       if (mo && !tvisnil(mo))
 	gc_call_finalizer(g, L, mo, o);

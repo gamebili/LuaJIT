@@ -169,6 +169,7 @@
   - 当前进展：赋值 RHS call 临时槽、table constructor 消费后的 call 临时槽、indexed assignment 的 LHS key/RHS 临时槽会在 Lua 5.4 模式下清空，避免 conservative stack scan 把已覆盖的 finalizable table、弱表临时 key 或 weak value 误保活；新登记 table finalizer 后会短期保持 allocation-driven GC 响应，避免刚登记后被推迟到很久之后才运行。
   - 当前进展：`collectgarbage(...)` 在 `__gc` finalizer 内会先完成参数校验，再对合法选项统一返回 `nil`，避免 collector 重入；非法选项仍按 Lua 5.4 报 `invalid option`。
   - 当前进展：关闭 Lua state 时已按 Lua 5.4 固定 finalizer 队列边界；`__gc` finalizer 中创建的新 `__gc` 对象不会在同一轮 `lua_close()` 中继续运行，finalizer 中递归 `os.exit(..., true)` 只会清空当前已经排队的 finalizer，不会重新分离新对象。
+  - 当前进展：进入 finalizer 队列的 table 会在弱 value 表清理阶段按官方 Lua 5.4 从 value slot 清除；finalizer 取出对象时恢复普通状态，复活后重新放入弱 value 表且仍有强引用时不会被误清。
   - 已覆盖：带 `__gc` 的 table 被回收、多个 table finalizer 的 LIFO 顺序、晚加 `__gc` 不触发、替换 `__gc` 后调用新函数、删除 `__gc` 后不调用、finalizer 抛错进入 Lua 5.4 warning 通道、官方 `gc.lua` 中 `GC1`/`GC2` allocation loop 形态、嵌套 table constructor finalizer、finalizer 内 `collectgarbage` 非重入返回，以及 close-state finalizer reentry 不运行新创建的 finalizer。
 
 - [x] 弱键表的 ephemeron 语义。

@@ -256,6 +256,29 @@ do
     "ephemeron finalizable value must clear after key is gone")
 end
 
+do
+  local finalized = false
+  local rescued
+  local weak = setmetatable({}, { __mode = "v" })
+  do
+    local value = setmetatable({ tag = 1 }, { __gc = function(o)
+      finalized = true
+      rescued = o
+    end })
+    weak.value = value
+    value = nil
+  end
+  collectgarbage("collect")
+  assert(finalized and weak.value == nil,
+    "weak value table must clear table pending finalization")
+  weak.rescued = rescued
+  collectgarbage("collect")
+  assert(weak.rescued == rescued,
+    "resurrected finalized table must be a normal weak value")
+  rescued = nil
+  collectgarbage("collect")
+end
+
 collectgarbage("collect")
 collectgarbage("collect")
 local mem = collectgarbage("count")
