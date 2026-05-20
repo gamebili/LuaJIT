@@ -27,7 +27,7 @@
    - 目标：统一 `lua_Integer`、TValue 数字子类型、字符串扫描、格式化、算术、bitwise、numeric for 和 JIT recorder 的整数路径。
    - 覆盖：`1 << 40`、`math.mininteger/maxinteger`、`math.type(1.0)`、`"1.0"+2`、`math.tointeger`、`math.ult`、`string.pack("j/i8/I8")`、C API integer 边界。
    - 接口要求：先决定 dual-number / 64-bit integer 表示与 JIT IR 扩展策略，再批量改库函数；不要在单个库函数里继续做 32 位补丁。
-  - 当前进展：PC x64 Lua 5.4 compat 构建已切到 `LUAJIT_NUMMODE=2` dual-number；TValue 可承载 64-bit boxed integer，float 字面量、常量折叠、字符串数字转换、字符串数字算术、`%` helper、`lua_arith()`、numeric for、bitwise、`string.pack("j/J")`、`math.random(0)` 和 JIT recorder 的主要 integer 子集已按 TValue 子类型保留 integer/float 区分；C API smoke 已固定 `lua_stringtonumber()` / `lua_tointegerx()` 对十六进制 64-bit unsigned wrap 字符串和十进制下界舍入字符串的 Lua 5.4 边界；剩余工作集中在跨平台 artifact/runtime、C API 深边界和 ABI 验证。
+  - 当前进展：PC x64 Lua 5.4 compat 构建已切到 `LUAJIT_NUMMODE=2` dual-number；TValue 可承载 64-bit boxed integer，float 字面量、常量折叠、字符串数字转换、字符串数字算术、`%` helper、`lua_arith()`、numeric for、bitwise、`string.pack("j/J")`、`math.random(0)` 和 JIT recorder 的主要 integer 子集已按 TValue 子类型保留 integer/float 区分；C API smoke 已固定 `lua_stringtonumber()` / `lua_tointegerx()` / `luaL_checkinteger()` / `luaL_optinteger()` 对十六进制 64-bit unsigned wrap 字符串和十进制下界舍入字符串的 Lua 5.4 边界；剩余工作集中在跨平台 artifact/runtime、C API 深边界和 ABI 验证。
 
 4. **debug frame metadata 批次**
    - 目标：在 VM frame 层保留 Lua 5.4 hook/tailcall 所需元信息。

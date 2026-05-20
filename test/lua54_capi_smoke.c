@@ -4905,12 +4905,68 @@ static void test_lauxlib_api(lua_State *L)
 	  "luaL_checkinteger accepts wider 64-bit string");
     check_integer(L, -1, big40, "luaL_checkinteger wider 64-bit string");
     lua_pop(L, 1);
+    lua_pushcfunction(L, checkinteger_arg);
+    lua_pushliteral(L, "0x8000000000000000");
+    status = lua_pcall(L, 1, 1, 0);
+    check(L, status == LUA_OK,
+	  "luaL_checkinteger accepts hex LUA_MININTEGER");
+    check_integer(L, -1, LUA_MININTEGER,
+		  "luaL_checkinteger hex LUA_MININTEGER");
+    lua_pop(L, 1);
+    lua_pushcfunction(L, checkinteger_arg);
+    lua_pushliteral(L, "0xffffffffffffffff");
+    status = lua_pcall(L, 1, 1, 0);
+    check(L, status == LUA_OK,
+	  "luaL_checkinteger accepts hex unsigned minus one");
+    check_integer(L, -1, (lua_Integer)-1,
+		  "luaL_checkinteger hex unsigned minus one");
+    lua_pop(L, 1);
+    lua_pushcfunction(L, checkinteger_arg);
+    lua_pushliteral(L, "0x10000000000000000");
+    status = lua_pcall(L, 1, 1, 0);
+    check(L, status == LUA_OK,
+	  "luaL_checkinteger accepts hex unsigned wrap");
+    check_integer(L, -1, 0, "luaL_checkinteger hex unsigned wrap");
+    lua_pop(L, 1);
+    lua_pushcfunction(L, checkinteger_arg);
+    lua_pushliteral(L, "9223372036854775808");
+    status = lua_pcall(L, 1, 0, 0);
+    check(L, status == LUA_ERRRUN,
+	  "luaL_checkinteger rejects string above LUA_MAXINTEGER");
+    check(L, strstr(lua_tostring(L, -1),
+		    "number has no integer representation") != NULL,
+	  "luaL_checkinteger above max error");
+    lua_pop(L, 1);
     lua_pushcfunction(L, optinteger_arg);
     lua_pushnumber(L, (lua_Number)big40);
     status = lua_pcall(L, 1, 1, 0);
     check(L, status == LUA_OK,
 	  "luaL_optinteger accepts wider 64-bit number");
     check_integer(L, -1, big40, "luaL_optinteger wider 64-bit number");
+    lua_pop(L, 1);
+    lua_pushcfunction(L, optinteger_arg);
+    lua_pushliteral(L, "-9223372036854775809");
+    status = lua_pcall(L, 1, 1, 0);
+    check(L, status == LUA_OK,
+	  "luaL_optinteger accepts rounded string below LUA_MININTEGER");
+    check_integer(L, -1, LUA_MININTEGER,
+		  "luaL_optinteger rounded below LUA_MININTEGER");
+    lua_pop(L, 1);
+    lua_pushcfunction(L, optinteger_arg);
+    lua_pushliteral(L, "0x10000000000000000");
+    status = lua_pcall(L, 1, 1, 0);
+    check(L, status == LUA_OK,
+	  "luaL_optinteger accepts hex unsigned wrap");
+    check_integer(L, -1, 0, "luaL_optinteger hex unsigned wrap");
+    lua_pop(L, 1);
+    lua_pushcfunction(L, optinteger_arg);
+    lua_pushliteral(L, "9223372036854775808");
+    status = lua_pcall(L, 1, 0, 0);
+    check(L, status == LUA_ERRRUN,
+	  "luaL_optinteger rejects string above LUA_MAXINTEGER");
+    check(L, strstr(lua_tostring(L, -1),
+		    "number has no integer representation") != NULL,
+	  "luaL_optinteger above max error");
     lua_pop(L, 1);
     lua_pushcfunction(L, optinteger_arg);
     status = lua_pcall(L, 0, 1, 0);
