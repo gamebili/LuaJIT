@@ -85,6 +85,19 @@ static void gc_gen_setpause54(global_State *g)
   g->gc.threshold = threshold;
 }
 
+static GCSize gc_gen_atomicwork54(global_State *g)
+{
+  return g->gc_genatomicwork54 != 0 ? g->gc_genatomicwork54 : 1;
+}
+
+static int gc_gen_atomicwork_good54(GCSize newatomic, GCSize lastatomic)
+{
+  GCSize margin = lastatomic >> 3;
+  GCSize limit = margin > LJ_MAX_MEM - lastatomic ?
+		 LJ_MAX_MEM : lastatomic + margin;
+  return newatomic < limit;
+}
+
 static void gc_clear_weak_lists54(global_State *g)
 {
   setgcrefnull(g->gc.weak);
@@ -1202,6 +1215,7 @@ static void atomic(global_State *g, lua_State *L)
   gc_clearweakkeys(g, gcref(g->gc.allweak));
   gc_clearweakvalues(g, gcref(g->gc.weak));
   gc_clearweakvalues(g, gcref(g->gc.allweak));
+  g->gc_genatomicwork54 = udsize > LJ_MAX_MEM ? LJ_MAX_MEM : (GCSize)udsize;
 #else
   gc_clearweakvalues(g, gcref(g->gc.weak));
   gc_clearweakkeys(g, gcref(g->gc.weak));
@@ -1313,19 +1327,17 @@ static void gc_gen_major54(lua_State *L)
   lj_gc_gen_whitelist54(g);
   lj_gc_fullgc(L);
   if (lastatomic != 0) {
-    GCSize delta = lastatomic >> 3;
-    if (delta == 0)
-      delta = 1;
-    if (g->gc.total < lastatomic && lastatomic - g->gc.total > delta) {
+    GCSize newatomic = gc_gen_atomicwork54(g);
+    if (gc_gen_atomicwork_good54(newatomic, lastatomic)) {
       g->gc_genlastatomic54 = 0;
       g->gc.threshold = gc_gen_threshold54(g);
     } else {
-      g->gc_genlastatomic54 = g->gc.total;
+      g->gc_genlastatomic54 = newatomic;
       gc_gen_setpause54(g);
     }
   } else if (majorinc != LJ_MAX_MEM &&
 	     g->gc.total >= majorbase + (majorinc >> 1)) {
-    g->gc_genlastatomic54 = g->gc.total;
+    g->gc_genlastatomic54 = gc_gen_atomicwork54(g);
     gc_gen_setpause54(g);
   } else {
     g->gc_genlastatomic54 = 0;
