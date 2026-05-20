@@ -111,6 +111,20 @@ do
   assert(weak.old ~= nil,
     "generational manual step must not act as a full major collection")
 
+  do
+    local anchor = { child = { value = 55 } }
+    local function get()
+      return anchor.child.value
+    end
+    collectgarbage("collect")
+    collectgarbage("collect")
+    for _ = 1, 4 do
+      collectgarbage("step", 0)
+    end
+    assert(get() == 55,
+      "generational minor must keep open-upvalue object graphs")
+  end
+
   collectgarbage("generational", 1, 1000)
   weak = setmetatable({}, { __mode = "kv" })
   collectgarbage("collect")
@@ -293,6 +307,22 @@ do
     "resurrected finalized table must be a normal weak value")
   rescued = nil
   collectgarbage("collect")
+end
+
+do
+  local weak = setmetatable({}, { __mode = "kv" })
+  local key = {}
+  local seen = false
+  do
+    local value = setmetatable({}, { __gc = function()
+      seen = weak[key]
+    end })
+    weak[key] = value
+    value = nil
+  end
+  collectgarbage("collect")
+  assert(seen == nil and next(weak) == nil,
+    "all-weak table must clear values before finalizer callbacks")
 end
 
 collectgarbage("collect")

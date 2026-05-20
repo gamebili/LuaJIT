@@ -62,9 +62,40 @@ static int gc_gen_needmajor54(global_State *g)
   return g->gc.total > majorbase + majorinc;
 }
 
+static void gc_clear_weak_lists54(global_State *g)
+{
+  setgcrefnull(g->gc.weak);
+  setgcrefnull(g->gc.ephemeron);
+  setgcrefnull(g->gc.allweak);
+}
+
+static void gc_link_gray_list54(global_State *g, GCRef *list)
+{
+  GCobj *o = gcref(*list);
+  GCobj *tail = o;
+  if (o == NULL)
+    return;
+  while (gcref(tail->gch.gclist) != NULL)
+    tail = gcref(tail->gch.gclist);
+  setgcrefr(tail->gch.gclist, g->gc.gray);
+  setgcrefr(g->gc.gray, *list);
+  setgcrefnull(*list);
+}
+
+static void gc_link_weak_lists_gray54(global_State *g)
+{
+  gc_link_gray_list54(g, &g->gc.weak);
+  gc_link_gray_list54(g, &g->gc.ephemeron);
+  gc_link_gray_list54(g, &g->gc.allweak);
+}
+
 static void gc_gen_blacken_old54(global_State *g, GCobj *o)
 {
   setgcage(o, LJ_GC_AGE_OLD);
+  if (o->gch.gct == ~LJ_TUPVAL && !gco2uv(o)->closed) {
+    o->gch.marked &= (uint8_t)~LJ_GC_COLORS;
+    return;
+  }
   if (o->gch.gct == ~LJ_TTHREAD) {
     o->gch.marked &= (uint8_t)~LJ_GC_COLORS;
     setgcrefr(o->gch.gclist, g->gc.grayagain);
@@ -78,6 +109,8 @@ static void gc_gen_blacken_old54(global_State *g, GCobj *o)
 static void gc_gen_blacken_chain54(global_State *g, GCobj *o)
 {
   while (o) {
+    if (o->gch.gct == ~LJ_TTHREAD)
+      gc_gen_blacken_chain54(g, gcref(gco2th(o)->openupval));
     gc_gen_blacken_old54(g, o);
     o = gcnext(o);
   }
@@ -100,7 +133,7 @@ static void gc_gen_enter54(global_State *g)
   MSize i;
   setgcrefnull(g->gc.gray);
   setgcrefnull(g->gc.grayagain);
-  setgcrefnull(g->gc.weak);
+  gc_clear_weak_lists54(g);
   gc_gen_blacken_chain54(g, gcref(g->gc.root));
   gc_gen_blacken_mmudata54(g);
   if (g->str.tab) {
@@ -117,6 +150,8 @@ static void gc_gen_enter54(global_State *g)
 static void gc_whitelist_chain54(global_State *g, GCobj *o)
 {
   while (o) {
+    if (o->gch.gct == ~LJ_TTHREAD)
+      gc_whitelist_chain54(g, gcref(gco2th(o)->openupval));
     setgcage(o, LJ_GC_AGE_NEW);
     makewhite(g, o);
     o = gcnext(o);
@@ -141,7 +176,7 @@ void lj_gc_gen_whitelist54(global_State *g)
   MSize i;
   setgcrefnull(g->gc.gray);
   setgcrefnull(g->gc.grayagain);
-  setgcrefnull(g->gc.weak);
+  gc_clear_weak_lists54(g);
   gc_whitelist_chain54(g, gcref(g->gc.root));
   gc_whitelist_mmudata54(g);
   if (g->str.tab) {
@@ -227,7 +262,11 @@ static void gc_mark_start(global_State *g)
 {
   setgcrefnull(g->gc.gray);
   setgcrefnull(g->gc.grayagain);
+#if LJ_54
+  gc_clear_weak_lists54(g);
+#else
   setgcrefnull(g->gc.weak);
+#endif
   gc_markobj(g, mainthread(g));
   gc_markobj(g, tabref(mainthread(g)->env));
   gc_markobj(g, vmthread(g));
@@ -372,9 +411,19 @@ static int gc_traverse_tab(global_State *g, GCtab *t)
       } else
 #endif
       {
+#if LJ_54
+	GCRef *list = (weak & LJ_GC_WEAKKEY) ?
+		      ((weak & LJ_GC_WEAKVAL) ? &g->gc.allweak :
+						&g->gc.ephemeron) :
+		      &g->gc.weak;
+	t->marked = (uint8_t)((t->marked & ~LJ_GC_WEAK) | weak);
+	setgcrefr(t->gclist, *list);
+	setgcref(*list, obj2gco(t));
+#else
 	t->marked = (uint8_t)((t->marked & ~LJ_GC_WEAK) | weak);
 	setgcrefr(t->gclist, g->gc.weak);
 	setgcref(g->gc.weak, obj2gco(t));
+#endif
       }
     }
   }
@@ -762,6 +811,10 @@ static int gc_gen_canminor54(global_State *g)
 
 static void gc_gen_keepblack54(GCobj *o)
 {
+  if (o->gch.gct == ~LJ_TUPVAL && !gco2uv(o)->closed) {
+    o->gch.marked &= (uint8_t)~LJ_GC_COLORS;
+    return;
+  }
   if (o->gch.gct != ~LJ_TTHREAD)
     o->gch.marked = (uint8_t)((o->gch.marked & (uint8_t)~LJ_GC_COLORS) |
 			      LJ_GC_BLACK);
@@ -874,10 +927,9 @@ static int gc_mayclear(global_State *g, cTValue *o, int val)
   return 0;  /* Cannot clear. */
 }
 
-/* Clear collected entries from weak tables. */
-static void gc_clearweak(global_State *g, GCobj *o)
+/* Clear collected values from weak-value tables. */
+static void gc_clearweakvalues(global_State *g, GCobj *o)
 {
-  UNUSED(g);
   while (o) {
     GCtab *t = gco2tab(o);
     lj_assertG((t->marked & LJ_GC_WEAK), "clear of non-weak table");
@@ -895,25 +947,27 @@ static void gc_clearweak(global_State *g, GCobj *o)
       MSize i, hmask = t->hmask;
       for (i = 0; i <= hmask; i++) {
 	Node *n = &node[i];
-	/* Clear hash slot when key or value is about to be collected. */
-#if LJ_54
-	if (!tvisnil(&n->val)) {
-	  int clear = ((t->marked & LJ_GC_WEAKVAL) &&
-		       gc_mayclear(g, &n->val, 1));
-	  /* For weak-kv tables, a dead value clears the entry. Check it before
-	  ** key liveness, otherwise a string key would be marked even though its
-	  ** entry is about to disappear.
-	  */
-	  if (!clear && (t->marked & LJ_GC_WEAKKEY))
-	    clear = gc_mayclear(g, &n->key, 0);
-	  if (clear)
-	    setnilV(&n->val);
-	}
-#else
-	if (!tvisnil(&n->val) && (gc_mayclear(g, &n->key, 0) ||
-				  gc_mayclear(g, &n->val, 1)))
+	if (!tvisnil(&n->val) && gc_mayclear(g, &n->val, 1))
 	  setnilV(&n->val);
-#endif
+      }
+    }
+    o = gcref(t->gclist);
+  }
+}
+
+/* Clear collected keys from weak-key tables. */
+static void gc_clearweakkeys(global_State *g, GCobj *o)
+{
+  while (o) {
+    GCtab *t = gco2tab(o);
+    lj_assertG((t->marked & LJ_GC_WEAK), "clear of non-weak table");
+    if ((t->marked & LJ_GC_WEAKKEY) && t->hmask > 0) {
+      Node *node = noderef(t->node);
+      MSize i, hmask = t->hmask;
+      for (i = 0; i <= hmask; i++) {
+	Node *n = &node[i];
+	if (!tvisnil(&n->val) && gc_mayclear(g, &n->key, 0))
+	  setnilV(&n->val);
       }
     }
     o = gcref(t->gclist);
@@ -1081,15 +1135,19 @@ static void atomic(global_State *g, lua_State *L)
   gc_mark_uv(g);  /* Need to remark open upvalues (the thread may be dead). */
   gc_propagate_gray(g);  /* Propagate any left-overs. */
 
+#if LJ_54
+  gc_link_weak_lists_gray54(g);  /* Empty the weak-table lists. */
+#else
   setgcrefr(g->gc.gray, g->gc.weak);  /* Empty the list of weak tables. */
   setgcrefnull(g->gc.weak);
+#endif
   lj_assertG(!iswhite(obj2gco(mainthread(g))), "main thread turned white");
   gc_markobj(g, L);  /* Mark running thread. */
   gc_traverse_curtrace(g);  /* Traverse current trace. */
   gc_mark_gcroot(g);  /* Mark GC roots (again). */
   gc_propagate_gray(g);  /* Propagate all of the above. */
 #if LJ_54
-  while (gc_mark_ephemeron(g, gcref(g->gc.weak)))
+  while (gc_mark_ephemeron(g, gcref(g->gc.ephemeron)))
     gc_propagate_gray(g);
 #endif
 
@@ -1097,20 +1155,32 @@ static void atomic(global_State *g, lua_State *L)
   setgcrefnull(g->gc.grayagain);
   gc_propagate_gray(g);  /* Propagate it. */
 #if LJ_54
-  while (gc_mark_ephemeron(g, gcref(g->gc.weak)))
+  while (gc_mark_ephemeron(g, gcref(g->gc.ephemeron)))
     gc_propagate_gray(g);
+
+  /* Lua 5.4 clears weak values before separating objects for finalization. */
+  gc_clearweakvalues(g, gcref(g->gc.weak));
+  gc_clearweakvalues(g, gcref(g->gc.allweak));
 #endif
 
   udsize = lj_gc_separateudata(g, 0);  /* Separate userdata to be finalized. */
   gc_mark_mmudata(g);  /* Mark them. */
   udsize += gc_propagate_gray(g);  /* And propagate the marks. */
 #if LJ_54
-  while (gc_mark_ephemeron(g, gcref(g->gc.weak)))
+  while (gc_mark_ephemeron(g, gcref(g->gc.ephemeron)))
     udsize += gc_propagate_gray(g);
 #endif
 
   /* All marking done, clear weak tables. */
-  gc_clearweak(g, gcref(g->gc.weak));
+#if LJ_54
+  gc_clearweakkeys(g, gcref(g->gc.ephemeron));
+  gc_clearweakkeys(g, gcref(g->gc.allweak));
+  gc_clearweakvalues(g, gcref(g->gc.weak));
+  gc_clearweakvalues(g, gcref(g->gc.allweak));
+#else
+  gc_clearweakvalues(g, gcref(g->gc.weak));
+  gc_clearweakkeys(g, gcref(g->gc.weak));
+#endif
 
   lj_buf_shrink(L, &g->tmpbuf);  /* Shrink temp buffer. */
 
@@ -1202,7 +1272,7 @@ static void gc_gen_minor54(lua_State *L)
     gc_sweepstrgen54(g, &g->str.tab[i]);
   gc_sweepgen54(L, g, &g->gc.root);
   gc_correctgraygen54(g);
-  setgcrefnull(g->gc.weak);
+  gc_clear_weak_lists54(g);
   while (gcref(g->gc.mmudata) != NULL)
     gc_finalize(L);
   g->gc.state = GCSpropagate;
@@ -1338,7 +1408,11 @@ void lj_gc_fullgc(lua_State *L)
     setmref(g->gc.sweep, &g->gc.root);  /* Sweep everything (preserving it). */
     setgcrefnull(g->gc.gray);  /* Reset lists from partial propagation. */
     setgcrefnull(g->gc.grayagain);
+#if LJ_54
+    gc_clear_weak_lists54(g);
+#else
     setgcrefnull(g->gc.weak);
+#endif
     g->gc.state = GCSsweepstring;  /* Fast forward to the sweep phase. */
     g->gc.sweepstr = 0;
   }

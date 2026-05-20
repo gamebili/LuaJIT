@@ -634,7 +634,11 @@ typedef struct GCState {
   MRef sweep;		/* Sweep position in root list. */
   GCRef gray;		/* List of gray objects. */
   GCRef grayagain;	/* List of objects for atomic traversal. */
-  GCRef weak;		/* List of weak tables (to be cleared). */
+  GCRef weak;		/* List of weak-value tables (to be cleared). */
+#if LJ_54
+  GCRef ephemeron;	/* List of weak-key tables with strong values. */
+  GCRef allweak;	/* List of weak-key and weak-value tables. */
+#endif
   GCRef mmudata;	/* List of userdata (to be finalized). */
   GCSize debt;		/* Debt (how much GC is behind schedule). */
   GCSize estimate;	/* Estimate of memory actually in use. */
