@@ -52,6 +52,7 @@
    - 目标：在上述底层接口稳定后，统一核对 ABI、头文件宏、错误文本和冷门边界。
    - 覆盖：continuation API、allocator 缩小失败语义、旧 LuaJIT API 默认构建兼容、lauxlib 冷门宏组合、标准库逐字错误文本。
    - 接口要求：新增外部 Lua 5.4 ABI wrapper 时必须保留内部旧 ABI，避免破坏 LuaJIT 自身和默认构建。
+   - 当前进展：C API smoke 已固定 `lua_gc(L, LUA_GCGEN/LUA_GCINC, ...)` 在 collector stopped 状态下只切换模式/参数，不会隐式重启自动 GC。
 
 ## P0：核心语义缺口
 

@@ -5991,6 +5991,17 @@ static void test_warning_and_gc_api(lua_State *L)
   check(L, oldmode == LUA_GCINC, "LUA_GCGEN stores parameters");
   check(L, lua_gc(L, LUA_GCSTEP, 0) == 0,
 	"LUA_GCSTEP generational reports no incremental cycle");
+  check(L, lua_gc(L, LUA_GCSTOP) == 0, "lua_gc stop before mode switch");
+  oldmode = lua_gc(L, LUA_GCINC, 321, 432, 13);
+  check(L, oldmode == LUA_GCGEN, "LUA_GCINC stopped previous mode");
+  check(L, lua_gc(L, LUA_GCISRUNNING) == 0,
+	"LUA_GCINC must not restart stopped collector");
+  oldmode = lua_gc(L, LUA_GCGEN, 21, 155);
+  check(L, oldmode == LUA_GCINC, "LUA_GCGEN stopped previous mode");
+  check(L, lua_gc(L, LUA_GCISRUNNING) == 0,
+	"LUA_GCGEN must not restart stopped collector");
+  check(L, lua_gc(L, LUA_GCRESTART) == 0,
+	"lua_gc restart after stopped mode switch");
 
   lua_pushcfunction(L, capi_gc_reentry);
   lua_setglobal(L, "capi_gc_reentry");
