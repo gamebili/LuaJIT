@@ -126,6 +126,8 @@ static LJ_AINLINE void lj_gc_barrierback(global_State *g, GCtab *t)
     if (gcage(o) == LJ_GC_AGE_TOUCHED2) {
       setgcage(o, LJ_GC_AGE_TOUCHED1);
       black2gray(o);
+      setgcrefr(t->gclist, g->gc.gray);
+      setgcref(g->gc.gray, o);
       return;
     }
     setgcage(o, LJ_GC_AGE_TOUCHED1);

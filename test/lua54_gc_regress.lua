@@ -136,6 +136,22 @@ do
   assert(weak[1] == nil,
     "generational touched2 weak table barrier must not re-link grayagain")
 
+  do
+    local holder = {}
+    collectgarbage("generational", 1, 1000)
+    collectgarbage("collect")
+    collectgarbage("collect")
+    holder.first = { 1 }
+    collectgarbage("step", 0)
+    local finalized = false
+    holder.second = setmetatable({ tag = 2 }, { __gc = function()
+      finalized = true
+    end })
+    collectgarbage("step", 0)
+    assert(not finalized and holder.second and holder.second.tag == 2,
+      "generational touched2 barrier must propagate gray table")
+  end
+
   collectgarbage("generational", 1, 1)
   weak = setmetatable({}, { __mode = "v" })
   old = {}
