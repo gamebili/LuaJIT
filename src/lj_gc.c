@@ -1363,11 +1363,13 @@ static void gc_gen_major54(lua_State *L)
       g->gc.threshold = gc_gen_threshold54(g);
     } else {
       g->gc_genlastatomic54 = newatomic;
+      g->gc.estimate = g->gc.total;
       gc_gen_setpause54(g);
     }
   } else if (majorinc != LJ_MAX_MEM &&
 	     g->gc.total >= majorbase + (majorinc >> 1)) {
     g->gc_genlastatomic54 = gc_gen_atomicwork54(g);
+    g->gc.estimate = g->gc.total;
     gc_gen_setpause54(g);
   } else {
     g->gc_genlastatomic54 = 0;
