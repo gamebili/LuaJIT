@@ -413,6 +413,37 @@ do
     "all-weak table must clear values before finalizer callbacks")
 end
 
+do
+  local ran = false
+  do
+    local obj = setmetatable({}, { __gc = true })
+    setmetatable(getmetatable(obj), { __mode = "v" })
+    getmetatable(obj).__gc = function()
+      ran = true
+    end
+    obj = nil
+  end
+  collectgarbage("collect")
+  collectgarbage("collect")
+  assert(not ran, "weak metatable may collect __gc before callback")
+end
+
+do
+  local seen
+  do
+    local obj = setmetatable({}, { __gc = true })
+    local mt = getmetatable(obj)
+    mt.x = setmetatable({ [{}] = 1, [0] = { 1 } }, { __mode = "kv" })
+    mt.__gc = function(o)
+      seen = next(getmetatable(o).x)
+    end
+    obj = nil
+  end
+  collectgarbage("collect")
+  collectgarbage("collect")
+  assert(seen == nil, "finalizer metatable weak table must clear first")
+end
+
 collectgarbage("collect")
 collectgarbage("collect")
 local mem = collectgarbage("count")
