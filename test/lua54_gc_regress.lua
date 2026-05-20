@@ -151,6 +151,9 @@ do
   assert(weak.old == nil,
     "generational major threshold must collect old weak values")
 
+  collectgarbage("stop")
+  collectgarbage("incremental")
+  collectgarbage("collect")
   collectgarbage("generational", 4, 4)
   weak = setmetatable({}, { __mode = "v" })
   old = {}
@@ -164,6 +167,7 @@ do
     "bad generational major must continue with a full step")
   assert(bulk[25000][1] == 25000,
     "bad-major regression anchor must stay live")
+  collectgarbage("restart")
 
   do
     local setter, getter

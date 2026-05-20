@@ -37,6 +37,11 @@
 #if LJ_54
 static size_t gc_propagate_gray(global_State *g);
 
+static size_t gc_work_add54(size_t a, size_t b)
+{
+  return b > ~(size_t)0 - a ? ~(size_t)0 : a + b;
+}
+
 static GCSize gc_stepsize54(global_State *g)
 {
   MSize bits = g->gc_stepsize54;
@@ -1169,9 +1174,16 @@ void lj_gc_freeall(global_State *g)
 static void atomic(global_State *g, lua_State *L)
 {
   size_t udsize;
+#if LJ_54
+  size_t work = 0;
+#endif
 
   gc_mark_uv(g);  /* Need to remark open upvalues (the thread may be dead). */
-  gc_propagate_gray(g);  /* Propagate any left-overs. */
+#if LJ_54
+  work = gc_work_add54(work, gc_propagate_gray(g));
+#else
+  gc_propagate_gray(g);
+#endif
 
 #if LJ_54
   gc_link_weak_lists_gray54(g);  /* Empty the weak-table lists. */
@@ -1183,30 +1195,43 @@ static void atomic(global_State *g, lua_State *L)
   gc_markobj(g, L);  /* Mark running thread. */
   gc_traverse_curtrace(g);  /* Traverse current trace. */
   gc_mark_gcroot(g);  /* Mark GC roots (again). */
-  gc_propagate_gray(g);  /* Propagate all of the above. */
 #if LJ_54
+  work = gc_work_add54(work, gc_propagate_gray(g));
   while (gc_mark_ephemeron(g, gcref(g->gc.ephemeron)))
-    gc_propagate_gray(g);
+    work = gc_work_add54(work, gc_propagate_gray(g));
+#else
+  gc_propagate_gray(g);  /* Propagate all of the above. */
 #endif
 
   setgcrefr(g->gc.gray, g->gc.grayagain);  /* Empty the 2nd chance list. */
   setgcrefnull(g->gc.grayagain);
-  gc_propagate_gray(g);  /* Propagate it. */
 #if LJ_54
+  work = gc_work_add54(work, gc_propagate_gray(g));
   while (gc_mark_ephemeron(g, gcref(g->gc.ephemeron)))
-    gc_propagate_gray(g);
+    work = gc_work_add54(work, gc_propagate_gray(g));
 
   /* Lua 5.4 clears weak values before separating objects for finalization. */
   gc_clearweakvalues(g, gcref(g->gc.weak));
   gc_clearweakvalues(g, gcref(g->gc.allweak));
+#else
+  gc_propagate_gray(g);  /* Propagate it. */
 #endif
 
   udsize = lj_gc_separateudata(g, 0);  /* Separate userdata to be finalized. */
   gc_mark_mmudata(g);  /* Mark them. */
-  udsize += gc_propagate_gray(g);  /* And propagate the marks. */
 #if LJ_54
-  while (gc_mark_ephemeron(g, gcref(g->gc.ephemeron)))
-    udsize += gc_propagate_gray(g);
+  {
+    size_t finalwork = gc_work_add54(udsize, gc_propagate_gray(g));
+    udsize = finalwork;
+    work = gc_work_add54(work, finalwork);
+  }
+  while (gc_mark_ephemeron(g, gcref(g->gc.ephemeron))) {
+    size_t ephemwork = gc_propagate_gray(g);
+    udsize = gc_work_add54(udsize, ephemwork);
+    work = gc_work_add54(work, ephemwork);
+  }
+#else
+  udsize += gc_propagate_gray(g);  /* And propagate the marks. */
 #endif
 
   /* All marking done, clear weak tables. */
@@ -1215,7 +1240,7 @@ static void atomic(global_State *g, lua_State *L)
   gc_clearweakkeys(g, gcref(g->gc.allweak));
   gc_clearweakvalues(g, gcref(g->gc.weak));
   gc_clearweakvalues(g, gcref(g->gc.allweak));
-  g->gc_genatomicwork54 = udsize > LJ_MAX_MEM ? LJ_MAX_MEM : (GCSize)udsize;
+  g->gc_genatomicwork54 = work > LJ_MAX_MEM ? LJ_MAX_MEM : (GCSize)work;
 #else
   gc_clearweakvalues(g, gcref(g->gc.weak));
   gc_clearweakkeys(g, gcref(g->gc.weak));
