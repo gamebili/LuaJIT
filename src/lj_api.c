@@ -2927,7 +2927,14 @@ static void gc_fullgc_preserve_stop54(lua_State *L)
 static int gc_gen_manual_major54(global_State *g)
 {
 #if LJ_HASJIT
-  return (G2J(g)->flags & JIT_F_ON) != 0;
+  jit_State *J = G2J(g);
+  MSize i;
+  if (J->flags & JIT_F_ON)
+    return 1;
+  for (i = 1; i < J->sizetrace; i++)
+    if (gcref(J->trace[i]) != NULL)
+      return 1;
+  return 0;
 #else
   UNUSED(g);
   return 0;

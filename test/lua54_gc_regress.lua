@@ -229,6 +229,30 @@ do
   collectgarbage("step", 0)
   assert(weak[1] == nil,
     "JIT-on generational manual step must complete conservative major work")
+
+  jitmod.flush()
+  jitmod.on()
+  jitmod.opt.start("hotloop=1")
+  local function hot()
+    local n = 0
+    for i = 1, 20 do n = n + i end
+    return n
+  end
+  for _ = 1, 4 do assert(hot() == 210) end
+  jitmod.off()
+
+  collectgarbage("generational", 1, 1000)
+  weak = setmetatable({}, { __mode = "kv" })
+  collectgarbage("collect")
+  weak[1] = { 10 }
+  collectgarbage("step", 0)
+  collectgarbage("step", 0)
+  weak[1] = { 20 }
+  collectgarbage("step", 0)
+  assert(weak[1] == nil,
+    "saved traces must force conservative generational manual major work")
+  jitmod.flush()
+  jitmod.on()
 end
 
 local mt = { __mode = "k" }
