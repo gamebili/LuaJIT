@@ -2820,6 +2820,20 @@ static void test_stack_and_number_api(lua_State *L)
     check_integer(L, -1, big40,
 		  "lua_stringtonumber wider 64-bit value");
     lua_pop(L, 1);
+    check(L, lua_stringtonumber(L, "0x8000000000000000") == 19,
+	  "lua_stringtonumber hex mininteger length");
+    check(L, lua_isinteger(L, -1),
+	  "lua_stringtonumber hex mininteger subtype");
+    check_integer(L, -1, LUA_MININTEGER,
+		  "lua_stringtonumber hex mininteger value");
+    lua_pop(L, 1);
+    check(L, lua_stringtonumber(L, "0x10000000000000000") == 20,
+	  "lua_stringtonumber hex unsigned wrap length");
+    check(L, lua_isinteger(L, -1),
+	  "lua_stringtonumber hex unsigned wrap subtype");
+    check_integer(L, -1, 0,
+		  "lua_stringtonumber hex unsigned wrap value");
+    lua_pop(L, 1);
   }
   check(L, lua_stringtonumber(L, "nope") == 0, "lua_stringtonumber reject");
   check(L, lua_stringtonumber(L, "inf") == 0, "lua_stringtonumber rejects inf");
@@ -3108,6 +3122,22 @@ static void test_stack_and_number_api(lua_State *L)
     lua_pushliteral(L, "9223372036854775808");
     check(L, lua_tointegerx(L, -1, &ok) == 0 && !ok,
 	  "lua_tointegerx rejects string above LUA_MAXINTEGER");
+    lua_pop(L, 1);
+    lua_pushliteral(L, "-9223372036854775809");
+    check(L, lua_tointegerx(L, -1, &ok) == LUA_MININTEGER && ok,
+	  "lua_tointegerx accepts rounded string below LUA_MININTEGER");
+    lua_pop(L, 1);
+    lua_pushliteral(L, "0x8000000000000000");
+    check(L, lua_tointegerx(L, -1, &ok) == LUA_MININTEGER && ok,
+	  "lua_tointegerx accepts hex LUA_MININTEGER");
+    lua_pop(L, 1);
+    lua_pushliteral(L, "0xffffffffffffffff");
+    check(L, lua_tointegerx(L, -1, &ok) == (lua_Integer)-1 && ok,
+	  "lua_tointegerx accepts hex unsigned minus one");
+    lua_pop(L, 1);
+    lua_pushliteral(L, "0x10000000000000000");
+    check(L, lua_tointegerx(L, -1, &ok) == 0 && ok,
+	  "lua_tointegerx accepts hex unsigned wrap");
     lua_pop(L, 1);
   }
 
