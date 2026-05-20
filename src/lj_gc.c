@@ -1274,7 +1274,12 @@ static size_t gc_onestep(lua_State *L)
     atomic(g, L);
     g->gc.state = GCSsweepstring;  /* Start of sweep phase. */
     g->gc.sweepstr = 0;
+#if LJ_54
+    return g->gc_genatomicwork54 > (GCSize)~(size_t)0 ?
+	   ~(size_t)0 : (size_t)g->gc_genatomicwork54;
+#else
     return 0;
+#endif
   case GCSsweepstring: {
     GCSize old = g->gc.total;
     gc_sweepstr(g, &g->str.tab[g->gc.sweepstr++]);  /* Sweep one chain. */
