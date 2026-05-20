@@ -269,6 +269,7 @@
   - 当前进展：generational minor 开始前会先传播写屏障已经挂入 `gray` 的新对象图；closed upvalue 写入 young 对象时会把目标提升为 `old0`，修复 old closed upvalue 持有 young table graph 后下一轮 minor 释放子对象的问题；C API smoke 已覆盖 old userdata 设置 young uservalue/metatable graph 后 minor 仍保留子对象。
   - 当前进展：open upvalue 在进入 generational baseline、切回 incremental whitelist 和 minor survivor aging 时都会随所属线程 open-upvalue 链处理；minor 周期保持 open upvalue 为 gray，使 atomic 的 upvalue remark 每轮继续标记栈槽对象图，避免运行中 Lua 帧的 open upvalue 在分代 minor 后丢失。
   - 当前进展：LuaJIT 写屏障已开始维护 Lua 5.4 age：old 非 table 对象 forward barrier 指向 young 对象时会把目标推进到 `old0`，old table backward barrier 会把 table 推进到 `touched1`。
+  - 当前进展：generational minor 现在记录上一轮 survivor/old0/touched1 aging 是否产生了下一轮必须重访的 `old1` / `touched2` 候选；没有 pending 候选时不再扫描整条 root/mmudata 链，只传播写屏障挂入的 gray 新对象图，为后续按 Lua 5.4 分段链表收敛做准备。
   - 当前进展：Lua 5.4 兼容构建的公开初始 `stepmul` 已对齐 Lua 5.4，`collectgarbage("setstepmul", n)` 首次返回 `100`；默认 LuaJIT 构建仍保留原 `LUAI_GCMUL`。
   - 当前进展：经本机 Lua 5.4.8 对照，`collectgarbage("minor")` / `"major"` 不是官方有效选项，当前 invalid option 行为已进入 smoke。
   - 当前进展：`setpause` / `setstepmul` 参数会按 Lua 5.4 公开表面压到 `0..1000`，并按 4 的粒度向下取整。

@@ -677,6 +677,7 @@ typedef struct global_State {
   uint8_t warn_disabled; /* lua_setwarnf(NULL) disables lua_warning() entirely. */
   uint8_t gc_mode54;	/* Declared Lua 5.4 GC mode. */
   uint8_t gc_genactive54;  /* Lua 5.4 generational baseline is active. */
+  uint8_t gc_genrevisit54;  /* Minor cycle has old/touched objects to revisit. */
   MSize gc_genminormul54;  /* Lua 5.4 generational minor multiplier. */
   MSize gc_genmajormul54;  /* Lua 5.4 generational major multiplier. */
   GCSize gc_genlastatomic54;  /* Last bad-major atomic work proxy. */

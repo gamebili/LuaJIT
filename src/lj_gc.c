@@ -186,6 +186,7 @@ static void gc_gen_enter54(global_State *g)
   gc_gen_blacken_old54(g, obj2gco(&g->strempty));
   g->gc.state = GCSpropagate;
   g->gc_genactive54 = 1;
+  g->gc_genrevisit54 = 0;
   g->gc_genlastatomic54 = 0;
 }
 
@@ -231,6 +232,7 @@ void lj_gc_gen_whitelist54(global_State *g)
   makewhite(g, obj2gco(&g->strempty));
   g->gc.state = GCSpause;
   g->gc_genactive54 = 0;
+  g->gc_genrevisit54 = 0;
   g->gc_genlastatomic54 = 0;
 }
 #endif
@@ -827,6 +829,9 @@ static void gc_gen_revisit_old54(global_State *g)
   if (gcref(g->gc.gray) != NULL)
     gc_propagate_gray(g);
   setgcrefnull(g->gc.gray);
+  if (!g->gc_genrevisit54)
+    return;
+  g->gc_genrevisit54 = 0;
   gc_gen_revisit_chain54(g, gcref(g->gc.root));
   gc_gen_revisit_mmudata54(g);
 }
@@ -875,6 +880,7 @@ static void gc_gen_age_survivor54(global_State *g, GCobj *o)
   case LJ_GC_AGE_SURVIVAL:
   case LJ_GC_AGE_OLD0:
     setgcage(o, LJ_GC_AGE_OLD1);
+    g->gc_genrevisit54 = 1;
     gc_gen_keepblack54(o);
     break;
   case LJ_GC_AGE_OLD1:
@@ -883,6 +889,7 @@ static void gc_gen_age_survivor54(global_State *g, GCobj *o)
     break;
   case LJ_GC_AGE_TOUCHED1:
     setgcage(o, LJ_GC_AGE_TOUCHED2);
+    g->gc_genrevisit54 = 1;
     gc_gen_keepblack54(o);
     break;
   case LJ_GC_AGE_TOUCHED2:
