@@ -197,6 +197,43 @@ bounded_table_finalizer(50000)
 bounded_nested_table_finalizer(50000)
 assert(a ~= nil and x ~= nil)
 
+do
+  local eph1 = setmetatable({}, { __mode = "k" })
+  local eph2 = setmetatable({}, { __mode = "k" })
+  local root = {}
+  local key2 = {}
+  eph1[root] = { key2 = key2 }
+  eph2[key2] = { tag = 99 }
+  key2 = nil
+  collectgarbage("collect")
+  collectgarbage("collect")
+  local chained_key, chained = next(eph2)
+  assert(chained and chained.tag == 99,
+    "ephemeron fixed point must keep chained weak-key value")
+  chained_key = nil
+  chained = nil
+  root = nil
+  for _ = 1, 4 do
+    collectgarbage("collect")
+    if next(eph1) == nil and next(eph2) == nil then break end
+  end
+  assert(next(eph1) == nil and next(eph2) == nil,
+    "ephemeron chain must clear after external root is gone")
+end
+
+do
+  local weak = setmetatable({}, { __mode = "kv" })
+  local key = {}
+  local value = { key = key }
+  weak[key] = value
+  key = nil
+  value = nil
+  collectgarbage("collect")
+  collectgarbage("collect")
+  assert(next(weak) == nil,
+    "weak-key weak-value table must not keep key through value")
+end
+
 collectgarbage("collect")
 collectgarbage("collect")
 local mem = collectgarbage("count")
