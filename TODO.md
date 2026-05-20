@@ -266,7 +266,7 @@
   - 当前进展：bad-major continuation 会在留在 full 路径时同步刷新 major baseline estimate，再按 Lua 5.4 的长 pause 逻辑调度下一次 major step。
   - 当前进展：weak table atomic 阶段已从单一 `weak` 链表拆成 Lua 5.4 对应的 weak-value / ephemeron / all-weak 三类处理路径；atomic 现在先清 weak values，再分离 pending finalizer 并传播 resurrection，最后清 ephemeron/all-weak keys 和复活弱表 value，覆盖 all-weak finalizer 回调可观察顺序。
   - 当前进展：JIT 开启或仍存在 saved trace 时，手动 generational `step` 会直接执行一次保守 full-major 并仍返回 Lua 5.4 generational 表面的 false，避免只推进半截 incremental step 导致 weak table 清理不完整。
-  - 当前进展：generational minor 开始前会先传播写屏障已经挂入 `gray` 的新对象图；closed upvalue 写入 young 对象时会把目标提升为 `old0`，修复 old closed upvalue 持有 young table graph 后下一轮 minor 释放子对象的问题；C API smoke 已覆盖 old userdata 设置 young uservalue/metatable graph 后 minor 仍保留子对象。
+  - 当前进展：generational minor 开始前会先传播写屏障已经挂入 `gray` 的新对象图；closed upvalue 写入 young 对象时会把目标提升为 `old0`，修复 old closed upvalue 持有 young table graph 后下一轮 minor 释放子对象的问题；C API smoke 已覆盖 old userdata 设置 young uservalue/metatable graph 后 minor 仍保留子对象，以及 finalizable userdata 在 `__gc` 内触发 young collection 时 metatable 图仍存活。
   - 当前进展：open upvalue 在进入 generational baseline、切回 incremental whitelist 和 minor survivor aging 时都会随所属线程 open-upvalue 链处理；minor 周期保持 open upvalue 为 gray，使 atomic 的 upvalue remark 每轮继续标记栈槽对象图，避免运行中 Lua 帧的 open upvalue 在分代 minor 后丢失。
   - 当前进展：LuaJIT 写屏障已开始维护 Lua 5.4 age：old 非 table 对象 forward barrier 指向 young 对象时会把目标推进到 `old0`，old table backward barrier 会把 table 推进到 `touched1`。
   - 当前进展：generational minor 现在记录上一轮 survivor/old0/touched1 aging 是否产生了下一轮必须重访的 `old1` / `touched2` 候选；没有 pending 候选时不再扫描整条 root/mmudata 链，只传播写屏障挂入的 gray 新对象图，为后续按 Lua 5.4 分段链表收敛做准备。

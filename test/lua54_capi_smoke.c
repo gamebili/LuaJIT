@@ -1875,6 +1875,13 @@ static int push_closeable_userdata(lua_State *L)
   return 1;
 }
 
+static int push_plain_userdata(lua_State *L)
+{
+  int *ud = (int *)lua_newuserdatauv(L, sizeof(int), 0);
+  *ud = 54;
+  return 1;
+}
+
 static int mark_userdata_close_then_return(lua_State *L)
 {
   push_closeable_userdata(L);
@@ -4565,6 +4572,33 @@ static void test_uservalue_api(lua_State *L)
   lua_gc(L, LUA_GCINC, 0, 0, 0);
   status = luaL_dostring(L, "if jit then jit.on() end");
   check(L, status == LUA_OK, "userdata GC barrier JIT restore");
+
+  lua_pushcfunction(L, push_plain_userdata);
+  lua_setglobal(L, "capi_plain_userdata");
+  status = luaL_dostring(L,
+    "if jit then jit.off(); jit.flush() end\n"
+    "collectgarbage('generational', 1, 1000)\n"
+    "local anchor = { false }\n"
+    "local seen\n"
+    "local function gcf(obj)\n"
+    "  anchor[1] = obj\n"
+    "  obj = nil\n"
+    "  collectgarbage('step', 0)\n"
+    "  local mt = getmetatable(anchor[1])\n"
+    "  seen = mt and mt.x\n"
+    "end\n"
+    "collectgarbage('collect')\n"
+    "local obj = capi_plain_userdata()\n"
+    "collectgarbage('step', 0)\n"
+    "debug.setmetatable(obj, { __gc = gcf, x = '+' })\n"
+    "obj = nil\n"
+    "collectgarbage('step', 0)\n"
+    "assert(seen == '+')\n"
+    "if jit then jit.on() end\n");
+  check(L, status == LUA_OK,
+	"generational userdata finalizer keeps metatable graph");
+  lua_pushnil(L);
+  lua_setglobal(L, "capi_plain_userdata");
 
   lua_getglobal(L, "debug");
   lua_getfield(L, -1, "getuservalue");
