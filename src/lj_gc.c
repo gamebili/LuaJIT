@@ -592,14 +592,16 @@ static void gc_traverse_trace(global_State *g, GCtrace *T)
 static void gc_traverse_proto(global_State *g, GCproto *pt)
 {
   ptrdiff_t i;
-  TValue *kn = mref(pt->k, TValue);
   gc_mark_str(proto_chunkname(pt));
   for (i = -(ptrdiff_t)pt->sizekgc; i < 0; i++)  /* Mark collectable consts. */
     gc_markobj(g, proto_kgc(pt, i));
 #if LJ_54
-  for (i = 0; i < (ptrdiff_t)pt->sizekn; i++)  /* Mark boxed integer consts. */
-    if (tvisi64(&kn[i]))
-      gc_markobj(g, gcV(&kn[i]));
+  {
+    TValue *kn = mref(pt->k, TValue);
+    for (i = 0; i < (ptrdiff_t)pt->sizekn; i++)  /* Mark boxed integer consts. */
+      if (tvisi64(&kn[i]))
+	gc_markobj(g, gcV(&kn[i]));
+  }
 #endif
 #if LJ_HASJIT
   if (pt->trace) gc_marktrace(g, pt->trace);
