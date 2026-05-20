@@ -739,12 +739,11 @@ static void gc_gen_revisit_old54(global_State *g)
 static int gc_gen_hastrace54(global_State *g)
 {
 #if LJ_HASJIT
-  GCobj *o = gcref(g->gc.root);
-  while (o) {
-    if (o->gch.gct == ~LJ_TTRACE)
+  jit_State *J = G2J(g);
+  MSize i;
+  for (i = 1; i < J->sizetrace; i++)
+    if (gcref(J->trace[i]) != NULL)
       return 1;
-    o = gcnext(o);
-  }
 #else
   UNUSED(g);
 #endif
