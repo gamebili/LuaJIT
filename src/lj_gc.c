@@ -1208,6 +1208,14 @@ static void gc_gen_minor54(lua_State *L)
   g->gc.state = GCSpropagate;
   g->gc.threshold = gc_gen_threshold54(g);
 }
+
+static void gc_gen_fincheck_step54(global_State *g)
+{
+  if (g->gc.fin_check != 0) {
+    g->gc.fin_check--;
+    g->gc.threshold = g->gc.total;
+  }
+}
 #endif
 
 /* Perform a limited amount of incremental GC steps. */
@@ -1224,10 +1232,11 @@ int LJ_FASTCALL lj_gc_step(lua_State *L)
   setvmstate(g, GC);
 #if LJ_54
   if (g->gc_mode54 && g->gc_genactive54) {
-    if (g->gc.fin_check == 0 && gc_gen_canminor54(g)) {
+    if (gc_gen_canminor54(g)) {
       if (gc_gen_needmajor54(g)) {
 	lj_gc_gen_whitelist54(g);
 	lj_gc_fullgc(L);
+	gc_gen_fincheck_step54(g);
 	g->vmstate = ostate;
 	return 1;
       } else {
@@ -1237,6 +1246,7 @@ int LJ_FASTCALL lj_gc_step(lua_State *L)
 	  return -1;
 	}
 	gc_gen_minor54(L);
+	gc_gen_fincheck_step54(g);
 	g->vmstate = ostate;
 	return 1;
       }

@@ -159,6 +159,22 @@ do
       "old closed upvalue barrier must keep young object graph")
   end
 
+  collectgarbage("generational", 1, 1000)
+  collectgarbage("collect")
+  collectgarbage("collect")
+  weak = setmetatable({}, { __mode = "v" })
+  local finalized = false
+  do
+    local value = setmetatable({ tag = 1 }, { __gc = function()
+      finalized = true
+    end })
+    weak.value = value
+    value = nil
+  end
+  collectgarbage("step", 0)
+  assert(finalized and weak.value == nil,
+    "generational manual step must finalize and clear weak table value")
+
   if jitmod then
     jitmod.on()
   end
