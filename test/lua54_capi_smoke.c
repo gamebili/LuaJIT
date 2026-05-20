@@ -2834,6 +2834,27 @@ static void test_stack_and_number_api(lua_State *L)
     check_integer(L, -1, 0,
 		  "lua_stringtonumber hex unsigned wrap value");
     lua_pop(L, 1);
+    check(L, lua_stringtonumber(L, "9223372036854775808") == 20,
+	  "lua_stringtonumber decimal above max length");
+    check(L, !lua_isinteger(L, -1),
+	  "lua_stringtonumber decimal above max subtype");
+    check(L, lua_tonumber(L, -1) == -(lua_Number)LUA_MININTEGER,
+	  "lua_stringtonumber decimal above max value");
+    lua_pop(L, 1);
+    check(L, lua_stringtonumber(L, "-9223372036854775809") == 21,
+	  "lua_stringtonumber decimal below min length");
+    check(L, !lua_isinteger(L, -1),
+	  "lua_stringtonumber decimal below min subtype");
+    check(L, lua_tonumber(L, -1) == (lua_Number)LUA_MININTEGER,
+	  "lua_stringtonumber decimal below min value");
+    lua_pop(L, 1);
+    check(L, lua_stringtonumber(L, "18446744073709551616") == 21,
+	  "lua_stringtonumber decimal unsigned range length");
+    check(L, !lua_isinteger(L, -1),
+	  "lua_stringtonumber decimal unsigned range subtype");
+    check(L, lua_tonumber(L, -1) == -(lua_Number)LUA_MININTEGER * 2.0,
+	  "lua_stringtonumber decimal unsigned range value");
+    lua_pop(L, 1);
   }
   check(L, lua_stringtonumber(L, "nope") == 0, "lua_stringtonumber reject");
   check(L, lua_stringtonumber(L, "inf") == 0, "lua_stringtonumber rejects inf");
