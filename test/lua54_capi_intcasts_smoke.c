@@ -135,8 +135,62 @@ int main(void)
 	  "luaL_checkunsigned 64-bit string");
     lua_pop(L, 1);
 
+    lua_pushliteral(L, "0xffffffffffffffff");
+    ok = 0;
+    check(L, lua_tounsignedx(L, -1, &ok) == LUA_MAXUNSIGNED && ok,
+	  "lua_tounsignedx hex max unsigned string");
+    check(L, luaL_checkunsigned(L, 1) == LUA_MAXUNSIGNED,
+	  "luaL_checkunsigned hex max unsigned string");
+    lua_pop(L, 1);
+
+    lua_pushliteral(L, "0x10000000000000000");
+    ok = 0;
+    check(L, lua_tounsignedx(L, -1, &ok) == 0 && ok,
+	  "lua_tounsignedx hex unsigned wrap string");
+    check(L, luaL_checkunsigned(L, 1) == 0,
+	  "luaL_checkunsigned hex unsigned wrap string");
+    lua_pop(L, 1);
+
+    lua_pushliteral(L, "-9223372036854775809");
+    ok = 0;
+    check(L, lua_tounsignedx(L, -1, &ok) == (lua_Unsigned)LUA_MININTEGER &&
+	  ok, "lua_tounsignedx rounded below mininteger string");
+    check(L, luaL_checkunsigned(L, 1) == (lua_Unsigned)LUA_MININTEGER,
+	  "luaL_checkunsigned rounded below mininteger string");
+    lua_pop(L, 1);
+
+    lua_pushcfunction(L, checkunsigned_arg);
+    lua_pushliteral(L, "9223372036854775808");
+    status = lua_pcall(L, 1, 0, 0);
+    check(L, status == LUA_ERRRUN,
+	  "luaL_checkunsigned rejects decimal above LUA_MAXINTEGER");
+    check(L, strstr(lua_tostring(L, -1),
+		    "number has no integer representation") != NULL,
+	  "luaL_checkunsigned above max error");
+    lua_pop(L, 1);
+
     check(L, luaL_optunsigned(L, 1, wide) == wide,
 	  "luaL_optunsigned 64-bit default");
+
+    lua_pushliteral(L, "0xffffffffffffffff");
+    check(L, luaL_optunsigned(L, 1, 0) == LUA_MAXUNSIGNED,
+	  "luaL_optunsigned hex max unsigned string");
+    lua_pop(L, 1);
+
+    lua_pushliteral(L, "0x10000000000000000");
+    check(L, luaL_optunsigned(L, 1, LUA_MAXUNSIGNED) == 0,
+	  "luaL_optunsigned hex unsigned wrap string");
+    lua_pop(L, 1);
+
+    lua_pushcfunction(L, optunsigned_arg);
+    lua_pushliteral(L, "9223372036854775808");
+    status = lua_pcall(L, 1, 0, 0);
+    check(L, status == LUA_ERRRUN,
+	  "luaL_optunsigned rejects decimal above LUA_MAXINTEGER");
+    check(L, strstr(lua_tostring(L, -1),
+		    "number has no integer representation") != NULL,
+	  "luaL_optunsigned above max error");
+    lua_pop(L, 1);
 
     lua_pushunsigned(L, LUA_MAXUNSIGNED);
     check(L, lua_isinteger(L, -1), "lua_pushunsigned max subtype");
