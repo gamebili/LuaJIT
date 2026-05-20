@@ -234,6 +234,28 @@ do
     "weak-key weak-value table must not keep key through value")
 end
 
+do
+  local finalized = false
+  local weak = setmetatable({}, { __mode = "k" })
+  local key = {}
+  local value = setmetatable({}, { __gc = function()
+    finalized = true
+  end })
+  weak[key] = value
+  value = nil
+  collectgarbage("collect")
+  collectgarbage("collect")
+  assert(not finalized and next(weak) ~= nil,
+    "ephemeron must keep finalizable value while key is reachable")
+  key = nil
+  for _ = 1, 6 do
+    collectgarbage("collect")
+    if finalized and next(weak) == nil then break end
+  end
+  assert(finalized and next(weak) == nil,
+    "ephemeron finalizable value must clear after key is gone")
+end
+
 collectgarbage("collect")
 collectgarbage("collect")
 local mem = collectgarbage("count")
