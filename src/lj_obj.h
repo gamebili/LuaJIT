@@ -679,6 +679,7 @@ typedef struct global_State {
   uint8_t gc_genactive54;  /* Lua 5.4 generational baseline is active. */
   MSize gc_genminormul54;  /* Lua 5.4 generational minor multiplier. */
   MSize gc_genmajormul54;  /* Lua 5.4 generational major multiplier. */
+  GCSize gc_genlastatomic54;  /* Proxy for Lua 5.4 bad major collection. */
   MSize gc_stepsize54;	/* Lua 5.4 incremental step-size parameter. */
   lua_WarnFunction warnf;  /* Optional Lua 5.4 C warning callback. */
   void *warnud;

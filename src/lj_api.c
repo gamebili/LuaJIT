@@ -3067,6 +3067,7 @@ LUA_API int lua_gc(lua_State *L, int what, int data)
       if (data2 != 0)
 	g->gc_genmajormul54 = gc_param_lua54(data2);
       g->gc_mode54 = 1;
+      g->gc_genlastatomic54 = 0;
       if (wasinc) {
 	gc_fullgc_preserve_stop54(L);
       }

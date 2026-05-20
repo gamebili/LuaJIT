@@ -53,13 +53,36 @@ static GCSize gc_gen_threshold54(global_State *g)
   return g->gc.total + minor;
 }
 
+static GCSize gc_gen_majorinc54(global_State *g, GCSize majorbase)
+{
+  GCSize unit = majorbase / 100;
+  GCSize majorinc;
+  if (g->gc_genmajormul54 != 0 &&
+      unit > LJ_MAX_MEM / g->gc_genmajormul54)
+    return LJ_MAX_MEM;
+  majorinc = unit * g->gc_genmajormul54;
+  if (majorinc > LJ_MAX_MEM - majorbase)
+    return LJ_MAX_MEM;
+  return majorinc;
+}
+
 static int gc_gen_needmajor54(global_State *g)
 {
   GCSize majorbase = g->gc.estimate;
-  GCSize majorinc = (majorbase / 100) * g->gc_genmajormul54;
-  if (majorinc > LJ_MAX_MEM - majorbase)
-    return 0;
-  return g->gc.total > majorbase + majorinc;
+  GCSize majorinc = gc_gen_majorinc54(g, majorbase);
+  return majorinc != LJ_MAX_MEM && g->gc.total > majorbase + majorinc;
+}
+
+static void gc_gen_setpause54(global_State *g)
+{
+  GCSize threshold;
+  if (g->gc.pause != 0 && g->gc.estimate <= LJ_MAX_MEM / g->gc.pause)
+    threshold = (g->gc.estimate / 100) * g->gc.pause;
+  else
+    threshold = LJ_MAX_MEM;
+  if (threshold < g->gc.total)
+    threshold = g->gc.total;
+  g->gc.threshold = threshold;
 }
 
 static void gc_clear_weak_lists54(global_State *g)
@@ -145,6 +168,7 @@ static void gc_gen_enter54(global_State *g)
   gc_gen_blacken_old54(g, obj2gco(&g->strempty));
   g->gc.state = GCSpropagate;
   g->gc_genactive54 = 1;
+  g->gc_genlastatomic54 = 0;
 }
 
 static void gc_whitelist_chain54(global_State *g, GCobj *o)
@@ -189,6 +213,7 @@ void lj_gc_gen_whitelist54(global_State *g)
   makewhite(g, obj2gco(&g->strempty));
   g->gc.state = GCSpause;
   g->gc_genactive54 = 0;
+  g->gc_genlastatomic54 = 0;
 }
 #endif
 
@@ -1279,6 +1304,35 @@ static void gc_gen_minor54(lua_State *L)
   g->gc.threshold = gc_gen_threshold54(g);
 }
 
+static void gc_gen_major54(lua_State *L)
+{
+  global_State *g = G(L);
+  GCSize majorbase = g->gc.estimate;
+  GCSize majorinc = gc_gen_majorinc54(g, majorbase);
+  GCSize lastatomic = g->gc_genlastatomic54;
+  lj_gc_gen_whitelist54(g);
+  lj_gc_fullgc(L);
+  if (lastatomic != 0) {
+    GCSize delta = lastatomic >> 3;
+    if (delta == 0)
+      delta = 1;
+    if (g->gc.total < lastatomic && lastatomic - g->gc.total > delta) {
+      g->gc_genlastatomic54 = 0;
+      g->gc.threshold = gc_gen_threshold54(g);
+    } else {
+      g->gc_genlastatomic54 = g->gc.total;
+      gc_gen_setpause54(g);
+    }
+  } else if (majorinc != LJ_MAX_MEM &&
+	     g->gc.total >= majorbase + (majorinc >> 1)) {
+    g->gc_genlastatomic54 = g->gc.total;
+    gc_gen_setpause54(g);
+  } else {
+    g->gc_genlastatomic54 = 0;
+    g->gc.threshold = gc_gen_threshold54(g);
+  }
+}
+
 static void gc_gen_fincheck_step54(global_State *g)
 {
   if (g->gc.fin_check != 0) {
@@ -1303,9 +1357,8 @@ int LJ_FASTCALL lj_gc_step(lua_State *L)
 #if LJ_54
   if (g->gc_mode54 && g->gc_genactive54) {
     if (gc_gen_canminor54(g)) {
-      if (gc_gen_needmajor54(g)) {
-	lj_gc_gen_whitelist54(g);
-	lj_gc_fullgc(L);
+      if (g->gc_genlastatomic54 != 0 || gc_gen_needmajor54(g)) {
+	gc_gen_major54(L);
 	gc_gen_fincheck_step54(g);
 	g->vmstate = ostate;
 	return 1;
