@@ -4597,6 +4597,46 @@ static void test_uservalue_api(lua_State *L)
     "if jit then jit.on() end\n");
   check(L, status == LUA_OK,
 	"generational userdata finalizer keeps metatable graph");
+
+  status = luaL_dostring(L,
+    "collectgarbage('incremental')\n"
+    "collectgarbage('stop')\n"
+    "local function newproxy(u)\n"
+    "  local obj = capi_plain_userdata()\n"
+    "  if u ~= nil then debug.setmetatable(obj, debug.getmetatable(u)) end\n"
+    "  return obj\n"
+    "end\n"
+    "local u = newproxy(nil)\n"
+    "debug.setmetatable(u, { __gc = true })\n"
+    "local s = 0\n"
+    "local a = setmetatable({ [u] = 0 }, { __mode = 'vk' })\n"
+    "for i = 1, 10 do a[newproxy(u)] = i end\n"
+    "for k in pairs(a) do assert(getmetatable(k) == getmetatable(u)) end\n"
+    "local a1 = {}\n"
+    "for k, v in pairs(a) do a1[k] = v end\n"
+    "for k, v in pairs(a1) do a[v] = k end\n"
+    "for i = 1, 10 do assert(a[i]) end\n"
+    "getmetatable(u).a = a1\n"
+    "getmetatable(u).u = u\n"
+    "do\n"
+    "  local u = u\n"
+    "  getmetatable(u).__gc = function(o)\n"
+    "    assert(a[o] == 10 - s)\n"
+    "    assert(a[10 - s] == nil)\n"
+    "    assert(getmetatable(o) == getmetatable(u))\n"
+    "    assert(getmetatable(o).a[o] == 10 - s)\n"
+    "    s = s + 1\n"
+    "  end\n"
+    "end\n"
+    "a1, u = nil\n"
+    "assert(next(a) ~= nil)\n"
+    "collectgarbage('collect')\n"
+    "assert(s == 11)\n"
+    "collectgarbage('collect')\n"
+    "assert(next(a) == nil)\n"
+    "collectgarbage('restart')\n");
+  check(L, status == LUA_OK,
+	"userdata weak table finalizers clear weak aliases");
   lua_pushnil(L);
   lua_setglobal(L, "capi_plain_userdata");
 
