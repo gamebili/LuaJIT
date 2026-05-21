@@ -582,3 +582,24 @@ do
     "collectgarbage mode options must still validate inside __gc")
   assert(collectgarbage("isrunning"))
 end
+
+do
+  local log = {}
+  do
+    local outer = setmetatable({}, { __gc = function()
+      log[#log + 1] = "outer"
+      local inner = setmetatable({}, { __gc = function()
+        log[#log + 1] = "inner"
+      end })
+      inner = nil
+      collectgarbage("collect")
+    end })
+    outer = nil
+  end
+  collectgarbage("collect")
+  assert(#log == 1 and log[1] == "outer",
+    "finalizer reentry must not run newly created finalizer")
+  collectgarbage("collect")
+  assert(#log == 2 and log[2] == "inner",
+    "new finalizer from finalizer callback must run in later GC cycle")
+end

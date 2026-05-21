@@ -173,7 +173,7 @@
   - 当前进展：`collectgarbage(...)` 在 `__gc` finalizer 内会先完成参数校验，再对合法选项统一返回 `nil`，避免 collector 重入；非法选项仍按 Lua 5.4 报 `invalid option`。
   - 当前进展：关闭 Lua state 时已按 Lua 5.4 固定 finalizer 队列边界；`__gc` finalizer 中创建的新 `__gc` 对象不会在同一轮 `lua_close()` 中继续运行，finalizer 中递归 `os.exit(..., true)` 只会清空当前已经排队的 finalizer，不会重新分离新对象。
   - 当前进展：进入 finalizer 队列的 table 会在弱 value 表清理阶段按官方 Lua 5.4 从 value slot 清除；finalizer 取出对象时恢复普通状态，复活后重新放入弱 value 表且仍有强引用时不会被误清。
-  - 已覆盖：带 `__gc` 的 table 被回收、多个 table finalizer 的 LIFO 顺序、晚加 `__gc` 不触发、替换 `__gc` 后调用新函数、删除 `__gc` 后不调用、finalizer 抛错进入 Lua 5.4 warning 通道、官方 `gc.lua` 中 `GC1`/`GC2` allocation loop 形态、嵌套 table constructor finalizer、finalizer 内 `collectgarbage` 非重入返回，以及 close-state finalizer reentry 不运行新创建的 finalizer。
+  - 已覆盖：带 `__gc` 的 table 被回收、多个 table finalizer 的 LIFO 顺序、晚加 `__gc` 不触发、替换 `__gc` 后调用新函数、删除 `__gc` 后不调用、finalizer 抛错进入 Lua 5.4 warning 通道、官方 `gc.lua` 中 `GC1`/`GC2` allocation loop 形态、嵌套 table constructor finalizer、finalizer 内 `collectgarbage` 非重入返回、普通 GC finalizer reentry 和 close-state finalizer reentry 不运行新创建的 finalizer。
 
 - [x] 弱键表的 ephemeron 语义。
   - 当前状态：`__mode = "k"` 下 value 反向引用 key 时，value 不再反向保活 key；GC atomic 阶段会对弱键强值表做 ephemeron 固定点标记。
@@ -182,7 +182,7 @@
   - 当前进展：boxed 64-bit integer 在弱 key / weak value 表中按 Lua 5.4 数字语义处理为强值，不会因为内部 GCint64 表示而被弱表清理。
   - 已覆盖：只有 value 反向引用 key 的弱键表会在多次 GC 后清空，外部仍强引用 key 时对应 value 会保留；弱 `kv` 表中 dead value 对应的长字符串 key 会在同一轮 full GC 后释放，仍有 number value 的长字符串 key 会保留；table lookup/set 以及 `next()` / `lj_tab_keyindex()` 的 dead long-string key 保护路径在 JIT 默认和 `-joff` 下通过。
   - 当前进展：回归用例已覆盖多级链式 ephemeron 固定点、弱键弱值组合中 value 反向引用 key 不能保活该 key，以及 weak-key ephemeron 对 finalizable table value 的保活/释放边界。
-  - 后续扩展：finalizer reentry 压力仍可继续补更细用例。
+  - 后续扩展：可继续按官方 `gc.lua` 压力形态补更细用例。
 
 - [x] `__name` 元字段。
   - 当前状态：`tostring(setmetatable({}, {__name="Foo"}))` 已显示 `Foo: ...`；参数类型错误也会使用 `__name` 字符串。
