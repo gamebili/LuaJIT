@@ -340,6 +340,41 @@ do
 end
 
 do
+  local chain = {}
+  local keys = {}
+  for i = 1, 8 do
+    chain[i] = setmetatable({}, { __mode = "k" })
+    keys[i] = { i }
+  end
+  local root = keys[1]
+  for i = 1, 7 do
+    chain[i][keys[i]] = { next = keys[i + 1] }
+  end
+  chain[8][keys[8]] = { tag = 8 }
+  keys = nil
+  collectgarbage("collect")
+  collectgarbage("collect")
+  local tail_key, tail = next(chain[8])
+  assert(tail_key ~= nil and tail and tail.tag == 8,
+    "long ephemeron fixed point must keep tail value reachable")
+  tail_key = nil
+  tail = nil
+  root = nil
+  for _ = 1, 8 do
+    local empty = true
+    collectgarbage("collect")
+    for i = 1, #chain do
+      if next(chain[i]) ~= nil then empty = false; break end
+    end
+    if empty then break end
+  end
+  for i = 1, #chain do
+    assert(next(chain[i]) == nil,
+      "long ephemeron chain must clear after external root is gone")
+  end
+end
+
+do
   local weak = setmetatable({}, { __mode = "kv" })
   local key = {}
   local value = { key = key }

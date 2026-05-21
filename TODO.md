@@ -181,8 +181,8 @@
   - 当前进展：table lookup/set 会跳过 value 已为 nil 的 dead-key slot，避免后续字符串查找对 GC 留下的 dead long string key 做字节比较。
   - 当前进展：boxed 64-bit integer 在弱 key / weak value 表中按 Lua 5.4 数字语义处理为强值，不会因为内部 GCint64 表示而被弱表清理。
   - 已覆盖：只有 value 反向引用 key 的弱键表会在多次 GC 后清空，外部仍强引用 key 时对应 value 会保留；弱 `kv` 表中 dead value 对应的长字符串 key 会在同一轮 full GC 后释放，仍有 number value 的长字符串 key 会保留；table lookup/set 以及 `next()` / `lj_tab_keyindex()` 的 dead long-string key 保护路径在 JIT 默认和 `-joff` 下通过。
-  - 当前进展：回归用例已覆盖链式 ephemeron 固定点、弱键弱值组合中 value 反向引用 key 不能保活该 key，以及 weak-key ephemeron 对 finalizable table value 的保活/释放边界。
-  - 后续扩展：ephemeron 更长链路和 finalizer reentry 压力仍可继续补更细用例。
+  - 当前进展：回归用例已覆盖多级链式 ephemeron 固定点、弱键弱值组合中 value 反向引用 key 不能保活该 key，以及 weak-key ephemeron 对 finalizable table value 的保活/释放边界。
+  - 后续扩展：finalizer reentry 压力仍可继续补更细用例。
 
 - [x] `__name` 元字段。
   - 当前状态：`tostring(setmetatable({}, {__name="Foo"}))` 已显示 `Foo: ...`；参数类型错误也会使用 `__name` 字符串。
