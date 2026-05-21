@@ -2414,6 +2414,7 @@ LUA_API void (lua_callk)(lua_State *L, int nargs, int nresults,
     L->capi_yield_k = k;
     L->capi_yield_nresults = nresults;
     L->capi_yield_kind = LUA54_CAPI_CONT_CALLK;
+    setnilV(&L->capi_yield_errfunc);
     status = lj_vm_resume(L, api_call_base(L, nargs), nresults+1, 0);
     if (status == LUA_YIELD) {
       /* vm_resume is the only existing VM entry that marks the callee frame as
@@ -2427,6 +2428,7 @@ LUA_API void (lua_callk)(lua_State *L, int nargs, int nresults,
     L->capi_yield_k = NULL;
     L->capi_yield_nresults = 0;
     L->capi_yield_kind = LUA54_CAPI_CONT_NONE;
+    setnilV(&L->capi_yield_errfunc);
     if (status != LUA_OK)
       lj_err_throw(L, status);
     return;
@@ -2446,9 +2448,11 @@ LUA_API int (lua_pcallk)(lua_State *L, int nargs, int nresults, int errfunc,
     lj_checkapi_slot(nargs+1);
     if (errfunc == 0) {
       ef = 0;
+      setnilV(&L->capi_yield_errfunc);
     } else {
       cTValue *o = index2adr_stack(L, errfunc);
       ef = savestack(L, o);
+      copyTV(L, &L->capi_yield_errfunc, o);
     }
     L->capi_yield_ctx = ctx;
     L->capi_yield_k = k;
@@ -2463,6 +2467,7 @@ LUA_API int (lua_pcallk)(lua_State *L, int nargs, int nresults, int errfunc,
     L->capi_yield_k = NULL;
     L->capi_yield_nresults = 0;
     L->capi_yield_kind = LUA54_CAPI_CONT_NONE;
+    setnilV(&L->capi_yield_errfunc);
     return status;
   }
   return lua_pcall(L, nargs, nresults, errfunc);
@@ -2576,10 +2581,12 @@ LUA_API int (lua_yieldk)(lua_State *L, int nresults, lua_KContext ctx,
       L->capi_yield_ctx = ctx;
       L->capi_yield_k = k;
       L->capi_yield_kind = LUA54_CAPI_CONT_YIELDK;
+      setnilV(&L->capi_yield_errfunc);
     } else {
       L->capi_yield_ctx = 0;
       L->capi_yield_k = NULL;
       L->capi_yield_kind = LUA54_CAPI_CONT_NONE;
+      setnilV(&L->capi_yield_errfunc);
     }
     if (f > L->base) {
       TValue *t = L->base;
@@ -2599,6 +2606,7 @@ LUA_API int (lua_yieldk)(lua_State *L, int nresults, lua_KContext ctx,
     L->capi_yield_ctx = ctx;
     L->capi_yield_k = k;
     L->capi_yield_kind = LUA54_CAPI_CONT_YIELDK;
+    setnilV(&L->capi_yield_errfunc);
   }
   return lua_yield(L, nresults);
 }
@@ -2644,6 +2652,10 @@ typedef struct Lua54YieldKCtx {
   int nres;
 } Lua54YieldKCtx;
 
+typedef struct Lua54PCallKErrfuncCtx {
+  ptrdiff_t stackbase;
+} Lua54PCallKErrfuncCtx;
+
 static int lua54_debug_hook_thread_active(lua_State *L)
 {
   cTValue *tv;
@@ -2669,6 +2681,49 @@ static TValue *cp_lua54_yieldk_cont(lua_State *L, lua_CFunction dummy,
   return NULL;
 }
 
+static TValue *cp_lua54_pcallk_errfunc(lua_State *L, lua_CFunction dummy,
+				       void *ud)
+{
+  Lua54PCallKErrfuncCtx *ctx = (Lua54PCallKErrfuncCtx *)ud;
+  TValue *stackbase, *top;
+  UNUSED(dummy);
+  lj_state_checkstack(L, LUA_MINSTACK * 2);
+  stackbase = restorestack(L, ctx->stackbase);
+  L->top = stackbase + 1;
+  top = L->top;
+  copyTV(L, top++, &L->capi_yield_errfunc);
+  if (LJ_FR2) setnilV(top++);
+  copyTV(L, top++, stackbase);
+  L->top = top;
+  cframe_nres(L->cframe) = 1+1;  /* One message-handler result. */
+  return top-1;
+}
+
+static int lua54_apply_pcallk_errfunc(lua_State *L, TValue *stackbase,
+				      int status)
+{
+  Lua54PCallKErrfuncCtx ctx;
+  int hstatus;
+  if (tvisnil(&L->capi_yield_errfunc))
+    return status;
+  if (!tvisfunc(&L->capi_yield_errfunc) || status == LUA_ERRERR) {
+    setstrV(L, stackbase, lj_err_str(L, LJ_ERR_ERRERR));
+    L->top = stackbase + 1;
+    return LUA_ERRERR;
+  }
+  ctx.stackbase = savestack(L, stackbase);
+  hstatus = lj_vm_cpcall(L, NULL, &ctx, cp_lua54_pcallk_errfunc);
+  stackbase = restorestack(L, ctx.stackbase);
+  if (hstatus == LUA_OK) {
+    copyTV(L, stackbase, L->top - 1);
+    L->top = stackbase + 1;
+    return status;
+  }
+  setstrV(L, stackbase, lj_err_str(L, LJ_ERR_ERRERR));
+  L->top = stackbase + 1;
+  return LUA_ERRERR;
+}
+
 static int resume_lua54_yieldk_cont(lua_State *L, int nargs, int *nresults)
 {
   TValue *stackbase = tvref(L->stack) + 1 + LJ_FR2;
@@ -2692,6 +2747,7 @@ static int resume_lua54_yieldk_cont(lua_State *L, int nargs, int *nresults)
   L->capi_yield_k = NULL;
   L->capi_yield_ctx = 0;
   L->capi_yield_kind = LUA54_CAPI_CONT_NONE;
+  setnilV(&L->capi_yield_errfunc);
   L->status = LUA_OK;
   L->capi_cont_yieldable = 1;
   status = lj_vm_cpcall(L, NULL, &yk, cp_lua54_yieldk_cont);
@@ -2722,7 +2778,7 @@ static int resume_lua54_callk_cont(lua_State *L, int status, int *nresults)
   int i, nres, kind;
   yk.k = L->capi_yield_k;
   yk.ctx = L->capi_yield_ctx;
-  yk.status = status == LUA_OK ? LUA_YIELD : status;
+  yk.status = 0;
   yk.nres = 0;
   nres = L->capi_yield_nresults;
   kind = L->capi_yield_kind;
@@ -2732,6 +2788,7 @@ static int resume_lua54_callk_cont(lua_State *L, int status, int *nresults)
   L->capi_yield_kind = LUA54_CAPI_CONT_NONE;
   if (status != LUA_OK && status != LUA_YIELD &&
       kind != LUA54_CAPI_CONT_PCALLK) {
+    setnilV(&L->capi_yield_errfunc);
     if (nresults) *nresults = 0;
     return status;
   }
@@ -2744,6 +2801,7 @@ static int resume_lua54_callk_cont(lua_State *L, int status, int *nresults)
 		"not enough error results returned by lua_pcallk callee");
     copyTV(L, stackbase, L->top - 1);
     L->top = stackbase + 1;
+    status = lua54_apply_pcallk_errfunc(L, stackbase, status);
   } else if (nres >= 0) {
     TValue *resbase = L->top - nres;
     lj_checkapi(nres <= L->top - stackbase,
@@ -2764,6 +2822,8 @@ static int resume_lua54_callk_cont(lua_State *L, int status, int *nresults)
       copyTV(L, stackbase + i, resbase + i);
     L->top = stackbase + nres;
   }
+  yk.status = status == LUA_OK ? LUA_YIELD : status;
+  setnilV(&L->capi_yield_errfunc);
   L->capi_cont_yieldable = 1;
   status = lj_vm_cpcall(L, NULL, &yk, cp_lua54_yieldk_cont);
   L->capi_cont_yieldable = 0;
@@ -2855,6 +2915,7 @@ LUA_API int lua_closethread(lua_State *L, lua_State *from)
   L->capi_yield_ctx = 0;
   L->capi_yield_nresults = 0;
   L->capi_yield_kind = LUA54_CAPI_CONT_NONE;
+  setnilV(&L->capi_yield_errfunc);
   L->capi_cont_yieldable = 0;
   L->status = LUA_OK;
   L->cframe = NULL;

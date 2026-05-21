@@ -332,6 +332,9 @@ LUA_API lua_State *lua_newstate(lua_Alloc allocf, void *allocd)
   setnilV(registry(L));
   setnilV(&g->nilnode.val);
   setnilV(&g->nilnode.key);
+#if LJ_54
+  setnilV(&L->capi_yield_errfunc);
+#endif
 #if !LJ_GC64
   setmref(g->nilnode.freetop, &g->nilnode);
 #endif
@@ -463,6 +466,7 @@ lua_State *lj_state_new(lua_State *L)
   L1->close_multres = 0;
   L1->capi_yield_kind = 0;
   L1->capi_cont_yieldable = 0;
+  setnilV(&L1->capi_yield_errfunc);
 #endif
   L1->exdata = L->exdata;  /* Lua 5.4 copies extraspace to new threads. */
   L1->closelist = NULL;

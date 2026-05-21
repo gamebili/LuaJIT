@@ -779,6 +779,7 @@ struct lua_State {
   int32_t close_multres;  /* Saved MULTRES for Lua return close hooks. */
   uint8_t capi_yield_kind;  /* Saved Lua 5.4 C continuation dispatch kind. */
   uint8_t capi_cont_yieldable;  /* lua_yieldk() continuation may re-yield. */
+  TValue capi_yield_errfunc;  /* Saved lua_pcallk() message handler. */
 #endif
 };
 

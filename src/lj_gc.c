@@ -635,6 +635,9 @@ static void gc_traverse_thread(global_State *g, lua_State *th)
   TValue *o, *top = th->top;
   for (o = tvref(th->stack)+1+LJ_FR2; o < top; o++)
     gc_marktv(g, o);
+#if LJ_54
+  gc_marktv(g, &th->capi_yield_errfunc);
+#endif
   if (g->gc.state == GCSatomic) {
     top = tvref(th->stack) + th->stacksize;
     for (; o < top; o++)  /* Clear unmarked slots. */
