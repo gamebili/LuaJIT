@@ -5083,6 +5083,14 @@ static void test_lauxlib_api(lua_State *L)
   lua_pop(L, 1);
 
   lua_pushcfunction(L, optnumber_arg);
+  lua_pushliteral(L, "inf");
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_optnumber rejects inf string");
+  check(L, strstr(lua_tostring(L, -1), "number expected") != NULL,
+	"luaL_optnumber inf error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, optnumber_arg);
   lua_pushliteral(L, "nan");
   status = lua_pcall(L, 1, 0, 0);
   check(L, status == LUA_ERRRUN, "luaL_optnumber rejects nan string");
@@ -5091,11 +5099,28 @@ static void test_lauxlib_api(lua_State *L)
   lua_pop(L, 1);
 
   lua_pushcfunction(L, checknumber_arg);
+  lua_pushliteral(L, "inf");
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_checknumber rejects inf string");
+  check(L, strstr(lua_tostring(L, -1), "number expected") != NULL,
+	"luaL_checknumber inf error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, checknumber_arg);
   lua_pushliteral(L, "nan");
   status = lua_pcall(L, 1, 0, 0);
   check(L, status == LUA_ERRRUN, "luaL_checknumber rejects nan string");
   check(L, strstr(lua_tostring(L, -1), "number expected") != NULL,
 	"luaL_checknumber nan error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, checknumber_arg);
+  lua_pushliteral(L, "0b10");
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN,
+	"luaL_checknumber rejects binary prefix string");
+  check(L, strstr(lua_tostring(L, -1), "number expected") != NULL,
+	"luaL_checknumber binary prefix error");
   lua_pop(L, 1);
 
   luaL_pushfail(L);
