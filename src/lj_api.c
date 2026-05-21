@@ -2714,6 +2714,7 @@ static int lua54_apply_pcallk_errfunc(lua_State *L, TValue *stackbase,
   ctx.stackbase = savestack(L, stackbase);
   hstatus = lj_vm_cpcall(L, NULL, &ctx, cp_lua54_pcallk_errfunc);
   stackbase = restorestack(L, ctx.stackbase);
+  L->base = stackbase;
   if (hstatus == LUA_OK) {
     copyTV(L, stackbase, L->top - 1);
     L->top = stackbase + 1;
@@ -2729,6 +2730,7 @@ static int resume_lua54_yieldk_cont(lua_State *L, int nargs, int *nresults)
   TValue *stackbase = tvref(L->stack) + 1 + LJ_FR2;
   TValue *argbase = L->top - nargs;
   Lua54YieldKCtx yk;
+  TValue errtv;
   int status, i;
   lj_checkapi(nargs >= 0 && argbase >= stackbase,
 	      "not enough stack values to resume continuation");
@@ -2762,10 +2764,18 @@ static int resume_lua54_yieldk_cont(lua_State *L, int nargs, int *nresults)
       copyTV(L, stackbase + i, resbase + i);
     L->base = stackbase;
     L->top = stackbase + yk.nres;
+    L->status = LUA_OK;
     if (nresults) *nresults = yk.nres;
     return LUA_OK;
   }
   L->status = (uint8_t)status;
+  if (L->top > stackbase)
+    copyTV(L, &errtv, L->top-1);
+  else
+    setnilV(&errtv);
+  L->base = stackbase;
+  copyTV(L, stackbase, &errtv);
+  L->top = stackbase + 1;
   if (nresults) *nresults = 0;
   return status;
 }
@@ -2775,6 +2785,7 @@ static int resume_lua54_callk_cont(lua_State *L, int status, int *nresults)
   TValue *stackbase = tvref(L->stack) + 1 + LJ_FR2;
   TValue *callbase = L->base;
   Lua54YieldKCtx yk;
+  TValue errtv;
   int i, nres, kind;
   yk.k = L->capi_yield_k;
   yk.ctx = L->capi_yield_ctx;
@@ -2796,12 +2807,14 @@ static int resume_lua54_callk_cont(lua_State *L, int status, int *nresults)
   ** with the callee results still on the coroutine stack.
   */
   L->base = stackbase;
+  L->status = LUA_OK;
   if (status != LUA_OK && status != LUA_YIELD) {
     lj_checkapi(L->top > stackbase,
 		"not enough error results returned by lua_pcallk callee");
     copyTV(L, stackbase, L->top - 1);
     L->top = stackbase + 1;
     status = lua54_apply_pcallk_errfunc(L, stackbase, status);
+    L->status = LUA_OK;
   } else if (nres >= 0) {
     TValue *resbase = L->top - nres;
     lj_checkapi(nres <= L->top - stackbase,
@@ -2837,10 +2850,18 @@ static int resume_lua54_callk_cont(lua_State *L, int status, int *nresults)
       copyTV(L, stackbase + i, resbase + i);
     L->base = stackbase;
     L->top = stackbase + yk.nres;
+    L->status = LUA_OK;
     if (nresults) *nresults = yk.nres;
     return LUA_OK;
   }
   L->status = (uint8_t)status;
+  if (L->top > stackbase)
+    copyTV(L, &errtv, L->top-1);
+  else
+    setnilV(&errtv);
+  L->base = stackbase;
+  copyTV(L, stackbase, &errtv);
+  L->top = stackbase + 1;
   if (nresults) *nresults = 0;
   return status;
 }

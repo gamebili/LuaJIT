@@ -3824,6 +3824,21 @@ static void test_stack_and_number_api(lua_State *L)
   lua_pop(L, 1);
 
   co = lua_newthread(L);
+  lua_pushcfunction(L, yield_two);
+  lua_xmove(L, co, 1);
+  {
+    int nres = -1;
+    check(L, lua_resume_sig(co, NULL, 0, &nres) == LUA_YIELD,
+	  "lua_resume54 NULL from yield status");
+    check(L, nres == 2 && lua_gettop(co) == 2,
+	  "lua_resume54 NULL from yield count");
+    check_string(co, 1, "y1", "lua_resume54 NULL from yield result #1");
+    check_string(co, 2, "y2", "lua_resume54 NULL from yield result #2");
+    lua_settop(co, 0);
+  }
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
   lua_pushcfunction(L, yield_with_reyield_cont);
   lua_xmove(L, co, 1);
   {
@@ -4213,6 +4228,20 @@ static void test_stack_and_number_api(lua_State *L)
 	  "lua_resume54 dead coroutine error count");
     check(L, strstr(lua_tostring(co, 1), "dead coroutine") != NULL,
 	  "lua_resume54 dead coroutine error text");
+  }
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  lua_pushcfunction(L, return_two);
+  lua_xmove(L, co, 1);
+  {
+    int nres = -1;
+    check(L, lua_resume_sig(co, NULL, 0, &nres) == LUA_OK,
+	  "lua_resume54 NULL from return status");
+    check(L, nres == 2 && lua_gettop(co) == 2,
+	  "lua_resume54 NULL from return count");
+    check_string(co, 1, "r1", "lua_resume54 NULL from return result #1");
+    check_string(co, 2, "r2", "lua_resume54 NULL from return result #2");
   }
   lua_pop(L, 1);
 }
