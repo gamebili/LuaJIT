@@ -9,6 +9,7 @@
 #include <stddef.h>
 #include <limits.h>
 #include <stdarg.h>
+#include <math.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -3062,6 +3063,16 @@ static void test_stack_and_number_api(lua_State *L)
   }
   check(L, !lua_numbertointeger((lua_Number)LUA_MAXINTEGER + 1.0, &iv),
 	"lua_numbertointeger rejects upper exclusive bound");
+  {
+    lua_Number pinf = (lua_Number)HUGE_VAL;
+    lua_Number nanv = pinf - pinf;
+    check(L, !lua_numbertointeger(pinf, &iv),
+	  "lua_numbertointeger rejects positive infinity");
+    check(L, !lua_numbertointeger(-pinf, &iv),
+	  "lua_numbertointeger rejects negative infinity");
+    check(L, !lua_numbertointeger(nanv, &iv),
+	  "lua_numbertointeger rejects NaN");
+  }
   {
     char nbuf[64];
     char ibuf[64];
