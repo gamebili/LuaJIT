@@ -2364,6 +2364,7 @@ static int pcallk_yield_error_driver(lua_State *L)
 }
 
 static int pcallk_msgh_yield_error_cont_called;
+static int pcallk_msgh_error_yield_error_cont_called;
 
 static int pcallk_msgh_yield_error_cont(lua_State *L, int status,
 					lua_KContext ctx)
@@ -2400,6 +2401,41 @@ static int pcallk_msgh_yield_error_driver(lua_State *L)
   status = lua_pcallk_sig(L, 0, 1, 1, (lua_KContext)0x6705,
 			  pcallk_msgh_yield_error_cont);
   return pcallk_msgh_yield_error_cont(L, status, (lua_KContext)0x6705);
+}
+
+static int pcallk_msgh_error_yield_error_cont(lua_State *L, int status,
+					      lua_KContext ctx)
+{
+  pcallk_msgh_error_yield_error_cont_called++;
+  check(L, status == LUA_ERRERR,
+	"lua_pcallk message handler error continuation status");
+  check(L, ctx == (lua_KContext)0x6706,
+	"lua_pcallk message handler error continuation context");
+  check(L, lua_gettop(L) == 1,
+	"lua_pcallk message handler error continuation stack");
+  check_string(L, 1, "error in error handling",
+	"lua_pcallk message handler error object");
+  lua_pushliteral(L, "pcallk-msgh-error-error-handled");
+  return 1;
+}
+
+static int pcallk_msgh_error_handler(lua_State *L)
+{
+  return luaL_error(L, "pcallk-msgh-handler-boom");
+}
+
+static int pcallk_msgh_error_yield_error_driver(lua_State *L)
+{
+  int status;
+  lua_pushcfunction(L, pcallk_msgh_error_handler);
+  check(L, luaL_loadstring(L,
+	"coroutine.yield('pcallk-msgh-error-handler-yield'); "
+	"error('pcallk-msgh-error-handler-after-yield', 0)") == LUA_OK,
+	"lua_pcallk message handler error callee load");
+  status = lua_pcallk_sig(L, 0, 1, 1, (lua_KContext)0x6706,
+			  pcallk_msgh_error_yield_error_cont);
+  return pcallk_msgh_error_yield_error_cont(L, status,
+					    (lua_KContext)0x6706);
 }
 
 static int callk_yield_error_cont_called;
@@ -4071,6 +4107,31 @@ static void test_stack_and_number_api(lua_State *L)
 	  "lua_pcallk message handler yield-error final count");
     check_string(co, 1, "pcallk-msgh-error-handled",
 	  "lua_pcallk message handler yield-error final result");
+  }
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  lua_pushcfunction(L, pcallk_msgh_error_yield_error_driver);
+  lua_xmove(L, co, 1);
+  {
+    int nres = -1;
+    pcallk_msgh_error_yield_error_cont_called = 0;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_YIELD,
+	  "lua_pcallk message handler error initial status");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_pcallk message handler error initial count");
+    check_string(co, 1, "pcallk-msgh-error-handler-yield",
+	  "lua_pcallk message handler error yield result");
+    lua_settop(co, 0);
+    nres = -1;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_OK,
+	  "lua_pcallk message handler error final status");
+    check(L, pcallk_msgh_error_yield_error_cont_called == 1,
+	  "lua_pcallk message handler error continuation called");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_pcallk message handler error final count");
+    check_string(co, 1, "pcallk-msgh-error-error-handled",
+	  "lua_pcallk message handler error final result");
   }
   lua_pop(L, 1);
 
