@@ -1000,6 +1000,13 @@ static const char lua54_table_shrink_failure_chunk[] =
   "for i = 1, #keys do if t[keys[i]] ~= nil then new_seen = new_seen + 1 end end\n"
   "return ok, old_ok, new_seen\n";
 
+static const char lua54_string_allocator_chunk[] =
+  "local last = ''\n"
+  "for i = 1, 1536 do\n"
+  "  last = 'strict-string-allocator-' .. i .. '-' .. i\n"
+  "end\n"
+  "return #last\n";
+
 static int fail_load_array_after_alloc(lua_State *L)
 {
   void *ud = NULL;
@@ -1164,6 +1171,71 @@ static void test_parser_exact_array_allocator_failure(lua_State *L,
 	"parser exact-array partial allocation cleanup exercised");
   check(L, saw_success_after_failure,
 	"parser exact-array failure scan reaches successful load boundary");
+}
+
+static void test_string_allocator_failure(lua_State *L)
+{
+  int limit;
+  int saw_string_failure = 0;
+  int saw_nonfatal_resize_failure = 0;
+  int saw_partial_cleanup = 0;
+  for (limit = 1; limit <= 768; limit++) {
+    StrictAllocCtx ctx;
+    lua_State *T;
+    int status;
+    int before_fails;
+    int before_frees;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.capacity = 8192;
+    ctx.blocks = (StrictAllocBlock *)calloc((size_t)ctx.capacity,
+					    sizeof(StrictAllocBlock));
+    check(L, ctx.blocks != NULL,
+	  "string allocator failure bookkeeping");
+    T = lua_newstate(strict_alloc, &ctx);
+    check(L, T != NULL, "lua_newstate string allocator failure");
+    luaL_openlibs(T);
+    status = luaL_dostring(T, "if jit then jit.off(); jit.flush() end");
+    check(L, status == LUA_OK, "string allocator failure disables JIT");
+    lua_settop(T, 0);
+    status = luaL_loadbufferx(T, lua54_string_allocator_chunk,
+			      sizeof(lua54_string_allocator_chunk) - 1u,
+			      "=strict-string-alloc-fail", "t");
+    check(L, status == LUA_OK, "string allocator failure probe load");
+    before_fails = ctx.call_fails;
+    before_frees = ctx.frees;
+    ctx.fail_once_alloc = 1;
+    ctx.fail_at_alloc = ctx.alloc_requests + limit;
+    status = lua_pcall(T, 0, 1, 0);
+    ctx.fail_at_alloc = 0;
+    ctx.fail_once_alloc = 0;
+    if (status == LUA_OK) {
+      int ok = 0;
+      lua_Integer got = lua_tointegerx(T, -1, &ok);
+      check(L, ok && got > 0,
+	    "string allocator failure success result");
+      if (ctx.call_fails > before_fails)
+	saw_nonfatal_resize_failure = 1;
+    } else {
+      check(L, status == LUA_ERRMEM,
+	    "string allocator failure reports memory error");
+      check(L, ctx.call_fails > before_fails,
+	    "string allocator failure must come from allocator");
+      saw_string_failure = 1;
+      if (ctx.frees > before_frees)
+	saw_partial_cleanup = 1;
+    }
+    lua_close(T);
+    check(L, ctx.bad_osize == 0 && ctx.missing_ptr == 0,
+	  "string allocator failure preserves block sizes");
+    check(L, ctx.live_blocks == 0,
+	  "string allocator failure releases state allocations");
+    free(ctx.blocks);
+  }
+  check(L, saw_string_failure, "string allocator failure exercised");
+  check(L, saw_nonfatal_resize_failure,
+	"string allocator nonfatal resize failure exercised");
+  check(L, saw_partial_cleanup,
+	"string allocator failure cleanup exercised");
 }
 
 static void test_table_allocator_failure(lua_State *L, lua_State *T,
@@ -1449,6 +1521,7 @@ static void test_state_allocator_api(lua_State *L)
   int status;
   lua_State *T;
   test_newstate_allocator_failure(L);
+  test_string_allocator_failure(L);
   T = lua_newstate(counting_alloc, &ctx);
   check(L, T != NULL, "lua_newstate custom allocator");
   check(L, lua_atpanic(T, panic_a) == NULL, "lua_atpanic initial handler");
