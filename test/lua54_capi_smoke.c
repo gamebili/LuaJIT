@@ -2865,9 +2865,24 @@ static void test_stack_and_number_api(lua_State *L)
   okflag = -1;
   check(L, lua_tonumberx(L, -1, &okflag) == 0 && okflag == 0,
 	"lua_tonumberx rejects inf string");
+  okflag = -1;
+  check(L, lua_tointegerx(L, -1, &okflag) == 0 && okflag == 0,
+	"lua_tointegerx rejects inf string");
+  lua_pop(L, 1);
+  lua_pushliteral(L, "nan");
+  check(L, !lua_isnumber(L, -1), "lua_isnumber rejects nan string");
+  okflag = -1;
+  check(L, lua_tonumberx(L, -1, &okflag) == 0 && okflag == 0,
+	"lua_tonumberx rejects nan string");
+  okflag = -1;
+  check(L, lua_tointegerx(L, -1, &okflag) == 0 && okflag == 0,
+	"lua_tointegerx rejects nan string");
   lua_pop(L, 1);
   lua_pushliteral(L, "0b10");
   check(L, !lua_isnumber(L, -1), "lua_isnumber rejects binary prefix string");
+  okflag = -1;
+  check(L, lua_tonumberx(L, -1, &okflag) == 0 && okflag == 0,
+	"lua_tonumberx rejects binary prefix string");
   okflag = -1;
   check(L, lua_tointegerx(L, -1, &okflag) == 0 && okflag == 0,
 	"lua_tointegerx rejects binary prefix string");
