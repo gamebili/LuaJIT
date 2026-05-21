@@ -1456,6 +1456,8 @@ static void test_state_allocator_api(lua_State *L)
   allocf = lua_getallocf(T, &ud);
   check(L, allocf == counting_alloc && ud == &ctx,
 	"lua_getallocf custom allocator");
+  check(L, lua_getallocf(T, NULL) == counting_alloc,
+	"lua_getallocf accepts NULL userdata out parameter");
   lua_setallocf(T, allocf, ud);
   allocf = lua_getallocf(T, &ud);
   check(L, allocf == counting_alloc && ud == &ctx,
@@ -6064,9 +6066,15 @@ static void test_warning_and_gc_api(lua_State *L)
   version = lua_version(L);
   check(L, version == (lua_Number)LUA_VERSION_NUM,
 	"lua_version returns numeric Lua 5.4 version");
+  version = lua_version(NULL);
+  check(L, version == (lua_Number)LUA_VERSION_NUM,
+	"lua_version accepts NULL state");
   version = lua_version_value_sig(L);
   check(L, version == (lua_Number)LUA_VERSION_NUM,
 	"lua_version function pointer returns Lua 5.4 version");
+  version = lua_version_value_sig(NULL);
+  check(L, version == (lua_Number)LUA_VERSION_NUM,
+	"lua_version function pointer accepts NULL state");
   check(L, lua_setcstacklimit(L, 0) == 200,
 	"lua_setcstacklimit query shim");
   check(L, lua_setcstacklimit(L, 200) == 200,
