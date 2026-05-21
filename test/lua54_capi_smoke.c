@@ -4124,6 +4124,11 @@ static void test_stack_and_number_api(lua_State *L)
 	  "lua_pcallk message handler yield-error final result");
   }
   lua_pop(L, 1);
+  lua_gc(L, LUA_GCCOLLECT, 0);
+  co = lua_newthread(L);
+  check(L, co != NULL,
+	"lua_pcallk message handler yield-error stack growth cleanup");
+  lua_pop(L, 1);
 
   co = lua_newthread(L);
   lua_pushcfunction(L, pcallk_msgh_error_yield_error_driver);
@@ -4148,6 +4153,11 @@ static void test_stack_and_number_api(lua_State *L)
     check_string(co, 1, "pcallk-msgh-error-error-handled",
 	  "lua_pcallk message handler error final result");
   }
+  lua_pop(L, 1);
+  lua_gc(L, LUA_GCCOLLECT, 0);
+  co = lua_newthread(L);
+  check(L, co != NULL,
+	"lua_pcallk message handler error stack growth cleanup");
   lua_pop(L, 1);
 
   co = lua_newthread(L);

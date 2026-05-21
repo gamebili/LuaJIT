@@ -2729,6 +2729,7 @@ static int resume_lua54_yieldk_cont(lua_State *L, int nargs, int *nresults)
 {
   TValue *stackbase = tvref(L->stack) + 1 + LJ_FR2;
   TValue *argbase = L->top - nargs;
+  ptrdiff_t stackbaseofs;
   Lua54YieldKCtx yk;
   TValue errtv;
   int status, i;
@@ -2751,9 +2752,12 @@ static int resume_lua54_yieldk_cont(lua_State *L, int nargs, int *nresults)
   L->capi_yield_kind = LUA54_CAPI_CONT_NONE;
   setnilV(&L->capi_yield_errfunc);
   L->status = LUA_OK;
+  stackbaseofs = savestack(L, stackbase);
   L->capi_cont_yieldable = 1;
   status = lj_vm_cpcall(L, NULL, &yk, cp_lua54_yieldk_cont);
   L->capi_cont_yieldable = 0;
+  L->cframe = NULL;
+  stackbase = restorestack(L, stackbaseofs);
   if (status == LUA_OK && L->status == LUA_YIELD) {
     if (nresults) *nresults = (int)(L->top - stackbase);
     return LUA_YIELD;
@@ -2784,6 +2788,7 @@ static int resume_lua54_callk_cont(lua_State *L, int status, int *nresults)
 {
   TValue *stackbase = tvref(L->stack) + 1 + LJ_FR2;
   TValue *callbase = L->base;
+  ptrdiff_t stackbaseofs = savestack(L, stackbase);
   Lua54YieldKCtx yk;
   TValue errtv;
   int i, nres, kind;
@@ -2814,6 +2819,7 @@ static int resume_lua54_callk_cont(lua_State *L, int status, int *nresults)
     copyTV(L, stackbase, L->top - 1);
     L->top = stackbase + 1;
     status = lua54_apply_pcallk_errfunc(L, stackbase, status);
+    stackbase = restorestack(L, stackbaseofs);
     L->status = LUA_OK;
   } else if (nres >= 0) {
     TValue *resbase = L->top - nres;
@@ -2837,9 +2843,12 @@ static int resume_lua54_callk_cont(lua_State *L, int status, int *nresults)
   }
   yk.status = status == LUA_OK ? LUA_YIELD : status;
   setnilV(&L->capi_yield_errfunc);
+  stackbaseofs = savestack(L, stackbase);
   L->capi_cont_yieldable = 1;
   status = lj_vm_cpcall(L, NULL, &yk, cp_lua54_yieldk_cont);
   L->capi_cont_yieldable = 0;
+  L->cframe = NULL;
+  stackbase = restorestack(L, stackbaseofs);
   if (status == LUA_OK && L->status == LUA_YIELD) {
     if (nresults) *nresults = (int)(L->top - stackbase);
     return LUA_YIELD;
@@ -2866,6 +2875,12 @@ static int resume_lua54_callk_cont(lua_State *L, int status, int *nresults)
   return status;
 }
 
+static void lua54_resume_restore_from(lua_State *L, lua_State *from)
+{
+  if (from != NULL)
+    setgcref(G(L)->cur_L, obj2gco(from));
+}
+
 LUA_API int lua_resume54(lua_State *L, lua_State *from, int nargs,
 			 int *nresults)
 {
@@ -2873,13 +2888,15 @@ LUA_API int lua_resume54(lua_State *L, lua_State *from, int nargs,
   uint8_t oldmask = 0;
   int suspend_debug_hooks = 0;
   int status;
-  (void)from;
   /* The VM still implements LuaJIT's legacy resume ABI. This wrapper exposes
   ** Lua 5.4's result-count out parameter without changing the internal ABI.
   */
   if (L->status == LUA_YIELD && L->capi_yield_k != NULL &&
-      L->capi_yield_kind == LUA54_CAPI_CONT_YIELDK)
-    return resume_lua54_yieldk_cont(L, nargs, nresults);
+      L->capi_yield_kind == LUA54_CAPI_CONT_YIELDK) {
+    status = resume_lua54_yieldk_cont(L, nargs, nresults);
+    lua54_resume_restore_from(L, from);
+    return status;
+  }
   if (g->hook_debug && !lua54_debug_hook_thread_active(L)) {
     oldmask = g->hookmask;
     g->hookmask = (uint8_t)(oldmask & ~HOOK_EVENTMASK);
@@ -2894,10 +2911,14 @@ LUA_API int lua_resume54(lua_State *L, lua_State *from, int nargs,
   if (L->capi_yield_k != NULL &&
       (L->capi_yield_kind == LUA54_CAPI_CONT_CALLK ||
        L->capi_yield_kind == LUA54_CAPI_CONT_PCALLK) &&
-      status != LUA_YIELD)
-    return resume_lua54_callk_cont(L, status, nresults);
+      status != LUA_YIELD) {
+    status = resume_lua54_callk_cont(L, status, nresults);
+    lua54_resume_restore_from(L, from);
+    return status;
+  }
   if (nresults)
     *nresults = (status == LUA_OK || status == LUA_YIELD) ? lua_gettop(L) : 0;
+  lua54_resume_restore_from(L, from);
   return status;
 }
 #endif
