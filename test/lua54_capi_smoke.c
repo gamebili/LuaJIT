@@ -3089,6 +3089,7 @@ static void test_stack_and_number_api(lua_State *L)
   if (sizeof(lua_Integer) > sizeof(int)) {
     lua_Integer big = (lua_Integer)((lua_Unsigned)0x7fffffffu + 1u);
     lua_Integer big40 = (lua_Integer)1024 * 1024 * 1024 * 1024;
+    lua_Number pos63 = -(lua_Number)LUA_MININTEGER;
     int ok = 0;
     lua_pushinteger(L, big);
     check(L, lua_tointegerx(L, -1, &ok) == big && ok,
@@ -3121,6 +3122,18 @@ static void test_stack_and_number_api(lua_State *L)
     lua_pushliteral(L, "1099511627776");
     check(L, lua_tonumberx(L, -1, &ok) == (lua_Number)big40 && ok,
 	  "lua_tonumberx accepts wider exact 64-bit string number");
+    lua_pop(L, 1);
+    lua_pushliteral(L, "9223372036854775808");
+    check(L, lua_tonumberx(L, -1, &ok) == pos63 && ok,
+	  "lua_tonumberx accepts decimal above LUA_MAXINTEGER as number");
+    lua_pop(L, 1);
+    lua_pushliteral(L, "-9223372036854775809");
+    check(L, lua_tonumberx(L, -1, &ok) == -pos63 && ok,
+	  "lua_tonumberx accepts decimal below LUA_MININTEGER as number");
+    lua_pop(L, 1);
+    lua_pushliteral(L, "18446744073709551616");
+    check(L, lua_tonumberx(L, -1, &ok) == pos63 * 2.0 && ok,
+	  "lua_tonumberx accepts decimal unsigned range as number");
     lua_pop(L, 1);
     lua_pushinteger(L, LUA_MAXINTEGER);
     check(L, lua_isinteger(L, -1), "lua_isinteger accepts LUA_MAXINTEGER");
@@ -4906,6 +4919,7 @@ static void test_lauxlib_api(lua_State *L)
   if (sizeof(lua_Integer) > sizeof(int)) {
     lua_Integer big = (lua_Integer)((lua_Unsigned)0x7fffffffu + 1u);
     lua_Integer big40 = (lua_Integer)1024 * 1024 * 1024 * 1024;
+    lua_Number pos63 = -(lua_Number)LUA_MININTEGER;
     lua_pushcfunction(L, checkinteger_arg);
     lua_pushnumber(L, (lua_Number)2147483648.0);
     status = lua_pcall(L, 1, 1, 0);
@@ -5011,6 +5025,22 @@ static void test_lauxlib_api(lua_State *L)
     check(L, lua_tonumber(L, -1) == (lua_Number)big40,
 	  "luaL_checknumber wider 64-bit string number");
     lua_pop(L, 1);
+    lua_pushcfunction(L, checknumber_arg);
+    lua_pushliteral(L, "9223372036854775808");
+    status = lua_pcall(L, 1, 1, 0);
+    check(L, status == LUA_OK,
+	  "luaL_checknumber accepts decimal above LUA_MAXINTEGER");
+    check(L, !lua_isinteger(L, -1) && lua_tonumber(L, -1) == pos63,
+	  "luaL_checknumber decimal above LUA_MAXINTEGER");
+    lua_pop(L, 1);
+    lua_pushcfunction(L, checknumber_arg);
+    lua_pushliteral(L, "-9223372036854775809");
+    status = lua_pcall(L, 1, 1, 0);
+    check(L, status == LUA_OK,
+	  "luaL_checknumber accepts decimal below LUA_MININTEGER");
+    check(L, !lua_isinteger(L, -1) && lua_tonumber(L, -1) == -pos63,
+	  "luaL_checknumber decimal below LUA_MININTEGER");
+    lua_pop(L, 1);
     lua_pushcfunction(L, optnumber_arg);
     lua_pushinteger(L, big40);
     status = lua_pcall(L, 1, 1, 0);
@@ -5026,6 +5056,14 @@ static void test_lauxlib_api(lua_State *L)
 	  "luaL_optnumber accepts wider 64-bit string number");
     check(L, lua_tonumber(L, -1) == (lua_Number)big40,
 	  "luaL_optnumber wider 64-bit string number");
+    lua_pop(L, 1);
+    lua_pushcfunction(L, optnumber_arg);
+    lua_pushliteral(L, "18446744073709551616");
+    status = lua_pcall(L, 1, 1, 0);
+    check(L, status == LUA_OK,
+	  "luaL_optnumber accepts decimal unsigned range");
+    check(L, !lua_isinteger(L, -1) && lua_tonumber(L, -1) == pos63 * 2.0,
+	  "luaL_optnumber decimal unsigned range");
     lua_pop(L, 1);
   }
 
