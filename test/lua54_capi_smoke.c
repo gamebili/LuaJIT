@@ -4916,6 +4916,23 @@ static void test_lauxlib_api(lua_State *L)
 	"luaL_optinteger fraction error");
   lua_pop(L, 1);
 
+  lua_pushcfunction(L, checkinteger_arg);
+  lua_pushliteral(L, "inf");
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_checkinteger rejects inf string");
+  check(L, strstr(lua_tostring(L, -1), "number expected") != NULL,
+	"luaL_checkinteger inf error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, optinteger_arg);
+  lua_pushliteral(L, "0b10");
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN,
+	"luaL_optinteger rejects binary prefix string");
+  check(L, strstr(lua_tostring(L, -1), "number expected") != NULL,
+	"luaL_optinteger binary prefix error");
+  lua_pop(L, 1);
+
   if (sizeof(lua_Integer) > sizeof(int)) {
     lua_Integer big = (lua_Integer)((lua_Unsigned)0x7fffffffu + 1u);
     lua_Integer big40 = (lua_Integer)1024 * 1024 * 1024 * 1024;
