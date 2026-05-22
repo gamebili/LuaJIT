@@ -25,6 +25,7 @@
 #include "lj_char.h"
 #include "lj_meta.h"
 #include "lj_debug.h"
+#include "lj_frame.h"
 #include "lj_state.h"
 #include "lj_strfmt.h"
 #include "lj_ff.h"
@@ -175,6 +176,28 @@ static void io_methodargerror54(lua_State *L, const char *fname, int narg,
 				      narg, fname, msg));
 }
 
+static void io_methodselfargerror54(lua_State *L, const char *fname,
+				    const char *msg)
+{
+  const char *name = "?";
+  const char *kind = lj_debug_funcname(L, L->base-1, &name);
+  if (kind && name) {
+    fname = name;
+  } else {
+    cTValue *frame = L->base-1;
+    int direct_pcall = 0;
+    if (frame > tvref(L->stack)+LJ_FR2) {
+      if (frame_isvarg(frame))
+	frame = frame_prevd(frame);
+      if (frame > tvref(L->stack)+LJ_FR2)
+	direct_pcall = frame_ispcall(frame);
+    }
+    fname = direct_pcall ? "?" : lj_debug_callname54(L, fname, "io");
+  }
+  lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #%d to '%s' (%s)",
+				      1, fname, msg));
+}
+
 static const char *io_typename54(lua_State *L, int cidx)
 {
   TValue *o = L->base + cidx-1;
@@ -259,7 +282,7 @@ static IOFileUD *io_method_tofile_named54(lua_State *L, const char *fname)
     /* Dot-called file methods have no hidden self. Report the public method
     ** name and Lua 5.4's "FILE* expected" detail instead of the legacy '?'.
     */
-    io_methodargerror54(L, fname, 1,
+    io_methodselfargerror54(L, fname,
       lj_strfmt_pushf(L, "%s expected, got %s", LUA_FILEHANDLE,
 		      io_typename54(L, 1)));
   }

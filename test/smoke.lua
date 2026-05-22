@@ -5257,6 +5257,11 @@ end
 assert(assert(load([[
   local ok, err = pcall(io.stdin.close)
   assert(ok == false and tostring(err):find("got no value", 1, true))
+  assert(tostring(err):find("to '?'", 1, true))
+  ok, err = pcall(io.stdin.seek)
+  assert(ok == false and tostring(err):find("bad argument #1 to '?'",
+					    1, true) and
+	 tostring(err):find("FILE* expected, got no value", 1, true))
   ok, err = pcall(io.type)
   assert(ok == false and tostring(err):find("to 'io.type'", 1, true) and
 	 tostring(err):find("value expected", 1, true))
