@@ -639,6 +639,25 @@ do
     end, "f")
   end
   do
+    local alias_table = { f = math.abs }
+    expect_public_tail_callname(function()
+      return alias_table.f(true)
+    end, "f")
+  end
+  do
+    local f = math.abs
+    local alias_table = { g = f }
+    expect_public_tail_callname(function()
+      return alias_table.g(true)
+    end, "g")
+  end
+  do
+    local alias_table = { m = table.move }
+    expect_public_tail_callname(function()
+      return alias_table.m({}, 1.2, 2, 1)
+    end, "m")
+  end
+  do
     local alias_table = {}
     lua54_table_global_alias = alias_table
     lua54_table_global_alias.h = math.abs
@@ -705,6 +724,16 @@ do
     expect_public_tail_callname(function()
       return holder.alias.n(true)
     end, "n")
+  end
+  do
+    local inner = { p = math.abs }
+    local holder = { inner = inner }
+    expect_public_tail_callname(function()
+      return inner.p(true)
+    end, "p")
+    expect_public_tail_callname(function()
+      return holder.inner.p(true)
+    end, "p")
   end
   expect_public_tail_callname(function() return os.exit("x") end, "exit")
   do

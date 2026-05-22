@@ -1201,6 +1201,17 @@ static void lua54_mark_table_notailcall(FuncState *fs, VarIndex table,
   }
 }
 
+static void lua54_mark_pending_table_notailcall(FuncState *fs, VarIndex table,
+						GCstr *field, int on)
+{
+  if (table >= LJ_MAX_VSTACK || field == NULL)
+    return;
+  table = lua54_resolve_table_alias(fs, table);
+  if (on)
+    lua54_mark_table_source(fs, table);
+  lua54_mark_table_notailcall_one(fs, table, field, on);
+}
+
 static void lua54_clear_table_notailcall_one(FuncState *fs, VarIndex table)
 {
   MSize i = 0;
@@ -2886,6 +2897,14 @@ static void lua54_mark_constructor_field_aliases(FuncState *fs,
       lua54_mark_pending_table_field_alias(fs, table, field, source);
     else
       lua54_mark_table_field_alias(fs, table, field, source);
+    if (pending)
+      lua54_mark_pending_table_notailcall(fs, table, field,
+	lua54_local_notailcall(fs, bc_a(ins)) ||
+	lua54_slot_helper_init_range(fs, bc_a(ins), startpc, pc));
+    else
+      lua54_mark_table_notailcall(fs, table, field,
+	lua54_local_notailcall(fs, bc_a(ins)) ||
+	lua54_slot_helper_init_range(fs, bc_a(ins), startpc, pc));
   }
 }
 
