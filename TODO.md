@@ -282,6 +282,7 @@
   - 当前进展：`incremental(..., stepsize)` 保存的 Lua 5.4 step-size 参数已接入 LuaJIT 兼容构建的实际 GC step 粒度；默认使用 Lua 5.4 的 `13`（8KB）调度基数，非 5.4 构建保留旧 LuaJIT `GCSTEPSIZE`；incremental 模式下 `collectgarbage("step", 0)` 已改为不消费旧 debt 的单次 basic step；generational 模式在 JIT 关闭且无 trace 对象时走 minor step，JIT 开启或存在 trace 对象时仍保守走 major。
   - 当前进展：Lua 5.4 compat 的 atomic 阶段会把完整 atomic 遍历工作量计入单步成本；incremental `step` 不再把 atomic 当作 0 成本后继续无界推进 sweep。
   - 当前进展：无调参 GC 命令的多余参数已按官方 Lua 5.4.8 忽略，覆盖默认 `collectgarbage(nil, extra)` 以及 `"count"` / `"collect"` / `"stop"` / `"restart"` / `"isrunning"`；`step` / `setpause` / `setstepmul` 仍只校验其第 2 个可选整数参数，mode 命令仍只校验官方定义的可选整数参数。
+  - 当前进展：incremental 模式下 `collectgarbage("step", n)` 的完成标志继续按官方 Lua 5.4.8 收紧；负数 step 不会被无符号化成超大收集量，`step(0)` 在 pause/basic-step 完成边界返回 `true`，Lua 入口和 C API `lua_gc(L, LUA_GCSTEP, ...)` 均已覆盖。
   - 已覆盖：`generational`/`incremental` 参数和旧模式返回、mode 可选整数/字符串整数参数、mode 可选参数 fraction/boolean 错误、finalizer 内 mode 可选参数错误、`minor`/`major` invalid option、`setpause` 初始返回 `200`、`setstepmul` 初始返回 `100`，以及负数、非 4 对齐值、超过 1000、fraction number、string number 的参数边界。
   - 实现重点：如果不重做 GC，至少要明确哪些行为是 shim，哪些行为可以做到语义兼容。
 

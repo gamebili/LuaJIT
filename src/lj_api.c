@@ -3106,12 +3106,18 @@ LUA_API int lua_gc(lua_State *L, int what, int data)
     res = (int)(g->gc.total & 0x3ff);
     break;
   case LUA_GCSTEP: {
-    GCSize a = (GCSize)data << 10;
+    GCSize a;
     int wasstopped = (g->gc.threshold == LJ_MAX_MEM);
 #if LJ_54
     int wasgen = g->gc_mode54;
+    int waspause = (g->gc.state == GCSpause);
+    int wasclean = (g->gc.total <= g->gc.estimate);
     if (wasgen && gc_gen_manual_major54(g)) {
       gc_fullgc_preserve_stop54(L);
+      res = 0;
+      break;
+    }
+    if (data < 0) {
       res = 0;
       break;
     }
@@ -3121,15 +3127,18 @@ LUA_API int lua_gc(lua_State *L, int what, int data)
 	(void)lj_gc_step(L);
 	res = 0;
       } else {
+	int stepres;
 	g->gc.debt = 0;
 	g->gc.threshold = g->gc.total;
-	res = (lj_gc_step(L) > 0);
+	stepres = lj_gc_step(L);
+	res = stepres > 0 || (waspause && wasclean);
       }
       if (wasstopped)
 	g->gc.threshold = LJ_MAX_MEM;
       break;
     }
 #endif
+    a = (GCSize)data << 10;
     g->gc.threshold = (a <= g->gc.total) ? (g->gc.total - a) : 0;
     while (g->gc.total >= g->gc.threshold)
       if (lj_gc_step(L) > 0) {

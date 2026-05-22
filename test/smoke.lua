@@ -1016,6 +1016,12 @@ do
     assert(select(1, pcall(collectgarbage, "step", 1099511627776)) == true)
     assert(collectgarbage("setpause", "123") == 200)
     assert(collectgarbage("setstepmul", "123") == 100)
+    collectgarbage("incremental", 200, 100, 13)
+    collectgarbage("collect")
+    assert(collectgarbage("step", -1) == false)
+    assert(collectgarbage("step", 0) == true)
+    collectgarbage("collect")
+    assert(collectgarbage("step", 1099511627776) == true)
     collectgarbage("incremental", 200, 100, 1)
     collectgarbage("collect")
     local t = {}

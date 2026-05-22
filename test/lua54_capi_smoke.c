@@ -6339,6 +6339,15 @@ static void test_warning_and_gc_api(lua_State *L)
 	"lua_gc step must not restart stopped collector");
   check(L, lua_gc(L, LUA_GCRESTART) == 0, "lua_gc restart");
   check(L, lua_gc(L, LUA_GCISRUNNING) == 1, "lua_gc restarted isrunning");
+  oldmode = lua_gc(L, LUA_GCINC, 200, 100, 13);
+  check(L, oldmode == LUA_GCGEN || oldmode == LUA_GCINC,
+	"LUA_GCINC before step return mode");
+  check(L, lua_gc(L, LUA_GCCOLLECT) == 0,
+	"lua_gc collect before incremental step");
+  check(L, lua_gc(L, LUA_GCSTEP, -1) == 0,
+	"LUA_GCSTEP negative reports incomplete");
+  check(L, lua_gc(L, LUA_GCSTEP, 0) == 1,
+	"LUA_GCSTEP zero reports completed pause cycle");
   oldpause = lua_gc(L, LUA_GCSETPAUSE, 123);
   check(L, oldpause == 200, "lua_gc setpause initial value");
   check(L, lua_gc(L, LUA_GCSETPAUSE, oldpause) == 120,
