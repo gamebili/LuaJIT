@@ -140,6 +140,7 @@ static int io_file_close(lua_State *L, IOFileUD *iof)
 #if LJ_54
 static void io_argerror54(lua_State *L, const char *fname, int narg,
 			  const char *msg);
+static const char *io_typename54(lua_State *L, int cidx);
 
 static int io_checkmode_lua54(const char *mode)
 {
@@ -176,6 +177,76 @@ static void io_methodargerror54(lua_State *L, const char *fname, int narg,
 				      narg, fname, msg));
 }
 
+static int io_method_direct_pcall54(lua_State *L)
+{
+  cTValue *frame = L->base-1;
+  if (frame > tvref(L->stack)+LJ_FR2) {
+    if (frame_isvarg(frame))
+      frame = frame_prevd(frame);
+    if (frame > tvref(L->stack)+LJ_FR2)
+      return frame_ispcall(frame);
+  }
+  return 0;
+}
+
+static const char *io_method_callinfo54(lua_State *L, const char *fallback,
+					int *hiddenself)
+{
+  const char *name = "?";
+  const char *kind = lj_debug_funcname(L, L->base-1, &name);
+  *hiddenself = 0;
+  if (kind && name) {
+    if (strcmp(kind, "method") == 0)
+      *hiddenself = 1;
+    return io_method_direct_pcall54(L) ? "?" : name;
+  }
+  return io_method_direct_pcall54(L) ? "?" : fallback;
+}
+
+static void io_methodargerror_at54(lua_State *L, const char *fname, int cidx,
+				   const char *msg)
+{
+  int hiddenself;
+  fname = io_method_callinfo54(L, fname, &hiddenself);
+  lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #%d to '%s' (%s)",
+				      cidx - hiddenself, fname, msg));
+}
+
+static int io_method_checkopt54(lua_State *L, const char *fname, int cidx,
+				int def, const char *lst)
+{
+  TValue *o = L->base + cidx-1;
+  GCstr *s = NULL;
+  if (o < L->top && !tvisnil(o)) {
+    if (tvisstr(o)) {
+      s = strV(o);
+    } else if (tvisnumber(o) || tvisi64(o)) {
+      s = lj_strfmt_number(L, o);
+      setstrV(L, o, s);
+    } else {
+      io_methodargerror_at54(L, fname, cidx,
+	lj_strfmt_pushf(L, "string expected, got %s",
+			io_typename54(L, cidx)));
+    }
+  } else if (def < 0) {
+    io_methodargerror_at54(L, fname, cidx,
+      lj_strfmt_pushf(L, "string expected, got %s", io_typename54(L, cidx)));
+  }
+  if (s) {
+    const char *opt = strdata(s);
+    MSize len = s->len;
+    int i;
+    for (i = 0; *(const uint8_t *)lst; i++) {
+      if (*(const uint8_t *)lst == len && memcmp(opt, lst+1, len) == 0)
+	return i;
+      lst += 1+*(const uint8_t *)lst;
+    }
+    io_methodargerror_at54(L, fname, cidx,
+			   lj_strfmt_pushf(L, "invalid option '%s'", opt));
+  }
+  return def;
+}
+
 static void io_methodselfargerror54(lua_State *L, const char *fname,
 				    const char *msg)
 {
@@ -184,15 +255,8 @@ static void io_methodselfargerror54(lua_State *L, const char *fname,
   if (kind && name) {
     fname = name;
   } else {
-    cTValue *frame = L->base-1;
-    int direct_pcall = 0;
-    if (frame > tvref(L->stack)+LJ_FR2) {
-      if (frame_isvarg(frame))
-	frame = frame_prevd(frame);
-      if (frame > tvref(L->stack)+LJ_FR2)
-	direct_pcall = frame_ispcall(frame);
-    }
-    fname = direct_pcall ? "?" : lj_debug_callname54(L, fname, "io");
+    fname = io_method_direct_pcall54(L) ? "?" :
+	    lj_debug_callname54(L, fname, "io");
   }
   lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #%d to '%s' (%s)",
 				      1, fname, msg));
@@ -800,7 +864,11 @@ LJLIB_CF(io_method_seek)
 #else
   FILE *fp = io_tofile(L)->fp;
 #endif
+#if LJ_54
+  int opt = io_method_checkopt54(L, "seek", 2, 1, "\3set\3cur\3end");
+#else
   int opt = lj_lib_checkopt(L, 2, 1, "\3set\3cur\3end");
+#endif
   int64_t ofs = 0;
 #if !LJ_54
   TValue *o;
@@ -854,7 +922,11 @@ LJLIB_CF(io_method_setvbuf)
 #else
   FILE *fp = io_tofile(L)->fp;
 #endif
+#if LJ_54
+  int opt = io_method_checkopt54(L, "setvbuf", 2, -1, "\4full\4line\2no");
+#else
   int opt = lj_lib_checkopt(L, 2, -1, "\4full\4line\2no");
+#endif
 #if LJ_54
   size_t sz = io_checksetvbufsize54(L);
 #else

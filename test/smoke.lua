@@ -5383,6 +5383,21 @@ assert(assert(load([[
     ok, err = pcall(function() return f:seek("set", "x") end)
     assert(ok == false and tostring(err):find("bad argument #2 to 'seek'", 1, true) and
 	   tostring(err):find("number expected, got string", 1, true))
+    ok, err = pcall(function() f:seek({}) end)
+    assert(ok == false and tostring(err):find("bad argument #1 to 'seek'", 1, true) and
+	   tostring(err):find("string expected, got table", 1, true))
+    ok, err = pcall(function() f.seek(f, {}) end)
+    assert(ok == false and tostring(err):find("bad argument #2 to 'seek'", 1, true) and
+	   tostring(err):find("string expected, got table", 1, true))
+    do
+      local s = f.seek
+      ok, err = pcall(function() s(f, {}) end)
+      assert(ok == false and tostring(err):find("bad argument #2 to 's'", 1, true) and
+	     tostring(err):find("string expected, got table", 1, true))
+    end
+    ok, err = pcall(f.seek, f, {})
+    assert(ok == false and tostring(err):find("bad argument #2 to '?'", 1, true) and
+	   tostring(err):find("string expected, got table", 1, true))
   end
   do
     local f <close> = assert(io.open(fname, "w"))
@@ -5395,6 +5410,15 @@ assert(assert(load([[
     ok, err = pcall(function() return f:setvbuf("full", "x") end)
     assert(ok == false and tostring(err):find("bad argument #2 to 'setvbuf'", 1, true) and
 	   tostring(err):find("number expected, got string", 1, true))
+    ok, err = pcall(function() f:setvbuf({}) end)
+    assert(ok == false and tostring(err):find("bad argument #1 to 'setvbuf'", 1, true) and
+	   tostring(err):find("string expected, got table", 1, true))
+    ok, err = pcall(function() f.setvbuf(f, {}) end)
+    assert(ok == false and tostring(err):find("bad argument #2 to 'setvbuf'", 1, true) and
+	   tostring(err):find("string expected, got table", 1, true))
+    ok, err = pcall(f.setvbuf, f, {})
+    assert(ok == false and tostring(err):find("bad argument #2 to '?'", 1, true) and
+	   tostring(err):find("string expected, got table", 1, true))
   end
   do
     local f <close> = assert(io.open(fname, "w"))
