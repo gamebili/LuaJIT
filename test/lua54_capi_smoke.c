@@ -4681,8 +4681,12 @@ static void test_compare_len_arith(lua_State *L)
     lua_Integer big2 = big + 1;
     lua_Integer big40 = (lua_Integer)1024 * 1024 * 1024 * 1024;
     lua_Integer big40b = big40 + 1;
+    lua_Integer big53 = (((lua_Integer)1) << 53) + 1;
     lua_Integer neg40 = -big40;
     lua_Integer neg40b = neg40 - 1;
+    lua_Number rounded53 = (lua_Number)big53;
+    lua_Number pos63 = -(lua_Number)LUA_MININTEGER;
+    lua_Number nanv = (lua_Number)HUGE_VAL - (lua_Number)HUGE_VAL;
     lua_pushinteger(L, big40);
     lua_pushinteger(L, big40b);
     check(L, lua_compare(L, -2, -1, LUA_OPLT),
@@ -4696,6 +4700,39 @@ static void test_compare_len_arith(lua_State *L)
     lua_pushnumber(L, (lua_Number)big40);
     check(L, lua_compare(L, -2, -1, LUA_OPEQ),
 	  "lua_compare matches wider integer and exact number");
+    lua_pop(L, 2);
+    lua_pushinteger(L, big53);
+    lua_pushnumber(L, rounded53);
+    check(L, !lua_compare(L, -2, -1, LUA_OPEQ),
+	  "lua_compare rejects rounded int64/double equality");
+    check(L, !lua_compare(L, -2, -1, LUA_OPLT),
+	  "lua_compare rounded int64/double lt false");
+    check(L, !lua_compare(L, -2, -1, LUA_OPLE),
+	  "lua_compare rounded int64/double le false");
+    check(L, lua_compare(L, -1, -2, LUA_OPLT),
+	  "lua_compare rounded double less than int64");
+    check(L, lua_compare(L, -1, -2, LUA_OPLE),
+	  "lua_compare rounded double le int64");
+    lua_pop(L, 2);
+    lua_pushinteger(L, LUA_MAXINTEGER);
+    lua_pushnumber(L, pos63);
+    check(L, !lua_compare(L, -2, -1, LUA_OPEQ),
+	  "lua_compare maxinteger not equal upper-exclusive double");
+    check(L, lua_compare(L, -2, -1, LUA_OPLT),
+	  "lua_compare maxinteger less than upper-exclusive double");
+    check(L, lua_compare(L, -2, -1, LUA_OPLE),
+	  "lua_compare maxinteger le upper-exclusive double");
+    lua_pop(L, 2);
+    lua_pushinteger(L, big40);
+    lua_pushnumber(L, nanv);
+    check(L, !lua_compare(L, -2, -1, LUA_OPEQ),
+	  "lua_compare int64 not equal NaN");
+    check(L, !lua_compare(L, -2, -1, LUA_OPLT),
+	  "lua_compare int64 less than NaN false");
+    check(L, !lua_compare(L, -2, -1, LUA_OPLE),
+	  "lua_compare int64 le NaN false");
+    check(L, !lua_compare(L, -1, -2, LUA_OPLT),
+	  "lua_compare NaN less than int64 false");
     lua_pop(L, 2);
     lua_pushinteger(L, big);
     lua_pushliteral(L, "geti-big-generic");
