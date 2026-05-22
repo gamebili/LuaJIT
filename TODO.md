@@ -493,6 +493,7 @@
   - 当前进展：`table.concat` 在 Lua 5.4 兼容模式下读取元素时会通过 `__index` 访问代理表，并保留 nil/非 string/number 元素的错误检查。
   - 当前进展：`table.concat` 显式终点等于 `math.maxinteger` 时不会在循环自增后回绕到 `math.mininteger` 继续读取；`{[maxi]="alo"}` 和 `{[maxi-1]="y",[maxi]="alo"}` 边界已进入 smoke。
   - 当前进展：`table.sort` 的排序范围已共用 Lua 5.4 表库长度兼容逻辑，因此会尊重 `__len`，并在 `__len` 返回无整数表示的值时报 `object length is not an integer`。
+  - 当前进展：`table.sort` 的超大 `__len` 错误已按官方收敛为参数错误，direct `pcall(table.sort, t)` 保留 `table.sort` fallback，普通源码字段调用和局部 alias 分别报 `sort` / 局部名。
   - 当前进展：`table.sort` 的 comparator 校验时机已对齐官方 Lua 5.4；空表和单元素表即使传入非函数第 2 参数也直接成功，两元素及以上才按官方报第 2 参数 `function expected`。
   - 当前进展：`table.sort` 在 Lua 5.4 兼容模式下会在分区扫描到 pivot 哨兵时拒绝非严格 comparator，例如 `a <= b` / `a >= b`，并报 `invalid order function for sorting`。
   - 当前进展：`table.sort` 在 Lua 5.4 兼容模式下已改用 API get/set 路径读写元素，因此代理表排序会通过 `__index` 读取、通过 `__newindex` 写入。

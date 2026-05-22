@@ -733,7 +733,7 @@ LJLIB_CF(table_sort)
 			"table.sort");
   len = table_len_integer_obj54(L, 1);
   if (len >= INT32_MAX)
-    luaL_error(L, "array too big");
+    table_argerror_named54(L, 1, "table.sort", "array too big");
   n = (int32_t)len;
 #else
   GCtab *t = lj_lib_checktab(L, 1);

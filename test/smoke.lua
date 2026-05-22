@@ -3601,7 +3601,14 @@ end
 do
   local huge = setmetatable({}, { __len = function() return math.maxinteger end })
   local ok, err = pcall(table.sort, huge)
-  assert(ok == false and err:match("too big", 1, true) ~= nil)
+  assert(ok == false and err:find("bad argument #1 to 'table.sort' (array too big)", 1, true) ~= nil)
+  ok, err = pcall(function() table.sort(huge) end)
+  assert(ok == false and err:find("bad argument #1 to 'sort' (array too big)", 1, true) ~= nil)
+  do
+    local s = table.sort
+    ok, err = pcall(function() s(huge) end)
+    assert(ok == false and err:find("bad argument #1 to 's' (array too big)", 1, true) ~= nil)
+  end
   local t = setmetatable({ 3, 2, 1 }, { __len = function() return 2 end })
   table.sort(t)
   assert(t[1] == 2 and t[2] == 3 and t[3] == 1)
