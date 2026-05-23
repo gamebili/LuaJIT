@@ -768,6 +768,48 @@ do
     end, "v")
     lua54_nested_global_alias = nil
   end
+  do
+    local holder = {}
+    local k = "w"
+    holder[k] = math.abs
+    expect_public_tail_callname(function()
+      return holder.w(true)
+    end, "w")
+  end
+  do
+    local holder = { inner = {} }
+    local k = "x"
+    holder.inner[k] = math.abs
+    expect_public_tail_callname(function()
+      return holder.inner.x(true)
+    end, "x")
+  end
+  do
+    lua54_global_table_alias = {}
+    local k = "y"
+    lua54_global_table_alias[k] = math.abs
+    expect_public_tail_callname(function()
+      return lua54_global_table_alias.y(true)
+    end, "y")
+    lua54_global_table_alias = nil
+  end
+  do
+    local holder = {}
+    local k = "z"
+    holder[k] = table.move
+    expect_public_tail_callname(function()
+      return holder.z({}, 1.2, 2, 1)
+    end, "z")
+  end
+  do
+    local holder = {}
+    local k = "aa"
+    holder[k] = math.abs
+    local f = holder.aa
+    expect_public_tail_callname(function()
+      return f(true)
+    end, "f")
+  end
   expect_public_tail_callname(function() return os.exit("x") end, "exit")
   do
     local f = os.exit

@@ -35,6 +35,7 @@
 #define LUA54_NOTAIL_TABLE_ALIAS_MAX	256
 #define LUA54_NOTAIL_GLOBAL_TABLE_ALIAS_MAX	64
 #define LUA54_NOTAIL_TABLE_FIELD_ALIAS_MAX	64
+#define LUA54_NOTAIL_GLOBAL_TABLE_FIELD_MAX	8
 #define LUA54_NOTAIL_NESTED_TABLE_FIELD_MAX	8
 #define LUA54_NOTAIL_GLOBAL_NESTED_FIELD_MAX	8
 #endif
@@ -148,6 +149,11 @@ typedef struct Lua54TableFieldAlias {
   VarIndex source;		/* Canonical source variable for that table. */
 } Lua54TableFieldAlias;
 
+typedef struct Lua54GlobalTableField {
+  GCstr *name;			/* Global holding the table. */
+  GCstr *field;			/* Field assigned from a no-tail helper. */
+} Lua54GlobalTableField;
+
 typedef struct Lua54NestedTableField {
   VarIndex table;		/* Source variable holding the outer table. */
   GCstr *outer;			/* Field holding an anonymous nested table. */
@@ -205,6 +211,7 @@ typedef struct FuncState {
   uint8_t ntfnotail;		/* Number of tracked table-field aliases. */
   uint8_t ngtalias;		/* Number of tracked global table aliases. */
   uint8_t ntfalias;		/* Number of tracked table-field table aliases. */
+  uint8_t ngtfnotail;		/* Number of tracked global table fields. */
   uint8_t nntfnotail;		/* Number of tracked nested table-field aliases. */
   uint8_t ngntfnotail;		/* Number of tracked global nested fields. */
   uint16_t ntalias;		/* Number of tracked table variable aliases. */
@@ -213,6 +220,7 @@ typedef struct FuncState {
   Lua54TableAlias talias[LUA54_NOTAIL_TABLE_ALIAS_MAX];
   Lua54GlobalTableAlias gtalias[LUA54_NOTAIL_GLOBAL_TABLE_ALIAS_MAX];
   Lua54TableFieldAlias tfalias[LUA54_NOTAIL_TABLE_FIELD_ALIAS_MAX];
+  Lua54GlobalTableField gtfnotail[LUA54_NOTAIL_GLOBAL_TABLE_FIELD_MAX];
   Lua54NestedTableField ntfpathnotail[LUA54_NOTAIL_NESTED_TABLE_FIELD_MAX];
   Lua54GlobalNestedField gntfnotail[LUA54_NOTAIL_GLOBAL_NESTED_FIELD_MAX];
   VarIndex lua54envvidx;	/* Variable-stack entry for implicit _ENV name. */
@@ -1230,6 +1238,75 @@ static void lua54_mark_pending_table_notailcall(FuncState *fs, VarIndex table,
   lua54_mark_table_notailcall_one(fs, table, field, on);
 }
 
+static int lua54_global_table_notailcall(FuncState *fs, GCstr *name,
+					 GCstr *field)
+{
+  FuncState *cur;
+  MSize i;
+  if (name == NULL || field == NULL)
+    return 0;
+  for (cur = fs; cur != NULL; cur = cur->prev)
+    for (i = 0; i < cur->ngtfnotail; i++)
+      if (cur->gtfnotail[i].name == name &&
+	  cur->gtfnotail[i].field == field)
+	return 1;
+  return 0;
+}
+
+static void lua54_mark_global_table_notailcall_one(FuncState *fs,
+						   GCstr *name,
+						   GCstr *field, int on)
+{
+  MSize i;
+  for (i = 0; i < fs->ngtfnotail; i++) {
+    if (fs->gtfnotail[i].name == name && fs->gtfnotail[i].field == field) {
+      if (!on)
+	fs->gtfnotail[i] = fs->gtfnotail[--fs->ngtfnotail];
+      return;
+    }
+  }
+  if (on && fs->ngtfnotail < LUA54_NOTAIL_GLOBAL_TABLE_FIELD_MAX) {
+    fs->gtfnotail[fs->ngtfnotail].name = name;
+    fs->gtfnotail[fs->ngtfnotail].field = field;
+    fs->ngtfnotail++;
+  }
+}
+
+static void lua54_mark_global_table_notailcall(FuncState *fs, GCstr *name,
+					       GCstr *field, int on)
+{
+  FuncState *cur;
+  if (name == NULL || field == NULL)
+    return;
+  for (cur = fs; cur != NULL; cur = cur->prev)
+    lua54_mark_global_table_notailcall_one(cur, name, field, on);
+}
+
+static void lua54_clear_global_table_notailcall_one(FuncState *fs,
+						    GCstr *name,
+						    GCstr *field)
+{
+  MSize i = 0;
+  while (i < fs->ngtfnotail) {
+    if (fs->gtfnotail[i].name == name &&
+	(field == NULL || fs->gtfnotail[i].field == field)) {
+      fs->gtfnotail[i] = fs->gtfnotail[--fs->ngtfnotail];
+    } else {
+      i++;
+    }
+  }
+}
+
+static void lua54_clear_global_table_notailcall(FuncState *fs, GCstr *name,
+						GCstr *field)
+{
+  FuncState *cur;
+  if (name == NULL)
+    return;
+  for (cur = fs; cur != NULL; cur = cur->prev)
+    lua54_clear_global_table_notailcall_one(cur, name, field);
+}
+
 static int lua54_nested_table_notailcall(FuncState *fs, VarIndex table,
 					 GCstr *outer, GCstr *field)
 {
@@ -2027,6 +2104,9 @@ static int bcemit_lua54_is_marked_table_notail_call(FuncState *fs,
 	    (keypc == 0 ? 0 : keypc - 1);
   table = lua54_reg_table_source(fs, tablebase, tablepc);
   if (lua54_table_notailcall(fs, table, field))
+    return 1;
+  if (lua54_global_table_notailcall(fs,
+	lua54_reg_global_table_name(fs, tablebase, tablepc), field))
     return 1;
   {
     VarIndex outertable = LJ_MAX_VSTACK;
@@ -3342,10 +3422,12 @@ static GCstr *lua54_indexed_const_field(FuncState *fs, ExpDesc *var,
     int32_t aux = (int32_t)var->u.s.aux;
     if (aux < 0)
       return bcemit_lua54_const_str_by_slot(fs, (BCReg)(~aux));
-    if (var->u.s.aux <= BCMAX_C && rhspc > lhspc) {
+    if (var->u.s.aux <= BCMAX_C) {
       BCReg key = (BCReg)var->u.s.aux;
       BCPos pc = rhspc;
       if (key < fs->nactvar)
+	return lua54_reg_const_str(fs, key, lhspc);
+      if (rhspc <= lhspc)
 	return NULL;
       /* Fields whose string constant index no longer fits TGETS/TSETS are
       ** emitted as `KSTR key; TGETV/TSETV ... key`. Treat only that static
@@ -3487,6 +3569,7 @@ static void lua54_mark_notailcall_store(LexState *ls, ExpDesc *var,
   } else if (lua54_indexed_global_alias_store(fs, var)) {
     GCstr *field = lua54_indexed_const_field(fs, var, lhspc, startpc);
     BCReg ra = lua54_last_store_value(fs);
+    lua54_clear_global_table_notailcall(fs, field, NULL);
     lua54_clear_global_nested_notailcall(fs, field, NULL);
     if (field != NULL && ra != NO_REG) {
       VarIndex table = lua54_store_value_table_source(fs, ra, fs->pc - 1);
@@ -3512,6 +3595,12 @@ static void lua54_mark_notailcall_store(LexState *ls, ExpDesc *var,
     VarIndex table = lua54_indexed_table_source(fs, var);
     GCstr *global = lua54_reg_global_table_name(fs, var->u.s.info,
 						fs->pc - 1);
+    VarIndex pathtable = LJ_MAX_VSTACK;
+    GCstr *pathglobal = NULL;
+    GCstr *pathfield = NULL;
+    int havepath = lua54_reg_table_field_path(fs, var->u.s.info,
+					      fs->pc - 1, &pathtable,
+					      &pathglobal, &pathfield);
     BCReg ra = lua54_last_store_value(fs);
     if (field != NULL && table < LJ_MAX_VSTACK) {
       VarIndex source = ra != NO_REG ?
@@ -3533,10 +3622,25 @@ static void lua54_mark_notailcall_store(LexState *ls, ExpDesc *var,
 						      0);
     }
     if (field != NULL && global != NULL) {
+      int on = ra != NO_REG &&
+	(lua54_local_notailcall(fs, ra) ||
+	 lua54_slot_helper_init_range(fs, ra, startpc, fs->pc - 1));
+      lua54_mark_global_table_notailcall(fs, global, field, on);
       lua54_clear_global_nested_notailcall(fs, global, field);
       if (ra != NO_REG)
 	lua54_mark_global_nested_field_notailcalls(fs, global, field, ra,
 						   lhspc, fs->pc - 1);
+    }
+    if (field != NULL && havepath) {
+      int on = ra != NO_REG &&
+	(lua54_local_notailcall(fs, ra) ||
+	 lua54_slot_helper_init_range(fs, ra, startpc, fs->pc - 1));
+      if (pathtable < LJ_MAX_VSTACK)
+	lua54_mark_nested_table_notailcall(fs, pathtable, pathfield, field,
+					   on);
+      if (pathglobal != NULL)
+	lua54_mark_global_nested_notailcall(fs, pathglobal, pathfield, field,
+					    on);
     }
   }
 }
@@ -4405,6 +4509,7 @@ static void fs_init(LexState *ls, FuncState *fs)
   fs->ntfnotail = 0;
   fs->ngtalias = 0;
   fs->ntfalias = 0;
+  fs->ngtfnotail = 0;
   fs->nntfnotail = 0;
   fs->ngntfnotail = 0;
   fs->ntalias = 0;
@@ -4414,6 +4519,7 @@ static void fs_init(LexState *ls, FuncState *fs)
   memset(fs->tfnotail, 0, sizeof(fs->tfnotail));
   memset(fs->gtalias, 0, sizeof(fs->gtalias));
   memset(fs->tfalias, 0, sizeof(fs->tfalias));
+  memset(fs->gtfnotail, 0, sizeof(fs->gtfnotail));
   memset(fs->ntfpathnotail, 0, sizeof(fs->ntfpathnotail));
   memset(fs->gntfnotail, 0, sizeof(fs->gntfnotail));
   memset(fs->talias, 0, sizeof(fs->talias));
