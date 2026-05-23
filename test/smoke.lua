@@ -735,6 +735,39 @@ do
       return holder.inner.p(true)
     end, "p")
   end
+  do
+    local holder = { inner = { q = math.abs } }
+    expect_public_tail_callname(function()
+      return holder.inner.q(true)
+    end, "q")
+  end
+  do
+    local holder = { inner = { r = table.move } }
+    expect_public_tail_callname(function()
+      return holder.inner.r({}, 1.2, 2, 1)
+    end, "r")
+  end
+  do
+    local f = math.abs
+    local holder = { inner = { s = f } }
+    expect_public_tail_callname(function()
+      return holder.inner.s(true)
+    end, "s")
+  end
+  do
+    local k = "u"
+    local holder = { [k] = math.abs }
+    expect_public_tail_callname(function()
+      return holder.u(true)
+    end, "u")
+  end
+  do
+    lua54_nested_global_alias = { inner = { v = math.abs } }
+    expect_public_tail_callname(function()
+      return lua54_nested_global_alias.inner.v(true)
+    end, "v")
+    lua54_nested_global_alias = nil
+  end
   expect_public_tail_callname(function() return os.exit("x") end, "exit")
   do
     local f = os.exit
