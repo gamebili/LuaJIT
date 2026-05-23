@@ -29,9 +29,29 @@ local function bounded_nested_table_finalizer(limit)
   return u
 end
 
+local function bounded_userdata_finalizer(limit)
+  local f = io.tmpfile()
+  if not f then return end
+  local filemt = debug.getmetatable(f)
+  local done = false
+  local mt = { __index = filemt }
+  mt.__gc = function(o)
+    done = true
+    pcall(o.close, o)
+  end
+  debug.setmetatable(f, mt)
+  f = nil
+  local n = 0
+  repeat
+    n = n + 1
+    local _ = {}
+  until done or n > limit
+  assert(done, "userdata finalizer did not run in bounded allocation loop")
+end
+
 -- This mirrors the official gc.lua weak/ephemeron setup before it calls GC().
 -- The collector must stay responsive after these full collections; otherwise
--- the first allocation-triggered table finalizer can be postponed indefinitely.
+-- the first allocation-triggered finalizer can be postponed indefinitely.
 collectgarbage("collect")
 
 local lim = 15
@@ -359,6 +379,7 @@ end
 
 bounded_table_finalizer(50000)
 bounded_nested_table_finalizer(50000)
+bounded_userdata_finalizer(50000)
 assert(a ~= nil and x ~= nil)
 
 do

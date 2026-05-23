@@ -85,10 +85,10 @@ LJ_FUNC void lj_gc_fullgc(lua_State *L);
 #if LJ_54
 LJ_FUNC void lj_gc_gen_whitelist54(global_State *g);
 #define LJ_GC_FIN_CHECK_CYCLES	32
-static LJ_AINLINE void lj_gc_arm_table_finalizer(global_State *g)
+static LJ_AINLINE void lj_gc_arm_finalizer54(global_State *g)
 {
-  /* A just-armed table __gc can survive the first triggered cycle because the
-  ** source slot is overwritten after allocation. Keep a few following cycles
+  /* A just-armed Lua 5.4 __gc object can otherwise wait for unrelated GC debt
+  ** before its first finalizer run. Keep a few following cycles
   ** allocation-driven without changing stopped-GC semantics.
   */
   g->gc.fin_check = LJ_GC_FIN_CHECK_CYCLES;

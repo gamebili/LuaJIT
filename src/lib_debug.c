@@ -18,10 +18,13 @@
 #include "lj_err.h"
 #include "lj_debug.h"
 #include "lj_meta.h"
+#include "lj_tab.h"
 #include "lj_strscan.h"
 #include "lj_strfmt.h"
 #include "lj_ff.h"
 #include "lj_lib.h"
+
+#include "luajit.h"
 
 /* ------------------------------------------------------------------------ */
 
@@ -58,16 +61,30 @@ LJLIB_CF(debug_getmetatable)	LJLIB_REC(.)
 
 LJLIB_CF(debug_setmetatable)
 {
+#if LJ_54 && LJ_HASJIT
+  int armfinalizer = 0;
+#endif
 #if LJ_54
   if (!(L->base+1 < L->top &&
 	(tvistab(L->base+1) || tvisnil(L->base+1)))) {
     debug_argtype_named54(L, 2, "debug.setmetatable", "nil or table");
   }
+#if LJ_HASJIT
+  if ((tvistab(L->base) || tvisudata(L->base)) && tvistab(L->base+1)) {
+    global_State *g = G(L);
+    cTValue *gc = lj_tab_getstr(tabV(L->base+1), mmname_str(g, MM_gc));
+    armfinalizer = gc && !tvisnil(gc);
+  }
+#endif
 #else
   lj_lib_checktabornil(L, 2);
 #endif
   L->top = L->base+2;
   lua_setmetatable(L, 1);
+#if LJ_54 && LJ_HASJIT
+  if (armfinalizer && !(G(L)->hookmask & HOOK_GC))
+    luaJIT_setmode(L, 0, LUAJIT_MODE_FUNC|LUAJIT_MODE_OFF);
+#endif
 #if !LJ_52
   setboolV(L->top-1, 1);
 #endif

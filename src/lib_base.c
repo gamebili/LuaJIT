@@ -487,7 +487,7 @@ LJLIB_ASM(setmetatable)		LJLIB_REC(.)
       if (gc && !tvisnil(gc)) {
 	t->flags54 = (uint8_t)((t->flags54 | LJ_TAB_HAS_GC) &
 			       (uint8_t)~LJ_TAB_GC_PENDING);
-	lj_gc_arm_table_finalizer(g);
+	lj_gc_arm_finalizer54(g);
 #if LJ_HASJIT
 	/* LuaJIT traces do not run table finalizers until the trace exits. Keep
 	** the function that armed __gc interpreted so allocation-driven finalizer
