@@ -332,15 +332,22 @@ do
   end
 
   collectgarbage("generational", 1, 1000)
-  local weak = setmetatable({}, { __mode = "kv" })
+  local weak = setmetatable({}, { __mode = "v" })
+  local old = {}
+  weak.old = old
   collectgarbage("collect")
-  weak[1] = { 10 }
-  collectgarbage("step", 0)
-  collectgarbage("step", 0)
-  weak[1] = { 20 }
-  collectgarbage("step", 0)
-  assert(weak[1] == nil,
-    "JIT-on generational manual step must complete conservative major work")
+  collectgarbage("collect")
+  old = nil
+  do
+    local young = {}
+    weak.young = young
+  end
+  assert(collectgarbage("step", 0) == false,
+    "JIT-on idle generational manual step must report minor surface")
+  assert(weak.young == nil,
+    "JIT-on idle generational minor must clear young weak values")
+  assert(weak.old ~= nil,
+    "JIT-on idle generational minor must keep old weak values")
 
   jitmod.flush()
   jitmod.on()

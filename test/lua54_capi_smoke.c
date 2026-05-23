@@ -1589,8 +1589,8 @@ static void test_state_allocator_api(lua_State *L)
     "  return grow(n - 1) + 1\n"
     "end\n"
     "assert(grow(600) == 600)\n"
-    "assert(#string.rep('x', 2 * 1024 * 1024) == 2 * 1024 * 1024)\n"
     "enable_shrink_fail_alloc()\n"
+    "assert(#string.rep('x', 2 * 1024 * 1024) == 2 * 1024 * 1024)\n"
     "collectgarbage('collect')\n"
     "collectgarbage('collect')\n"
     "return true\n");

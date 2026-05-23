@@ -726,6 +726,7 @@ do
     end
     assert(n == 80)
   end, "Lua 5.4 math.random error")
+  collectgarbage("collect")
 end
 
 do

@@ -189,6 +189,11 @@ static void gc_link_weak_lists_gray54(global_State *g)
 
 static void gc_gen_blacken_old54(global_State *g, GCobj *o)
 {
+  if (o->gch.gct == ~LJ_TTAB && (gco2tab(o)->flags54 & LJ_TAB_HAS_GC)) {
+    setgcage(o, LJ_GC_AGE_NEW);
+    makewhite(g, o);
+    return;
+  }
   setgcage(o, LJ_GC_AGE_OLD);
   if (o->gch.gct == ~LJ_TUPVAL && !gco2uv(o)->closed) {
     o->gch.marked &= (uint8_t)~LJ_GC_COLORS;
@@ -933,7 +938,8 @@ static void gc_gen_revisit_old54(global_State *g)
 static int gc_gen_canminor54(global_State *g)
 {
 #if LJ_HASJIT
-  if (G2J(g)->flags & JIT_F_ON)
+  jit_State *J = G2J(g);
+  if (tvref(g->jit_base) != NULL || J->state != LJ_TRACE_IDLE)
     return 0;
 #else
   UNUSED(g);
@@ -954,6 +960,11 @@ static void gc_gen_keepblack54(GCobj *o)
 
 static void gc_gen_age_survivor54(global_State *g, GCobj *o)
 {
+  if (o->gch.gct == ~LJ_TTAB && (gco2tab(o)->flags54 & LJ_TAB_HAS_GC)) {
+    setgcage(o, LJ_GC_AGE_NEW);
+    makewhite(g, o);
+    return;
+  }
   switch (gcage(o)) {
   case LJ_GC_AGE_NEW:
     setgcage(o, LJ_GC_AGE_SURVIVAL);
@@ -1558,25 +1569,28 @@ int LJ_FASTCALL lj_gc_step(lua_State *L)
   setvmstate(g, GC);
 #if LJ_54
   if (g->gc_mode54 && g->gc_genactive54) {
-    if (gc_gen_canminor54(g)) {
-      if (g->gc_genlastatomic54 != 0 || gc_gen_needmajor54(g)) {
-	gc_gen_major54(L);
-	gc_gen_fincheck_step54(g);
-	g->vmstate = ostate;
-	return 1;
-      } else {
-	if (tvref(g->jit_base)) {
-	  g->gc.threshold = g->gc.total + stepsize;
-	  g->vmstate = ostate;
-	  return -1;
-	}
-	gc_gen_minor54(L);
-	gc_gen_fincheck_step54(g);
-	g->vmstate = ostate;
-	return 1;
-      }
+    if (!gc_gen_canminor54(g)) {
+      g->gc.threshold = g->gc.total + stepsize;
+      g->vmstate = ostate;
+      return -1;
     }
-    lj_gc_gen_whitelist54(g);
+    if (g->gc.fin_check != 0) {
+      gc_gen_major54(L);
+      gc_gen_fincheck_step54(g);
+      g->vmstate = ostate;
+      return 1;
+    }
+    if (g->gc_genlastatomic54 != 0 || gc_gen_needmajor54(g)) {
+      gc_gen_major54(L);
+      gc_gen_fincheck_step54(g);
+      g->vmstate = ostate;
+      return 1;
+    } else {
+      gc_gen_minor54(L);
+      gc_gen_fincheck_step54(g);
+      g->vmstate = ostate;
+      return 1;
+    }
   }
 #endif
   if (g->gc.stepmul == 0) {

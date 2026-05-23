@@ -3041,8 +3041,9 @@ static void gc_fullgc_preserve_stop54(lua_State *L)
 static int gc_gen_manual_major54(global_State *g)
 {
 #if LJ_HASJIT
-  if (G2J(g)->flags & JIT_F_ON)
-    return 1;
+  jit_State *J = G2J(g);
+  if (tvref(g->jit_base) != NULL || J->state != LJ_TRACE_IDLE)
+    return 1;  /* Defer minor atomic/finalizers while on trace or recording. */
   return 0;
 #else
   UNUSED(g);

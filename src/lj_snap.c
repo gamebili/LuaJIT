@@ -450,8 +450,18 @@ static TRef snap_replay_const(jit_State *J, IRIns *ir)
   case IR_KPRI: return TREF_PRI(irt_type(ir->t));
   case IR_KINT: return lj_ir_kint(J, ir->i);
   case IR_KGC: return lj_ir_kgc(J, ir_kgc(ir), irt_t(ir->t));
-  case IR_KNUM: case IR_KINT64:
+  case IR_KNUM: return lj_ir_k64(J, (IROp)ir->o, ir_k64(ir)->u64);
+  case IR_KINT64:
+#if LJ_54 && LJ_DUALNUM
+    {
+      GCint64 *i64;
+      lj_gc_check(J->L);
+      i64 = lj_obj_newint64(J->L, (int64_t)ir_k64(ir)->u64);
+      return lj_ir_kgc(J, obj2gco(i64), IRT_INT64);
+    }
+#else
     return lj_ir_k64(J, (IROp)ir->o, ir_k64(ir)->u64);
+#endif
   case IR_KPTR: return lj_ir_kptr(J, ir_kptr(ir));  /* Continuation. */
   case IR_KNULL: return lj_ir_knull(J, irt_type(ir->t));
   default: lj_assertJ(0, "bad IR constant op %d", ir->o); return TREF_NIL;
@@ -709,6 +719,12 @@ static void snap_restoreval(jit_State *J, GCtrace *T, ExitState *ex,
       lj_assertJ(!(ir->o == IR_KKPTR || ir->o == IR_KNULL),
 		 "restore of const from IR %04d with bad op %d",
 		 ref - REF_BIAS, ir->o);
+#if LJ_54 && LJ_DUALNUM
+      if (ir->o == IR_KINT64) {
+	lj_obj_setint64(J->L, o, (int64_t)ir_kint64(ir)->u64);
+	return;
+      }
+#endif
       lj_ir_kvalue(J->L, o, ir);
     }
     return;

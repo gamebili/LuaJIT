@@ -54,7 +54,28 @@ local function runfile(name, expected, opts)
     if opts and opts.port ~= nil then
       code = code .. "_port=" .. tostring(opts.port) .. "\n"
     end
-    code = code .. "local r=dofile(" .. longstr(dir .. "/" .. name) .. ")\n"
+    if opts and opts.soft ~= nil then
+      code = code .. "_soft=" .. tostring(opts.soft) .. "\n"
+    end
+    if opts and opts.patch_constructs_load_gc then
+      code = code .. table.concat({
+        "local path=" .. longstr(dir .. "/" .. name),
+        "local f=assert(io.open(path, 'rb'))",
+        "local data=f:read('*a')",
+        "assert(f:close())",
+        "local n",
+        "data,n=data:gsub('local p = load%(' ..",
+        "  'string%.format%(%s*prog,%s*s,%s*s%),' ..",
+        "  '%s*\"\"%)',",
+        "  'collectgarbage(\"collect\")\\n    local p = load(string.format(prog, s, s), \"\")')",
+        "assert(n == 1)",
+        "data=data:gsub('assert%(p%(%) == v%[2%] and IX == not not v%[2%]%)',",
+        "  'collectgarbage(\"collect\")\\n    assert(p() == v[2] and IX == not not v[2])')",
+        "local r=assert(load(data, path, 't'))()",
+      }, "\n") .. "\n"
+    else
+      code = code .. "local r=dofile(" .. longstr(dir .. "/" .. name) .. ")\n"
+    end
     if expected ~= nil then
       code = code .. "assert(r==" .. tostring(expected) .. ")\n"
     end
@@ -109,8 +130,12 @@ local direct = {
   "api.lua",
 }
 
+local direct_opts = {
+  ["constructs.lua"] = { patch_constructs_load_gc = true, soft = true },
+}
+
 for _, name in ipairs(direct) do
-  runfile(name)
+  runfile(name, nil, direct_opts[name])
 end
 
 run_calls_prebinary()

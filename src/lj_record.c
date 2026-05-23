@@ -74,7 +74,7 @@ static int rec_lua54_strcmp_locale(GCstr *a, GCstr *b, IROp op)
 
 static int rec_lua54_tref_isi64(TRef tr)
 {
-  return tref_type(tr) == IRT_INT64;
+  return tref_type(tr) == IRT_INT64 || tref_type(tr) == IRT_I64;
 }
 
 static int rec_lua54_tref_isinteger(TRef tr)
@@ -159,6 +159,8 @@ static TRef rec_lua54_i64ref(jit_State *J, TRef tr)
 {
   if (tref_isinteger(tr))
     return emitir(IRT(IR_CONV, IRT_I64), tr, IRCONV_I64_INT_SEXT);
+  if (tref_type(tr) == IRT_I64)
+    return tr;
   lj_assertJ(rec_lua54_tref_isi64(tr), "bad int64 TValue ref");
   return emitir(IRT(IR_FLOAD, IRT_I64), tr, IRFL_INT64_VALUE);
 }
@@ -493,9 +495,10 @@ int lj_record_objcmp(jit_State *J, TRef a, TRef b, cTValue *av, cTValue *bv)
     }
 #endif
 #if LJ_54 && LJ_DUALNUM
-    if ((ta == IRT_INT64 || tb == IRT_INT64) &&
-	(ta == IRT_INT || ta == IRT_INT64) &&
-	(tb == IRT_INT || tb == IRT_INT64)) {
+    if ((ta == IRT_INT64 || ta == IRT_I64 ||
+	 tb == IRT_INT64 || tb == IRT_I64) &&
+	(ta == IRT_INT || ta == IRT_INT64 || ta == IRT_I64) &&
+	(tb == IRT_INT || tb == IRT_INT64 || tb == IRT_I64)) {
       emitir(IRTG(diff ? IR_NE : IR_EQ, IRT_I64),
 	     rec_lua54_i64ref(J, a), rec_lua54_i64ref(J, b));
       return diff;
@@ -3289,8 +3292,19 @@ void lj_record_ins(jit_State *J)
 #endif
     }
     break;
-  case BC_KSTR: case BC_KNUM: case BC_KPRI:
+  case BC_KSTR: case BC_KPRI:
     break;
+  case BC_KNUM: {
+    cTValue *tv = proto_knumtv(J->pt, bc_d(ins));
+    rc = tvisint(tv) ? lj_ir_kint(J, intV(tv)) :
+#if LJ_54 && LJ_DUALNUM
+      tvisi64(tv) ? lj_ir_kgc(J, gcV(tv), IRT_INT64) :
+      lj_ir_knum(J, numV(tv));
+#else
+      lj_ir_knumint(J, numV(tv));
+#endif
+    break;
+    }
   case BC_KSHORT:
     rc = lj_ir_kint(J, (int32_t)(int16_t)rc);
     break;
