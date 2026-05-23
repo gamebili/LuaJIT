@@ -930,27 +930,15 @@ static void gc_gen_revisit_old54(global_State *g)
   }
 }
 
-static int gc_gen_hastrace54(global_State *g)
-{
-#if LJ_HASJIT
-  jit_State *J = G2J(g);
-  MSize i;
-  for (i = 1; i < J->sizetrace; i++)
-    if (gcref(J->trace[i]) != NULL)
-      return 1;
-#else
-  UNUSED(g);
-#endif
-  return 0;
-}
-
 static int gc_gen_canminor54(global_State *g)
 {
 #if LJ_HASJIT
   if (G2J(g)->flags & JIT_F_ON)
     return 0;
+#else
+  UNUSED(g);
 #endif
-  return !gc_gen_hastrace54(g);
+  return 1;
 }
 
 static void gc_gen_keepblack54(GCobj *o)
@@ -1771,11 +1759,20 @@ void lj_gc_closeuv(global_State *g, GCupval *uv)
 }
 
 #if LJ_HASJIT
-/* Mark a trace if it's saved during the propagation phase. */
+/* Mark and age a trace if it's saved during the propagation phase. */
 void lj_gc_barriertrace(global_State *g, uint32_t traceno)
 {
-  if (g->gc.state == GCSpropagate || g->gc.state == GCSatomic)
+  if (g->gc.state == GCSpropagate || g->gc.state == GCSatomic) {
     gc_marktrace(g, traceno);
+#if LJ_54
+    if (g->gc_mode54 && g->gc_genactive54) {
+      GCtrace *T = traceref(G2J(g), traceno);
+      GCobj *o = obj2gco(T);
+      if (!isoldgc(o))
+	setgcage(o, LJ_GC_AGE_OLD0);
+    }
+#endif
+  }
 }
 #endif
 

@@ -354,15 +354,25 @@ do
   jitmod.off()
 
   collectgarbage("generational", 1, 1000)
-  weak = setmetatable({}, { __mode = "kv" })
+  weak = setmetatable({}, { __mode = "v" })
+  local old = {}
+  weak.old = old
   collectgarbage("collect")
-  weak[1] = { 10 }
-  collectgarbage("step", 0)
-  collectgarbage("step", 0)
-  weak[1] = { 20 }
-  collectgarbage("step", 0)
-  assert(weak[1] == nil,
-    "saved traces must force conservative generational manual major work")
+  collectgarbage("collect")
+  old = nil
+  do
+    local young = {}
+    weak.young = young
+  end
+  assert(collectgarbage("step", 0) == false,
+    "saved traces generational manual step must report minor surface")
+  assert(weak.young == nil,
+    "saved traces generational minor must clear young weak values")
+  assert(weak.old ~= nil,
+    "saved traces must not force conservative generational major work")
+  jitmod.on()
+  assert(hot() == 210,
+    "saved trace must survive generational minor collection")
   jitmod.flush()
   jitmod.on()
 end
