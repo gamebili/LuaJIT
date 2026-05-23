@@ -269,6 +269,36 @@ do
     end
   end
 
+  do
+    local f = io.tmpfile()
+    if f then
+      local filemt = debug.getmetatable(f)
+      local finalized = 0
+      local resurrected
+      local mt = { __index = filemt }
+      mt.__gc = function(o)
+	finalized = finalized + 1
+	if finalized == 1 then
+	  resurrected = o
+	else
+	  pcall(o.close, o)
+	end
+      end
+      debug.setmetatable(f, mt)
+      f = nil
+      collectgarbage("collect")
+      collectgarbage("collect")
+      assert(finalized == 1 and resurrected,
+	"userdata finalizer must be able to resurrect the object")
+      debug.setmetatable(resurrected, mt)
+      resurrected = nil
+      collectgarbage("collect")
+      collectgarbage("collect")
+      assert(finalized == 2,
+	"resurrected userdata __gc metatable assignment must re-arm finalizer")
+    end
+  end
+
   if jitmod then
     jitmod.on()
   end

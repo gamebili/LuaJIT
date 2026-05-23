@@ -2241,9 +2241,18 @@ LUA_API int lua_setmetatable(lua_State *L, int idx)
 #endif
     }
   } else if (tvisudata(o)) {
-    setgcref(udataV(o)->metatable, obj2gco(mt));
-    if (mt)
-      lj_gc_objbarrier(L, udataV(o), mt);
+    GCudata *ud = udataV(o);
+    setgcref(ud->metatable, obj2gco(mt));
+    if (mt) {
+      lj_gc_objbarrier(L, ud, mt);
+#if LJ_54
+      {
+	cTValue *gc = lj_tab_getstr(mt, mmname_str(g, MM_gc));
+	if (gc && !tvisnil(gc))
+	  ud->marked &= (uint8_t)~LJ_GC_FINALIZED;
+      }
+#endif
+    }
   } else {
     /* Flush cache, since traces specialize to basemt. But not during __gc. */
     if (lj_trace_flushall(L))

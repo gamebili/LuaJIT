@@ -281,6 +281,7 @@
   - 当前进展：`step` / `setpause` / `setstepmul` 的第二参数已拒绝无整数表示的 number，仍接受字符串数字。
   - 当前进展：`generational(minormul, majormul)` / `incremental(pause, stepmul, stepsize)` 的可选整数参数已按官方 Lua 5.4.8 做类型和整数表示校验；`incremental` 会同步更新公开 `pause` / `stepmul` 配置，`generational` 会在进入模式前保存 minor/major 配置供后续分代调度使用；多余参数保持忽略，`__gc` finalizer 内合法 mode 调用仍返回 `nil`，非法可选参数仍会先报错。
   - 当前进展：Lua 5.4 C API 的 `lua_gc()` 在 `__gc` finalizer 内会按官方规则对所有 option 返回 `-1`，避免 C finalizer 重入驱动 collector。
+  - 当前进展：已执行过 `__gc` 的 userdata 复活后，如果再次通过 `lua_setmetatable()` / `debug.setmetatable()` 赋带 `__gc` 的 metatable，会按 Lua 5.4 重新 armed 并可再次 finalization；不带 `__gc` 的 metatable 赋值仍不会重新 armed。
   - 当前进展：`incremental(..., stepsize)` 保存的 Lua 5.4 step-size 参数已接入 LuaJIT 兼容构建的实际 GC step 粒度；默认使用 Lua 5.4 的 `13`（8KB）调度基数，非 5.4 构建保留旧 LuaJIT `GCSTEPSIZE`；incremental 模式下 `collectgarbage("step", 0)` 已改为不消费旧 debt 的单次 basic step；generational 模式在 JIT 关闭且无 trace 对象时走 minor step，JIT 开启或存在 trace 对象时仍保守走 major。
   - 当前进展：Lua 5.4 compat 的 atomic 阶段会把完整 atomic 遍历工作量计入单步成本；incremental `step` 不再把 atomic 当作 0 成本后继续无界推进 sweep。
   - 当前进展：无调参 GC 命令的多余参数已按官方 Lua 5.4.8 忽略，覆盖默认 `collectgarbage(nil, extra)` 以及 `"count"` / `"collect"` / `"stop"` / `"restart"` / `"isrunning"`；`step` / `setpause` / `setstepmul` 仍只校验其第 2 个可选整数参数，mode 命令仍只校验官方定义的可选整数参数。
