@@ -253,6 +253,22 @@ do
   assert(finalized and weak.value == nil,
     "generational manual step must finalize and clear weak table value")
 
+  do
+    collectgarbage("generational", 1, 1000)
+    collectgarbage("collect")
+    collectgarbage("collect")
+    local weak_ud = setmetatable({}, { __mode = "v" })
+    local f = io.tmpfile()
+    if f then
+      weak_ud[1] = f
+      f = nil
+      collectgarbage("step", 0)
+      collectgarbage("step", 0)
+      assert(weak_ud[1] == nil,
+	"generational minor root segments must include young userdata")
+    end
+  end
+
   if jitmod then
     jitmod.on()
   end

@@ -22,9 +22,18 @@ GCudata *lj_udata_new(lua_State *L, MSize sz, GCtab *env)
   /* NOBARRIER: The GCudata is new (marked white). */
   setgcrefnull(ud->metatable);
   setgcref(ud->env, obj2gco(env));
+#if LJ_54
+  /* Lua 5.4 generational mode keeps userdata in the common all-GC root list,
+  ** so young userdata participate in the same minor-generation segments as
+  ** tables/functions/prototypes.
+  */
+  setgcrefr(ud->nextgc, g->gc.root);
+  setgcref(g->gc.root, obj2gco(ud));
+#else
   /* Chain to userdata list (after main thread). */
   setgcrefr(ud->nextgc, mainthread(g)->nextgc);
   setgcref(mainthread(g)->nextgc, obj2gco(ud));
+#endif
   return ud;
 }
 

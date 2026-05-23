@@ -678,6 +678,10 @@ typedef struct global_State {
   uint8_t gc_mode54;	/* Declared Lua 5.4 GC mode. */
   uint8_t gc_genactive54;  /* Lua 5.4 generational baseline is active. */
   uint8_t gc_genrevisit54;  /* Minor cycle has old/touched objects to revisit. */
+  GCRef gc_gensurvival54;  /* First survival-generation root object. */
+  GCRef gc_genold154;  /* First OLD1 root object. */
+  GCRef gc_genreallyold54;  /* First really-old root object. */
+  GCRef gc_genfirstold154;  /* First OLD1 object to mark next minor. */
   MSize gc_genminormul54;  /* Lua 5.4 generational minor multiplier. */
   MSize gc_genmajormul54;  /* Lua 5.4 generational major multiplier. */
   GCSize gc_genlastatomic54;  /* Last bad-major atomic work proxy. */

@@ -110,6 +110,63 @@ static void gc_clear_weak_lists54(global_State *g)
   setgcrefnull(g->gc.allweak);
 }
 
+static void gc_gen_clear_boundaries54(global_State *g)
+{
+  setgcrefnull(g->gc_gensurvival54);
+  setgcrefnull(g->gc_genold154);
+  setgcrefnull(g->gc_genreallyold54);
+  setgcrefnull(g->gc_genfirstold154);
+}
+
+static void gc_gen_baseline_boundaries54(global_State *g)
+{
+  setgcrefr(g->gc_gensurvival54, g->gc.root);
+  setgcrefr(g->gc_genold154, g->gc.root);
+  setgcrefr(g->gc_genreallyold54, g->gc.root);
+  setgcrefnull(g->gc_genfirstold154);
+}
+
+static void gc_gen_correct_ref54(GCRef *r, GCobj *o)
+{
+  if (gcref(*r) == o)
+    setgcrefr(*r, o->gch.nextgc);
+}
+
+static void gc_gen_correctpointers54(global_State *g, GCobj *o)
+{
+  gc_gen_correct_ref54(&g->gc_gensurvival54, o);
+  gc_gen_correct_ref54(&g->gc_genold154, o);
+  gc_gen_correct_ref54(&g->gc_genreallyold54, o);
+  gc_gen_correct_ref54(&g->gc_genfirstold154, o);
+}
+
+static int gc_gen_has_gclist54(GCobj *o)
+{
+  int gct = o->gch.gct;
+  return gct == ~LJ_TTAB || gct == ~LJ_TFUNC || gct == ~LJ_TTHREAD ||
+	 gct == ~LJ_TPROTO ||
+#if LJ_HASJIT
+	 gct == ~LJ_TTRACE ||
+#endif
+	 0;
+}
+
+static void gc_gen_link_gray54(global_State *g, GCobj *o)
+{
+  if (gc_gen_has_gclist54(o) && isblack(o)) {
+    black2gray(o);
+    setgcrefr(o->gch.gclist, g->gc.gray);
+    setgcref(g->gc.gray, o);
+  }
+}
+
+static void gc_gen_keep_touched_gray54(global_State *g, GCobj *o)
+{
+  black2gray(o);
+  setgcrefr(o->gch.gclist, g->gc.grayagain);
+  setgcref(g->gc.grayagain, o);
+}
+
 static void gc_link_gray_list54(global_State *g, GCRef *list)
 {
   GCobj *o = gcref(*list);
@@ -184,6 +241,7 @@ static void gc_gen_enter54(global_State *g)
     }
   }
   gc_gen_blacken_old54(g, obj2gco(&g->strempty));
+  gc_gen_baseline_boundaries54(g);
   g->gc.state = GCSpropagate;
   g->gc_genactive54 = 1;
   g->gc_genrevisit54 = 0;
@@ -232,6 +290,7 @@ void lj_gc_gen_whitelist54(global_State *g)
   }
   setgcage(obj2gco(&g->strempty), LJ_GC_AGE_NEW);
   makewhite(g, obj2gco(&g->strempty));
+  gc_gen_clear_boundaries54(g);
   g->gc.state = GCSpause;
   g->gc_genactive54 = 0;
   g->gc_genrevisit54 = 0;
@@ -395,8 +454,47 @@ static size_t gc_sizetab(GCtab *t)
 size_t lj_gc_separateudata(global_State *g, int all)
 {
   size_t m = 0;
-  GCRef *p = &mainthread(g)->nextgc;
+  GCRef *p;
   GCobj *o;
+#if LJ_54
+  p = &g->gc.root;
+  while ((o = gcref(*p)) != NULL) {
+    if (o->gch.gct == ~LJ_TUDATA) {
+      if (!(iswhite(o) || all) || isfinalized(gco2ud(o))) {
+	p = &o->gch.nextgc;  /* Nothing to do. */
+      } else if (!lj_meta_fastg(g, tabref(gco2ud(o)->metatable), MM_gc)) {
+	markfinalized(o);  /* Done, as there's no __gc metamethod. */
+	p = &o->gch.nextgc;
+      } else {  /* Otherwise move userdata to be finalized to mmudata list. */
+	m += sizeudata(gco2ud(o));
+	markfinalized(o);
+	if (g->gc_genactive54)
+	  gc_gen_correctpointers54(g, o);
+	*p = o->gch.nextgc;
+	gc_link_mmudata(g, o);
+      }
+    } else if (o->gch.gct == ~LJ_TTAB) {
+      GCtab *t = gco2tab(o);
+      if ((iswhite(o) || all) && (t->flags54 & LJ_TAB_HAS_GC)) {
+	/* Lua 5.4 table finalizers are armed when the metatable is assigned,
+	** not when __gc is added later to the existing metatable.
+	*/
+	m += gc_sizetab(t);
+	t->flags54 = (uint8_t)((t->flags54 & (uint8_t)~LJ_TAB_HAS_GC) |
+			       LJ_TAB_GC_PENDING);
+	if (g->gc_genactive54)
+	  gc_gen_correctpointers54(g, o);
+	*p = o->gch.nextgc;
+	gc_link_mmudata(g, o);
+      } else {
+	p = &o->gch.nextgc;
+      }
+    } else {
+      p = &o->gch.nextgc;
+    }
+  }
+#else
+  p = &mainthread(g)->nextgc;
   while ((o = gcref(*p)) != NULL) {
     if (!(iswhite(o) || all) || isfinalized(gco2ud(o))) {
       p = &o->gch.nextgc;  /* Nothing to do. */
@@ -409,25 +507,6 @@ size_t lj_gc_separateudata(global_State *g, int all)
       *p = o->gch.nextgc;
       gc_link_mmudata(g, o);
     }
-  }
-#if LJ_54
-  p = &g->gc.root;
-  while ((o = gcref(*p)) != NULL) {
-    if (o->gch.gct == ~LJ_TTAB) {
-      GCtab *t = gco2tab(o);
-      if ((iswhite(o) || all) && (t->flags54 & LJ_TAB_HAS_GC)) {
-	/* Lua 5.4 table finalizers are armed when the metatable is assigned,
-	** not when __gc is added later to the existing metatable.
-	*/
-	m += gc_sizetab(t);
-	t->flags54 = (uint8_t)((t->flags54 & (uint8_t)~LJ_TAB_HAS_GC) |
-			       LJ_TAB_GC_PENDING);
-	*p = o->gch.nextgc;
-	gc_link_mmudata(g, o);
-	continue;
-      }
-    }
-    p = &o->gch.nextgc;
   }
 #endif
   return m;
@@ -657,8 +736,21 @@ static size_t propagatemark(global_State *g)
   setgcrefr(g->gc.gray, o->gch.gclist);  /* Remove from gray list. */
   if (LJ_LIKELY(gct == ~LJ_TTAB)) {
     GCtab *t = gco2tab(o);
-    if (gc_traverse_tab(g, t) > 0)
+    int weak;
+#if LJ_54
+    uint8_t age = gcage(o);
+#endif
+    weak = gc_traverse_tab(g, t);
+    if (weak > 0)
       black2gray(o);  /* Keep weak tables gray. */
+#if LJ_54
+    if (g->gc_mode54 && g->gc_genactive54 && isoldgc(o)) {
+      if (age == LJ_GC_AGE_TOUCHED1 && weak <= 0)
+	gc_gen_keep_touched_gray54(g, o);
+      else if (age == LJ_GC_AGE_TOUCHED2)
+	setgcage(o, LJ_GC_AGE_OLD);
+    }
+#endif
     return sizeof(GCtab) + sizeof(TValue) * t->asize +
 			   (t->hmask ? sizeof(Node) * (t->hmask + 1) : 0);
   } else if (LJ_LIKELY(gct == ~LJ_TFUNC)) {
@@ -749,6 +841,10 @@ static GCRef *gc_sweep(global_State *g, GCRef *p, uint32_t lim)
       setgcrefr(*p, o->gch.nextgc);
       if (o == gcref(g->gc.root))
 	setgcrefr(g->gc.root, o->gch.nextgc);  /* Adjust list anchor. */
+#if LJ_54
+      if (g->gc_genactive54)
+	gc_gen_correctpointers54(g, o);
+#endif
       gc_freefunc[o->gch.gct - ~LJ_TSTR](g, o);
     }
   }
@@ -782,38 +878,27 @@ static void gc_sweepstr(global_State *g, GCRef *chain)
 }
 
 #if LJ_54
-static int gc_gen_revisit_age54(GCobj *o)
+static void gc_gen_markold_range54(global_State *g, GCobj *from, GCobj *to)
 {
-  uint8_t age = gcage(o);
-  return age == LJ_GC_AGE_OLD1 || age == LJ_GC_AGE_TOUCHED1 ||
-	 age == LJ_GC_AGE_TOUCHED2;
-}
-
-static int gc_gen_has_gclist54(GCobj *o)
-{
-  int gct = o->gch.gct;
-  return gct == ~LJ_TTAB || gct == ~LJ_TFUNC || gct == ~LJ_TTHREAD ||
-	 gct == ~LJ_TPROTO ||
-#if LJ_HASJIT
-	 gct == ~LJ_TTRACE ||
-#endif
-	 0;
-}
-
-static void gc_gen_revisit_obj54(global_State *g, GCobj *o)
-{
-  if (gc_gen_revisit_age54(o) && gc_gen_has_gclist54(o) && isblack(o)) {
-    o->gch.marked &= (uint8_t)~LJ_GC_BLACK;
-    setgcrefr(o->gch.gclist, g->gc.gray);
-    setgcref(g->gc.gray, o);
+  GCobj *o;
+  for (o = from; o != NULL && o != to; o = gcnext(o)) {
+    if (gcage(o) == LJ_GC_AGE_OLD1) {
+      setgcage(o, LJ_GC_AGE_OLD);
+      gc_gen_link_gray54(g, o);
+    }
   }
 }
 
-static void gc_gen_revisit_chain54(global_State *g, GCobj *o)
+static void gc_gen_revisit_mmudata_obj54(global_State *g, GCobj *o)
 {
-  while (o) {
-    gc_gen_revisit_obj54(g, o);
-    o = gcnext(o);
+  if (gcage(o) == LJ_GC_AGE_OLD1)
+    setgcage(o, LJ_GC_AGE_OLD);
+  if ((gcage(o) == LJ_GC_AGE_OLD || gcage(o) == LJ_GC_AGE_TOUCHED1 ||
+       gcage(o) == LJ_GC_AGE_TOUCHED2) &&
+      gc_gen_has_gclist54(o) && isblack(o)) {
+    black2gray(o);
+    setgcrefr(o->gch.gclist, g->gc.gray);
+    setgcref(g->gc.gray, o);
   }
 }
 
@@ -823,7 +908,7 @@ static void gc_gen_revisit_mmudata54(global_State *g)
   GCobj *o = root;
   if (o) {
     do {
-      gc_gen_revisit_obj54(g, o);
+      gc_gen_revisit_mmudata_obj54(g, o);
       o = gcnext(o);
     } while (o != root);
   }
@@ -834,11 +919,15 @@ static void gc_gen_revisit_old54(global_State *g)
   if (gcref(g->gc.gray) != NULL)
     gc_propagate_gray(g);
   setgcrefnull(g->gc.gray);
-  if (!g->gc_genrevisit54)
-    return;
-  g->gc_genrevisit54 = 0;
-  gc_gen_revisit_chain54(g, gcref(g->gc.root));
-  gc_gen_revisit_mmudata54(g);
+  if (gcref(g->gc_genfirstold154) != NULL) {
+    gc_gen_markold_range54(g, gcref(g->gc_genfirstold154),
+			   gcref(g->gc_genreallyold54));
+    setgcrefnull(g->gc_genfirstold154);
+  }
+  if (g->gc_genrevisit54 || gcref(g->gc.mmudata) != NULL) {
+    g->gc_genrevisit54 = 0;
+    gc_gen_revisit_mmudata54(g);
+  }
 }
 
 static int gc_gen_hastrace54(global_State *g)
@@ -907,23 +996,42 @@ static void gc_gen_age_survivor54(global_State *g, GCobj *o)
   }
 }
 
-static GCRef *gc_sweepgen54(lua_State *L, global_State *g, GCRef *p)
+static GCRef *gc_sweepgen_range54(lua_State *L, global_State *g, GCRef *p,
+				  GCobj *limit, GCRef *pfirstold1)
 {
   GCobj *o;
-  while ((o = gcref(*p)) != NULL) {
+  while ((o = gcref(*p)) != NULL && o != limit) {
     if (o->gch.gct == ~LJ_TTHREAD)
-      gc_sweepgen54(L, g, &gco2th(o)->openupval);
+      gc_sweepgen_range54(L, g, &gco2th(o)->openupval, NULL, NULL);
     if (iswhite(o) && !isoldgc(o) && !(o->gch.marked & LJ_GC_FIXED)) {
       setgcrefr(*p, o->gch.nextgc);
       if (o == gcref(g->gc.root))
 	setgcrefr(g->gc.root, o->gch.nextgc);
+      gc_gen_correctpointers54(g, o);
       gc_freefunc[o->gch.gct - ~LJ_TSTR](g, o);
     } else {
       gc_gen_age_survivor54(g, o);
+      if (pfirstold1 != NULL && gcref(*pfirstold1) == NULL &&
+	  gcage(o) == LJ_GC_AGE_OLD1)
+	setgcref(*pfirstold1, o);
       p = &o->gch.nextgc;
     }
   }
   return p;
+}
+
+static void gc_sweepgen54(lua_State *L, global_State *g)
+{
+  GCobj *survival = gcref(g->gc_gensurvival54);
+  GCobj *old1 = gcref(g->gc_genold154);
+  GCRef *psurvival;
+  setgcrefnull(g->gc_genfirstold154);
+  psurvival = gc_sweepgen_range54(L, g, &g->gc.root, survival,
+				  &g->gc_genfirstold154);
+  gc_sweepgen_range54(L, g, psurvival, old1, &g->gc_genfirstold154);
+  setgcrefr(g->gc_genreallyold54, g->gc_genold154);
+  setgcrefr(g->gc_genold154, *psurvival);
+  setgcrefr(g->gc_gensurvival54, g->gc.root);
 }
 
 static void gc_sweepstrgen54(global_State *g, GCRef *chain)
@@ -950,10 +1058,41 @@ static void gc_correctgraygen54(global_State *g)
   GCRef *p = &g->gc.grayagain;
   GCobj *o;
   while ((o = gcref(*p)) != NULL) {
-    if (iswhite(o))
+    if (iswhite(o)) {
       setgcrefr(*p, o->gch.gclist);
-    else
+    } else if (gcage(o) == LJ_GC_AGE_TOUCHED1) {
+      setgcage(o, LJ_GC_AGE_TOUCHED2);
       p = &o->gch.gclist;
+    } else if (o->gch.gct == ~LJ_TTHREAD) {
+      p = &o->gch.gclist;
+    } else {
+      if (gcage(o) == LJ_GC_AGE_TOUCHED2)
+	setgcage(o, LJ_GC_AGE_OLD);
+      o->gch.marked = (uint8_t)((o->gch.marked & (uint8_t)~LJ_GC_COLORS) |
+				LJ_GC_BLACK);
+      setgcrefr(*p, o->gch.gclist);
+    }
+  }
+}
+
+static void gc_correctweakgen54(global_State *g, GCobj *o)
+{
+  while (o) {
+    GCobj *next = gcref(gco2tab(o)->gclist);
+    if (!iswhite(o)) {
+      if (gcage(o) == LJ_GC_AGE_TOUCHED1) {
+	setgcage(o, LJ_GC_AGE_TOUCHED2);
+	gc_gen_keep_touched_gray54(g, o);
+      } else if (gcage(o) == LJ_GC_AGE_TOUCHED2) {
+	setgcage(o, LJ_GC_AGE_OLD);
+	o->gch.marked = (uint8_t)((o->gch.marked & (uint8_t)~LJ_GC_COLORS) |
+				  LJ_GC_BLACK);
+      } else {
+	o->gch.marked = (uint8_t)((o->gch.marked & (uint8_t)~LJ_GC_COLORS) |
+				  LJ_GC_BLACK);
+      }
+    }
+    o = next;
   }
 }
 #endif
@@ -1099,6 +1238,10 @@ static void gc_finalize(lua_State *L)
     /* Add cdata back to the GC list and make it white. */
     setgcrefr(o->gch.nextgc, g->gc.root);
     setgcref(g->gc.root, o);
+#if LJ_54
+    if (g->gc_mode54 && g->gc_genactive54)
+      setgcage(o, LJ_GC_AGE_NEW);
+#endif
     makewhite(g, o);
     o->gch.marked &= (uint8_t)~LJ_GC_CDATA_FIN;
     /* Resolve finalizer. */
@@ -1122,6 +1265,8 @@ static void gc_finalize(lua_State *L)
     t->flags54 &= (uint8_t)~LJ_TAB_GC_PENDING;
     setgcrefr(o->gch.nextgc, g->gc.root);
     setgcref(g->gc.root, o);
+    if (g->gc_mode54 && g->gc_genactive54)
+      setgcage(o, LJ_GC_AGE_NEW);
     makewhite(g, o);
     {
       GCtab *mt = tabref(t->metatable);
@@ -1132,9 +1277,17 @@ static void gc_finalize(lua_State *L)
     return;
   }
 #endif
+#if LJ_54
+  /* Add userdata back to the common root list and make it white. */
+  setgcrefr(o->gch.nextgc, g->gc.root);
+  setgcref(g->gc.root, o);
+  if (g->gc_mode54 && g->gc_genactive54)
+    setgcage(o, LJ_GC_AGE_NEW);
+#else
   /* Add userdata back to the main userdata list and make it white. */
   setgcrefr(o->gch.nextgc, mainthread(g)->nextgc);
   setgcref(mainthread(g)->nextgc, o);
+#endif
   makewhite(g, o);
   /* Resolve the __gc metamethod. */
   mo = lj_meta_fastg(g, tabref(gco2ud(o)->metatable), MM_gc);
@@ -1353,8 +1506,11 @@ static void gc_gen_minor54(lua_State *L)
   atomic(g, L);
   for (i = g->str.mask; i != ~(MSize)0; i--)
     gc_sweepstrgen54(g, &g->str.tab[i]);
-  gc_sweepgen54(L, g, &g->gc.root);
+  gc_sweepgen54(L, g);
   gc_correctgraygen54(g);
+  gc_correctweakgen54(g, gcref(g->gc.weak));
+  gc_correctweakgen54(g, gcref(g->gc.ephemeron));
+  gc_correctweakgen54(g, gcref(g->gc.allweak));
   gc_clear_weak_lists54(g);
   while (gcref(g->gc.mmudata) != NULL)
     gc_finalize(L);
@@ -1597,6 +1753,10 @@ void lj_gc_closeuv(global_State *g, GCupval *uv)
   uv->closed = 1;
   setgcrefr(o->gch.nextgc, g->gc.root);
   setgcref(g->gc.root, o);
+#if LJ_54
+  if (g->gc_mode54 && g->gc_genactive54)
+    setgcage(o, LJ_GC_AGE_NEW);
+#endif
   if (isgray(o)) {  /* A closed upvalue is never gray, so fix this. */
     if (g->gc.state == GCSpropagate || g->gc.state == GCSatomic) {
       gray2black(o);  /* Make it black and preserve invariant. */
