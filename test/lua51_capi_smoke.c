@@ -81,6 +81,28 @@ static int capi51_setfenv_missing_value(lua_State *L)
   return 0;
 }
 
+static int capi51_setfenv_nontable_value(lua_State *L)
+{
+  lua_pushthread(L);
+  lua_pushboolean(L, 1);
+  lua_setfenv(L, -2);
+  return 0;
+}
+
+static int capi51_replace_globals_nontable(lua_State *L)
+{
+  lua_pushboolean(L, 1);
+  lua_replace(L, LUA_GLOBALSINDEX);
+  return 0;
+}
+
+static int capi51_replace_env_nontable(lua_State *L)
+{
+  lua_pushboolean(L, 1);
+  lua_replace(L, LUA_ENVIRONINDEX);
+  return 0;
+}
+
 typedef struct Capi51ReaderCtx {
   const char *chunk;
   int done;
@@ -147,6 +169,27 @@ int main(void)
   check(L, status == LUA_ERRRUN, "lua_setfenv rejects missing value");
   check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
 	"lua_setfenv missing value error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_setfenv_nontable_value);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_setfenv rejects non-table value");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_setfenv non-table value error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_replace_globals_nontable);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_replace rejects non-table globals");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_replace non-table globals error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_replace_env_nontable);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_replace rejects non-table env");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_replace non-table env error");
   lua_pop(L, 1);
 
   lua_pushthread(L);

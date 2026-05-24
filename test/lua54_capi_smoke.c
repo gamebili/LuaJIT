@@ -2162,6 +2162,14 @@ static int setmetatable_missing_value(lua_State *L)
   return 0;
 }
 
+static int setmetatable_nontable_value(lua_State *L)
+{
+  lua_pushinteger(L, 1);
+  lua_pushboolean(L, 1);
+  lua_setmetatable(L, -2);
+  return 0;
+}
+
 static int setiuservalue_missing_value(lua_State *L)
 {
   lua_setiuservalue(L, LUA_REGISTRYINDEX, 1);
@@ -3479,6 +3487,9 @@ static void test_stack_and_number_api(lua_State *L)
   check_fresh_invalid_value(L, setmetatable_missing_value,
 			    "lua_setmetatable rejects missing value",
 			    "lua_setmetatable missing value error");
+  check_fresh_invalid_value(L, setmetatable_nontable_value,
+			    "lua_setmetatable rejects non-table metatable",
+			    "lua_setmetatable non-table metatable error");
   check_fresh_invalid_value(L, setiuservalue_missing_value,
 			    "lua_setiuservalue rejects missing value",
 			    "lua_setiuservalue missing value error");

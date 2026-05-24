@@ -506,6 +506,8 @@ LUA_API void lua_rotate(lua_State *L, int idx, int n)
 static void copy_slot(lua_State *L, TValue *f, int idx)
 {
   if (idx == LUA_GLOBALSINDEX) {
+    if (!tvistab(f))
+      lj_err_msg(L, LJ_ERR_BADVAL);
     lj_checkapi(tvistab(f), "stack slot %d is not a table", idx);
     /* NOBARRIER: A thread (i.e. L) is never black. */
     setgcref(L->env, obj2gco(tabV(f)));
@@ -513,6 +515,8 @@ static void copy_slot(lua_State *L, TValue *f, int idx)
     GCfunc *fn = curr_func(L);
     if (fn->c.gct != ~LJ_TFUNC)
       lj_err_msg(L, LJ_ERR_NOENV);
+    if (!tvistab(f))
+      lj_err_msg(L, LJ_ERR_BADVAL);
     lj_checkapi(tvistab(f), "stack slot %d is not a table", idx);
     setgcref(fn->c.env, obj2gco(tabV(f)));
     lj_gc_barrier(L, fn, f);
@@ -2312,6 +2316,8 @@ LUA_API int lua_setmetatable(lua_State *L, int idx)
   if (tvisnil(L->top-1)) {
     mt = NULL;
   } else {
+    if (!tvistab(L->top-1))
+      lj_err_msg(L, LJ_ERR_BADVAL);
     lj_checkapi(tvistab(L->top-1), "top stack slot is not a table");
     mt = tabV(L->top-1);
   }
@@ -2406,6 +2412,8 @@ LUA_API int lua_setfenv(lua_State *L, int idx)
   cTValue *o = index2adr_check(L, idx);
   GCtab *t;
   api_checknelems(L, 1);
+  if (!tvistab(L->top-1))
+    lj_err_msg(L, LJ_ERR_BADVAL);
   lj_checkapi(tvistab(L->top-1), "top stack slot is not a table");
   t = tabV(L->top-1);
   if (tvisfunc(o)) {
