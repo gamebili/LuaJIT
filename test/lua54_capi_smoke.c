@@ -1886,6 +1886,12 @@ static int pushcclosure_large_upvalues(lua_State *L)
   return 1;
 }
 
+static int pushcclosure_missing_upvalue(lua_State *L)
+{
+  lua_pushcclosure(L, push_answer, 1);
+  return 1;
+}
+
 static int xmove_negative_count(lua_State *L)
 {
   lua_State *co = lua_newthread(L);
@@ -1922,6 +1928,95 @@ static int concat_large_count(lua_State *L)
 {
   lua_concat(L, lua_gettop(L) + 1);
   return 0;
+}
+
+static int replace_missing_value(lua_State *L)
+{
+  lua_replace(L, LUA_REGISTRYINDEX);
+  return 0;
+}
+
+static int settable_missing_pair(lua_State *L)
+{
+  lua_settable(L, LUA_REGISTRYINDEX);
+  return 0;
+}
+
+static int setfield_missing_value(lua_State *L)
+{
+  lua_setfield(L, LUA_REGISTRYINDEX, "lua54_missing_value");
+  return 0;
+}
+
+static int seti_missing_value(lua_State *L)
+{
+  lua_seti(L, LUA_REGISTRYINDEX, 1);
+  return 0;
+}
+
+static int rawset_missing_pair(lua_State *L)
+{
+  lua_rawset(L, LUA_REGISTRYINDEX);
+  return 0;
+}
+
+static int rawseti_missing_value(lua_State *L)
+{
+  lua_rawseti_sig(L, LUA_REGISTRYINDEX, 1);
+  return 0;
+}
+
+static int rawseti54_missing_value(lua_State *L)
+{
+  lua_rawseti_sig(L, LUA_REGISTRYINDEX,
+		  (lua_Integer)1024 * 1024 * 1024 * 1024);
+  return 0;
+}
+
+static int rawsetp_missing_value(lua_State *L)
+{
+  lua_rawsetp(L, LUA_REGISTRYINDEX, (const void *)rawsetp_missing_value);
+  return 0;
+}
+
+static int setmetatable_missing_value(lua_State *L)
+{
+  lua_setmetatable(L, LUA_REGISTRYINDEX);
+  return 0;
+}
+
+static int setiuservalue_missing_value(lua_State *L)
+{
+  lua_setiuservalue(L, LUA_REGISTRYINDEX, 1);
+  return 0;
+}
+
+static int setupvalue_missing_value_inner(lua_State *L)
+{
+  lua_setupvalue(L, lua_upvalueindex(1), 1);
+  return 0;
+}
+
+static int setupvalue_missing_value(lua_State *L)
+{
+  lua_pushcfunction(L, push_answer);
+  lua_pushcclosure(L, setupvalue_missing_value_inner, 1);
+  lua_call(L, 0, 0);
+  return 0;
+}
+
+static void check_fresh_invalid_value(lua_State *L, lua_CFunction fn,
+				      const char *statusmsg,
+				      const char *errmsg)
+{
+  lua_State *T = luaL_newstate();
+  int status;
+  check(L, T != NULL, statusmsg);
+  lua_pushcfunction(T, fn);
+  status = lua_pcall(T, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, statusmsg);
+  check(L, strstr(lua_tostring(T, -1), "invalid value") != NULL, errmsg);
+  lua_close(T);
 }
 
 static int capi_gc_reentry(lua_State *L)
@@ -2984,6 +3079,13 @@ static void test_stack_and_number_api(lua_State *L)
 	"lua_pushcclosure large upvalues error");
   lua_pop(L, 1);
 
+  lua_pushcfunction(L, pushcclosure_missing_upvalue);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_pushcclosure rejects missing upvalue");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_pushcclosure missing upvalue error");
+  lua_pop(L, 1);
+
   status = luaL_loadstring(L, "return 1");
   check(L, status == LUA_OK, "luaL_loadstring lua function setup");
   check(L, lua_isfunction(L, -1), "lua_isfunction lua closure");
@@ -3044,6 +3146,40 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
 	"lua_xmove large count error");
   lua_pop(L, 1);
+
+  check_fresh_invalid_value(L, replace_missing_value,
+			    "lua_replace rejects missing value",
+			    "lua_replace missing value error");
+  check_fresh_invalid_value(L, settable_missing_pair,
+			    "lua_settable rejects missing key/value",
+			    "lua_settable missing key/value error");
+  check_fresh_invalid_value(L, setfield_missing_value,
+			    "lua_setfield rejects missing value",
+			    "lua_setfield missing value error");
+  check_fresh_invalid_value(L, seti_missing_value,
+			    "lua_seti rejects missing value",
+			    "lua_seti missing value error");
+  check_fresh_invalid_value(L, rawset_missing_pair,
+			    "lua_rawset rejects missing key/value",
+			    "lua_rawset missing key/value error");
+  check_fresh_invalid_value(L, rawseti_missing_value,
+			    "lua_rawseti rejects missing value",
+			    "lua_rawseti missing value error");
+  check_fresh_invalid_value(L, rawseti54_missing_value,
+			    "lua_rawseti rejects missing wide-key value",
+			    "lua_rawseti missing wide-key value error");
+  check_fresh_invalid_value(L, rawsetp_missing_value,
+			    "lua_rawsetp rejects missing value",
+			    "lua_rawsetp missing value error");
+  check_fresh_invalid_value(L, setmetatable_missing_value,
+			    "lua_setmetatable rejects missing value",
+			    "lua_setmetatable missing value error");
+  check_fresh_invalid_value(L, setiuservalue_missing_value,
+			    "lua_setiuservalue rejects missing value",
+			    "lua_setiuservalue missing value error");
+  check_fresh_invalid_value(L, setupvalue_missing_value,
+			    "lua_setupvalue rejects missing value",
+			    "lua_setupvalue missing value error");
 
   {
     int top = lua_gettop(L);

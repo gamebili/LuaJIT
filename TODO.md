@@ -119,6 +119,7 @@
   - 当前进展：C API `lua_getiuservalue()` 的 full userdata 越界语义已对齐官方 Lua 5.4；`n <= 0` 或超过声明 uservalue 数时会压入 `nil` 并返回 `LUA_TNONE`，不再把“无该 uservalue”表现成无压栈结果；非 userdata 仍保留 LuaJIT 旧 ABI 的容错无压栈行为。
   - 当前进展：C API `lua_pushcclosure()` 的 upvalue 数已增加 release 构建下的运行期 ABI guard；`n < 0` 或超过 `GCfuncC.nupvalues` 可表示的 `UCHAR_MAX` 时会稳定报 `invalid value`，避免负数转成巨大 `MSize` 分配或超过 255 后被 `uint8_t` 静默截断。
   - 当前进展：C API `lua_xmove()` 的移动数量已增加 release 构建下的运行期 guard；负数或超过源线程当前栈元素数量的 `n` 会稳定报 `invalid value`，不再进入 unsigned stack-growth 或错误栈搬移路径。
+  - 当前进展：C API 固定数量栈消费入口已开始统一走 release 运行期 `api_checknelems()`；`lua_replace()`、`lua_pushcclosure()`、`lua_settable()`、`lua_setfield()`、`lua_seti()`、`lua_rawset()`、`lua_rawseti()`、`lua_rawsetp()`、`lua_setmetatable()`、`lua_setiuservalue()`、`lua_setfenv()`、`lua_setupvalue()` 缺少待消费值时会稳定报 `invalid value`，避免 release 构建下继续访问错误栈槽或执行 wrapper 插入路径。
   - 当前进展：C API `lua_createtable()` 的负预分配 hint 已在运行期归零；`narray < 0` 或 `nrec < 0` 不再被传入表分配层并把负 hash hint 扩展成巨大 hsize，从而避免无意义的大表分配/溢出路径。
   - 当前进展：C API `lua_checkstack()` / `lua_settop()` 的栈计数边界已增加 release 构建下的运行期 guard；负 stack request 会返回失败，过大的正 top 或低于当前 frame 的负 top 会稳定报 `invalid value`，不再依赖 API assert 避免越界栈指针计算。
   - 当前进展：C API `lua_concat()` 的 count 边界已对齐 Lua 5.4；`n <= 0` 会压入空串，超过当前栈元素数量的 `n` 会稳定报 `invalid value`，不再在 release 构建下静默忽略负数或访问错误栈槽。

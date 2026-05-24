@@ -52,6 +52,13 @@ LUA_API const char lua_ident[] =
 #define lj_checkapi_slot(idx) \
   lj_checkapi((idx) <= (L->top - L->base), "stack slot %d out of range", (idx))
 
+static void api_checknelems(lua_State *L, int n)
+{
+  if (n < 0 || L->top - L->base < n)
+    lj_err_msg(L, LJ_ERR_BADVAL);
+  lj_checkapi_slot(n);
+}
+
 #if LJ_54
 #if LUAI_IS32INT
 #define LJ_54_REGISTRYINDEX	(-1000000 - 1000)
@@ -474,7 +481,7 @@ static void copy_slot(lua_State *L, TValue *f, int idx)
 
 LUA_API void lua_replace(lua_State *L, int idx)
 {
-  lj_checkapi_slot(1);
+  api_checknelems(L, 1);
   copy_slot(L, L->top - 1, idx);
   L->top--;
 }
@@ -1256,7 +1263,7 @@ LUA_API void lua_pushcclosure(lua_State *L, lua_CFunction f, int n)
   lj_gc_check(L);
   if (n < 0 || n > UCHAR_MAX)
     lj_err_msg(L, LJ_ERR_BADVAL);
-  lj_checkapi_slot(n);
+  api_checknelems(L, n);
   fn = lj_func_newC(L, (MSize)n, getcurrenv(L));
   fn->c.f = f;
   L->top -= n;
@@ -1783,9 +1790,7 @@ LUA_API void lua_arith(lua_State *L, int op)
     lj_err_msg(L, LJ_ERR_BADVAL);
   unary = (op == LUA_OPUNM || op == LUA_OPBNOT);
   need = unary ? 1 : 2;
-  if (L->top - L->base < need)
-    lj_err_msg(L, LJ_ERR_BADVAL);
-  lj_checkapi_slot(need);
+  api_checknelems(L, need);
   res = L->top - need;
   a = res;
   b = unary ? res : res+1;
@@ -2157,7 +2162,7 @@ LUA_API void lua_settable(lua_State *L, int idx)
 {
   TValue *o;
   cTValue *t = index2adr_check(L, idx);
-  lj_checkapi_slot(2);
+  api_checknelems(L, 2);
   o = lj_meta_tset(L, t, L->top-2);
   if (o) {
     /* NOBARRIER: lj_meta_tset ensures the table is not black. */
@@ -2177,7 +2182,7 @@ LUA_API void lua_setfield(lua_State *L, int idx, const char *k)
   TValue *o;
   TValue key;
   cTValue *t = index2adr_check(L, idx);
-  lj_checkapi_slot(1);
+  api_checknelems(L, 1);
   setstrV(L, &key, lj_str_newz(L, k));
   o = lj_meta_tset(L, t, &key);
   if (o) {
@@ -2194,6 +2199,7 @@ LUA_API void lua_setfield(lua_State *L, int idx, const char *k)
 
 LUA_API void lua_seti(lua_State *L, int idx, lua_Integer n)
 {
+  api_checknelems(L, 1);
   idx = lua_absindex(L, idx);
   lua_pushinteger(L, n);
   lua_insert(L, -2);
@@ -2202,9 +2208,10 @@ LUA_API void lua_seti(lua_State *L, int idx, lua_Integer n)
 
 LUA_API void lua_rawset(lua_State *L, int idx)
 {
-  GCtab *t = tabV(index2adr(L, idx));
+  GCtab *t;
   TValue *dst, *key;
-  lj_checkapi_slot(2);
+  api_checknelems(L, 2);
+  t = tabV(index2adr(L, idx));
   key = L->top-2;
   dst = lj_tab_set(L, t, key);
   copyTV(L, dst, key+1);
@@ -2214,9 +2221,10 @@ LUA_API void lua_rawset(lua_State *L, int idx)
 
 LUA_API void lua_rawseti(lua_State *L, int idx, int n)
 {
-  GCtab *t = tabV(index2adr(L, idx));
+  GCtab *t;
   TValue *dst, *src;
-  lj_checkapi_slot(1);
+  api_checknelems(L, 1);
+  t = tabV(index2adr(L, idx));
   dst = lj_tab_setint(L, t, n);
   src = L->top-1;
   copyTV(L, dst, src);
@@ -2230,6 +2238,7 @@ LUA_API void lua_rawseti54(lua_State *L, int idx, lua_Integer n)
   if (checki32(n)) {
     lua_rawseti(L, idx, (int)n);
   } else {
+    api_checknelems(L, 1);
     idx = lua_absindex(L, idx);
     lua_pushinteger(L, n);
     lua_insert(L, -2);
@@ -2240,6 +2249,7 @@ LUA_API void lua_rawseti54(lua_State *L, int idx, lua_Integer n)
 
 LUA_API void lua_rawsetp(lua_State *L, int idx, const void *p)
 {
+  api_checknelems(L, 1);
   idx = lua_absindex(L, idx);
   lua_pushlightuserdata(L, (void *)p);
   lua_insert(L, -2);
@@ -2251,7 +2261,7 @@ LUA_API int lua_setmetatable(lua_State *L, int idx)
   global_State *g;
   GCtab *mt;
   cTValue *o = index2adr_check(L, idx);
-  lj_checkapi_slot(1);
+  api_checknelems(L, 1);
   if (tvisnil(L->top-1)) {
     mt = NULL;
   } else {
@@ -2325,7 +2335,7 @@ LUA_API int lua_setiuservalue(lua_State *L, int idx, int n)
   GCtab *env;
   TValue *tv;
   idx = lua_absindex(L, idx);
-  lj_checkapi_slot(1);
+  api_checknelems(L, 1);
   o = index2adr_check(L, idx);
   if (!tvisudata(o)) {
     L->top--;
@@ -2348,7 +2358,7 @@ LUA_API int lua_setfenv(lua_State *L, int idx)
 {
   cTValue *o = index2adr_check(L, idx);
   GCtab *t;
-  lj_checkapi_slot(1);
+  api_checknelems(L, 1);
   lj_checkapi(tvistab(L->top-1), "top stack slot is not a table");
   t = tabV(L->top-1);
   if (tvisfunc(o)) {
@@ -2372,7 +2382,7 @@ LUA_API const char *lua_setupvalue(lua_State *L, int idx, int n)
   TValue *val;
   GCobj *o;
   const char *name;
-  lj_checkapi_slot(1);
+  api_checknelems(L, 1);
 #if LJ_54
   if (tvisfunc(f)) {
     GCfunc *fn = funcV(f);

@@ -75,6 +75,12 @@ static int capi51_cpcall(lua_State *L)
   return 0;
 }
 
+static int capi51_setfenv_missing_value(lua_State *L)
+{
+  lua_setfenv(L, LUA_REGISTRYINDEX);
+  return 0;
+}
+
 typedef struct Capi51ReaderCtx {
   const char *chunk;
   int done;
@@ -104,6 +110,7 @@ int main(void)
   lua_State *L2;
   lua_Chunkreader chunkreader = NULL;
   lua_Chunkwriter chunkwriter = NULL;
+  int status;
   check(L, L != NULL, "luaL_newstate");
   check(L, chunkreader == NULL && chunkwriter == NULL, "lua_Chunk aliases");
 
@@ -134,6 +141,13 @@ int main(void)
   lua_pop(L, 1);
   check(L, lua_getgccount(L) >= 0, "lua_getgccount default macro");
   lua_setlevel(L, L);
+
+  lua_pushcfunction(L, capi51_setfenv_missing_value);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_setfenv rejects missing value");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_setfenv missing value error");
+  lua_pop(L, 1);
 
   lua_pushthread(L);
   lua_getfenv(L, -1);
