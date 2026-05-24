@@ -1365,7 +1365,10 @@ LUA_API void *lua_newuserdatauv(lua_State *L, size_t size, int nuvalue)
 
 LUA_API void lua_concat(lua_State *L, int n)
 {
-  lj_checkapi_slot(n);
+  if (n < 0)
+    n = 0;
+  else if (n > (int)(L->top - L->base))
+    lj_err_msg(L, LJ_ERR_BADVAL);
   if (n >= 2) {
     n--;
     do {
