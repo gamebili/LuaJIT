@@ -402,6 +402,12 @@ TRef LJ_FASTCALL lj_ir_tonumber(jit_State *J, TRef tr)
   if (!tref_isnumber(tr)) {
     if (tref_isstr(tr))
       tr = emitir(IRTG(IR_STRTO, IRT_NUM), tr, 0);
+#if LJ_54
+    else if (tref_type(tr) == IRT_INT64) {
+      TRef i64 = emitir(IRT(IR_FLOAD, IRT_I64), tr, IRFL_INT64_VALUE);
+      tr = emitir(IRTN(IR_CONV), i64, (IRT_NUM<<IRCONV_DSH)|IRT_I64);
+    }
+#endif
     else
       lj_trace_err(J, LJ_TRERR_BADTYPE);
   }
@@ -416,6 +422,12 @@ TRef LJ_FASTCALL lj_ir_tonum(jit_State *J, TRef tr)
       tr = emitir(IRTN(IR_CONV), tr, IRCONV_NUM_INT);
     else if (tref_isstr(tr))
       tr = emitir(IRTG(IR_STRTO, IRT_NUM), tr, 0);
+#if LJ_54
+    else if (tref_type(tr) == IRT_INT64) {
+      TRef i64 = emitir(IRT(IR_FLOAD, IRT_I64), tr, IRFL_INT64_VALUE);
+      tr = emitir(IRTN(IR_CONV), i64, (IRT_NUM<<IRCONV_DSH)|IRT_I64);
+    }
+#endif
     else
       lj_trace_err(J, LJ_TRERR_BADTYPE);
   }
@@ -426,6 +438,12 @@ TRef LJ_FASTCALL lj_ir_tonum(jit_State *J, TRef tr)
 TRef LJ_FASTCALL lj_ir_tostr(jit_State *J, TRef tr)
 {
   if (!tref_isstr(tr)) {
+#if LJ_54
+    if (tref_type(tr) == IRT_INT64) {
+      TRef i64 = emitir(IRT(IR_FLOAD, IRT_I64), tr, IRFL_INT64_VALUE);
+      return lj_ir_call(J, IRCALL_lj_strfmt_i64, i64);
+    }
+#endif
     if (!tref_isnumber(tr))
       lj_trace_err(J, LJ_TRERR_BADTYPE);
     tr = emitir(IRT(IR_TOSTR, IRT_STR), tr,

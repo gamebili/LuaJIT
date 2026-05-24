@@ -2778,13 +2778,25 @@ static TValue *rec_mm_concat_cp(lua_State *L, lua_CFunction dummy, void *ud)
   lj_assertJ(baseslot < topslot, "bad CAT arg");
   for (s = baseslot; s <= topslot; s++)
     (void)getslot(J, s);  /* Ensure all arguments have a reference. */
-  if (tref_isnumber_str(top[0]) && tref_isnumber_str(top[-1])) {
+  if (
+#if LJ_54
+      (rec_lua54_tref_isnumeric(top[0]) || tref_isstr(top[0])) &&
+      (rec_lua54_tref_isnumeric(top[-1]) || tref_isstr(top[-1]))
+#else
+      tref_isnumber_str(top[0]) && tref_isnumber_str(top[-1])
+#endif
+     ) {
     TRef tr, hdr, *trp, *xbase, *base = &J->base[baseslot];
     /* First convert numbers to strings. */
     for (trp = top; trp >= base; trp--) {
+#if LJ_54
+      if (rec_lua54_tref_isnumeric(*trp))
+	*trp = lj_ir_tostr(J, *trp);
+#else
       if (tref_isnumber(*trp))
 	*trp = emitir(IRT(IR_TOSTR, IRT_STR), *trp,
 		      tref_isnum(*trp) ? IRTOSTR_NUM : IRTOSTR_INT);
+#endif
       else if (!tref_isstr(*trp))
 	break;
     }

@@ -585,6 +585,23 @@ do
 end
 
 do
+  assert_records_ir_call(function()
+    local big = 1099511627776
+    local text = "1099511627776"
+    local n = 0
+    for _ = 1, 80 do
+      if tostring(big) == text then n = n + 1 end
+      if "id:" .. big == "id:" .. text then n = n + 1 end
+      if string.sub(big, 1, 4) == "1099" then n = n + 1 end
+      if string.format("%s", big) == text then n = n + 1 end
+      if string.format("%d", big) == text then n = n + 1 end
+      if string.format("%x", big) == "10000000000" then n = n + 1 end
+    end
+    assert(n == 480)
+  end, "Lua 5.4 boxed int64 string conversion", "lj_strfmt_i64")
+end
+
+do
   local function random_mix()
     local range_sum = 0
     local full_count = 0

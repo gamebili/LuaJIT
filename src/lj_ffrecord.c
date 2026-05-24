@@ -117,7 +117,11 @@ static GCstr *argv2str(jit_State *J, TValue *o)
     return strV(o);
   } else {
     GCstr *s;
-    if (!tvisnumber(o))
+    if (!tvisnumber(o)
+#if LJ_54
+	&& !tvisi64(o)
+#endif
+       )
       lj_trace_err(J, LJ_TRERR_BADTYPE);
     s = lj_strfmt_number(J->L, o);
     setstrV(J->L, o, s);
@@ -1058,9 +1062,12 @@ static void LJ_FASTCALL recff_tostring(jit_State *J, RecordFFData *rd)
     }
 #endif
     if (!recff_metacall(J, rd, MM_tostring)) {
-      if (tref_isnumber(tr)) {
-	J->base[0] = emitir(IRT(IR_TOSTR, IRT_STR), tr,
-			    tref_isnum(tr) ? IRTOSTR_NUM : IRTOSTR_INT);
+      if (tref_isnumber(tr)
+#if LJ_54 && LJ_DUALNUM
+	  || recff_lua54_tref_isi64(tr)
+#endif
+	 ) {
+	J->base[0] = lj_ir_tostr(J, tr);
       } else if (tref_ispri(tr)) {
 	J->base[0] = lj_ir_kstr(J, lj_strfmt_obj(J->L, &rd->argv[0]));
       } else {
@@ -1927,6 +1934,18 @@ static void recff_format(jit_State *J, RecordFFData *rd, TRef hdr, int sbufx)
     case STRFMT_INT:
       id = IRCALL_lj_strfmt_putfnum_int;
     handle_int:
+#if LJ_54 && LJ_DUALNUM
+      if (recff_lua54_tref_isi64(tra)) {
+	if (sf == STRFMT_INT) { /* Shortcut for plain %d/%i. */
+	  tr = emitir(IRTG(IR_BUFPUT, IRT_PGC), tr, lj_ir_tostr(J, tra));
+	} else {
+	  tra = recff_lua54_i64ref(J, tra);
+	  tr = lj_ir_call(J, IRCALL_lj_strfmt_putfxint, tr, trsf, tra);
+	  lj_needsplit(J);
+	}
+	break;
+      }
+#endif
       if (!tref_isinteger(tra)) {
 #if LJ_HASFFI
 	if (tref_iscdata(tra)) {
@@ -1965,14 +1984,18 @@ static void recff_format(jit_State *J, RecordFFData *rd, TRef hdr, int sbufx)
     case STRFMT_STR:
       if (!tref_isstr(tra)) {
 #if LJ_54
-	if (!(sf & STRFMT_T_QUOTED) && tref_isnumber(tra)) {
+	if (!(sf & STRFMT_T_QUOTED) &&
+	    (tref_isnumber(tra)
+#if LJ_DUALNUM
+	     || recff_lua54_tref_isi64(tra)
+#endif
+	    )) {
 	  /* Lua 5.4 %s follows luaL_tolstring() for plain numbers. Convert the
 	  ** current integer/float subtype to a string first, then reuse the
 	  ** existing string formatter path. Metamethod and non-number object
 	  ** cases remain in the interpreter so __tostring validation is preserved.
 	  */
-	  tra = emitir(IRT(IR_TOSTR, IRT_STR), tra,
-		       tref_isnum(tra) ? IRTOSTR_NUM : IRTOSTR_INT);
+	  tra = lj_ir_tostr(J, tra);
 	} else
 #endif
 	{
@@ -2170,10 +2193,12 @@ static void LJ_FASTCALL recff_buffer_method_put(jit_State *J, RecordFFData *rd)
   for (arg = 1; (tr = J->base[arg]); arg++) {
     if (tref_isstr(tr)) {
       trbuf = emitir(IRTG(IR_BUFPUT, IRT_PGC), trbuf, tr);
-    } else if (tref_isnumber(tr)) {
-      trbuf = emitir(IRTG(IR_BUFPUT, IRT_PGC), trbuf,
-		     emitir(IRT(IR_TOSTR, IRT_STR), tr,
-			    tref_isnum(tr) ? IRTOSTR_NUM : IRTOSTR_INT));
+    } else if (tref_isnumber(tr)
+#if LJ_54 && LJ_DUALNUM
+	       || recff_lua54_tref_isi64(tr)
+#endif
+	       ) {
+      trbuf = emitir(IRTG(IR_BUFPUT, IRT_PGC), trbuf, lj_ir_tostr(J, tr));
     } else if (tref_isudata(tr)) {
       TRef trr = recff_sbufx_get_ptr(J, tr, IRFL_SBUF_R);
       TRef trw = recff_sbufx_get_ptr(J, tr, IRFL_SBUF_W);
