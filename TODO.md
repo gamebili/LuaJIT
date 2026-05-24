@@ -263,8 +263,8 @@
   - 当前进展：full userdata 带 `__close` metatable 时已可作为 Lua `<close>` local 自动作用域退出，也可通过 C API `lua_toclose()` 标记后在 C 函数正常返回时关闭。
   - 已覆盖：无 declared uservalue 的内置 userdata、indexed 参数表面、`setuservalue` 返回值、C API 声明两个 user values 后的 get/set/out-of-range 行为，C 创建 userdata 后通过 Lua `debug.getuservalue` / `debug.setuservalue` 读写 declared slot，full userdata 的 `<close>` 自动作用域退出，以及 `lua_toclose()` 的显式/自动关闭路径。
 
-- [ ] 真实 Lua 5.4 GC 模式。
-  - 当前状态：`collectgarbage("generational")` / `"incremental"` 已从纯返回值 shim 推进到保存 Lua 5.4 mode 参数；从 incremental 切回 generational 时会按官方行为执行一次完整收集来建立模式基线，并保留 stopped-GC 状态；底层仍未完成真正 age/list 分代收集。
+- [x] 真实 Lua 5.4 GC 模式。
+  - 当前状态：PC x64 Lua 5.4 compat 构建已从 mode 返回值 shim 收敛到真实 incremental/generational 双模式；`collectgarbage("generational")` / `"incremental"` 会保存 Lua 5.4 mode 参数，从 incremental 切回 generational 时按官方行为执行完整收集建立模式基线，并保留 stopped-GC 状态；generational 路径已具备 age/list 分代边界、minor/major 调度、barrier aging、weak/finalizer 处理和字符串表收缩回归。
   - 当前进展：Lua 5.4 兼容构建已为 GC 对象头增加独立 `age` 字段和 `new/survival/old0/old1/old/touched1/touched2` 宏，避免挤占 LuaJIT `marked` 位和 cdata 高位，为真正分代链表与 barrier 演进做结构准备。
   - 当前进展：generational 模式下 full cycle 完成后会扫描 root、finalizer 队列和字符串表，把存活对象 age 归为 `old`，建立后续 young/survival/old1 演进所需的 major baseline。
   - 当前进展：generational major baseline 已开始维护颜色语义：存活对象进入 `old` 后保持 black，线程留在 `grayagain` 监视列表，后续调度使用 minor multiplier；切回 incremental 或开始下一轮 full-major 近似收集前会 whitelist 全量对象并清理 generational gray/weak 列表。
@@ -291,7 +291,7 @@
   - 当前进展：无调参 GC 命令的多余参数已按官方 Lua 5.4.8 忽略，覆盖默认 `collectgarbage(nil, extra)` 以及 `"count"` / `"collect"` / `"stop"` / `"restart"` / `"isrunning"`；`step` / `setpause` / `setstepmul` 仍只校验其第 2 个可选整数参数，mode 命令仍只校验官方定义的可选整数参数。
   - 当前进展：incremental 模式下 `collectgarbage("step", n)` 的完成标志继续按官方 Lua 5.4.8 收紧；负数 step 不会被无符号化成超大收集量，`step(0)` 在 pause/basic-step 完成边界返回 `true`，Lua 入口和 C API `lua_gc(L, LUA_GCSTEP, ...)` 均已覆盖。
   - 已覆盖：`generational`/`incremental` 参数和旧模式返回、mode 可选整数/字符串整数参数、mode 可选参数 fraction/boolean 错误、finalizer 内 mode 可选参数错误、`minor`/`major` invalid option、`setpause` 初始返回 `200`、`setstepmul` 初始返回 `100`，以及负数、非 4 对齐值、超过 1000、fraction number、string number 的参数边界。
-  - 实现重点：如果不重做 GC，至少要明确哪些行为是 shim，哪些行为可以做到语义兼容。
+  - 实现重点：PC x64 语义路径已收口；后续风险归入跨平台 artifact/runtime 验证和更长时间 profile 压力测试，不再作为本机 Lua 5.4 GC mode 功能缺口跟踪。
 
 - [x] `debug.getinfo` 的 Lua 5.4 选项和 hook 字段。
   - 当前状态：`debug.getinfo(f, "u")` 已有 `nparams`/`isvararg`；`"t"` 选项已接受，普通 Lua tail call frame 会报告 `istailcall=true`。
