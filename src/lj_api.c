@@ -9,6 +9,7 @@
 #define lj_api_c
 #define LUA_CORE
 
+#include <limits.h>
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -1334,7 +1335,8 @@ LUA_API void *lua_newuserdatauv(lua_State *L, size_t size, int nuvalue)
 {
   GCtab *uv;
   GCudata *ud;
-  lj_checkapi(nuvalue >= 0, "negative number of user values");
+  if (nuvalue < 0 || nuvalue >= SHRT_MAX)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   lj_gc_check(L);
   if (size > LJ_MAX_UDATA)
     lj_err_msg(L, LJ_ERR_UDATAOV);

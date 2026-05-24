@@ -1793,6 +1793,18 @@ static int push_fraction_len_userdata(lua_State *L)
   return 1;
 }
 
+static int newuserdatauv_negative_nuv(lua_State *L)
+{
+  (void)lua_newuserdatauv(L, 1, -1);
+  return 1;
+}
+
+static int newuserdatauv_large_nuv(lua_State *L)
+{
+  (void)lua_newuserdatauv(L, 1, SHRT_MAX);
+  return 1;
+}
+
 static int getsubtable_index_meta(lua_State *L)
 {
   const char *key = luaL_checkstring(L, 2);
@@ -4873,6 +4885,21 @@ static void test_uservalue_api(lua_State *L)
   void *alias_ud;
   void *ud = lua_newuserdatauv(L, 4, 2);
   check(L, ud != NULL, "lua_newuserdatauv");
+
+  lua_pushcfunction(L, newuserdatauv_negative_nuv);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_newuserdatauv rejects negative nuvalue");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_newuserdatauv negative nuvalue error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, newuserdatauv_large_nuv);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_newuserdatauv rejects large nuvalue");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_newuserdatauv large nuvalue error");
+  lua_pop(L, 1);
+
   lua_pushliteral(L, "uv1");
   check(L, lua_setiuservalue(L, -2, 1) == 1, "lua_setiuservalue #1");
   check(L, lua_getiuservalue(L, -1, 1) == LUA_TSTRING,
