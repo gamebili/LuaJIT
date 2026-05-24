@@ -2781,8 +2781,13 @@ static TValue *cp_lua54_yieldk_cont(lua_State *L, lua_CFunction dummy,
   Lua54YieldKCtx *yk = (Lua54YieldKCtx *)ud;
   UNUSED(dummy);
   yk->nres = yk->k(L, yk->status, yk->ctx);
-  if (yk->nres < 0 && L->status == LUA_YIELD)
-    return NULL;
+  if (yk->nres < 0) {
+    if (L->status == LUA_YIELD)
+      return NULL;
+    lj_err_msg(L, LJ_ERR_BADVAL);
+  }
+  if (yk->nres > L->top - L->base)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   lj_checkapi(yk->nres >= 0 && yk->nres <= L->top - L->base,
 	      "not enough results returned by lua_yieldk continuation");
   return NULL;
