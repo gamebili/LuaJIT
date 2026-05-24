@@ -251,7 +251,8 @@ LUA_API void lua_setlevel(lua_State *from, lua_State *to)
 
 LUA_API int lua_checkstack(lua_State *L, int size)
 {
-  if (size > LUAI_MAXCSTACK || (L->top - L->base + size) > LUAI_MAXCSTACK) {
+  if (size < 0 || size > LUAI_MAXCSTACK ||
+      (L->top - L->base + size) > LUAI_MAXCSTACK) {
     return 0;  /* Stack overflow. */
   } else if (size > 0) {
     int avail = (int)(mref(L->maxstack, TValue) - L->top);
@@ -379,6 +380,8 @@ LUA_API void lua_settop(lua_State *L, int idx)
 {
   if (idx >= 0) {
     TValue *newtop;
+    if (idx > LUAI_MAXCSTACK)
+      lj_err_msg(L, LJ_ERR_BADVAL);
     lj_checkapi(idx <= tvref(L->maxstack) - L->base, "bad stack slot %d", idx);
     newtop = L->base + idx;
     if (newtop > L->top) {
@@ -393,6 +396,8 @@ LUA_API void lua_settop(lua_State *L, int idx)
     }
   } else {
     TValue *newtop;
+    if (-(idx+1) > (L->top - L->base))
+      lj_err_msg(L, LJ_ERR_BADVAL);
     lj_checkapi(-(idx+1) <= (L->top - L->base), "bad stack slot %d", idx);
     newtop = L->top + idx+1;  /* Shrinks top (idx < 0). */
 #if LJ_54

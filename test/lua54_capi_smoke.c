@@ -1900,6 +1900,18 @@ static int xmove_large_count(lua_State *L)
   return 0;
 }
 
+static int settop_too_negative(lua_State *L)
+{
+  lua_settop(L, -2);
+  return 0;
+}
+
+static int settop_too_large(lua_State *L)
+{
+  lua_settop(L, INT_MAX);
+  return 0;
+}
+
 static int capi_gc_reentry(lua_State *L)
 {
   lua_pushinteger(L, lua_gc(L, LUA_GCCOUNT));
@@ -2971,6 +2983,21 @@ static void test_stack_and_number_api(lua_State *L)
   lua_pop(L, 1);
 
   check(L, lua_checkstack(L, 8), "lua_checkstack grows stack");
+  check(L, !lua_checkstack(L, -1), "lua_checkstack rejects negative size");
+  lua_pushcfunction(L, settop_too_negative);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_settop rejects too-negative index");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_settop too-negative index error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, settop_too_large);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_settop rejects too-large index");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_settop too-large index error");
+  lua_pop(L, 1);
+
   lua_pushcfunction(L, xmove_negative_count);
   status = lua_pcall(L, 0, 0, 0);
   check(L, status == LUA_ERRRUN, "lua_xmove rejects negative count");
