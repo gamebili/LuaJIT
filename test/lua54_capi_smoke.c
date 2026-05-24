@@ -4912,7 +4912,17 @@ static void test_uservalue_api(lua_State *L)
   top = lua_gettop(L);
   check(L, lua_getiuservalue(L, -1, 3) == LUA_TNONE,
 	"lua_getiuservalue out of range");
-  check(L, lua_gettop(L) == top, "lua_getiuservalue none pushes nothing");
+  check(L, lua_gettop(L) == top + 1, "lua_getiuservalue none pushes nil");
+  check(L, lua_isnil(L, -1), "lua_getiuservalue out of range nil");
+  lua_pop(L, 1);
+  check(L, lua_getiuservalue(L, -1, 0) == LUA_TNONE,
+	"lua_getiuservalue zero index out of range");
+  check(L, lua_isnil(L, -1), "lua_getiuservalue zero index nil");
+  lua_pop(L, 1);
+  check(L, lua_getiuservalue(L, -1, -1) == LUA_TNONE,
+	"lua_getiuservalue negative index out of range");
+  check(L, lua_isnil(L, -1), "lua_getiuservalue negative index nil");
+  lua_pop(L, 1);
   lua_pushnil(L);
   check(L, lua_setiuservalue(L, -2, 3) == 0,
 	"lua_setiuservalue out of range");

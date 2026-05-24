@@ -1990,8 +1990,11 @@ LUA_API int lua_getiuservalue(lua_State *L, int idx, int n)
   if (!tvisudata(o))
     return LUA_TNONE;
   ud = udataV(o);
-  if (n < 1 || n > api_udata_uvcount(L, ud))
+  if (n < 1 || n > api_udata_uvcount(L, ud)) {
+    setnilV(L->top);
+    incr_top(L);
     return LUA_TNONE;
+  }
   tv = lj_tab_getint(tabref(ud->env), n);
   if (tv)
     copyTV(L, L->top, tv);
