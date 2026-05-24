@@ -1505,6 +1505,8 @@ static void gc_gen_minor54(lua_State *L)
   atomic(g, L);
   for (i = g->str.mask; i != ~(MSize)0; i--)
     gc_sweepstrgen54(g, &g->str.tab[i]);
+  if (g->str.num <= (g->str.mask >> 2) && g->str.mask > LJ_MIN_STRTAB*2-1)
+    lj_str_resize(L, g->str.mask >> 1);
   gc_sweepgen54(L, g);
   gc_correctgraygen54(g);
   gc_correctweakgen54(g, gcref(g->gc.weak));

@@ -319,6 +319,30 @@ do
     end
   end
 
+  do
+    collectgarbage("generational", 1, 1000)
+    collectgarbage("collect")
+    collectgarbage("collect")
+    do
+      local tmp = {}
+      for i = 1, 180000 do
+	tmp[i] = "lua54_gc_ms_" .. i
+      end
+    end
+    local after_first
+    for i = 1, 6 do
+      collectgarbage("step", 0)
+      if i == 1 then
+	after_first = collectgarbage("count")
+      end
+    end
+    local after_minor = collectgarbage("count")
+    collectgarbage("collect")
+    collectgarbage("collect")
+    assert(after_minor + 64 < after_first,
+      "generational minor must shrink the short-string table")
+  end
+
   if jitmod then
     jitmod.on()
   end
