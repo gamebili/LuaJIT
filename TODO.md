@@ -53,6 +53,7 @@
    - 覆盖：continuation API、allocator 缩小失败语义、旧 LuaJIT API 默认构建兼容、lauxlib 冷门宏组合、标准库逐字错误文本。
    - 接口要求：新增外部 Lua 5.4 ABI wrapper 时必须保留内部旧 ABI，避免破坏 LuaJIT 自身和默认构建。
    - 当前进展：C API smoke 已固定 `lua_gc(L, LUA_GCGEN/LUA_GCINC, ...)` 在 collector stopped 状态下只切换模式/参数，不会隐式重启自动 GC。
+   - 当前进展：C API smoke 已固定 `lua_compare()` 非法 op，以及 `lua_next()` / `lua_rawget*()` / `lua_rawset*()` 的缺 key、非 table 和宽整数 key 路径在 release 构建下统一报 `invalid value`，不再只依赖 debug-only `api_check`。
 
 ## P0：核心语义缺口
 
@@ -592,6 +593,7 @@
 
 ## 当前验证结果
 
+- `cmd /c build.bat lua54` 和 `cmd /c build.bat default` 已通过，覆盖本轮新增 `lua_compare()` 非法 op、`lua_next()` 缺 key/非 table、`lua_rawget*()` 缺 key/非 table 和 `lua_rawset*()` 非 table C API 边界；Lua 5.4 兼容构建、官方矩阵、C API smoke 和默认 ABI smoke 均保持通过。
 - `cmd /c build.bat test` 已通过，覆盖默认构建 smoke/C API/C++ `lua.hpp` gate、Lua 5.4 compat smoke/C API/C++ `lua.hpp` gate、x64 非 GC64 Lua 5.4 JIT smoke、官方 Lua 5.4.8 可执行矩阵、VM 后端静态/DynASM 门禁，以及 Lua 5.4 perf/memory smoke；本轮同时固定 Lua 5.4 专用 bitwise/idiv metamethod bad-call smoke 必须通过 `load()` 字符串承载，避免默认构建在执行开头兼容性检查前解析失败。
 - `cmd /c build.bat default` 已通过，覆盖默认 LuaJIT smoke、默认 C++ `lua.hpp` gate，以及新增默认 C API 旧 ABI 覆盖。
 - `cmd /c build.bat smoke54` 已通过，确认 Lua 5.4 IO mode smoke 不再留下 `lua54_valid_open_mode.tmp`，且 `make clean` 会兜底清理旧版本残留的 Lua54 IO 临时文件。

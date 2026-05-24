@@ -128,6 +128,26 @@ static TValue *index2adr(lua_State *L, int idx)
   }
 }
 
+static cTValue *api_checktable(lua_State *L, int idx)
+{
+  cTValue *o;
+  if (idx > 0) {
+    o = L->base + (idx - 1);
+    if (o >= L->top)
+      lj_err_msg(L, LJ_ERR_BADVAL);
+  } else if (idx > LUA_REGISTRYINDEX) {
+    if (idx == 0 || -idx > L->top - L->base)
+      lj_err_msg(L, LJ_ERR_BADVAL);
+    o = L->top + idx;
+  } else {
+    o = index2adr(L, idx);
+  }
+  if (!tvistab(o))
+    lj_err_msg(L, LJ_ERR_BADVAL);
+  lj_checkapi(tvistab(o), "stack slot %d is not a table", idx);
+  return o;
+}
+
 static LJ_AINLINE TValue *index2adr_check(lua_State *L, int idx)
 {
   TValue *o = index2adr(L, idx);
@@ -713,6 +733,7 @@ LUA_API int lua_compare(lua_State *L, int idx1, int idx2, int op)
   case LUA_OPLE:
     return api_lessequal(L, idx1, idx2);
   default:
+    lj_err_msg(L, LJ_ERR_BADVAL);
     lj_checkapi(0, "invalid comparison op %d", op);
     return 0;
   }
@@ -1869,15 +1890,15 @@ LUA_API void lua_geti(lua_State *L, int idx, lua_Integer n)
 
 LUA_API void lua_rawget(lua_State *L, int idx)
 {
-  cTValue *t = index2adr(L, idx);
-  lj_checkapi(tvistab(t), "stack slot %d is not a table", idx);
+  cTValue *t;
+  api_checknelems(L, 1);
+  t = api_checktable(L, idx);
   copyTV(L, L->top-1, lj_tab_get(L, tabV(t), L->top-1));
 }
 
 LUA_API void lua_rawgeti(lua_State *L, int idx, int n)
 {
-  cTValue *v, *t = index2adr(L, idx);
-  lj_checkapi(tvistab(t), "stack slot %d is not a table", idx);
+  cTValue *v, *t = api_checktable(L, idx);
   v = lj_tab_getint(tabV(t), n);
   if (v) {
     copyTV(L, L->top, v);
@@ -2040,9 +2061,10 @@ LUA_API int lua_getiuservalue(lua_State *L, int idx, int n)
 
 LUA_API int lua_next(lua_State *L, int idx)
 {
-  cTValue *t = index2adr(L, idx);
+  cTValue *t;
   int more;
-  lj_checkapi(tvistab(t), "stack slot %d is not a table", idx);
+  api_checknelems(L, 1);
+  t = api_checktable(L, idx);
   more = lj_tab_next(tabV(t), L->top-1, L->top-1);
   if (more > 0) {
     incr_top(L);  /* Return new key and value slot. */
@@ -2219,7 +2241,7 @@ LUA_API void lua_rawset(lua_State *L, int idx)
   GCtab *t;
   TValue *dst, *key;
   api_checknelems(L, 2);
-  t = tabV(index2adr(L, idx));
+  t = tabV(api_checktable(L, idx));
   key = L->top-2;
   dst = lj_tab_set(L, t, key);
   copyTV(L, dst, key+1);
@@ -2232,7 +2254,7 @@ LUA_API void lua_rawseti(lua_State *L, int idx, int n)
   GCtab *t;
   TValue *dst, *src;
   api_checknelems(L, 1);
-  t = tabV(index2adr(L, idx));
+  t = tabV(api_checktable(L, idx));
   dst = lj_tab_setint(L, t, n);
   src = L->top-1;
   copyTV(L, dst, src);

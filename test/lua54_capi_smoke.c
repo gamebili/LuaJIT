@@ -1914,6 +1914,14 @@ static int pcall_invalid_nresults(lua_State *L)
   return 0;
 }
 
+static int compare_invalid_op(lua_State *L)
+{
+  lua_pushinteger(L, 1);
+  lua_pushinteger(L, 2);
+  lua_compare(L, -2, -1, LUA_OPLE + 1);
+  return 0;
+}
+
 static int pushcclosure_negative_upvalues(lua_State *L)
 {
   lua_pushcclosure(L, push_answer, -1);
@@ -2016,6 +2024,88 @@ static int rawseti54_missing_value(lua_State *L)
 static int rawsetp_missing_value(lua_State *L)
 {
   lua_rawsetp(L, LUA_REGISTRYINDEX, (const void *)rawsetp_missing_value);
+  return 0;
+}
+
+static int rawget_missing_key(lua_State *L)
+{
+  lua_rawget(L, LUA_REGISTRYINDEX);
+  return 0;
+}
+
+static int rawget_non_table(lua_State *L)
+{
+  lua_pushinteger(L, 1);
+  lua_pushliteral(L, "k");
+  lua_rawget(L, -2);
+  return 0;
+}
+
+static int rawgeti_non_table(lua_State *L)
+{
+  lua_pushinteger(L, 1);
+  lua_rawgeti_sig(L, -1, 1);
+  return 0;
+}
+
+static int rawgeti54_non_table(lua_State *L)
+{
+  lua_pushinteger(L, 1);
+  lua_rawgeti_sig(L, -1, (lua_Integer)1024 * 1024 * 1024 * 1024);
+  return 0;
+}
+
+static int rawgetp_non_table(lua_State *L)
+{
+  lua_pushinteger(L, 1);
+  lua_rawgetp(L, -1, (const void *)rawgetp_non_table);
+  return 0;
+}
+
+static int next_missing_key(lua_State *L)
+{
+  lua_next(L, LUA_REGISTRYINDEX);
+  return 0;
+}
+
+static int next_non_table(lua_State *L)
+{
+  lua_pushinteger(L, 1);
+  lua_pushnil(L);
+  lua_next(L, -2);
+  return 0;
+}
+
+static int rawset_non_table(lua_State *L)
+{
+  lua_pushinteger(L, 1);
+  lua_pushliteral(L, "k");
+  lua_pushliteral(L, "v");
+  lua_rawset(L, -3);
+  return 0;
+}
+
+static int rawseti_non_table(lua_State *L)
+{
+  lua_pushinteger(L, 1);
+  lua_pushliteral(L, "v");
+  lua_rawseti_sig(L, -2, 1);
+  return 0;
+}
+
+static int rawseti54_non_table(lua_State *L)
+{
+  lua_pushinteger(L, 1);
+  lua_pushliteral(L, "v");
+  lua_rawseti_sig(L, -2, (lua_Integer)1024 * 1024 * 1024 * 1024);
+  return 0;
+}
+
+static int rawsetp_non_table(lua_State *L)
+{
+  lua_pushinteger(L, 1);
+  lua_pushliteral(L, "v");
+  lua_rawsetp(L, -2, (const void *)rawsetp_non_table);
   return 0;
 }
 
@@ -3228,18 +3318,54 @@ static void test_stack_and_number_api(lua_State *L)
   check_fresh_invalid_value(L, seti_missing_value,
 			    "lua_seti rejects missing value",
 			    "lua_seti missing value error");
+  check_fresh_invalid_value(L, compare_invalid_op,
+			    "lua_compare rejects invalid op",
+			    "lua_compare invalid op error");
+  check_fresh_invalid_value(L, rawget_missing_key,
+			    "lua_rawget rejects missing key",
+			    "lua_rawget missing key error");
+  check_fresh_invalid_value(L, rawget_non_table,
+			    "lua_rawget rejects non-table",
+			    "lua_rawget non-table error");
+  check_fresh_invalid_value(L, rawgeti_non_table,
+			    "lua_rawgeti rejects non-table",
+			    "lua_rawgeti non-table error");
+  check_fresh_invalid_value(L, rawgeti54_non_table,
+			    "lua_rawgeti rejects wide-key non-table",
+			    "lua_rawgeti wide-key non-table error");
+  check_fresh_invalid_value(L, rawgetp_non_table,
+			    "lua_rawgetp rejects non-table",
+			    "lua_rawgetp non-table error");
+  check_fresh_invalid_value(L, next_missing_key,
+			    "lua_next rejects missing key",
+			    "lua_next missing key error");
+  check_fresh_invalid_value(L, next_non_table,
+			    "lua_next rejects non-table",
+			    "lua_next non-table error");
   check_fresh_invalid_value(L, rawset_missing_pair,
 			    "lua_rawset rejects missing key/value",
 			    "lua_rawset missing key/value error");
+  check_fresh_invalid_value(L, rawset_non_table,
+			    "lua_rawset rejects non-table",
+			    "lua_rawset non-table error");
   check_fresh_invalid_value(L, rawseti_missing_value,
 			    "lua_rawseti rejects missing value",
 			    "lua_rawseti missing value error");
+  check_fresh_invalid_value(L, rawseti_non_table,
+			    "lua_rawseti rejects non-table",
+			    "lua_rawseti non-table error");
   check_fresh_invalid_value(L, rawseti54_missing_value,
 			    "lua_rawseti rejects missing wide-key value",
 			    "lua_rawseti missing wide-key value error");
+  check_fresh_invalid_value(L, rawseti54_non_table,
+			    "lua_rawseti rejects wide-key non-table",
+			    "lua_rawseti wide-key non-table error");
   check_fresh_invalid_value(L, rawsetp_missing_value,
 			    "lua_rawsetp rejects missing value",
 			    "lua_rawsetp missing value error");
+  check_fresh_invalid_value(L, rawsetp_non_table,
+			    "lua_rawsetp rejects non-table",
+			    "lua_rawsetp non-table error");
   check_fresh_invalid_value(L, setmetatable_missing_value,
 			    "lua_setmetatable rejects missing value",
 			    "lua_setmetatable missing value error");
