@@ -1875,8 +1875,11 @@ LUA_API void lua_arith(lua_State *L, int op)
 
 LUA_API void lua_gettable(lua_State *L, int idx)
 {
-  cTValue *t = index2adr_check(L, idx);
-  cTValue *v = lj_meta_tget(L, t, L->top-1);
+  cTValue *t;
+  cTValue *v;
+  api_checknelems(L, 1);
+  t = index2adr_valid(L, idx);
+  v = lj_meta_tget(L, t, L->top-1);
   if (v == NULL) {
     L->top += 2;
     lj_vm_call(L, L->top-2, 1+1);
@@ -1888,7 +1891,7 @@ LUA_API void lua_gettable(lua_State *L, int idx)
 
 LUA_API void lua_getfield(lua_State *L, int idx, const char *k)
 {
-  cTValue *v, *t = index2adr_check(L, idx);
+  cTValue *v, *t = index2adr_valid(L, idx);
   TValue key;
   setstrV(L, &key, lj_str_newz(L, k));
   v = lj_meta_tget(L, t, &key);
@@ -2060,7 +2063,7 @@ static int api_udata_uvcount(lua_State *L, GCudata *ud)
 
 LUA_API int lua_getiuservalue(lua_State *L, int idx, int n)
 {
-  cTValue *o = index2adr_check(L, idx);
+  cTValue *o = index2adr_valid(L, idx);
   GCudata *ud;
   cTValue *tv;
   if (!tvisudata(o))
@@ -2234,7 +2237,7 @@ LUALIB_API void *luaL_checkudata(lua_State *L, int idx, const char *tname)
 LUA_API void lua_settable(lua_State *L, int idx)
 {
   TValue *o;
-  cTValue *t = index2adr_check(L, idx);
+  cTValue *t = index2adr_valid(L, idx);
   api_checknelems(L, 2);
   o = lj_meta_tset(L, t, L->top-2);
   if (o) {
@@ -2254,7 +2257,7 @@ LUA_API void lua_setfield(lua_State *L, int idx, const char *k)
 {
   TValue *o;
   TValue key;
-  cTValue *t = index2adr_check(L, idx);
+  cTValue *t = index2adr_valid(L, idx);
   api_checknelems(L, 1);
   setstrV(L, &key, lj_str_newz(L, k));
   o = lj_meta_tset(L, t, &key);
@@ -2333,7 +2336,7 @@ LUA_API int lua_setmetatable(lua_State *L, int idx)
 {
   global_State *g;
   GCtab *mt;
-  cTValue *o = index2adr_check(L, idx);
+  cTValue *o = index2adr_valid(L, idx);
   api_checknelems(L, 1);
   if (tvisnil(L->top-1)) {
     mt = NULL;
@@ -2411,7 +2414,7 @@ LUA_API int lua_setiuservalue(lua_State *L, int idx, int n)
   TValue *tv;
   idx = lua_absindex(L, idx);
   api_checknelems(L, 1);
-  o = index2adr_check(L, idx);
+  o = index2adr_valid(L, idx);
   if (!tvisudata(o)) {
     L->top--;
     return 0;

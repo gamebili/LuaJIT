@@ -2245,6 +2245,60 @@ static int upvaluejoin_bad_second_upvalue(lua_State *L)
   return 0;
 }
 
+static int gettable_missing_key(lua_State *L)
+{
+  lua_gettable(L, LUA_REGISTRYINDEX);
+  return 0;
+}
+
+static int gettable_invalid_index(lua_State *L)
+{
+  lua_pushliteral(L, "key");
+  lua_gettable(L, -2);
+  return 0;
+}
+
+static int getfield_invalid_index(lua_State *L)
+{
+  lua_getfield(L, 1, "key");
+  return 0;
+}
+
+static int settable_invalid_index(lua_State *L)
+{
+  lua_pushliteral(L, "key");
+  lua_pushliteral(L, "value");
+  lua_settable(L, -3);
+  return 0;
+}
+
+static int setfield_invalid_index(lua_State *L)
+{
+  lua_pushliteral(L, "value");
+  lua_setfield(L, -2, "key");
+  return 0;
+}
+
+static int setmetatable_invalid_object_index(lua_State *L)
+{
+  lua_newtable(L);
+  lua_setmetatable(L, -2);
+  return 0;
+}
+
+static int getiuservalue_invalid_index(lua_State *L)
+{
+  lua_getiuservalue(L, 1, 1);
+  return 0;
+}
+
+static int setiuservalue_invalid_index(lua_State *L)
+{
+  lua_pushnil(L);
+  lua_setiuservalue(L, -2, 1);
+  return 0;
+}
+
 static void check_fresh_invalid_value(lua_State *L, lua_CFunction fn,
 				      const char *statusmsg,
 				      const char *errmsg)
@@ -3569,6 +3623,30 @@ static void test_stack_and_number_api(lua_State *L)
   check_fresh_invalid_value(L, upvaluejoin_bad_second_upvalue,
 			    "lua_upvaluejoin rejects bad source upvalue",
 			    "lua_upvaluejoin bad source upvalue error");
+  check_fresh_invalid_value(L, gettable_missing_key,
+			    "lua_gettable rejects missing key",
+			    "lua_gettable missing key error");
+  check_fresh_invalid_value(L, gettable_invalid_index,
+			    "lua_gettable rejects invalid table index",
+			    "lua_gettable invalid table index error");
+  check_fresh_invalid_value(L, getfield_invalid_index,
+			    "lua_getfield rejects invalid table index",
+			    "lua_getfield invalid table index error");
+  check_fresh_invalid_value(L, settable_invalid_index,
+			    "lua_settable rejects invalid table index",
+			    "lua_settable invalid table index error");
+  check_fresh_invalid_value(L, setfield_invalid_index,
+			    "lua_setfield rejects invalid table index",
+			    "lua_setfield invalid table index error");
+  check_fresh_invalid_value(L, setmetatable_invalid_object_index,
+			    "lua_setmetatable rejects invalid object index",
+			    "lua_setmetatable invalid object index error");
+  check_fresh_invalid_value(L, getiuservalue_invalid_index,
+			    "lua_getiuservalue rejects invalid object index",
+			    "lua_getiuservalue invalid object index error");
+  check_fresh_invalid_value(L, setiuservalue_invalid_index,
+			    "lua_setiuservalue rejects invalid object index",
+			    "lua_setiuservalue invalid object index error");
 
   {
     int top = lua_gettop(L);
