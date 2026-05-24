@@ -131,14 +131,21 @@ static int close_pcall(lua_State *L, TValue *slot, cTValue *err, int clear)
   if (errstack)
     err = restorestack(L, errofs);
   top = L->top;
-  copyTV(L, top, mo);
-  copyTV(L, top+1, slot);
-  if (err != NULL)
-    copyTV(L, top+2, err);
-  else
-    setnilV(top+2);
-  L->top = top+3;
-  status = lua_pcall(L, 2, 0, 0);
+  {
+    ptrdiff_t topofs = savestack(L, top);
+    copyTV(L, top, mo);
+    copyTV(L, top+1, slot);
+    if (err != NULL)
+      copyTV(L, top+2, err);
+    else
+      setnilV(top+2);
+    L->top = top+3;
+    status = lua_pcall(L, 2, 0, 0);
+    if (status == LUA_OK) {
+      TValue *oldtop = restorestack(L, topofs);
+      L->top = oldtop;
+    }
+  }
   slot = restorestack(L, slotofs);
   if (clear)
     setnilV(slot);

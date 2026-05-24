@@ -346,17 +346,30 @@ LUA_API int lua_absindex(lua_State *L, int idx)
 }
 
 #if LJ_54
-static void api_close_popped(lua_State *L, TValue *newtop)
+static TValue *api_close_popped(lua_State *L, TValue *newtop)
 {
   if (newtop < L->top && L->closelist != NULL) {
+    ptrdiff_t newtopofs = savestack(L, newtop);
     /* Lua 5.4 closes marked C API stack slots before they are removed by
     ** lua_settop()/lua_pop(). The close-list bridge keeps stack-slot offsets,
     ** so close before changing L->top, then restore the requested new top.
+    ** The close call may grow/reallocate the stack through lua_pcall(), so the
+    ** target top must be kept as an offset rather than a raw TValue pointer.
     */
     int status = lj_close_unwind_status(L, newtop, LUA_OK);
     if (status != LUA_OK)
       lua_error(L);
+    newtop = restorestack(L, newtopofs);
+    L->top = newtop;
+    /* Closing popped C API slots runs an internal protected call on the same
+    ** stack segment. Finish the pending cycle at a stable top so later GC
+    ** steps and yieldable close continuations cannot observe half-dead frame
+    ** residue from the internal pcall.
+    */
+    if (G(L)->gc.threshold != LJ_MAX_MEM)
+      lj_gc_fullgc(L);
   }
+  return newtop;
 }
 #endif
 
@@ -372,7 +385,7 @@ LUA_API void lua_settop(lua_State *L, int idx)
       do { setnilV(L->top++); } while (L->top < newtop);
     } else {
 #if LJ_54
-      api_close_popped(L, newtop);
+      newtop = api_close_popped(L, newtop);
 #endif
       L->top = newtop;
     }
@@ -381,7 +394,7 @@ LUA_API void lua_settop(lua_State *L, int idx)
     lj_checkapi(-(idx+1) <= (L->top - L->base), "bad stack slot %d", idx);
     newtop = L->top + idx+1;  /* Shrinks top (idx < 0). */
 #if LJ_54
-    api_close_popped(L, newtop);
+    newtop = api_close_popped(L, newtop);
 #endif
     L->top = newtop;
   }
