@@ -3682,7 +3682,7 @@ static void test_stack_and_number_api(lua_State *L)
     nres = -1;
     check(L, lua_resume_sig(co, L, 0, &nres) == LUA_ERRRUN,
 	  "C return close-yield-error final status");
-    check(L, nres == 0 && lua_gettop(co) == 1,
+    check(L, nres == 1 && lua_gettop(co) == 1,
 	  "C return close-yield-error final count");
     check_string(co, 1, "capi close yield boom",
 	  "C return close-yield-error object");
@@ -3705,7 +3705,7 @@ static void test_stack_and_number_api(lua_State *L)
     nres = -1;
     check(L, lua_resume_sig(co, L, 0, &nres) == LUA_ERRRUN,
 	  "C return close-yield-error outer final status");
-    check(L, nres == 0 && lua_gettop(co) == 1,
+    check(L, nres == 1 && lua_gettop(co) == 1,
 	  "C return close-yield-error outer final count");
     check_string(co, 1, "capi inner close boom",
 	  "C return close-yield-error outer object");
@@ -4141,7 +4141,7 @@ static void test_stack_and_number_api(lua_State *L)
 	  "lua_callk yield-error final status");
     check(L, callk_yield_error_cont_called == 0,
 	  "lua_callk yield-error continuation not called");
-    check(L, nres == 0 && lua_gettop(co) == 1,
+    check(L, nres == 1 && lua_gettop(co) == 1,
 	  "lua_callk yield-error final count");
     check_string(co, 1, "callk-error-after-yield",
 	  "lua_callk yield-error final object");
@@ -4272,7 +4272,7 @@ static void test_stack_and_number_api(lua_State *L)
     nres = -1;
     check(L, lua_resume_sig(co, L, 0, &nres) == LUA_ERRRUN,
 	  "lua_yieldk error continuation resume status");
-    check(L, nres == 0 && lua_gettop(co) == 1,
+    check(L, nres == 1 && lua_gettop(co) == 1,
 	  "lua_yieldk error continuation error count");
     check_string(co, 1, "yieldk cont boom",
 	  "lua_yieldk error continuation message");
@@ -4290,6 +4290,20 @@ static void test_stack_and_number_api(lua_State *L)
 	  "lua_yieldk continuation closethread status");
     check(L, lua_status(co) == LUA_OK && lua_gettop(co) == 0,
 	  "lua_yieldk continuation closethread clears state");
+  }
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  check(L, luaL_loadstring(co, "error('resume-boom', 0)") == LUA_OK,
+	"lua_resume54 execution error load");
+  {
+    int nres = -1;
+    check(L, lua_resume_sig(co, L, 0, &nres) == LUA_ERRRUN,
+	  "lua_resume54 execution error status");
+    check(L, nres == 1 && lua_gettop(co) == 1,
+	  "lua_resume54 execution error count");
+    check_string(co, 1, "resume-boom",
+	  "lua_resume54 execution error object");
   }
   lua_pop(L, 1);
 

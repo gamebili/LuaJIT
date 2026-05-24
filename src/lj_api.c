@@ -2804,7 +2804,7 @@ static int resume_lua54_yieldk_cont(lua_State *L, int nargs, int *nresults)
   L->base = stackbase;
   copyTV(L, stackbase, &errtv);
   L->top = stackbase + 1;
-  if (nresults) *nresults = 0;
+  if (nresults) *nresults = 1;
   return status;
 }
 
@@ -2829,7 +2829,7 @@ static int resume_lua54_callk_cont(lua_State *L, int status, int *nresults)
   if (status != LUA_OK && status != LUA_YIELD &&
       kind != LUA54_CAPI_CONT_PCALLK) {
     setnilV(&L->capi_yield_errfunc);
-    if (nresults) *nresults = 0;
+    if (nresults) *nresults = lua_gettop(L);
     return status;
   }
   /* The yielded callee has now returned. Run the saved Lua 5.4 continuation
@@ -2895,7 +2895,7 @@ static int resume_lua54_callk_cont(lua_State *L, int status, int *nresults)
   L->base = stackbase;
   copyTV(L, stackbase, &errtv);
   L->top = stackbase + 1;
-  if (nresults) *nresults = 0;
+  if (nresults) *nresults = 1;
   return status;
 }
 
@@ -2911,7 +2911,7 @@ LUA_API int lua_resume54(lua_State *L, lua_State *from, int nargs,
   global_State *g = G(L);
   uint8_t oldmask = 0;
   int suspend_debug_hooks = 0;
-  int status;
+  int resume_error, status;
   /* The VM still implements LuaJIT's legacy resume ABI. This wrapper exposes
   ** Lua 5.4's result-count out parameter without changing the internal ABI.
   */
@@ -2927,6 +2927,8 @@ LUA_API int lua_resume54(lua_State *L, lua_State *from, int nargs,
     suspend_debug_hooks = 1;
     lj_dispatch_update(g);
   }
+  resume_error = (L->status > LUA_YIELD ||
+		  (L->status == LUA_OK && L->top == L->base));
   status = lua_resume(L, nargs);
   if (suspend_debug_hooks) {
     g->hookmask = oldmask;
@@ -2941,7 +2943,8 @@ LUA_API int lua_resume54(lua_State *L, lua_State *from, int nargs,
     return status;
   }
   if (nresults)
-    *nresults = (status == LUA_OK || status == LUA_YIELD) ? lua_gettop(L) : 0;
+    *nresults = (status == LUA_OK || status == LUA_YIELD || !resume_error) ?
+		lua_gettop(L) : 0;
   lua54_resume_restore_from(L, from);
   return status;
 }
