@@ -2847,6 +2847,27 @@ static int arith_string_bor_meta(lua_State *L)
   return 1;
 }
 
+static int arith_missing_binary_operand(lua_State *L)
+{
+  lua_pushinteger(L, 1);
+  lua_arith(L, LUA_OPADD);
+  return 1;
+}
+
+static int arith_missing_unary_operand(lua_State *L)
+{
+  lua_arith(L, LUA_OPUNM);
+  return 1;
+}
+
+static int arith_invalid_op(lua_State *L)
+{
+  lua_pushinteger(L, 1);
+  lua_pushinteger(L, 2);
+  lua_arith(L, LUA_OPBNOT + 1);
+  return 1;
+}
+
 static void test_stack_and_number_api(lua_State *L)
 {
   static const char light_key;
@@ -4535,6 +4556,27 @@ static void test_compare_len_arith(lua_State *L)
   lua_arith(L, LUA_OPADD);
   check(L, lua_isinteger(L, -1), "lua_arith integer add subtype");
   check_integer(L, -1, 7, "lua_arith add");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, arith_missing_binary_operand);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_arith rejects missing binary operand");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_arith missing binary operand error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, arith_missing_unary_operand);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_arith rejects missing unary operand");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_arith missing unary operand error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, arith_invalid_op);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_arith rejects invalid op");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_arith invalid op error");
   lua_pop(L, 1);
 
   lua_pushnumber(L, (lua_Number)3);

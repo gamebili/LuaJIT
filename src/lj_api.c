@@ -1776,11 +1776,17 @@ static void api_call_arith_meta(lua_State *L, TValue *res, cTValue *a,
 
 LUA_API void lua_arith(lua_State *L, int op)
 {
-  int unary = (op == LUA_OPUNM || op == LUA_OPBNOT);
+  int unary, need;
   TValue *res, *a, *b;
   cTValue *mo;
-  lj_checkapi_slot(unary ? 1 : 2);
-  res = L->top - (unary ? 1 : 2);
+  if ((unsigned)op > LUA_OPBNOT)
+    lj_err_msg(L, LJ_ERR_BADVAL);
+  unary = (op == LUA_OPUNM || op == LUA_OPBNOT);
+  need = unary ? 1 : 2;
+  if (L->top - L->base < need)
+    lj_err_msg(L, LJ_ERR_BADVAL);
+  lj_checkapi_slot(need);
+  res = L->top - need;
   a = res;
   b = unary ? res : res+1;
 #if LJ_54
