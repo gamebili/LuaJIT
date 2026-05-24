@@ -119,6 +119,7 @@
   - 当前进展：C API `lua_getiuservalue()` 的 full userdata 越界语义已对齐官方 Lua 5.4；`n <= 0` 或超过声明 uservalue 数时会压入 `nil` 并返回 `LUA_TNONE`，不再把“无该 uservalue”表现成无压栈结果；非 userdata 仍保留 LuaJIT 旧 ABI 的容错无压栈行为。
   - 当前进展：C API `lua_pushcclosure()` 的 upvalue 数已增加 release 构建下的运行期 ABI guard；`n < 0` 或超过 `GCfuncC.nupvalues` 可表示的 `UCHAR_MAX` 时会稳定报 `invalid value`，避免负数转成巨大 `MSize` 分配或超过 255 后被 `uint8_t` 静默截断。
   - 当前进展：C API `lua_xmove()` 的移动数量已增加 release 构建下的运行期 guard；负数或超过源线程当前栈元素数量的 `n` 会稳定报 `invalid value`，不再进入 unsigned stack-growth 或错误栈搬移路径。
+  - 当前进展：C API `lua_createtable()` 的负预分配 hint 已在运行期归零；`narray < 0` 或 `nrec < 0` 不再被传入表分配层并把负 hash hint 扩展成巨大 hsize，从而避免无意义的大表分配/溢出路径。
   - 当前进展：`lua_arith()` 的 C API 字符串运算边界已对齐当前 Lua 5.4 表面：显式 string metatable 的 `__add` / `__idiv` 优先于 fallback 字符串数字转换；`LUA_OPBAND/BOR/BXOR/BNOT/SHL/SHR` raw bitwise 路径使用 no-string integer conversion，字符串操作数默认报 bitwise string 错误，显式 string metatable 的 bitwise 元方法优先执行，不再沿旧 C API 路径把字符串整数强转为 bitwise operand。
   - 当前进展：C API smoke 已覆盖 `lua_next()` 遍历正负 `2^40` 级别 integer table key 时返回 key 的 integer 子类型和值，防止 C API 迭代边界退化成 32 位截断或 float key。
   - 当前进展：table key 写入路径已按 Lua 5.4 把可精确表示为公开 `lua_Integer` 的 float key 规范成 integer key；`1099511627776.0` / `-1099511627776.0`、int32 hash key `0` / `-1` / `2147483647` 和 `2^53` 级别 exact float key 经 `pairs()` / `next()` 返回 integer 子类型；`next(t, 1.0)` / `next(t, 1099511627776.0)` 不再匹配规范化后的 integer key，按 Lua 5.4 的 key variant 规则报 invalid key；JIT recorder 对尚未建模的 exact int64 float table key 退解释器，避免 trace 写入 float key。

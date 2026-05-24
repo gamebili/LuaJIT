@@ -2867,6 +2867,21 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, strcmp(LUA_PRELOAD_TABLE, "_PRELOAD") == 0, "LUA_PRELOAD_TABLE");
   check(L, strcmp(LUA_VERSUFFIX, "_5_4") == 0, "LUA_VERSUFFIX");
 
+  lua_createtable(L, -1, -1);
+  check(L, lua_istable(L, -1), "lua_createtable negative hints table");
+  check(L, lua_rawlen(L, -1) == 0, "lua_createtable negative hints length");
+  lua_pop(L, 1);
+  lua_createtable(L, 0, -1);
+  check(L, lua_istable(L, -1), "lua_createtable negative hash hint table");
+  check(L, lua_rawlen(L, -1) == 0,
+	"lua_createtable negative hash hint length");
+  lua_pop(L, 1);
+  lua_createtable(L, -1, 0);
+  check(L, lua_istable(L, -1), "lua_createtable negative array hint table");
+  check(L, lua_rawlen(L, -1) == 0,
+	"lua_createtable negative array hint length");
+  lua_pop(L, 1);
+
   check(L, lua_type(L, lua_gettop(L) + 1) == LUA_TNONE,
 	"lua_type none");
   check(L, lua_isnone(L, lua_gettop(L) + 1), "lua_isnone none");
