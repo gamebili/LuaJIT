@@ -1886,6 +1886,20 @@ static int pushcclosure_large_upvalues(lua_State *L)
   return 1;
 }
 
+static int xmove_negative_count(lua_State *L)
+{
+  lua_State *co = lua_newthread(L);
+  lua_xmove(L, co, -1);
+  return 0;
+}
+
+static int xmove_large_count(lua_State *L)
+{
+  lua_State *co = lua_newthread(L);
+  lua_xmove(L, co, lua_gettop(L) + 1);
+  return 0;
+}
+
 static int capi_gc_reentry(lua_State *L)
 {
   lua_pushinteger(L, lua_gc(L, LUA_GCCOUNT));
@@ -2942,6 +2956,20 @@ static void test_stack_and_number_api(lua_State *L)
   lua_pop(L, 1);
 
   check(L, lua_checkstack(L, 8), "lua_checkstack grows stack");
+  lua_pushcfunction(L, xmove_negative_count);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_xmove rejects negative count");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_xmove negative count error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, xmove_large_count);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_xmove rejects large count");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_xmove large count error");
+  lua_pop(L, 1);
+
   {
     int top = lua_gettop(L);
     lua_pushinteger(L, 77);
