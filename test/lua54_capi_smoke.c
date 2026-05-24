@@ -1966,6 +1966,53 @@ static int settop_too_large(lua_State *L)
   return 0;
 }
 
+static int pushvalue_invalid_index(lua_State *L)
+{
+  lua_pushvalue(L, 1);
+  return 0;
+}
+
+static int copy_invalid_from_index(lua_State *L)
+{
+  lua_pushnil(L);
+  lua_copy(L, 2, 1);
+  return 0;
+}
+
+static int copy_invalid_to_index(lua_State *L)
+{
+  lua_pushnil(L);
+  lua_copy(L, 1, 2);
+  return 0;
+}
+
+static int remove_invalid_index(lua_State *L)
+{
+  lua_remove(L, 1);
+  return 0;
+}
+
+static int insert_invalid_index(lua_State *L)
+{
+  lua_pushnil(L);
+  lua_insert(L, -2);
+  return 0;
+}
+
+static int rotate_invalid_index(lua_State *L)
+{
+  lua_pushnil(L);
+  lua_rotate(L, -2, 1);
+  return 0;
+}
+
+static int pcall_invalid_errfunc(lua_State *L)
+{
+  lua_pushcfunction(L, push_answer);
+  lua_pcall(L, 0, 0, 2);
+  return 0;
+}
+
 static int concat_negative_count(lua_State *L)
 {
   lua_concat(L, -1);
@@ -3318,6 +3365,27 @@ static void test_stack_and_number_api(lua_State *L)
   check_fresh_invalid_value(L, seti_missing_value,
 			    "lua_seti rejects missing value",
 			    "lua_seti missing value error");
+  check_fresh_invalid_value(L, pushvalue_invalid_index,
+			    "lua_pushvalue rejects invalid index",
+			    "lua_pushvalue invalid index error");
+  check_fresh_invalid_value(L, copy_invalid_from_index,
+			    "lua_copy rejects invalid source index",
+			    "lua_copy invalid source index error");
+  check_fresh_invalid_value(L, copy_invalid_to_index,
+			    "lua_copy rejects invalid destination index",
+			    "lua_copy invalid destination index error");
+  check_fresh_invalid_value(L, remove_invalid_index,
+			    "lua_remove rejects invalid index",
+			    "lua_remove invalid index error");
+  check_fresh_invalid_value(L, insert_invalid_index,
+			    "lua_insert rejects invalid index",
+			    "lua_insert invalid index error");
+  check_fresh_invalid_value(L, rotate_invalid_index,
+			    "lua_rotate rejects invalid index",
+			    "lua_rotate invalid index error");
+  check_fresh_invalid_value(L, pcall_invalid_errfunc,
+			    "lua_pcall rejects invalid errfunc index",
+			    "lua_pcall invalid errfunc index error");
   check_fresh_invalid_value(L, compare_invalid_op,
 			    "lua_compare rejects invalid op",
 			    "lua_compare invalid op error");

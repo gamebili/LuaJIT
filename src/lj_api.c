@@ -155,18 +155,35 @@ static LJ_AINLINE TValue *index2adr_check(lua_State *L, int idx)
   return o;
 }
 
+static LJ_AINLINE TValue *index2adr_valid(lua_State *L, int idx)
+{
+  if (idx > 0) {
+    TValue *o = L->base + (idx - 1);
+    if (o >= L->top)
+      lj_err_msg(L, LJ_ERR_BADVAL);
+    return o;
+  } else if (idx > LUA_REGISTRYINDEX) {
+    if (idx == 0 || -idx > L->top - L->base)
+      lj_err_msg(L, LJ_ERR_BADVAL);
+    return L->top + idx;
+  } else {
+    TValue *o = index2adr(L, idx);
+    if (o == niltv(L))
+      lj_err_msg(L, LJ_ERR_BADVAL);
+    return o;
+  }
+}
+
 static TValue *index2adr_stack(lua_State *L, int idx)
 {
   if (idx > 0) {
     TValue *o = L->base + (idx - 1);
-    if (o < L->top) {
-      return o;
-    } else {
-      lj_checkapi(0, "invalid stack slot %d", idx);
-      return niltv(L);
-    }
-    return o < L->top ? o : niltv(L);
+    if (o >= L->top)
+      lj_err_msg(L, LJ_ERR_BADVAL);
+    return o;
   } else {
+    if (idx == 0 || -idx > L->top - L->base)
+      lj_err_msg(L, LJ_ERR_BADVAL);
     lj_checkapi(idx != 0 && -idx <= L->top - L->base,
 		"invalid stack slot %d", idx);
     return L->top + idx;
@@ -500,7 +517,7 @@ static void copy_slot(lua_State *L, TValue *f, int idx)
     setgcref(fn->c.env, obj2gco(tabV(f)));
     lj_gc_barrier(L, fn, f);
   } else {
-    TValue *o = index2adr_check(L, idx);
+    TValue *o = index2adr_valid(L, idx);
     copyTV(L, o, f);
     if (idx < LUA_GLOBALSINDEX)  /* Need a barrier for upvalues. */
       lj_gc_barrier(L, curr_func(L), f);
@@ -516,12 +533,12 @@ LUA_API void lua_replace(lua_State *L, int idx)
 
 LUA_API void lua_copy(lua_State *L, int fromidx, int toidx)
 {
-  copy_slot(L, index2adr(L, fromidx), toidx);
+  copy_slot(L, index2adr_valid(L, fromidx), toidx);
 }
 
 LUA_API void lua_pushvalue(lua_State *L, int idx)
 {
-  copyTV(L, L->top, index2adr(L, idx));
+  copyTV(L, L->top, index2adr_valid(L, idx));
   incr_top(L);
 }
 
