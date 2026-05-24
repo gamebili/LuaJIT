@@ -1402,6 +1402,7 @@ LJLIB_CF(coroutine_create)
 
 #if LJ_54
 static int lua54_close_depth = 0;
+#define LUA54_CLOSE_CSTACK_LIMIT	96
 
 static int lj_cf_coroutine_close(lua_State *L)
 {
@@ -1415,16 +1416,17 @@ static int lj_cf_coroutine_close(lua_State *L)
       (co->status == LUA_OK && co->base > tvref(co->stack)+1+LJ_FR2))
     lj_err_callermsg(L, "cannot close a normal coroutine");
   {
+    int olddepth = lua54_close_depth;
     int status;
-    if (lua54_close_depth >= 180)
+    if (olddepth >= LUA54_CLOSE_CSTACK_LIMIT)
       lj_err_callermsg(L, "C stack overflow");
     /* Chained __close handlers can recursively close older coroutines. Cap the
     ** library recursion before the native C stack is exhausted, matching Lua
     ** 5.4's observable C-stack overflow surface.
     */
-    lua54_close_depth++;
+    lua54_close_depth = olddepth + 1;
     status = lua_closethread(co, L);
-    lua54_close_depth--;
+    lua54_close_depth = olddepth;
     if (status == LUA_OK) {
       setboolV(L->top++, 1);
       return 1;
@@ -1800,13 +1802,21 @@ LUALIB_API int luaopen_base(lua_State *L)
 #if LJ_54
 LUALIB_API int luaopen_base(lua_State *L)
 {
+  int oldtop = lua_gettop(L);
   int n = luaopen_base_luajit(L);
   /* LuaJIT's internal/legacy luaopen_base() returns base plus coroutine.
   ** Lua 5.4 external callers see the official single base-library result,
-  ** while luaL_openlibs can still use the internal entry when needed.
+  ** while luaL_openlibs can still use the internal entry when needed. The
+  ** internal entry also keeps legacy helper upvalues below its return window;
+  ** external C callers must not see those stack slots.
   */
-  while (n-- > 1)
-    lua_pop(L, 1);
+  if (n > 0) {
+    lua_pushvalue(L, lua_gettop(L)-n+1);
+    lua_replace(L, oldtop+1);
+    lua_settop(L, oldtop+1);
+  } else {
+    lua_settop(L, oldtop);
+  }
   return 1;
 }
 #endif

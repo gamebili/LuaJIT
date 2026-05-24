@@ -2919,6 +2919,7 @@ static void test_stack_and_number_api(lua_State *L)
   lua_getfield(L, -1, "assert");
   check(L, lua_isfunction(L, -1), "luaopen_base assert");
   lua_pop(L, 2);
+  check(L, lua_gettop(L) == 0, "luaopen_base leaves one public result");
 
   check(L, luaopen_coroutine_sig(L) == 1, "luaopen_coroutine return");
   check(L, lua_istable(L, -1), "luaopen_coroutine table");
