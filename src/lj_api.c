@@ -349,6 +349,8 @@ LUA_API void lua_xmove(lua_State *L, lua_State *to, int n)
   if (n < 0 || n > (int)(L->top - L->base))
     lj_err_msg(L, LJ_ERR_BADVAL);
   if (L == to) return;
+  if (G(L) != G(to))
+    lj_err_msg(L, LJ_ERR_BADVAL);
   lj_checkapi(G(L) == G(to), "move across global states");
   lj_state_checkstack(to, (MSize)n);
   f = L->top;

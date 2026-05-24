@@ -1954,6 +1954,17 @@ static int xmove_large_count(lua_State *L)
   return 0;
 }
 
+static lua_State *xmove_cross_state_target;
+
+static int xmove_cross_state(lua_State *L)
+{
+  xmove_cross_state_target = luaL_newstate();
+  if (xmove_cross_state_target == NULL)
+    lua_error(L);
+  lua_xmove(L, xmove_cross_state_target, 0);
+  return 0;
+}
+
 static int settop_too_negative(lua_State *L)
 {
   lua_settop(L, -2);
@@ -2310,6 +2321,24 @@ static void check_fresh_invalid_value(lua_State *L, lua_CFunction fn,
   status = lua_pcall(T, 0, 0, 0);
   check(L, status == LUA_ERRRUN, statusmsg);
   check(L, strstr(lua_tostring(T, -1), "invalid value") != NULL, errmsg);
+  lua_close(T);
+}
+
+static void check_xmove_cross_state(lua_State *L)
+{
+  lua_State *T = luaL_newstate();
+  int status;
+  check(L, T != NULL, "lua_xmove cross-state setup");
+  xmove_cross_state_target = NULL;
+  lua_pushcfunction(T, xmove_cross_state);
+  status = lua_pcall(T, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_xmove rejects cross-state move");
+  check(L, strstr(lua_tostring(T, -1), "invalid value") != NULL,
+	"lua_xmove cross-state error");
+  if (xmove_cross_state_target != NULL) {
+    lua_close(xmove_cross_state_target);
+    xmove_cross_state_target = NULL;
+  }
   lua_close(T);
 }
 
@@ -3511,6 +3540,7 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
 	"lua_xmove large count error");
   lua_pop(L, 1);
+  check_xmove_cross_state(L);
 
   check_fresh_invalid_value(L, replace_missing_value,
 			    "lua_replace rejects missing value",
