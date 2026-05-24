@@ -2973,6 +2973,18 @@ do
     assert(hits == 80 and t[key] == nil)
   end, "Lua 5.4 int64 table __newindex guard", "lj_tab_seti64")
 
+  assert_records_ir_call(function()
+    local base = 1099511627776
+    local t = { [base] = "x", [base + 1] = base }
+    local n = 0
+    for _ = 1, 80 do
+      if table.concat(t, ",", base, base + 1) == "x,1099511627776" then
+	n = n + 1
+      end
+    end
+    assert(n == 80)
+  end, "Lua 5.4 table.concat int64 index range", "lj_buf_puttab_i64")
+
   local numeric = { 1.0, 2, 3.5 }
   assert_records_trace(function()
     local n = 0
@@ -3002,6 +3014,19 @@ do
     if k == 3 then return "d" end
   end
   assert(concat_loop("a,b,d") == 80)
+
+  do
+    local base = 1099511627776
+    local proxy = setmetatable({}, {
+      __len = function() return base end,
+      __index = function(_, k)
+	if k == base then return "wide" end
+      end
+    })
+    for _ = 1, 20 do
+      assert(table.concat(proxy, ",", base) == "wide")
+    end
+  end
 end
 
 do

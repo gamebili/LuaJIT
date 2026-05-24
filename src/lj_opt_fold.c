@@ -672,7 +672,9 @@ LJFOLDF(bufstr_kfold_cse)
 		   "bad buffer constructor IR op %d", ira->o);
 	if (ira->o == IR_BUFHDR && ira->op2 == IRBUFHDR_RESET)
 	  return ref;  /* CSE succeeded. */
-	if (ira->o == IR_CALLL && ira->op2 == IRCALL_lj_buf_puttab)
+	if (ira->o == IR_CALLL &&
+	    (ira->op2 == IRCALL_lj_buf_puttab ||
+	     ira->op2 == IRCALL_lj_buf_puttab_i64))
 	  break;
 	ira = IR(ira->op1);
 	irb = IR(irb->op1);

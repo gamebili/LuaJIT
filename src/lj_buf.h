@@ -184,6 +184,8 @@ LJ_FUNCA SBuf * LJ_FASTCALL lj_buf_putstr_upper(SBuf *sb, GCstr *s);
 LJ_FUNC SBuf *lj_buf_putstr_rep(SBuf *sb, GCstr *s, int32_t rep);
 LJ_FUNC SBuf *lj_buf_puttab(SBuf *sb, GCtab *t, GCstr *sep,
 			    int32_t i, int32_t e);
+LJ_FUNC SBuf *lj_buf_puttab_i64(SBuf *sb, GCtab *t, GCstr *sep,
+				int64_t i, int64_t e);
 
 /* Miscellaneous buffer operations */
 LJ_FUNCA GCstr * LJ_FASTCALL lj_buf_tostr(SBuf *sb);

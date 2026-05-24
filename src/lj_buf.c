@@ -267,7 +267,11 @@ SBuf *lj_buf_puttab(SBuf *sb, GCtab *t, GCstr *sep, int32_t i, int32_t e)
 	w = lj_buf_wmem(lj_buf_more(sb, len + seplen), strVdata(o), len);
       } else if (tvisint(o)) {
 	w = lj_strfmt_wint(lj_buf_more(sb, STRFMT_MAXBUF_INT+seplen), intV(o));
-      } else if (tvisnum(o)) {
+      } else if (tvisnum(o)
+#if LJ_54
+		 || tvisi64(o)
+#endif
+		 ) {
 #if LJ_54
 	GCstr *s = lj_strfmt_number(sbufL(sb), o);
 	MSize len = s->len;
@@ -282,6 +286,49 @@ SBuf *lj_buf_puttab(SBuf *sb, GCtab *t, GCstr *sep, int32_t i, int32_t e)
 	sb->w = w;
 	break;
       }
+      if (seplen) w = lj_buf_wmem(w, strdata(sep), seplen);
+      sb->w = w;
+    }
+  }
+  return sb;
+}
+
+SBuf *lj_buf_puttab_i64(SBuf *sb, GCtab *t, GCstr *sep, int64_t i, int64_t e)
+{
+  MSize seplen = sep ? sep->len : 0;
+  if (i <= e) {
+    for (;;) {
+      cTValue *o = lj_tab_geti64(t, i);
+      char *w;
+      if (!o) {
+      badtype:  /* Error: bad element type. */
+	sb->w = (char *)(intptr_t)i;  /* Only used to mark failure for JIT. */
+	return NULL;
+      } else if (tvisstr(o)) {
+	MSize len = strV(o)->len;
+	w = lj_buf_wmem(lj_buf_more(sb, len + seplen), strVdata(o), len);
+      } else if (tvisint(o)) {
+	w = lj_strfmt_wint(lj_buf_more(sb, STRFMT_MAXBUF_INT+seplen), intV(o));
+      } else if (tvisnum(o)
+#if LJ_54
+		 || tvisi64(o)
+#endif
+		 ) {
+#if LJ_54
+	GCstr *s = lj_strfmt_number(sbufL(sb), o);
+	MSize len = s->len;
+	w = lj_buf_wmem(lj_buf_more(sb, len + seplen), strdata(s), len);
+#else
+	w = lj_buf_more(lj_strfmt_putfnum(sb, STRFMT_G14, numV(o)), seplen);
+#endif
+      } else {
+	goto badtype;
+      }
+      if (i == e) {
+	sb->w = w;
+	break;
+      }
+      i = (int64_t)((uint64_t)i + 1u);
       if (seplen) w = lj_buf_wmem(w, strdata(sep), seplen);
       sb->w = w;
     }

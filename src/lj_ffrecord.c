@@ -2361,12 +2361,78 @@ static void LJ_FASTCALL recff_table_insert(jit_State *J, RecordFFData *rd)
   }  /* else: Interpreter will throw. */
 }
 
+#if LJ_54 && LJ_DUALNUM
+static TRef recff_table_concat_i64ref(jit_State *J, TRef tr, cTValue *tv,
+				      int64_t *ip)
+{
+  if (!tr || !recff_lua54_tv_toi64(tv, ip))
+    return 0;
+  if (tref_isk(tr))
+    return lj_ir_kint64(J, (uint64_t)*ip);
+  return recff_lua54_toi64ref(J, tr, tv);
+}
+
+static int recff_table_hasmm(jit_State *J, GCtab *t, MMS mm)
+{
+  GCtab *mt = tabref(t->metatable);
+  if (mt) {
+    cTValue *mo = lj_tab_getstr(mt, mmname_str(J2G(J), mm));
+    return mo && !tvisnil(mo);
+  }
+  return 0;
+}
+#endif
+
 static void LJ_FASTCALL recff_table_concat(jit_State *J, RecordFFData *rd)
 {
   TRef tab = J->base[0];
   if (tref_istab(tab)) {
     TRef sep = !tref_isnil(J->base[1]) ?
 	       lj_ir_tostr(J, J->base[1]) : lj_ir_knull(J, IRT_STR);
+#if LJ_54 && LJ_DUALNUM
+    int has_i = J->base[1] && J->base[2] && !tref_isnil(J->base[2]);
+    int has_e = J->base[1] && J->base[2] && J->base[3] &&
+		!tref_isnil(J->base[3]);
+    int64_t iv = 1, ev = 0;
+    if ((has_i && recff_lua54_tv_toi64(&rd->argv[2], &iv) &&
+	 !checki32(iv)) ||
+	(has_e && recff_lua54_tv_toi64(&rd->argv[3], &ev) &&
+	 !checki32(ev))) {
+      TRef tri = has_i ? recff_table_concat_i64ref(J, J->base[2],
+						   &rd->argv[2], &iv) :
+			  lj_ir_kint64(J, 1);
+      TRef tre;
+      if (!tri) {
+	recff_nyiu(J, rd);
+	return;
+      }
+      if (has_e) {
+	tre = recff_table_concat_i64ref(J, J->base[3], &rd->argv[3], &ev);
+	if (!tre) {
+	  recff_nyiu(J, rd);
+	  return;
+	}
+      } else {
+	TRef trlen;
+	if (recff_table_hasmm(J, tabV(&rd->argv[0]), MM_len)) {
+	  recff_nyiu(J, rd);
+	  return;
+	}
+	trlen = emitir(IRTI(IR_ALEN), tab, TREF_NIL);
+	tre = emitir(IRT(IR_CONV, IRT_I64), trlen,
+		     RECFF_IRCONV_I64_INT_SEXT);
+      }
+      {
+	TRef hdr = recff_bufhdr(J);
+	TRef tr = lj_ir_call(J, IRCALL_lj_buf_puttab_i64,
+			     hdr, tab, sep, tri, tre);
+	emitir(IRTG(IR_NE, IRT_PTR), tr, lj_ir_kptr(J, NULL));
+	J->base[0] = emitir(IRTG(IR_BUFSTR, IRT_STR), tr, hdr);
+      }
+      UNUSED(rd);
+      return;
+    }
+#endif
     TRef tri = (J->base[1] && !tref_isnil(J->base[2])) ?
 	       lj_opt_narrow_toint(J, J->base[2]) : lj_ir_kint(J, 1);
     TRef tre = (J->base[1] && J->base[2] && !tref_isnil(J->base[3])) ?
