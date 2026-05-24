@@ -1874,6 +1874,18 @@ static int push_answer(lua_State *L)
   return 1;
 }
 
+static int pushcclosure_negative_upvalues(lua_State *L)
+{
+  lua_pushcclosure(L, push_answer, -1);
+  return 1;
+}
+
+static int pushcclosure_large_upvalues(lua_State *L)
+{
+  lua_pushcclosure(L, push_answer, (int)UCHAR_MAX + 1);
+  return 1;
+}
+
 static int capi_gc_reentry(lua_State *L)
 {
   lua_pushinteger(L, lua_gc(L, LUA_GCCOUNT));
@@ -2882,6 +2894,20 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, lua_tocfunction(L, -1) == push_answer,
 	"lua_tocfunction c closure");
   check(L, lua_topointer(L, -1) != NULL, "lua_topointer c closure");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, pushcclosure_negative_upvalues);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_pushcclosure rejects negative upvalues");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_pushcclosure negative upvalues error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, pushcclosure_large_upvalues);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_pushcclosure rejects large upvalues");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_pushcclosure large upvalues error");
   lua_pop(L, 1);
 
   status = luaL_loadstring(L, "return 1");

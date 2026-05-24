@@ -1248,6 +1248,8 @@ LUA_API void lua_pushcclosure(lua_State *L, lua_CFunction f, int n)
 {
   GCfunc *fn;
   lj_gc_check(L);
+  if (n < 0 || n > UCHAR_MAX)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   lj_checkapi_slot(n);
   fn = lj_func_newC(L, (MSize)n, getcurrenv(L));
   fn->c.f = f;
