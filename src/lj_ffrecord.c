@@ -942,7 +942,11 @@ static void LJ_FASTCALL recff_tonumber(jit_State *J, RecordFFData *rd)
     recff_nyiu(J, rd);  /* Explicit-base tonumber() requires a string arg. */
     return;
   }
-  if (tref_isnumber(tr)) {
+  if (tref_isnumber(tr)
+#if LJ_DUALNUM
+      || recff_lua54_tref_isi64(tr)
+#endif
+     ) {
     J->base[0] = tr;  /* Preserve Lua 5.4 integer/float subtype. */
     return;
   }

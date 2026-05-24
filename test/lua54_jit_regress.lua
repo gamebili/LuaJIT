@@ -1576,19 +1576,23 @@ do
     for _ = 1, 80 do
       local f = tonumber(float_input)
       local iv = tonumber(int_input)
+      local direct64 = tonumber(1099511627776)
       local bad = tonumber(bad_input)
       -- This is the no-base tonumber() recorder surface: floats must record
       -- through STRTO, integers must keep the Lua 5.4 integer subtype, and
       -- rejected LuaJIT-only numerals must still return nil in the hot loop.
       if math.type(f) == "float" then n = n + 1 end
       if math.type(iv) == "integer" then n = n + 1 end
+      if direct64 == 1099511627776 and math.type(direct64) == "integer" then
+	n = n + 1
+      end
       if bad == nil then n = n + 1 end
     end
     return n
   end
 
   assert_records_ir_op(function()
-    assert(tonumber_no_base_mix("1.5", "0xff", "nan") == 240)
+    assert(tonumber_no_base_mix("1.5", "0xff", "nan") == 320)
   end, "Lua 5.4 tonumber no-base recorder", "STRTO")
 end
 
