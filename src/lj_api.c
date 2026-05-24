@@ -2128,7 +2128,11 @@ LUA_API const char *lua_getupvalue(lua_State *L, int idx, int n)
 
 LUA_API void *lua_upvalueid(lua_State *L, int idx, int n)
 {
-  GCfunc *fn = funcV(index2adr(L, idx));
+  cTValue *f = index2adr_valid(L, idx);
+  GCfunc *fn;
+  if (!tvisfunc(f))
+    lj_err_msg(L, LJ_ERR_BADVAL);
+  fn = funcV(f);
 #if LJ_54
   if (lj_debug_hasenvuv(fn)) {
     if (n == 1)
@@ -2152,8 +2156,13 @@ LUA_API void *lua_upvalueid(lua_State *L, int idx, int n)
 
 LUA_API void lua_upvaluejoin(lua_State *L, int idx1, int n1, int idx2, int n2)
 {
-  GCfunc *fn1 = funcV(index2adr(L, idx1));
-  GCfunc *fn2 = funcV(index2adr(L, idx2));
+  cTValue *f1 = index2adr_valid(L, idx1);
+  cTValue *f2 = index2adr_valid(L, idx2);
+  GCfunc *fn1, *fn2;
+  if (!tvisfunc(f1) || !tvisfunc(f2))
+    lj_err_msg(L, LJ_ERR_BADVAL);
+  fn1 = funcV(f1);
+  fn2 = funcV(f2);
 #if LJ_54
   int env1 = lj_debug_hasenvuv(fn1);
   int env2 = lj_debug_hasenvuv(fn2);
@@ -2165,11 +2174,11 @@ LUA_API void lua_upvaluejoin(lua_State *L, int idx1, int n1, int idx2, int n2)
       TValue *tv;
       GCobj *o;
       if (env2) n2--;
-      lj_checkapi(isluafunc(fn2), "stack slot %d is not a Lua function", idx2);
-      lj_checkapi((uint32_t)(n2-1) < fn2->l.nupvalues,
-		  "bad upvalue %d", n2);
-      (void)lj_debug_uvnamev(index2adr(L, idx2), (uint32_t)(n2-1), &tv, &o);
-      lj_checkapi(tvistab(tv), "source _ENV upvalue is not a table");
+      if (!isluafunc(fn2) || (uint32_t)(n2-1) >= fn2->l.nupvalues)
+	lj_err_msg(L, LJ_ERR_BADVAL);
+      (void)lj_debug_uvnamev(f2, (uint32_t)(n2-1), &tv, &o);
+      if (!tvistab(tv))
+	lj_err_msg(L, LJ_ERR_BADVAL);
       t = tabV(tv);
     }
     setgcref(fn1->c.env, obj2gco(t));
@@ -2177,13 +2186,26 @@ LUA_API void lua_upvaluejoin(lua_State *L, int idx1, int n1, int idx2, int n2)
     return;
   }
   if (env1) n1--;
+  if (env2 && n2 == 1) {
+    GCtab *t = tabref(fn2->c.env);
+    GCupval *uv;
+    TValue *tv;
+    n1--;
+    if (!isluafunc(fn1) || (uint32_t)n1 >= fn1->l.nupvalues)
+      lj_err_msg(L, LJ_ERR_BADVAL);
+    uv = &gcref(fn1->l.uvptr[n1])->uv;
+    tv = uvval(uv);
+    settabV(L, tv, t);
+    lj_gc_barrier(L, obj2gco(uv), tv);
+    return;
+  }
   if (env2) n2--;
 #endif
   n1--; n2--;
-  lj_checkapi(isluafunc(fn1), "stack slot %d is not a Lua function", idx1);
-  lj_checkapi(isluafunc(fn2), "stack slot %d is not a Lua function", idx2);
-  lj_checkapi((uint32_t)n1 < fn1->l.nupvalues, "bad upvalue %d", n1+1);
-  lj_checkapi((uint32_t)n2 < fn2->l.nupvalues, "bad upvalue %d", n2+1);
+  if (!isluafunc(fn1) || !isluafunc(fn2) ||
+      (uint32_t)n1 >= fn1->l.nupvalues ||
+      (uint32_t)n2 >= fn2->l.nupvalues)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   setgcrefr(fn1->l.uvptr[n1], fn2->l.uvptr[n2]);
   lj_gc_objbarrier(L, fn1, gcref(fn1->l.uvptr[n1]));
 }

@@ -2190,6 +2190,61 @@ static int setupvalue_missing_value(lua_State *L)
   return 0;
 }
 
+static void push_one_upvalue_closure(lua_State *L)
+{
+  int status = luaL_loadstring(L,
+    "local x = 1\n"
+    "return function() return x end");
+  if (status != LUA_OK)
+    lua_error(L);
+  lua_call(L, 0, 1);
+}
+
+static int upvalueid_invalid_index(lua_State *L)
+{
+  (void)lua_upvalueid(L, 1, 1);
+  return 0;
+}
+
+static int upvalueid_non_function(lua_State *L)
+{
+  lua_pushboolean(L, 1);
+  (void)lua_upvalueid(L, -1, 1);
+  return 0;
+}
+
+static int upvaluejoin_non_function_first(lua_State *L)
+{
+  lua_pushboolean(L, 1);
+  push_one_upvalue_closure(L);
+  lua_upvaluejoin(L, -2, 1, -1, 1);
+  return 0;
+}
+
+static int upvaluejoin_non_function_second(lua_State *L)
+{
+  push_one_upvalue_closure(L);
+  lua_pushboolean(L, 1);
+  lua_upvaluejoin(L, -2, 1, -1, 1);
+  return 0;
+}
+
+static int upvaluejoin_bad_first_upvalue(lua_State *L)
+{
+  push_one_upvalue_closure(L);
+  push_one_upvalue_closure(L);
+  lua_upvaluejoin(L, -2, 2, -1, 1);
+  return 0;
+}
+
+static int upvaluejoin_bad_second_upvalue(lua_State *L)
+{
+  push_one_upvalue_closure(L);
+  push_one_upvalue_closure(L);
+  lua_upvaluejoin(L, -2, 1, -1, 2);
+  return 0;
+}
+
 static void check_fresh_invalid_value(lua_State *L, lua_CFunction fn,
 				      const char *statusmsg,
 				      const char *errmsg)
@@ -3496,6 +3551,24 @@ static void test_stack_and_number_api(lua_State *L)
   check_fresh_invalid_value(L, setupvalue_missing_value,
 			    "lua_setupvalue rejects missing value",
 			    "lua_setupvalue missing value error");
+  check_fresh_invalid_value(L, upvalueid_invalid_index,
+			    "lua_upvalueid rejects invalid function index",
+			    "lua_upvalueid invalid function index error");
+  check_fresh_invalid_value(L, upvalueid_non_function,
+			    "lua_upvalueid rejects non-function",
+			    "lua_upvalueid non-function error");
+  check_fresh_invalid_value(L, upvaluejoin_non_function_first,
+			    "lua_upvaluejoin rejects non-function target",
+			    "lua_upvaluejoin non-function target error");
+  check_fresh_invalid_value(L, upvaluejoin_non_function_second,
+			    "lua_upvaluejoin rejects non-function source",
+			    "lua_upvaluejoin non-function source error");
+  check_fresh_invalid_value(L, upvaluejoin_bad_first_upvalue,
+			    "lua_upvaluejoin rejects bad target upvalue",
+			    "lua_upvaluejoin bad target upvalue error");
+  check_fresh_invalid_value(L, upvaluejoin_bad_second_upvalue,
+			    "lua_upvaluejoin rejects bad source upvalue",
+			    "lua_upvaluejoin bad source upvalue error");
 
   {
     int top = lua_gettop(L);
@@ -5833,6 +5906,24 @@ static void test_upvalue_api54(lua_State *L)
   lua_pop(L, 1);
 
   lua_pop(L, 2);
+
+  status = luaL_loadstring(L,
+    "local x = 'old'\n"
+    "return function() return x end");
+  check(L, status == LUA_OK, "load real upvalue target");
+  lua_call(L, 0, 1);
+  f1 = lua_absindex(L, -1);
+  status = luaL_loadstring(L, "return capi_fake_env_value");
+  check(L, status == LUA_OK, "load fake _ENV source");
+  f2 = lua_absindex(L, -1);
+  lua_upvaluejoin(L, f1, 1, f2, 1);
+  lua_pushvalue(L, f1);
+  lua_call(L, 0, 1);
+  lua_pushglobaltable(L);
+  check(L, lua_rawequal(L, -1, -2),
+	"lua_upvaluejoin adopts fake _ENV source");
+  lua_pop(L, 4);
+
   check(L, lua_gettop(L) == top, "upvalue api restores stack");
 }
 
