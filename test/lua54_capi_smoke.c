@@ -1874,6 +1874,46 @@ static int push_answer(lua_State *L)
   return 1;
 }
 
+static int call_missing_function(lua_State *L)
+{
+  lua_call(L, 0, 0);
+  return 0;
+}
+
+static int call_negative_nargs(lua_State *L)
+{
+  lua_pushcfunction(L, push_answer);
+  lua_call(L, -1, 0);
+  return 0;
+}
+
+static int call_invalid_nresults(lua_State *L)
+{
+  lua_pushcfunction(L, push_answer);
+  lua_call(L, 0, LUA_MULTRET - 1);
+  return 0;
+}
+
+static int pcall_missing_function(lua_State *L)
+{
+  lua_pcall(L, 0, 0, 0);
+  return 0;
+}
+
+static int pcall_negative_nargs(lua_State *L)
+{
+  lua_pushcfunction(L, push_answer);
+  lua_pcall(L, -1, 0, 0);
+  return 0;
+}
+
+static int pcall_invalid_nresults(lua_State *L)
+{
+  lua_pushcfunction(L, push_answer);
+  lua_pcall(L, 0, LUA_MULTRET - 1, 0);
+  return 0;
+}
+
 static int pushcclosure_negative_upvalues(lua_State *L)
 {
   lua_pushcclosure(L, push_answer, -1);
@@ -2017,6 +2057,20 @@ static void check_fresh_invalid_value(lua_State *L, lua_CFunction fn,
   check(L, status == LUA_ERRRUN, statusmsg);
   check(L, strstr(lua_tostring(T, -1), "invalid value") != NULL, errmsg);
   lua_close(T);
+}
+
+static void check_resume_invalid_value(lua_State *L, lua_CFunction fn,
+				       const char *statusmsg,
+				       const char *errmsg)
+{
+  lua_State *co = lua_newthread(L);
+  int nres = -1;
+  int status;
+  lua_pushcfunction(co, fn);
+  status = lua_resume_sig(co, L, 0, &nres);
+  check(L, status == LUA_ERRRUN, statusmsg);
+  check(L, strstr(lua_tostring(co, -1), "invalid value") != NULL, errmsg);
+  lua_pop(L, 1);
 }
 
 static int capi_gc_reentry(lua_State *L)
@@ -2436,6 +2490,21 @@ static int yield_two(lua_State *L)
   lua_pushliteral(L, "y1");
   lua_pushliteral(L, "y2");
   return lua_yieldk_sig(L, 2, 0, NULL);
+}
+
+static int yield_negative_results(lua_State *L)
+{
+  return lua_yield(L, -1);
+}
+
+static int yield_too_many_results(lua_State *L)
+{
+  return lua_yield(L, lua_gettop(L) + 1);
+}
+
+static int yieldk_negative_results(lua_State *L)
+{
+  return lua_yieldk_sig(L, -1, 0, NULL);
 }
 
 static int yieldk_cont_called;
@@ -3740,10 +3809,30 @@ static void test_stack_and_number_api(lua_State *L)
   check_integer(L, -1, 42, "lua_call macro");
   lua_pop(L, 1);
 
+  check_fresh_invalid_value(L, call_missing_function,
+			    "lua_call rejects missing function",
+			    "lua_call missing function error");
+  check_fresh_invalid_value(L, call_negative_nargs,
+			    "lua_call rejects negative nargs",
+			    "lua_call negative nargs error");
+  check_fresh_invalid_value(L, call_invalid_nresults,
+			    "lua_call rejects invalid nresults",
+			    "lua_call invalid nresults error");
+
   lua_pushcfunction(L, push_answer);
   check(L, lua_pcall(L, 0, 1, 0) == LUA_OK, "lua_pcall macro");
   check_integer(L, -1, 42, "lua_pcall macro result");
   lua_pop(L, 1);
+
+  check_fresh_invalid_value(L, pcall_missing_function,
+			    "lua_pcall rejects missing function",
+			    "lua_pcall missing function error");
+  check_fresh_invalid_value(L, pcall_negative_nargs,
+			    "lua_pcall rejects negative nargs",
+			    "lua_pcall negative nargs error");
+  check_fresh_invalid_value(L, pcall_invalid_nresults,
+			    "lua_pcall rejects invalid nresults",
+			    "lua_pcall invalid nresults error");
 
   lua_pushcfunction(L, push_answer);
   lua_callk(L, 0, 1, 0, NULL);
@@ -4172,6 +4261,16 @@ static void test_stack_and_number_api(lua_State *L)
 	  "lua_isyieldable resumed C frame");
   }
   lua_pop(L, 1);
+
+  check_resume_invalid_value(L, yield_negative_results,
+			     "lua_yield rejects negative nresults",
+			     "lua_yield negative nresults error");
+  check_resume_invalid_value(L, yield_too_many_results,
+			     "lua_yield rejects too many results",
+			     "lua_yield too many results error");
+  check_resume_invalid_value(L, yieldk_negative_results,
+			     "lua_yieldk rejects negative nresults",
+			     "lua_yieldk negative nresults error");
 
   co = lua_newthread(L);
   lua_pushcfunction(L, yield_two);

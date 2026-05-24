@@ -59,6 +59,14 @@ static void api_checknelems(lua_State *L, int n)
   lj_checkapi_slot(n);
 }
 
+static void api_checkcallargs(lua_State *L, int nargs, int nresults)
+{
+  if (nargs < 0 || nargs == INT_MAX || nresults < LUA_MULTRET ||
+      (nresults != LUA_MULTRET && nresults > LUAI_MAXSTACK))
+    lj_err_msg(L, LJ_ERR_BADVAL);
+  api_checknelems(L, nargs+1);
+}
+
 #if LJ_54
 #if LUAI_IS32INT
 #define LJ_54_REGISTRYINDEX	(-1000000 - 1000)
@@ -2429,7 +2437,7 @@ LUA_API void lua_call(lua_State *L, int nargs, int nresults)
 {
   lj_checkapi(L->status == LUA_OK || L->status == LUA_ERRERR,
 	      "thread called in wrong state %d", L->status);
-  lj_checkapi_slot(nargs+1);
+  api_checkcallargs(L, nargs, nresults);
   lj_vm_call(L, api_call_base(L, nargs), nresults+1);
 }
 
@@ -2441,7 +2449,7 @@ LUA_API int lua_pcall(lua_State *L, int nargs, int nresults, int errfunc)
   int status;
   lj_checkapi(L->status == LUA_OK || L->status == LUA_ERRERR,
 	      "thread called in wrong state %d", L->status);
-  lj_checkapi_slot(nargs+1);
+  api_checkcallargs(L, nargs, nresults);
   if (errfunc == 0) {
     ef = 0;
   } else {
@@ -2469,7 +2477,7 @@ LUA_API void (lua_callk)(lua_State *L, int nargs, int nresults,
     int status;
     lj_checkapi(L->status == LUA_OK || L->status == LUA_ERRERR,
 		"thread called in wrong state %d", L->status);
-    lj_checkapi_slot(nargs+1);
+    api_checkcallargs(L, nargs, nresults);
     L->capi_yield_ctx = ctx;
     L->capi_yield_k = k;
     L->capi_yield_nresults = nresults;
@@ -2505,7 +2513,7 @@ LUA_API int (lua_pcallk)(lua_State *L, int nargs, int nresults, int errfunc,
     int status;
     lj_checkapi(L->status == LUA_OK || L->status == LUA_ERRERR,
 		"thread called in wrong state %d", L->status);
-    lj_checkapi_slot(nargs+1);
+    api_checkcallargs(L, nargs, nresults);
     if (errfunc == 0) {
       ef = 0;
       setnilV(&L->capi_yield_errfunc);
@@ -2586,6 +2594,7 @@ LUA_API int lua_yield(lua_State *L, int nresults)
 {
   void *cf = L->cframe;
   global_State *g = G(L);
+  api_checknelems(L, nresults);
   if (cframe_canyield(cf)) {
     cf = cframe_raw(cf);
     if (!hook_active(g)) {  /* Regular yield: move results down if needed. */
@@ -2627,6 +2636,7 @@ LUA_API int lua_yield(lua_State *L, int nresults)
 LUA_API int (lua_yieldk)(lua_State *L, int nresults, lua_KContext ctx,
 			 lua_KFunction k)
 {
+  api_checknelems(L, nresults);
   if (L->capi_cont_yieldable) {
     cTValue *f = L->top - nresults;
     /* A Lua 5.4 C continuation is resumed from lua_resume54(), not from an
@@ -2635,8 +2645,6 @@ LUA_API int (lua_yieldk)(lua_State *L, int nresults, lua_KContext ctx,
     ** continuation if one was supplied, and let the resume wrapper return
     ** LUA_YIELD to the caller instead of treating this as a C-boundary yield.
     */
-    lj_checkapi(nresults >= 0 && f >= L->base,
-		"not enough results to yield");
     if (k != NULL) {
       L->capi_yield_ctx = ctx;
       L->capi_yield_k = k;
