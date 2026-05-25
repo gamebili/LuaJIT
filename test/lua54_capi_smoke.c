@@ -1951,6 +1951,12 @@ static int pushcclosure_missing_upvalue(lua_State *L)
   return 1;
 }
 
+static int pushcclosure_null_function(lua_State *L)
+{
+  lua_pushcclosure(L, NULL, 0);
+  return 1;
+}
+
 static int xmove_negative_count(lua_State *L)
 {
   lua_State *co = lua_newthread(L);
@@ -3558,6 +3564,13 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, status == LUA_ERRRUN, "lua_pushcclosure rejects missing upvalue");
   check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
 	"lua_pushcclosure missing upvalue error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, pushcclosure_null_function);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_pushcclosure rejects NULL function");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_pushcclosure NULL function error");
   lua_pop(L, 1);
 
   status = luaL_loadstring(L, "return 1");

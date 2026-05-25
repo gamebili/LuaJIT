@@ -160,6 +160,12 @@ static int capi51_ref_missing_value(lua_State *L)
   return 0;
 }
 
+static int capi51_pushcclosure_null_function(lua_State *L)
+{
+  lua_pushcclosure(L, NULL, 0);
+  return 0;
+}
+
 static int capi51_setfenv_missing_value(lua_State *L)
 {
   lua_setfenv(L, LUA_REGISTRYINDEX);
@@ -380,6 +386,13 @@ int main(void)
   check(L, status == LUA_ERRRUN, "luaL_ref rejects missing value");
   check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
 	"luaL_ref missing value error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_pushcclosure_null_function);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_pushcclosure rejects NULL function");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_pushcclosure NULL function error");
   lua_pop(L, 1);
 
   lua_pushthread(L);
