@@ -9,6 +9,8 @@
 #define lj_parse_c
 #define LUA_CORE
 
+#include <math.h>
+
 #include "lj_obj.h"
 #include "lj_gc.h"
 #include "lj_err.h"
@@ -5460,7 +5462,11 @@ static void parse_return(LexState *ls)
   FuncState *fs = ls->fs;
 #if LJ_54
   int closeactive = fscope_hascloseactive(fs, 0);
-  int closefixed = !(LJ_TARGET_X64 && closeactive);
+#if LJ_TARGET_X64
+  int closefixed = !closeactive;
+#else
+  int closefixed = 1;
+#endif
 #endif
   lj_lex_next(ls);  /* Skip 'return'. */
   fs->flags |= PROTO_HAS_RETURN;

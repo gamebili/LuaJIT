@@ -6,6 +6,7 @@
 #define lj_ffrecord_c
 #define LUA_CORE
 
+#include <math.h>
 #include <string.h>
 
 #include "lj_obj.h"

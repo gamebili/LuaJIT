@@ -189,6 +189,25 @@ function Get-EnvPath {
   return $null
 }
 
+function Get-AndroidNdkRoot {
+  $ndkRoot = Get-EnvPath @("ANDROID_NDK_ROOT", "ANDROID_NDK_HOME", "NDK_ROOT")
+  if ($ndkRoot) {
+    return $ndkRoot
+  }
+
+  $candidates = @(
+    "H:\p4\gl_home_u4\pristine\android-ndk-r25b",
+    "H:\p4\gl_home_u4\pristine\android-ndk-r21b",
+    "H:\p4\gl_home_u4\pristine\ndk"
+  )
+  foreach ($candidate in $candidates) {
+    if ($candidate -and (Test-Path $candidate)) {
+      return (Resolve-Path $candidate).Path
+    }
+  }
+  return $null
+}
+
 function Get-AdbPath {
   $cmd = Get-Command adb -ErrorAction SilentlyContinue
   if ($cmd) {
@@ -339,9 +358,9 @@ function Invoke-AndroidArm64 {
     return
   }
 
-  $ndkRoot = Get-EnvPath @("ANDROID_NDK_ROOT", "ANDROID_NDK_HOME", "NDK_ROOT")
+  $ndkRoot = Get-AndroidNdkRoot
   if (-not $ndkRoot) {
-    Add-Result "android-arm64-lua54compat" "SKIP" "ANDROID_NDK_ROOT/ANDROID_NDK_HOME/NDK_ROOT is not set to an existing NDK."
+    Add-Result "android-arm64-lua54compat" "SKIP" "No Android NDK found; set ANDROID_NDK_ROOT/ANDROID_NDK_HOME/NDK_ROOT or install the workspace NDK."
     return
   } else {
     $clang = Get-ChildItem -Path (Join-Path $ndkRoot "toolchains\llvm\prebuilt") `

@@ -6,6 +6,8 @@
 #define lj_record_c
 #define LUA_CORE
 
+#include <math.h>
+
 #include "lj_obj.h"
 
 #if LJ_HASJIT
