@@ -1922,6 +1922,12 @@ static int compare_invalid_op(lua_State *L)
   return 0;
 }
 
+static int compare_invalid_index_invalid_op(lua_State *L)
+{
+  lua_pushboolean(L, lua_compare(L, 1, 2, LUA_OPLE + 1));
+  return 1;
+}
+
 static int pushcclosure_negative_upvalues(lua_State *L)
 {
   lua_pushcclosure(L, push_answer, -1);
@@ -3586,6 +3592,12 @@ static void test_stack_and_number_api(lua_State *L)
   check_fresh_invalid_value(L, compare_invalid_op,
 			    "lua_compare rejects invalid op",
 			    "lua_compare invalid op error");
+  lua_pushcfunction(L, compare_invalid_index_invalid_op);
+  status = lua_pcall(L, 0, 1, 0);
+  check(L, status == LUA_OK, "lua_compare invalid index short-circuits");
+  check(L, !lua_toboolean(L, -1),
+	"lua_compare invalid index returns false before op check");
+  lua_pop(L, 1);
   check_fresh_invalid_value(L, rawget_missing_key,
 			    "lua_rawget rejects missing key",
 			    "lua_rawget missing key error");

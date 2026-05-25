@@ -748,6 +748,10 @@ static int api_lessequal(lua_State *L, int idx1, int idx2)
 
 LUA_API int lua_compare(lua_State *L, int idx1, int idx2, int op)
 {
+  cTValue *o1 = index2adr(L, idx1);
+  cTValue *o2 = index2adr(L, idx2);
+  if (o1 == niltv(L) || o2 == niltv(L))
+    return 0;
   switch (op) {
   case LUA_OPEQ:
     return lua_equal(L, idx1, idx2);

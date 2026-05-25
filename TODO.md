@@ -53,7 +53,7 @@
    - 覆盖：continuation API、allocator 缩小失败语义、旧 LuaJIT API 默认构建兼容、lauxlib 冷门宏组合、标准库逐字错误文本。
    - 接口要求：新增外部 Lua 5.4 ABI wrapper 时必须保留内部旧 ABI，避免破坏 LuaJIT 自身和默认构建。
    - 当前进展：C API smoke 已固定 `lua_gc(L, LUA_GCGEN/LUA_GCINC, ...)` 在 collector stopped 状态下只切换模式/参数，不会隐式重启自动 GC。
-   - 当前进展：C API smoke 已固定 `lua_compare()` 非法 op，以及 `lua_next()` / `lua_rawget*()` / `lua_rawset*()` 的缺 key、非 table 和宽整数 key 路径在 release 构建下统一报 `invalid value`，不再只依赖 debug-only `api_check`。
+   - 当前进展：C API smoke 已固定 `lua_compare()` 的官方 index/op 顺序：任一 operand index 无效时直接返回 0，不会继续校验非法 op；两个 operand 都有效时非法 op 稳定报 `invalid value`。`lua_next()` / `lua_rawget*()` / `lua_rawset*()` 的缺 key、非 table 和宽整数 key 路径也会在 release 构建下统一报 `invalid value`，不再只依赖 debug-only `api_check`。
    - 当前进展：C API smoke 已固定 `lua_pushvalue()` / `lua_copy()` / `lua_remove()` / `lua_insert()` / `lua_rotate()` 和 `lua_pcall()` message handler 对无效栈索引的 release 错误边界，统一报 `invalid value`。
    - 当前进展：Lua 5.4 C continuation smoke 已固定 `lua_yieldk()` continuation 返回负数或超过当前栈结果数量时，在 release 构建下统一报 `invalid value`，不再依赖 debug-only `api_check`。
    - 当前进展：C API smoke 已固定 `lua_setmetatable()` 非 table metatable、默认 ABI `lua_setfenv()` 非 table env，以及 `lua_replace(LUA_GLOBALSINDEX/LUA_ENVIRONINDEX)` 非 table value 在 release 构建下统一报 `invalid value`。
