@@ -236,6 +236,8 @@ function Get-EmccPath {
   # This Windows workspace commonly carries an engine-local emsdk for HTML5.
   # Probe it explicitly so platform status reports the real LuaJIT/wasm
   # blocker instead of a PATH-only "emcc not found" result.
+  $candidates += "H:\p4\gl_home_u4\pristine\emsdk-5.0.6\upstream\emscripten\emcc.bat"
+  $candidates += "H:\p4\gl_home_u4\pristine\emsdk-5.0.6\upstream\emscripten\emcc"
   $candidates += "D:\p4_gl2\PG2\Engine\UE_TestGL260107\Engine\Platforms\HTML5\Build\emsdk\emsdk-4.0.3\upstream\emscripten\emcc.bat"
 
   foreach ($candidate in $candidates) {
