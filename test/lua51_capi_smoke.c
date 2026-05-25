@@ -81,6 +81,18 @@ static int capi51_cpcall(lua_State *L)
   return 0;
 }
 
+static int capi51_dump_writer(lua_State *L, const void *p, size_t sz, void *ud)
+{
+  (void)L; (void)p; (void)sz; (void)ud;
+  return 0;
+}
+
+static int capi51_dump_empty_stack(lua_State *L)
+{
+  lua_dump(L, capi51_dump_writer, NULL);
+  return 0;
+}
+
 static int capi51_setfenv_missing_value(lua_State *L)
 {
   lua_setfenv(L, LUA_REGISTRYINDEX);
@@ -223,6 +235,13 @@ int main(void)
   check(L, status == LUA_ERRRUN, "lua_replace rejects non-table env");
   check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
 	"lua_replace non-table env error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_dump_empty_stack);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_dump rejects empty stack");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_dump empty stack error");
   lua_pop(L, 1);
 
   lua_pushthread(L);

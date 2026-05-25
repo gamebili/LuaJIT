@@ -247,6 +247,8 @@ static int dump_lua_func(lua_State *L, lua_Writer writer, void *data,
 			 uint32_t flags)
 {
   cTValue *o = L->top-1;
+  if (L->top <= L->base)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   lj_checkapi(L->top > L->base, "top slot empty");
   if (tvisfunc(o) && isluafunc(funcV(o)))
     return lj_bcwrite(L, funcproto(funcV(o)), writer, data, flags);

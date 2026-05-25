@@ -3258,6 +3258,14 @@ static int dump_writer(lua_State *L, const void *p, size_t sz, void *ud)
   return 0;
 }
 
+static int dump_empty_stack(lua_State *L)
+{
+  DumpBuffer b;
+  memset(&b, 0, sizeof(b));
+  lua_dump_sig(L, dump_writer, &b, 0);
+  return 0;
+}
+
 static int dump_fail_writer(lua_State *L, const void *p, size_t sz, void *ud)
 {
   int *calls = (int *)ud;
@@ -7195,6 +7203,10 @@ static void test_dump_api(lua_State *L)
 	"lua_dump C function status");
   check(L, fail_calls == 0, "lua_dump C function skips writer");
   lua_pop(L, 1);
+
+  check_fresh_invalid_value(L, dump_empty_stack,
+			    "lua_dump rejects empty stack",
+			    "lua_dump empty stack error");
 
   status = luaL_loadbufferx(L, stripped.data, stripped.len, "=dumped", "b");
   check(L, status == LUA_OK, "lua_dump stripped reload");
