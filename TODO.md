@@ -56,6 +56,7 @@
    - 当前进展：C API smoke 已固定 `lua_compare()` 的官方 index/op 顺序：任一 operand index 无效时直接返回 0，不会继续校验非法 op；两个 operand 都有效时非法 op 稳定报 `invalid value`。`lua_next()` / `lua_rawget*()` / `lua_rawset*()` 的缺 key、非 table 和宽整数 key 路径也会在 release 构建下统一报 `invalid value`，不再只依赖 debug-only `api_check`。
    - 当前进展：C API smoke 已固定 `lua_pushvalue()` / `lua_copy()` / `lua_remove()` / `lua_insert()` / `lua_rotate()` 和 `lua_pcall()` message handler 对无效栈索引的 release 错误边界，统一报 `invalid value`。
    - 当前进展：C API smoke 已固定 `lua_rotate()` 的旋转数量边界；`abs(n)` 超过目标栈段长度或传入 `INT_MIN` 时，Lua 5.4 wrapper 和默认 LuaJIT ABI 都会在 release 构建下稳定报 `invalid value`，不再把非法旋转量取模成有效操作。
+   - 当前进展：C API smoke 已固定 `lua_typename()` 的 type code 边界；低于 `LUA_TNONE` 或超过 LuaJIT 扩展类型名表的值会在 release 构建下稳定报 `invalid value`，避免非法大 type code 直接越界读取类型名表。
    - 当前进展：Lua 5.4 C continuation smoke 已固定 `lua_yieldk()` continuation 返回负数或超过当前栈结果数量时，在 release 构建下统一报 `invalid value`，不再依赖 debug-only `api_check`。
    - 当前进展：C API smoke 已固定 `lua_setmetatable()` 非 table metatable、默认 ABI `lua_setfenv()` 非 table env，以及 `lua_replace(LUA_GLOBALSINDEX/LUA_ENVIRONINDEX)` 非 table value 在 release 构建下统一报 `invalid value`。
    - 当前进展：C API smoke 已固定 `lua_dump()` 空栈调用在 Lua 5.4 wrapper 和默认 LuaJIT 5.1 ABI 下都会稳定报 `invalid value`，不再只依赖 debug-only `lj_checkapi` 避免读取空 top slot。
@@ -607,6 +608,7 @@
 ## 当前验证结果
 
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `lua_rotate()` too-large / `INT_MIN` 旋转数量 release C API 边界；默认 ABI smoke、Lua 5.4 compat smoke、官方 Lua 5.4.8 矩阵和 C API smoke 均保持通过。
+- `cmd /c build.bat default` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `lua_typename()` 低于 `LUA_TNONE` 和超出 LuaJIT 扩展类型名表的 release C API 边界；默认 ABI smoke、Lua 5.4 compat smoke、官方 Lua 5.4.8 矩阵和 C API smoke 均保持通过。
 - `cmd /c build.bat lua54` 和 `cmd /c build.bat default` 已通过，覆盖本轮新增 `lua_setmetatable()` 非 table metatable、默认 ABI `lua_setfenv()` 非 table env、`lua_replace(LUA_GLOBALSINDEX/LUA_ENVIRONINDEX)` 非 table value 的 release C API 边界。
 - `cmd /c build.bat lua54` 和 `cmd /c build.bat default` 已通过，覆盖本轮新增 `lua_yieldk()` continuation 返回负数/超过当前栈结果数量的 release C API 边界；Lua 5.4 continuation smoke 和默认 C API smoke 均保持通过。
 - `cmd /c build.bat lua54` 和 `cmd /c build.bat default` 已通过，覆盖本轮新增 `lua_pushvalue()` / `lua_copy()` / `lua_remove()` / `lua_insert()` / `lua_rotate()` 和 `lua_pcall()` message handler 无效栈索引 C API 边界；同时确认 `table.unpack()` 缺参仍保留 Lua 5.4 的 nil 运行期错误文本。

@@ -115,6 +115,18 @@ static int capi51_rotate_min_count(lua_State *L)
   return 0;
 }
 
+static int capi51_typename_too_low(lua_State *L)
+{
+  (void)lua_typename(L, LUA_TNONE - 1);
+  return 0;
+}
+
+static int capi51_typename_too_high(lua_State *L)
+{
+  (void)lua_typename(L, LUA_NUMTYPES + 3);
+  return 0;
+}
+
 static int capi51_setfenv_missing_value(lua_State *L)
 {
   lua_setfenv(L, LUA_REGISTRYINDEX);
@@ -285,6 +297,20 @@ int main(void)
   check(L, status == LUA_ERRRUN, "lua_rotate rejects INT_MIN count");
   check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
 	"lua_rotate INT_MIN count error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_typename_too_low);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_typename rejects below LUA_TNONE");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_typename below LUA_TNONE error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_typename_too_high);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_typename rejects too-large type code");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_typename too-large type code error");
   lua_pop(L, 1);
 
   lua_pushthread(L);

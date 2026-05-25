@@ -2038,6 +2038,18 @@ static int rotate_min_count(lua_State *L)
   return 0;
 }
 
+static int typename_too_low(lua_State *L)
+{
+  (void)lua_typename(L, LUA_TNONE - 1);
+  return 0;
+}
+
+static int typename_too_high(lua_State *L)
+{
+  (void)lua_typename(L, LUA_NUMTYPES + 3);
+  return 0;
+}
+
 static int pcall_invalid_errfunc(lua_State *L)
 {
   lua_pushcfunction(L, push_answer);
@@ -3454,6 +3466,12 @@ static void test_stack_and_number_api(lua_State *L)
 	"lua_typename none");
   check(L, strcmp(lua_typename(L, LUA_TNIL), "nil") == 0,
 	"lua_typename nil");
+  check_fresh_invalid_value(L, typename_too_low,
+			    "lua_typename rejects below LUA_TNONE",
+			    "lua_typename below LUA_TNONE error");
+  check_fresh_invalid_value(L, typename_too_high,
+			    "lua_typename rejects too-large type code",
+			    "lua_typename too-large type code error");
 
   lua_pushnil(L);
   check(L, lua_type(L, -1) == LUA_TNIL, "lua_type nil");

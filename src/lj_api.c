@@ -599,7 +599,8 @@ LUALIB_API void luaL_checkany(lua_State *L, int idx)
 
 LUA_API const char *lua_typename(lua_State *L, int t)
 {
-  UNUSED(L);
+  if (t < LUA_TNONE || t > LUA_TCDATA)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   return lj_obj_typename[t+1];
 }
 
