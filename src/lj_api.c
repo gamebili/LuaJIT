@@ -491,6 +491,9 @@ LUA_API void lua_rotate(lua_State *L, int idx, int n)
 {
   TValue *p = index2adr_stack(L, idx);
   int nslots = (int)(L->top - p);
+  unsigned int nn = n < 0 ? (unsigned int)(-(n + 1)) + 1u : (unsigned int)n;
+  if (nn > (unsigned int)nslots)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   lj_checkapi(nslots >= 0, "invalid stack slot %d", idx);
   if (nslots <= 1)
     return;

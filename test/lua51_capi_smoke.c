@@ -4,6 +4,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <limits.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -96,6 +97,21 @@ static int capi51_dump_empty_stack(lua_State *L)
 static int capi51_concat_negative_count(lua_State *L)
 {
   lua_concat(L, -1);
+  return 0;
+}
+
+static int capi51_rotate_large_count(lua_State *L)
+{
+  lua_pushnil(L);
+  lua_pushnil(L);
+  lua_rotate(L, -2, 3);
+  return 0;
+}
+
+static int capi51_rotate_min_count(lua_State *L)
+{
+  lua_pushnil(L);
+  lua_rotate(L, -1, INT_MIN);
   return 0;
 }
 
@@ -255,6 +271,20 @@ int main(void)
   check(L, status == LUA_ERRRUN, "lua_concat rejects negative count");
   check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
 	"lua_concat negative count error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_rotate_large_count);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_rotate rejects too-large count");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_rotate too-large count error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_rotate_min_count);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_rotate rejects INT_MIN count");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_rotate INT_MIN count error");
   lua_pop(L, 1);
 
   lua_pushthread(L);

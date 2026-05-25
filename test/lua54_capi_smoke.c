@@ -2023,6 +2023,21 @@ static int rotate_invalid_index(lua_State *L)
   return 0;
 }
 
+static int rotate_large_count(lua_State *L)
+{
+  lua_pushnil(L);
+  lua_pushnil(L);
+  lua_rotate(L, -2, 3);
+  return 0;
+}
+
+static int rotate_min_count(lua_State *L)
+{
+  lua_pushnil(L);
+  lua_rotate(L, -1, INT_MIN);
+  return 0;
+}
+
 static int pcall_invalid_errfunc(lua_State *L)
 {
   lua_pushcfunction(L, push_answer);
@@ -3586,6 +3601,12 @@ static void test_stack_and_number_api(lua_State *L)
   check_fresh_invalid_value(L, rotate_invalid_index,
 			    "lua_rotate rejects invalid index",
 			    "lua_rotate invalid index error");
+  check_fresh_invalid_value(L, rotate_large_count,
+			    "lua_rotate rejects too-large count",
+			    "lua_rotate too-large count error");
+  check_fresh_invalid_value(L, rotate_min_count,
+			    "lua_rotate rejects INT_MIN count",
+			    "lua_rotate INT_MIN count error");
   check_fresh_invalid_value(L, pcall_invalid_errfunc,
 			    "lua_pcall rejects invalid errfunc index",
 			    "lua_pcall invalid errfunc index error");
