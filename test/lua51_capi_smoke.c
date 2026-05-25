@@ -93,6 +93,12 @@ static int capi51_dump_empty_stack(lua_State *L)
   return 0;
 }
 
+static int capi51_concat_negative_count(lua_State *L)
+{
+  lua_concat(L, -1);
+  return 0;
+}
+
 static int capi51_setfenv_missing_value(lua_State *L)
 {
   lua_setfenv(L, LUA_REGISTRYINDEX);
@@ -242,6 +248,13 @@ int main(void)
   check(L, status == LUA_ERRRUN, "lua_dump rejects empty stack");
   check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
 	"lua_dump empty stack error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_concat_negative_count);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_concat rejects negative count");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_concat negative count error");
   lua_pop(L, 1);
 
   lua_pushthread(L);

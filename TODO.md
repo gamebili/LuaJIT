@@ -58,6 +58,7 @@
    - 当前进展：Lua 5.4 C continuation smoke 已固定 `lua_yieldk()` continuation 返回负数或超过当前栈结果数量时，在 release 构建下统一报 `invalid value`，不再依赖 debug-only `api_check`。
    - 当前进展：C API smoke 已固定 `lua_setmetatable()` 非 table metatable、默认 ABI `lua_setfenv()` 非 table env，以及 `lua_replace(LUA_GLOBALSINDEX/LUA_ENVIRONINDEX)` 非 table value 在 release 构建下统一报 `invalid value`。
    - 当前进展：C API smoke 已固定 `lua_dump()` 空栈调用在 Lua 5.4 wrapper 和默认 LuaJIT 5.1 ABI 下都会稳定报 `invalid value`，不再只依赖 debug-only `lj_checkapi` 避免读取空 top slot。
+   - 当前进展：C API smoke 已固定 `lua_concat(L, -1)` 在 Lua 5.4 wrapper 和默认 LuaJIT 5.1 ABI 下都会稳定报 `invalid value`；`lua_concat(L, 0)` 仍按官方语义压入空字符串。
 
 ## P0：核心语义缺口
 

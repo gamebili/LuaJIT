@@ -4204,9 +4204,10 @@ static void test_stack_and_number_api(lua_State *L)
   lua_pop(L, 4);
 
   lua_pushcfunction(L, concat_negative_count);
-  status = lua_pcall(L, 0, 1, 0);
-  check(L, status == LUA_OK, "lua_concat negative count status");
-  check_string(L, -1, "", "lua_concat negative count pushes empty string");
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_concat rejects negative count");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_concat negative count error");
   lua_pop(L, 1);
 
   lua_pushcfunction(L, concat_large_count);
