@@ -63,6 +63,12 @@ static int capi51_answer(lua_State *L)
   return 1;
 }
 
+static int capi51_return_upvalue(lua_State *L)
+{
+  lua_pushvalue(L, lua_upvalueindex(1));
+  return 1;
+}
+
 static int capi51_typerror(lua_State *L)
 {
   return luaL_typerror(L, 1, "number");
@@ -223,6 +229,28 @@ int main(void)
   lua_getfenv(L, -1);
   check(L, lua_istable(L, -1), "lua_getfenv default API");
   lua_pop(L, 2);
+
+  lua_pushliteral(L, "c-upvalue");
+  lua_pushcclosure(L, capi51_return_upvalue, 1);
+  check(L, lua_upvalueid(L, -1, 1) != NULL,
+	"lua_upvalueid C closure upvalue");
+  check(L, lua_upvalueid(L, -1, 2) == NULL,
+	"lua_upvalueid C closure invalid index");
+  lua_call(L, 0, 1);
+  check(L, strcmp(lua_tostring(L, -1), "c-upvalue") == 0,
+	"lua_upvalueid C closure preserves callable");
+  lua_pop(L, 1);
+
+  check(L, luaL_loadstring(L,
+    "local x = 'lua-upvalue'\n"
+    "return function() return x end") == LUA_OK,
+    "lua_upvalueid Lua closure load");
+  lua_call(L, 0, 1);
+  check(L, lua_upvalueid(L, -1, 1) != NULL,
+	"lua_upvalueid Lua closure upvalue");
+  check(L, lua_upvalueid(L, -1, 2) == NULL,
+	"lua_upvalueid Lua closure invalid index");
+  lua_pop(L, 1);
 
   lua_pushthread(L);
   lua_newtable(L);

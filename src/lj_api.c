@@ -2153,7 +2153,8 @@ LUA_API void *lua_upvalueid(lua_State *L, int idx, int n)
     return NULL;
 #else
   n--;
-  lj_checkapi((uint32_t)n < fn->l.nupvalues, "bad upvalue %d", n);
+  if ((uint32_t)n >= (isluafunc(fn) ? fn->l.nupvalues : fn->c.nupvalues))
+    return NULL;
 #endif
   return isluafunc(fn) ? (void *)gcref(fn->l.uvptr[n]) :
 			 (void *)&fn->c.upvalue[n];
