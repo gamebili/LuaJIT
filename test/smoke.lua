@@ -3332,6 +3332,10 @@ do
   expect_bad_integer(string.gsub, "aaa", "a", "b", 1.2)
   do
     local wide = 1099511627776
+    local repl, n = string.gsub("aaa", "a", "b", wide)
+    assert(repl == "bbb" and n == 3 and math.type(n) == "integer")
+    repl, n = string.gsub("aaa", "a", "b", -wide)
+    assert(repl == "aaa" and n == 0 and math.type(n) == "integer")
     local bytes = { string.byte("abc", -wide, -1) }
     assert(#bytes == 3 and bytes[1] == 97 and bytes[2] == 98 and bytes[3] == 99)
     assert(select("#", string.byte("abc", wide)) == 0)

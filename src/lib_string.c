@@ -1029,12 +1029,19 @@ LJLIB_CF(string_gsub)
 #endif
   int  tr = lua_type(L, 3);
 #if LJ_54
-  int max_s = string_optint_named54(L, 4, (int)(srcl+1), "string.gsub");
+  TValue *maxarg = L->base + 4-1;
+  lua_Integer max_s = (maxarg < L->top && !tvisnil(maxarg)) ?
+    (lua_Integer)string_checkinteger64_named54(L, 4, "string.gsub") :
+    (lua_Integer)(srcl+1);
 #else
   int max_s = luaL_optint(L, 4, (int)(srcl+1));
 #endif
   int anchor = (p < pend && *p == '^') ? (p++, 1) : 0;
+#if LJ_54
+  lua_Integer n = 0;
+#else
   int n = 0;
+#endif
   MatchState ms;
   luaL_Buffer b;
 #if LJ_54
