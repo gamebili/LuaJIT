@@ -631,6 +631,8 @@ LUALIB_API const char *luaL_tolstring(lua_State *L, int idx, size_t *len)
 LUALIB_API int luaL_ref(lua_State *L, int t)
 {
   int ref;
+  if (lua_gettop(L) < 1)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   t = abs_index(L, t);
   if (lua_isnil(L, -1)) {
     lua_pop(L, 1);  /* remove from stack */

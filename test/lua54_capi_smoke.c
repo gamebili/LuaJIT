@@ -2774,6 +2774,12 @@ static int laux_len_arg(lua_State *L)
   return 1;
 }
 
+static int laux_ref_missing_value(lua_State *L)
+{
+  (void)luaL_ref(L, LUA_REGISTRYINDEX);
+  return 0;
+}
+
 static int laux_checkstack_arg(lua_State *L)
 {
   luaL_checkstack(L, LUA_MINSTACK, "laux stack guard");
@@ -6816,6 +6822,10 @@ static void test_lauxlib_api(lua_State *L)
 	"luaL_gsub return value");
   check_string(L, -1, "a_b_a", "luaL_gsub pushes result");
   lua_pop(L, 1);
+
+  check_fresh_invalid_value(L, laux_ref_missing_value,
+			    "luaL_ref rejects missing value",
+			    "luaL_ref missing value error");
 
   lua_newtable(L);
   lua_pushliteral(L, "ref-value");

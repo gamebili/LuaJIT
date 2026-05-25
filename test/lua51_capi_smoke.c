@@ -154,6 +154,12 @@ static int capi51_checktype_invalid_expected_high(lua_State *L)
   return 0;
 }
 
+static int capi51_ref_missing_value(lua_State *L)
+{
+  (void)luaL_ref(L, LUA_REGISTRYINDEX);
+  return 0;
+}
+
 static int capi51_setfenv_missing_value(lua_State *L)
 {
   lua_setfenv(L, LUA_REGISTRYINDEX);
@@ -367,6 +373,13 @@ int main(void)
 	"luaL_checktype rejects too-large expected type");
   check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
 	"luaL_checktype too-large expected type error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_ref_missing_value);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_ref rejects missing value");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"luaL_ref missing value error");
   lua_pop(L, 1);
 
   lua_pushthread(L);
