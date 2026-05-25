@@ -2043,7 +2043,7 @@ LUALIB_API int luaL_getmetafield(lua_State *L, int idx, const char *field)
 
 LUA_API void lua_getfenv(lua_State *L, int idx)
 {
-  cTValue *o = index2adr_check(L, idx);
+  cTValue *o = index2adr_valid(L, idx);
   if (tvisfunc(o)) {
     settabV(L, L->top, tabref(funcV(o)->c.env));
   } else if (tvisudata(o)) {
@@ -2436,7 +2436,7 @@ LUA_API int lua_setiuservalue(lua_State *L, int idx, int n)
 
 LUA_API int lua_setfenv(lua_State *L, int idx)
 {
-  cTValue *o = index2adr_check(L, idx);
+  cTValue *o = index2adr_valid(L, idx);
   GCtab *t;
   api_checknelems(L, 1);
   if (!tvistab(L->top-1))

@@ -89,6 +89,19 @@ static int capi51_setfenv_nontable_value(lua_State *L)
   return 0;
 }
 
+static int capi51_getfenv_invalid_index(lua_State *L)
+{
+  lua_getfenv(L, 1);
+  return 0;
+}
+
+static int capi51_setfenv_invalid_index(lua_State *L)
+{
+  lua_newtable(L);
+  lua_setfenv(L, -2);
+  return 0;
+}
+
 static int capi51_replace_globals_nontable(lua_State *L)
 {
   lua_pushboolean(L, 1);
@@ -176,6 +189,20 @@ int main(void)
   check(L, status == LUA_ERRRUN, "lua_setfenv rejects non-table value");
   check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
 	"lua_setfenv non-table value error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_getfenv_invalid_index);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_getfenv rejects invalid index");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_getfenv invalid index error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_setfenv_invalid_index);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_setfenv rejects invalid index");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_setfenv invalid index error");
   lua_pop(L, 1);
 
   lua_pushcfunction(L, capi51_replace_globals_nontable);

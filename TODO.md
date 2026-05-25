@@ -387,6 +387,7 @@
   - 当前进展：已补默认构建 C API smoke，覆盖旧 LuaJIT 5.1 头文件宏和 ABI 入口仍可编译、链接、运行。
   - 需要补测试：更完整 ABI 兼容测试，以及更多旧 LuaJIT API 在默认构建下不受影响的覆盖。
   - 当前进展：默认 LuaJIT 5.1 C API smoke 已继续补旧 ABI 覆盖：`lua_cpcall`、`lua_setfenv`、`lua_setlevel`、`lua_equal`、`lua_lessthan`、Lua 函数 environment、`luaL_ref` / `luaL_unref` 的 key 0 freelist 行为、`luaL_loadstring`、`luaL_loadfile`、`luaL_loadbuffer`、`luaL_dofile` / `luaL_dostring`、`luaL_checkint` / `luaL_checklong` / `luaL_optint` / `luaL_optlong`、`luaL_getmetafield` / `luaL_callmeta`、`luaL_newmetatable` / `luaL_checkudata`、`luaopen_string_buffer` 和 LuaJIT-only `lua_loadx` 均在默认构建下编译/运行验证，防止 Lua 5.4 外部头收紧时误伤默认 ABI。
+  - 当前进展：默认 LuaJIT 5.1 `lua_getfenv()` / `lua_setfenv()` 的非法目标索引已从 debug-only stack slot 检查收敛为 release 可见 `invalid value`，同时保留合法非 env 对象返回 nil/0 的旧表面。
 
 - [ ] Lua 5.4 auxiliary library / lauxlib 兼容。
   - 当前状态：`lauxlib.h` 仍以 Lua 5.1/LuaJIT 接口为主，只补了部分 5.2+ 辅助函数。
