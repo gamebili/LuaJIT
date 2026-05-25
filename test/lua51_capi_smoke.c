@@ -132,6 +132,14 @@ static int capi51_error_missing_object(lua_State *L)
   return lua_error(L);
 }
 
+static int capi51_pcall_nonfunction_errfunc(lua_State *L)
+{
+  lua_pushboolean(L, 1);
+  lua_pushcfunction(L, capi51_answer);
+  lua_pcall(L, 0, 0, 1);
+  return 0;
+}
+
 static int capi51_setfenv_missing_value(lua_State *L)
 {
   lua_setfenv(L, LUA_REGISTRYINDEX);
@@ -323,6 +331,13 @@ int main(void)
   check(L, status == LUA_ERRRUN, "lua_error rejects missing object");
   check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
 	"lua_error missing object error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_pcall_nonfunction_errfunc);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_pcall rejects non-function errfunc");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_pcall non-function errfunc error");
   lua_pop(L, 1);
 
   lua_pushthread(L);

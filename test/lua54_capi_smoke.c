@@ -2062,6 +2062,14 @@ static int pcall_invalid_errfunc(lua_State *L)
   return 0;
 }
 
+static int pcall_nonfunction_errfunc(lua_State *L)
+{
+  lua_pushboolean(L, 1);
+  lua_pushcfunction(L, raise_lua_error);
+  lua_pcall(L, 0, 0, 1);
+  return 0;
+}
+
 static int concat_negative_count(lua_State *L)
 {
   lua_concat(L, -1);
@@ -3633,6 +3641,9 @@ static void test_stack_and_number_api(lua_State *L)
   check_fresh_invalid_value(L, pcall_invalid_errfunc,
 			    "lua_pcall rejects invalid errfunc index",
 			    "lua_pcall invalid errfunc index error");
+  check_fresh_invalid_value(L, pcall_nonfunction_errfunc,
+			    "lua_pcall rejects non-function errfunc",
+			    "lua_pcall non-function errfunc error");
   check_fresh_invalid_value(L, compare_invalid_op,
 			    "lua_compare rejects invalid op",
 			    "lua_compare invalid op error");

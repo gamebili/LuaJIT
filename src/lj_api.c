@@ -2535,6 +2535,8 @@ LUA_API int lua_pcall(lua_State *L, int nargs, int nresults, int errfunc)
     ef = 0;
   } else {
     cTValue *o = index2adr_stack(L, errfunc);
+    if (!tvisfunc(o))
+      lj_err_msg(L, LJ_ERR_BADVAL);
     ef = savestack(L, o);
   }
   status = lj_vm_pcall(L, api_call_base(L, nargs), nresults+1, ef);
@@ -2600,6 +2602,8 @@ LUA_API int (lua_pcallk)(lua_State *L, int nargs, int nresults, int errfunc,
       setnilV(&L->capi_yield_errfunc);
     } else {
       cTValue *o = index2adr_stack(L, errfunc);
+      if (!tvisfunc(o))
+	lj_err_msg(L, LJ_ERR_BADVAL);
       ef = savestack(L, o);
       copyTV(L, &L->capi_yield_errfunc, o);
     }
