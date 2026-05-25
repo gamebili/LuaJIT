@@ -221,9 +221,12 @@ function Get-AdbPath {
     $candidates += (Join-Path $env:ANDROID_SDK_ROOT "platform-tools\adb.exe")
   }
   $candidates += (Join-Path $env:LOCALAPPDATA "Android\Sdk\platform-tools\adb.exe")
+  $candidates += "H:\p4\gl_home_u4\pristine\android-sdk-windows\platform-tools\adb.exe"
+  $candidates += "H:\p4\gl_home_u4\pristine\android-sdk-windows\platform-tools.backup\adb.exe"
+  $candidates += "H:\p4\gl_home_u4\pristine\tools\logcat\adb\adb.exe"
   foreach ($candidate in $candidates) {
     if ($candidate -and (Test-Path $candidate)) {
-      return $candidate
+      return (Resolve-Path $candidate).Path
     }
   }
   return $null
@@ -308,14 +311,27 @@ function Invoke-EmscriptenArchProbe {
 
 function Get-FirstAdbDevice {
   param([string]$Adb)
-  $lines = & $Adb devices 2>$null
-  if ($LASTEXITCODE -ne 0) {
-    return $null
-  }
-  foreach ($line in $lines) {
-    if ($line -match "^(\S+)\s+device$") {
-      return $matches[1]
+  for ($attempt = 0; $attempt -lt 2; $attempt++) {
+    $oldErrorActionPreference = $ErrorActionPreference
+    try {
+      $ErrorActionPreference = "Continue"
+      $lines = & $Adb devices 2>&1
+      $exitCode = $LASTEXITCODE
+    } catch {
+      $lines = @()
+      $exitCode = 1
+    } finally {
+      $ErrorActionPreference = $oldErrorActionPreference
     }
+    if ($exitCode -eq 0) {
+      foreach ($line in $lines) {
+        if ($line.ToString() -match "^(\S+)\s+device$") {
+          return $matches[1]
+        }
+      }
+      return $null
+    }
+    Start-Sleep -Milliseconds 250
   }
   return $null
 }
@@ -324,7 +340,7 @@ function Invoke-AndroidDeviceSmoke {
   param([string]$Artifact)
   $adb = Get-AdbPath
   if (-not $adb) {
-    Add-Result "android-arm64-device-smoke" "SKIP" "adb not found; set ANDROID_HOME/ANDROID_SDK_ROOT or put adb on PATH."
+    Add-Result "android-arm64-device-smoke" "SKIP" "adb not found; set ANDROID_HOME/ANDROID_SDK_ROOT, put adb on PATH, or install the workspace Android SDK."
     return
   }
 
