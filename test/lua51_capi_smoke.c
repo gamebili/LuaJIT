@@ -127,6 +127,11 @@ static int capi51_typename_too_high(lua_State *L)
   return 0;
 }
 
+static int capi51_error_missing_object(lua_State *L)
+{
+  return lua_error(L);
+}
+
 static int capi51_setfenv_missing_value(lua_State *L)
 {
   lua_setfenv(L, LUA_REGISTRYINDEX);
@@ -311,6 +316,13 @@ int main(void)
   check(L, status == LUA_ERRRUN, "lua_typename rejects too-large type code");
   check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
 	"lua_typename too-large type code error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_error_missing_object);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_error rejects missing object");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_error missing object error");
   lua_pop(L, 1);
 
   lua_pushthread(L);

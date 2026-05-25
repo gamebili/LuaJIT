@@ -1742,6 +1742,11 @@ static int raise_lua_error(lua_State *L)
   return lua_error(L);
 }
 
+static int error_missing_object(lua_State *L)
+{
+  return lua_error(L);
+}
+
 static int optinteger_fraction(lua_State *L)
 {
   luaL_optinteger(L, 1, 0);
@@ -4376,6 +4381,9 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, lua_pcall(L, 0, 0, 0) == LUA_ERRRUN, "lua_error status");
   check_string(L, -1, "capi raised error", "lua_error message");
   lua_pop(L, 1);
+  check_fresh_invalid_value(L, error_missing_object,
+			    "lua_error rejects missing error object",
+			    "lua_error missing object error");
 
   close_call_count = 0;
   close_nil_error_count = 0;

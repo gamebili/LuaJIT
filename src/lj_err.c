@@ -1179,6 +1179,8 @@ LUA_API lua_CFunction lua_atpanic(lua_State *L, lua_CFunction panicf)
 /* Forwarders for the public API (C calling convention and no LJ_NORET). */
 LUA_API int lua_error(lua_State *L)
 {
+  if (L->top <= L->base)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   lj_err_run(L);
   return 0;  /* unreachable */
 }
