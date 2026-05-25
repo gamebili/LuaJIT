@@ -195,6 +195,12 @@ static int capi51_pushvfstring_null_format(lua_State *L)
   return 0;
 }
 
+static int capi51_setallocf_null_function(lua_State *L)
+{
+  lua_setallocf(L, NULL, NULL);
+  return 0;
+}
+
 static int capi51_setfenv_missing_value(lua_State *L)
 {
   lua_setfenv(L, LUA_REGISTRYINDEX);
@@ -268,6 +274,15 @@ int main(void)
   int status;
   check(L, L != NULL, "luaL_newstate");
   check(L, chunkreader == NULL && chunkwriter == NULL, "lua_Chunk aliases");
+  check(L, lua_newstate(NULL, NULL) == NULL,
+	"lua_newstate rejects NULL allocator");
+
+  lua_pushcfunction(L, capi51_setallocf_null_function);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_setallocf rejects NULL allocator");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_setallocf NULL allocator error");
+  lua_pop(L, 1);
 
   L2 = lua_open();
   check(L, L2 != NULL, "lua_open default macro");

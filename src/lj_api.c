@@ -3428,6 +3428,8 @@ LUA_API lua_Alloc lua_getallocf(lua_State *L, void **ud)
 LUA_API void lua_setallocf(lua_State *L, lua_Alloc f, void *ud)
 {
   global_State *g = G(L);
+  if (f == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   g->allocd = ud;
   g->allocf = f;
 }

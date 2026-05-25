@@ -277,6 +277,7 @@ LUA_API lua_State *lua_newstate(lua_Alloc allocf, void *allocd)
   GG_State *GG;
   lua_State *L;
   global_State *g;
+  if (allocf == NULL) return NULL;
   /* We need the PRNG for the memory allocator, so initialize this first. */
   if (!lj_prng_seed_secure(&prng)) {
     lj_assertX(0, "secure PRNG seeding failed");

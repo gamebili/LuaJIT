@@ -741,6 +741,12 @@ static int strict_fail_once_after_alloc(lua_State *L)
   return 0;
 }
 
+static int setallocf_null_function(lua_State *L)
+{
+  lua_setallocf(L, NULL, NULL);
+  return 0;
+}
+
 static int raise_after_big_buffer(lua_State *L)
 {
   luaL_Buffer b;
@@ -1522,6 +1528,14 @@ static void test_state_allocator_api(lua_State *L)
   lua_State *T;
   test_newstate_allocator_failure(L);
   test_string_allocator_failure(L);
+  check(L, lua_newstate(NULL, NULL) == NULL,
+	"lua_newstate rejects NULL allocator");
+  lua_pushcfunction(L, setallocf_null_function);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_setallocf rejects NULL allocator");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_setallocf NULL allocator error");
+  lua_pop(L, 1);
   T = lua_newstate(counting_alloc, &ctx);
   check(L, T != NULL, "lua_newstate custom allocator");
   check(L, lua_atpanic(T, panic_a) == NULL, "lua_atpanic initial handler");
