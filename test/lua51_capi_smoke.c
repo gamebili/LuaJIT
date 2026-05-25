@@ -140,6 +140,20 @@ static int capi51_pcall_nonfunction_errfunc(lua_State *L)
   return 0;
 }
 
+static int capi51_checktype_invalid_expected_low(lua_State *L)
+{
+  lua_pushnil(L);
+  luaL_checktype(L, 1, LUA_TNONE - 1);
+  return 0;
+}
+
+static int capi51_checktype_invalid_expected_high(lua_State *L)
+{
+  lua_pushnil(L);
+  luaL_checktype(L, 1, LUA_NUMTYPES + 3);
+  return 0;
+}
+
 static int capi51_setfenv_missing_value(lua_State *L)
 {
   lua_setfenv(L, LUA_REGISTRYINDEX);
@@ -338,6 +352,21 @@ int main(void)
   check(L, status == LUA_ERRRUN, "lua_pcall rejects non-function errfunc");
   check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
 	"lua_pcall non-function errfunc error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_checktype_invalid_expected_low);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_checktype rejects below LUA_TNONE");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"luaL_checktype below LUA_TNONE error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_checktype_invalid_expected_high);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN,
+	"luaL_checktype rejects too-large expected type");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"luaL_checktype too-large expected type error");
   lua_pop(L, 1);
 
   lua_pushthread(L);

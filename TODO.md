@@ -59,6 +59,7 @@
    - 当前进展：C API smoke 已固定 `lua_typename()` 的 type code 边界；低于 `LUA_TNONE` 或超过 LuaJIT 扩展类型名表的值会在 release 构建下稳定报 `invalid value`，避免非法大 type code 直接越界读取类型名表。
    - 当前进展：C API smoke 已固定 `lua_error()` 缺少错误对象的 release 边界；空 C 栈调用会稳定报 `invalid value`，不再从 `top-1` 读取错误槽位。
    - 当前进展：C API smoke 已固定 `lua_pcall()` message handler 类型边界；`errfunc` 指向非函数值时会在 release 构建下稳定报 `invalid value`，不再把非函数错误处理器延后到错误展开阶段才二次失败。
+   - 当前进展：C API smoke 已固定 `luaL_checktype()` 的期望类型码边界；低于 `LUA_TNONE` 或超过 LuaJIT 扩展类型名表的值会在 release 构建下稳定报 `invalid value`，避免通过 lauxlib 错误路径越界读取类型名表。
    - 当前进展：Lua 5.4 C continuation smoke 已固定 `lua_yieldk()` continuation 返回负数或超过当前栈结果数量时，在 release 构建下统一报 `invalid value`，不再依赖 debug-only `api_check`。
    - 当前进展：C API smoke 已固定 `lua_setmetatable()` 非 table metatable、默认 ABI `lua_setfenv()` 非 table env，以及 `lua_replace(LUA_GLOBALSINDEX/LUA_ENVIRONINDEX)` 非 table value 在 release 构建下统一报 `invalid value`。
    - 当前进展：C API smoke 已固定 `lua_dump()` 空栈调用在 Lua 5.4 wrapper 和默认 LuaJIT 5.1 ABI 下都会稳定报 `invalid value`，不再只依赖 debug-only `lj_checkapi` 避免读取空 top slot。

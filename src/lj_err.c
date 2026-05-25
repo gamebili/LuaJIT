@@ -1164,6 +1164,8 @@ LJ_NOINLINE void lj_err_argtype(lua_State *L, int narg, const char *xname)
 /* Typecheck error for arguments. */
 LJ_NOINLINE void lj_err_argt(lua_State *L, int narg, int tt)
 {
+  if (tt < LUA_TNONE || tt > LUA_TCDATA)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   lj_err_argtype(L, narg, lj_obj_typename[tt+1]);
 }
 

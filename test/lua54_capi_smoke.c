@@ -2748,6 +2748,20 @@ static int laux_checkthread_arg(lua_State *L)
   return 0;
 }
 
+static int laux_checktype_invalid_expected_low(lua_State *L)
+{
+  lua_pushnil(L);
+  luaL_checktype(L, 1, LUA_TNONE - 1);
+  return 0;
+}
+
+static int laux_checktype_invalid_expected_high(lua_State *L)
+{
+  lua_pushnil(L);
+  luaL_checktype(L, 1, LUA_NUMTYPES + 3);
+  return 0;
+}
+
 static int laux_opt_macro_arg(lua_State *L)
 {
   lua_pushinteger(L, luaL_opt(L, luaL_checkinteger, 1, 77));
@@ -6574,6 +6588,13 @@ static void test_lauxlib_api(lua_State *L)
   check(L, strstr(lua_tostring(L, -1), "table expected") != NULL,
 	"luaL_checktype wrong type error");
   lua_pop(L, 1);
+
+  check_fresh_invalid_value(L, laux_checktype_invalid_expected_low,
+			    "luaL_checktype rejects below LUA_TNONE",
+			    "luaL_checktype below LUA_TNONE error");
+  check_fresh_invalid_value(L, laux_checktype_invalid_expected_high,
+			    "luaL_checktype rejects too-large expected type",
+			    "luaL_checktype too-large expected type error");
 
   lua_pushcfunction(L, laux_checktype_any_arg);
   lua_pushlightuserdata(L, (void *)&status);
