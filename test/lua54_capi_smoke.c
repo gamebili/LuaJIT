@@ -3346,6 +3346,12 @@ static int dump_fail_writer(lua_State *L, const void *p, size_t sz, void *ud)
   return 77;
 }
 
+static int pushlstring_null_nonzero(lua_State *L)
+{
+  lua_pushlstring(L, NULL, 1);
+  return 1;
+}
+
 static int pushfstring_bad_format(lua_State *L)
 {
   lua_pushfstring(L, "%Z");
@@ -3935,6 +3941,18 @@ static void test_stack_and_number_api(lua_State *L)
 	"lua_pushlstring return value");
   check(L, lua_rawlen(L, -1) == sizeof(with_nul),
 	"lua_pushlstring return length");
+  lua_pop(L, 1);
+
+  ret = lua_pushlstring(L, NULL, 0);
+  check(L, ret != NULL && lua_rawlen(L, -1) == 0,
+	"lua_pushlstring NULL zero length");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, pushlstring_null_nonzero);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_pushlstring rejects NULL nonzero");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_pushlstring NULL nonzero error");
   lua_pop(L, 1);
 
   ret = lua_pushstring(L, "pushstring-return");

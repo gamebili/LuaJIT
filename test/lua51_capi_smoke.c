@@ -166,6 +166,12 @@ static int capi51_pushcclosure_null_function(lua_State *L)
   return 0;
 }
 
+static int capi51_pushlstring_null_nonzero(lua_State *L)
+{
+  lua_pushlstring(L, NULL, 1);
+  return 0;
+}
+
 static int capi51_setfenv_missing_value(lua_State *L)
 {
   lua_setfenv(L, LUA_REGISTRYINDEX);
@@ -250,6 +256,9 @@ int main(void)
   check(L, lua_tostring(L, -1) != NULL, "lua_getglobal old global path");
   check(L, lua_strlen(L, -1) == 2, "lua_strlen macro");
   check(L, lua_objlen(L, -1) == 2, "lua_objlen default API");
+  lua_pop(L, 1);
+  lua_pushlstring(L, NULL, 0);
+  check(L, lua_objlen(L, -1) == 0, "lua_pushlstring NULL zero length");
   lua_pop(L, 1);
 
   lua_pushinteger(L, 1);
@@ -393,6 +402,13 @@ int main(void)
   check(L, status == LUA_ERRRUN, "lua_pushcclosure rejects NULL function");
   check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
 	"lua_pushcclosure NULL function error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_pushlstring_null_nonzero);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_pushlstring rejects NULL nonzero");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_pushlstring NULL nonzero error");
   lua_pop(L, 1);
 
   lua_pushthread(L);

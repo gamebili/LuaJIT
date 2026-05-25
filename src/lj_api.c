@@ -1266,6 +1266,8 @@ LUA_API void lua_pushlstring(lua_State *L, const char *str, size_t len)
 {
   GCstr *s;
   lj_gc_check(L);
+  if (str == NULL && len != 0)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   s = lj_str_new(L, str, len);
   setstrV(L, L->top, s);
   incr_top(L);
