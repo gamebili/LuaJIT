@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <limits.h>
+#include <stdarg.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -169,6 +170,28 @@ static int capi51_pushcclosure_null_function(lua_State *L)
 static int capi51_pushlstring_null_nonzero(lua_State *L)
 {
   lua_pushlstring(L, NULL, 1);
+  return 0;
+}
+
+static int capi51_pushfstring_null_format(lua_State *L)
+{
+  lua_pushfstring(L, NULL);
+  return 0;
+}
+
+static const char *capi51_pushvfstring_wrap(lua_State *L, const char *fmt, ...)
+{
+  const char *ret;
+  va_list argp;
+  va_start(argp, fmt);
+  ret = lua_pushvfstring(L, fmt, argp);
+  va_end(argp);
+  return ret;
+}
+
+static int capi51_pushvfstring_null_format(lua_State *L)
+{
+  (void)capi51_pushvfstring_wrap(L, NULL);
   return 0;
 }
 
@@ -409,6 +432,20 @@ int main(void)
   check(L, status == LUA_ERRRUN, "lua_pushlstring rejects NULL nonzero");
   check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
 	"lua_pushlstring NULL nonzero error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_pushfstring_null_format);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_pushfstring rejects NULL format");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_pushfstring NULL format error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_pushvfstring_null_format);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_pushvfstring rejects NULL format");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_pushvfstring NULL format error");
   lua_pop(L, 1);
 
   lua_pushthread(L);

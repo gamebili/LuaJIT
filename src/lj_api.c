@@ -1305,6 +1305,8 @@ LUA_API const char *lua_pushvfstring(lua_State *L, const char *fmt,
 				     va_list argp)
 {
   lj_gc_check(L);
+  if (fmt == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   return lj_strfmt_pushvf(L, fmt, argp);
 }
 
@@ -1313,6 +1315,8 @@ LUA_API const char *lua_pushfstring(lua_State *L, const char *fmt, ...)
   const char *ret;
   va_list argp;
   lj_gc_check(L);
+  if (fmt == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   va_start(argp, fmt);
   ret = lj_strfmt_pushvf(L, fmt, argp);
   va_end(argp);

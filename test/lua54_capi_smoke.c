@@ -3376,6 +3376,12 @@ static int pushfstring_bad_floatfmt(lua_State *L)
   return 1;
 }
 
+static int pushfstring_null_format(lua_State *L)
+{
+  lua_pushfstring(L, NULL);
+  return 1;
+}
+
 static const char *pushvfstring_wrap(lua_State *L, const char *fmt, ...)
 {
   const char *ret;
@@ -3384,6 +3390,12 @@ static const char *pushvfstring_wrap(lua_State *L, const char *fmt, ...)
   ret = lua_pushvfstring(L, fmt, argp);
   va_end(argp);
   return ret;
+}
+
+static int pushvfstring_null_format(lua_State *L)
+{
+  (void)pushvfstring_wrap(L, NULL);
+  return 1;
 }
 
 static int arith_string_bor(lua_State *L)
@@ -4075,6 +4087,18 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, strstr(lua_tostring(L, -1),
 		  "invalid option '%g' to 'lua_pushfstring'") != NULL,
 	"lua_pushfstring invalid float format message");
+  lua_pop(L, 1);
+  lua_pushcfunction(L, pushfstring_null_format);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_pushfstring rejects NULL format");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_pushfstring NULL format error");
+  lua_pop(L, 1);
+  lua_pushcfunction(L, pushvfstring_null_format);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_pushvfstring rejects NULL format");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_pushvfstring NULL format error");
   lua_pop(L, 1);
 
   lua_pushliteral(L, "Lua");
