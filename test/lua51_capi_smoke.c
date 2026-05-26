@@ -502,6 +502,19 @@ static int capi51_openlib_negative_upvalues(lua_State *L)
   return 0;
 }
 
+static int capi51_getupvalue_invalid_index(lua_State *L)
+{
+  (void)lua_getupvalue(L, 1, 1);
+  return 0;
+}
+
+static int capi51_setupvalue_invalid_index(lua_State *L)
+{
+  lua_pushnil(L);
+  (void)lua_setupvalue(L, -2, 1);
+  return 0;
+}
+
 static void capi51_check_invalid_value(lua_State *L, lua_CFunction fn,
 				       const char *statusmsg,
 				       const char *errmsg)
@@ -632,6 +645,12 @@ int main(void)
   capi51_check_invalid_value(L, capi51_openlib_negative_upvalues,
 			     "luaL_openlib rejects negative upvalues",
 			     "luaL_openlib negative upvalues error");
+  capi51_check_invalid_value(L, capi51_getupvalue_invalid_index,
+			     "lua_getupvalue rejects invalid function index",
+			     "lua_getupvalue invalid function index error");
+  capi51_check_invalid_value(L, capi51_setupvalue_invalid_index,
+			     "lua_setupvalue rejects invalid function index",
+			     "lua_setupvalue invalid function index error");
 
   lua_pushinteger(L, 1);
   lua_pushinteger(L, 1);

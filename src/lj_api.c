@@ -2133,7 +2133,7 @@ LUA_API int lua_next(lua_State *L, int idx)
 
 LUA_API const char *lua_getupvalue(lua_State *L, int idx, int n)
 {
-  cTValue *f = index2adr(L, idx);
+  cTValue *f = index2adr_valid(L, idx);
   TValue *val;
   GCobj *o;
   const char *name;
@@ -2494,7 +2494,7 @@ LUA_API int lua_setfenv(lua_State *L, int idx)
 
 LUA_API const char *lua_setupvalue(lua_State *L, int idx, int n)
 {
-  cTValue *f = index2adr(L, idx);
+  cTValue *f = index2adr_valid(L, idx);
   TValue *val;
   GCobj *o;
   const char *name;

@@ -2307,6 +2307,19 @@ static int setupvalue_missing_value(lua_State *L)
   return 0;
 }
 
+static int getupvalue_invalid_index(lua_State *L)
+{
+  (void)lua_getupvalue(L, 1, 1);
+  return 0;
+}
+
+static int setupvalue_invalid_index(lua_State *L)
+{
+  lua_pushnil(L);
+  (void)lua_setupvalue(L, -2, 1);
+  return 0;
+}
+
 static void push_one_upvalue_closure(lua_State *L)
 {
   int status = luaL_loadstring(L,
@@ -4002,6 +4015,12 @@ static void test_stack_and_number_api(lua_State *L)
   check_fresh_invalid_value(L, setupvalue_missing_value,
 			    "lua_setupvalue rejects missing value",
 			    "lua_setupvalue missing value error");
+  check_fresh_invalid_value(L, getupvalue_invalid_index,
+			    "lua_getupvalue rejects invalid function index",
+			    "lua_getupvalue invalid function index error");
+  check_fresh_invalid_value(L, setupvalue_invalid_index,
+			    "lua_setupvalue rejects invalid function index",
+			    "lua_setupvalue invalid function index error");
   check_fresh_invalid_value(L, upvalueid_invalid_index,
 			    "lua_upvalueid rejects invalid function index",
 			    "lua_upvalueid invalid function index error");
@@ -6417,6 +6436,17 @@ static void test_upvalue_api54(lua_State *L)
 	"lua_getupvalue invalid index");
   check(L, lua_gettop(L) == top + 2,
 	"lua_getupvalue invalid pushes nothing");
+  lua_pushboolean(L, 1);
+  check(L, lua_getupvalue(L, -1, 1) == NULL,
+	"lua_getupvalue non-function returns NULL");
+  check(L, lua_gettop(L) == top + 3,
+	"lua_getupvalue non-function pushes nothing");
+  lua_pushnil(L);
+  check(L, lua_setupvalue(L, -2, 1) == NULL,
+	"lua_setupvalue non-function returns NULL");
+  check(L, lua_gettop(L) == top + 4,
+	"lua_setupvalue non-function preserves value");
+  lua_pop(L, 2);
 
   id1 = lua_upvalueid(L, f1, 1);
   id2 = lua_upvalueid(L, f2, 1);
