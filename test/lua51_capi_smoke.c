@@ -221,6 +221,58 @@ static int capi51_stringtonumber_null_string(lua_State *L)
   return 0;
 }
 
+static int capi51_loadbuffer_null_nonzero(lua_State *L)
+{
+  luaL_loadbuffer(L, NULL, 1, "=null-buffer");
+  return 0;
+}
+
+static int capi51_loadstring_null_string(lua_State *L)
+{
+  luaL_loadstring(L, NULL);
+  return 0;
+}
+
+static int capi51_addlstring_null_nonzero(lua_State *L)
+{
+  luaL_Buffer b;
+  luaL_buffinit(L, &b);
+  luaL_addlstring(&b, NULL, 1);
+  return 0;
+}
+
+static int capi51_addstring_null_string(lua_State *L)
+{
+  luaL_Buffer b;
+  luaL_buffinit(L, &b);
+  luaL_addstring(&b, NULL);
+  return 0;
+}
+
+static int capi51_addgsub_null_subject(lua_State *L)
+{
+  luaL_Buffer b;
+  luaL_buffinit(L, &b);
+  luaL_addgsub(&b, NULL, "x", "y");
+  return 0;
+}
+
+static int capi51_addgsub_null_pattern(lua_State *L)
+{
+  luaL_Buffer b;
+  luaL_buffinit(L, &b);
+  luaL_addgsub(&b, "x", NULL, "y");
+  return 0;
+}
+
+static int capi51_addgsub_null_replacement(lua_State *L)
+{
+  luaL_Buffer b;
+  luaL_buffinit(L, &b);
+  luaL_addgsub(&b, "x", "x", NULL);
+  return 0;
+}
+
 static int capi51_getfield_null_name(lua_State *L)
 {
   lua_newtable(L);
@@ -416,6 +468,18 @@ int main(void)
   lua_pushlstring(L, NULL, 0);
   check(L, lua_objlen(L, -1) == 0, "lua_pushlstring NULL zero length");
   lua_pop(L, 1);
+  status = luaL_loadbuffer(L, NULL, 0, "=empty-null-buffer");
+  check(L, status == LUA_OK, "luaL_loadbuffer accepts NULL zero length");
+  lua_pop(L, 1);
+  {
+    luaL_Buffer b;
+    luaL_buffinit(L, &b);
+    luaL_addlstring(&b, NULL, 0);
+    luaL_pushresult(&b);
+    check(L, lua_objlen(L, -1) == 0,
+	  "luaL_addlstring accepts NULL zero length");
+    lua_pop(L, 1);
+  }
 
   capi51_check_invalid_value(L, capi51_getfield_null_name,
 			     "lua_getfield rejects NULL name",
@@ -432,6 +496,27 @@ int main(void)
   capi51_check_invalid_value(L, capi51_stringtonumber_null_string,
 			     "lua_stringtonumber rejects NULL string",
 			     "lua_stringtonumber NULL string error");
+  capi51_check_invalid_value(L, capi51_loadbuffer_null_nonzero,
+			     "luaL_loadbuffer rejects NULL nonzero buffer",
+			     "luaL_loadbuffer NULL nonzero buffer error");
+  capi51_check_invalid_value(L, capi51_loadstring_null_string,
+			     "luaL_loadstring rejects NULL string",
+			     "luaL_loadstring NULL string error");
+  capi51_check_invalid_value(L, capi51_addlstring_null_nonzero,
+			     "luaL_addlstring rejects NULL nonzero string",
+			     "luaL_addlstring NULL nonzero string error");
+  capi51_check_invalid_value(L, capi51_addstring_null_string,
+			     "luaL_addstring rejects NULL string",
+			     "luaL_addstring NULL string error");
+  capi51_check_invalid_value(L, capi51_addgsub_null_subject,
+			     "luaL_addgsub rejects NULL subject",
+			     "luaL_addgsub NULL subject error");
+  capi51_check_invalid_value(L, capi51_addgsub_null_pattern,
+			     "luaL_addgsub rejects NULL pattern",
+			     "luaL_addgsub NULL pattern error");
+  capi51_check_invalid_value(L, capi51_addgsub_null_replacement,
+			     "luaL_addgsub rejects NULL replacement",
+			     "luaL_addgsub NULL replacement error");
   capi51_check_invalid_value(L, capi51_newmetatable_null_name,
 			     "luaL_newmetatable rejects NULL name",
 			     "luaL_newmetatable NULL name error");

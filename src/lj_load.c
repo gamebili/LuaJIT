@@ -227,6 +227,8 @@ LUALIB_API int luaL_loadbufferx(lua_State *L, const char *buf, size_t size,
 				const char *name, const char *mode)
 {
   StringReaderCtx ctx;
+  if (buf == NULL && size != 0)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   ctx.str = buf;
   ctx.size = size;
   return lua_loadx(L, reader_string, &ctx, name, mode);
@@ -240,6 +242,8 @@ LUALIB_API int luaL_loadbuffer(lua_State *L, const char *buf, size_t size,
 
 LUALIB_API int luaL_loadstring(lua_State *L, const char *s)
 {
+  if (s == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   return luaL_loadbuffer(L, s, strlen(s), s);
 }
 

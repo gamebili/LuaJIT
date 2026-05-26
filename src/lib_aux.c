@@ -220,7 +220,10 @@ LUALIB_API void luaL_addgsub(luaL_Buffer *B, const char *s,
 			     const char *p, const char *r)
 {
   const char *wild;
-  size_t l = strlen(p);
+  size_t l;
+  if (s == NULL || p == NULL || r == NULL)
+    lj_err_msg(B->L, LJ_ERR_BADVAL);
+  l = strlen(p);
   while ((wild = strstr(s, p)) != NULL) {
     luaL_addlstring(B, s, (size_t)(wild - s));  /* push prefix */
     luaL_addstring(B, r);  /* push replacement in place of pattern */
@@ -340,6 +343,8 @@ LUALIB_API char *luaL_prepbuffer(luaL_Buffer *B)
 
 LUALIB_API void luaL_addlstring(luaL_Buffer *B, const char *s, size_t l)
 {
+  if (s == NULL && l != 0)
+    lj_err_msg(B->L, LJ_ERR_BADVAL);
   if (l > 0) {
     char *p = prepbuffsize(B, l, -1);
     memcpy(p, s, l);
@@ -349,6 +354,8 @@ LUALIB_API void luaL_addlstring(luaL_Buffer *B, const char *s, size_t l)
 
 LUALIB_API void luaL_addstring(luaL_Buffer *B, const char *s)
 {
+  if (s == NULL)
+    lj_err_msg(B->L, LJ_ERR_BADVAL);
   luaL_addlstring(B, s, strlen(s));
 }
 
@@ -436,6 +443,10 @@ LUALIB_API char *luaL_prepbuffer(luaL_Buffer *B)
 
 LUALIB_API void luaL_addlstring(luaL_Buffer *B, const char *s, size_t l)
 {
+  if (s == NULL && l != 0)
+    lj_err_msg(B->L, LJ_ERR_BADVAL);
+  if (l == 0)
+    return;
   if (l <= bufffree(B)) {
     memcpy(B->p, s, l);
     B->p += l;
@@ -449,6 +460,8 @@ LUALIB_API void luaL_addlstring(luaL_Buffer *B, const char *s, size_t l)
 
 LUALIB_API void luaL_addstring(luaL_Buffer *B, const char *s)
 {
+  if (s == NULL)
+    lj_err_msg(B->L, LJ_ERR_BADVAL);
   luaL_addlstring(B, s, strlen(s));
 }
 

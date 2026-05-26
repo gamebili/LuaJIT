@@ -3460,6 +3460,58 @@ static int stringtonumber_null_string(lua_State *L)
   return 0;
 }
 
+static int loadbuffer_null_nonzero(lua_State *L)
+{
+  luaL_loadbufferx(L, NULL, 1, "=null-buffer", "t");
+  return 0;
+}
+
+static int loadstring_null_string(lua_State *L)
+{
+  luaL_loadstring(L, NULL);
+  return 0;
+}
+
+static int addlstring_null_nonzero(lua_State *L)
+{
+  luaL_Buffer b;
+  luaL_buffinit(L, &b);
+  luaL_addlstring(&b, NULL, 1);
+  return 0;
+}
+
+static int addstring_null_string(lua_State *L)
+{
+  luaL_Buffer b;
+  luaL_buffinit(L, &b);
+  luaL_addstring(&b, NULL);
+  return 0;
+}
+
+static int addgsub_null_subject(lua_State *L)
+{
+  luaL_Buffer b;
+  luaL_buffinit(L, &b);
+  luaL_addgsub(&b, NULL, "x", "y");
+  return 0;
+}
+
+static int addgsub_null_pattern(lua_State *L)
+{
+  luaL_Buffer b;
+  luaL_buffinit(L, &b);
+  luaL_addgsub(&b, "x", NULL, "y");
+  return 0;
+}
+
+static int addgsub_null_replacement(lua_State *L)
+{
+  luaL_Buffer b;
+  luaL_buffinit(L, &b);
+  luaL_addgsub(&b, "x", "x", NULL);
+  return 0;
+}
+
 static int dump_fail_writer(lua_State *L, const void *p, size_t sz, void *ud)
 {
   int *calls = (int *)ud;
@@ -7357,6 +7409,7 @@ static void test_lauxlib_api(lua_State *L)
   luaL_addchar(&b, 'L');
   luaL_addlstring(&b, "ua", 2);
   luaL_addstring(&b, "54");
+  luaL_addlstring(&b, NULL, 0);
   lua_pushliteral(L, "!");
   luaL_addvalue(&b);
   luaL_pushresult(&b);
@@ -7405,6 +7458,22 @@ static void test_lauxlib_api(lua_State *L)
   check_string(L, -1, "aLua54$Lua54", "luaL_addgsub result");
   lua_pop(L, 1);
 
+  check_fresh_invalid_value(L, addlstring_null_nonzero,
+			    "luaL_addlstring rejects NULL nonzero string",
+			    "luaL_addlstring NULL nonzero string error");
+  check_fresh_invalid_value(L, addstring_null_string,
+			    "luaL_addstring rejects NULL string",
+			    "luaL_addstring NULL string error");
+  check_fresh_invalid_value(L, addgsub_null_subject,
+			    "luaL_addgsub rejects NULL subject",
+			    "luaL_addgsub NULL subject error");
+  check_fresh_invalid_value(L, addgsub_null_pattern,
+			    "luaL_addgsub rejects NULL pattern",
+			    "luaL_addgsub NULL pattern error");
+  check_fresh_invalid_value(L, addgsub_null_replacement,
+			    "luaL_addgsub rejects NULL replacement",
+			    "luaL_addgsub NULL replacement error");
+
   status = luaL_loadbufferx(L, "return 54", 9, "=capi-buffer", "t");
   check(L, status == LUA_OK, "luaL_loadbufferx text mode");
   lua_call(L, 0, 1);
@@ -7416,6 +7485,16 @@ static void test_lauxlib_api(lua_State *L)
   lua_call(L, 0, 1);
   check_integer(L, -1, 55, "luaL_loadbuffer macro result");
   lua_pop(L, 1);
+
+  status = luaL_loadbufferx(L, NULL, 0, "=empty-null-buffer", "t");
+  check(L, status == LUA_OK, "luaL_loadbufferx accepts NULL zero length");
+  lua_pop(L, 1);
+  check_fresh_invalid_value(L, loadbuffer_null_nonzero,
+			    "luaL_loadbufferx rejects NULL nonzero buffer",
+			    "luaL_loadbufferx NULL nonzero buffer error");
+  check_fresh_invalid_value(L, loadstring_null_string,
+			    "luaL_loadstring rejects NULL string",
+			    "luaL_loadstring NULL string error");
 
   status = luaL_loadbufferx(L, "return 54", 9, "=capi-buffer", "b");
   check(L, status == LUA_ERRSYNTAX, "luaL_loadbufferx binary mode rejects text");
