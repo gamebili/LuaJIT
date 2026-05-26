@@ -75,6 +75,8 @@ LUA_API int lua_loadx(lua_State *L, lua_Reader reader, void *data,
 {
   LexState ls;
   int status;
+  if (reader == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   ls.rfunc = reader;
   ls.rdata = data;
   ls.chunkarg = chunkname ? chunkname : "?";
@@ -248,6 +250,8 @@ static int dump_lua_func(lua_State *L, lua_Writer writer, void *data,
 {
   cTValue *o = L->top-1;
   if (L->top <= L->base)
+    lj_err_msg(L, LJ_ERR_BADVAL);
+  if (writer == NULL)
     lj_err_msg(L, LJ_ERR_BADVAL);
   lj_checkapi(L->top > L->base, "top slot empty");
   if (tvisfunc(o) && isluafunc(funcV(o)))

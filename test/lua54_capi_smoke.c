@@ -3352,6 +3352,20 @@ static int dump_empty_stack(lua_State *L)
   return 0;
 }
 
+static int dump_null_writer(lua_State *L)
+{
+  check(L, luaL_loadstring(L, "return 54") == LUA_OK,
+	"lua_dump NULL writer setup");
+  lua_dump_sig(L, NULL, NULL, 0);
+  return 0;
+}
+
+static int load_null_reader(lua_State *L)
+{
+  lua_load_sig(L, NULL, NULL, "=null-reader", "t");
+  return 0;
+}
+
 static int dump_fail_writer(lua_State *L, const void *p, size_t sz, void *ud)
 {
   int *calls = (int *)ud;
@@ -7340,6 +7354,10 @@ static void test_lauxlib_api(lua_State *L)
 		  "attempt to load a text chunk (mode is 'b')") != NULL,
 	"lua_load wrong mode error");
   lua_pop(L, 1);
+
+  check_fresh_invalid_value(L, load_null_reader,
+			    "lua_load rejects NULL reader",
+			    "lua_load NULL reader error");
 }
 
 static void test_dump_api(lua_State *L)
@@ -7378,6 +7396,9 @@ static void test_dump_api(lua_State *L)
   check_fresh_invalid_value(L, dump_empty_stack,
 			    "lua_dump rejects empty stack",
 			    "lua_dump empty stack error");
+  check_fresh_invalid_value(L, dump_null_writer,
+			    "lua_dump rejects NULL writer",
+			    "lua_dump NULL writer error");
 
   status = luaL_loadbufferx(L, stripped.data, stripped.len, "=dumped", "b");
   check(L, status == LUA_OK, "lua_dump stripped reload");

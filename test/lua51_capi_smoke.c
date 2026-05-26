@@ -95,6 +95,20 @@ static int capi51_dump_empty_stack(lua_State *L)
   return 0;
 }
 
+static int capi51_dump_null_writer(lua_State *L)
+{
+  check(L, luaL_loadstring(L, "return 51") == LUA_OK,
+	"lua_dump NULL writer setup");
+  lua_dump(L, NULL, NULL);
+  return 0;
+}
+
+static int capi51_load_null_reader(lua_State *L)
+{
+  lua_load(L, NULL, NULL, "=null-reader");
+  return 0;
+}
+
 static int capi51_concat_negative_count(lua_State *L)
 {
   lua_concat(L, -1);
@@ -362,6 +376,20 @@ int main(void)
   check(L, status == LUA_ERRRUN, "lua_dump rejects empty stack");
   check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
 	"lua_dump empty stack error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_dump_null_writer);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_dump rejects NULL writer");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_dump NULL writer error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_load_null_reader);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_load rejects NULL reader");
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
+	"lua_load NULL reader error");
   lua_pop(L, 1);
 
   lua_pushcfunction(L, capi51_concat_negative_count);
