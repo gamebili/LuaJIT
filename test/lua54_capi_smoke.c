@@ -747,6 +747,12 @@ static int setallocf_null_function(lua_State *L)
   return 0;
 }
 
+static int warning_null_message(lua_State *L)
+{
+  lua_warning(L, NULL, 0);
+  return 0;
+}
+
 static int raise_after_big_buffer(lua_State *L)
 {
   luaL_Buffer b;
@@ -8072,6 +8078,9 @@ static void test_warning_and_gc_api(lua_State *L)
   lua_warning(L, "captured", 0);
   check(L, strcmp(warning_buf, "captured") == 0 && warning_tocont == 0,
 	"lua_warning callback");
+  check_fresh_invalid_value(L, warning_null_message,
+			    "lua_warning rejects NULL message",
+			    "lua_warning NULL message error");
 
   check(L, lua_gc(L, LUA_GCCOLLECT) == 0, "lua_gc vararg collect");
   (void)lua_gc(L, LUA_GCCOUNT);

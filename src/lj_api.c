@@ -3430,6 +3430,8 @@ LUA_API void lua_setwarnf(lua_State *L, lua_WarnFunction f, void *ud)
 LUA_API void lua_warning(lua_State *L, const char *msg, int tocont)
 {
   global_State *g = G(L);
+  if (msg == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   if (g->warnf) {
     g->warnf(g->warnud, msg, tocont);
   } else if (g->warn_disabled) {
