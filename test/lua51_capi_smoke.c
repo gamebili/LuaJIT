@@ -76,6 +76,28 @@ static int capi51_typerror(lua_State *L)
   return luaL_typerror(L, 1, "number");
 }
 
+static int capi51_typerror_null_name(lua_State *L)
+{
+  lua_pushnil(L);
+  return luaL_typerror(L, 1, NULL);
+}
+
+static int capi51_typeerror_null_name(lua_State *L)
+{
+  lua_pushnil(L);
+  return luaL_typeerror(L, 1, NULL);
+}
+
+static int capi51_argerror_null_message(lua_State *L)
+{
+  return luaL_argerror(L, 1, NULL);
+}
+
+static int capi51_laux_error_null_format(lua_State *L)
+{
+  return luaL_error(L, NULL);
+}
+
 static int capi51_cpcall(lua_State *L)
 {
   lua_pushstring(L, (const char *)lua_touserdata(L, 1));
@@ -699,6 +721,18 @@ int main(void)
   capi51_check_invalid_value(L, capi51_setfuncs_null_list,
 			     "luaL_setfuncs rejects NULL list",
 			     "luaL_setfuncs NULL list error");
+  capi51_check_invalid_value(L, capi51_typerror_null_name,
+			     "luaL_typerror rejects NULL expected name",
+			     "luaL_typerror NULL expected name error");
+  capi51_check_invalid_value(L, capi51_typeerror_null_name,
+			     "luaL_typeerror rejects NULL expected name",
+			     "luaL_typeerror NULL expected name error");
+  capi51_check_invalid_value(L, capi51_argerror_null_message,
+			     "luaL_argerror rejects NULL message",
+			     "luaL_argerror NULL message error");
+  capi51_check_invalid_value(L, capi51_laux_error_null_format,
+			     "luaL_error rejects NULL format",
+			     "luaL_error NULL format error");
   capi51_check_invalid_value(L, capi51_setfuncs_negative_upvalues,
 			     "luaL_setfuncs rejects negative upvalues",
 			     "luaL_setfuncs negative upvalues error");

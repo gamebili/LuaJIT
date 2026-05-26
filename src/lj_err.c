@@ -1136,6 +1136,8 @@ LJ_NOINLINE void lj_err_arg(lua_State *L, int narg, ErrMsg em)
 LJ_NOINLINE void lj_err_argtype(lua_State *L, int narg, const char *xname)
 {
   const char *tname, *msg;
+  if (xname == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   if (narg <= LUA_REGISTRYINDEX) {
     if (narg >= LUA_GLOBALSINDEX) {
       tname = lj_obj_itypename[~LJ_TTAB];
@@ -1189,6 +1191,8 @@ LUA_API int lua_error(lua_State *L)
 
 LUALIB_API int luaL_argerror(lua_State *L, int narg, const char *msg)
 {
+  if (msg == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   err_argmsg(L, narg, msg);
   return 0;  /* unreachable */
 }
@@ -1210,6 +1214,8 @@ LUALIB_API int luaL_error(lua_State *L, const char *fmt, ...)
 {
   const char *msg;
   va_list argp;
+  if (fmt == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
 #if LJ_54
   /* Official luaL_error() prefixes through luaL_where(), which suppresses
   ** stripped chunk locations with currentline == -1. VM runtime errors still

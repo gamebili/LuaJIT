@@ -74,6 +74,7 @@
    - 当前进展：C API smoke 已固定 `lua_setmetatable()` 非 table metatable、默认 ABI `lua_setfenv()` 非 table env，以及 `lua_replace(LUA_GLOBALSINDEX/LUA_ENVIRONINDEX)` 非 table value 在 release 构建下统一报 `invalid value`。
    - 当前进展：C API smoke 已固定 `lua_dump()` 空栈调用在 Lua 5.4 wrapper 和默认 LuaJIT 5.1 ABI 下都会稳定报 `invalid value`，不再只依赖 debug-only `lj_checkapi` 避免读取空 top slot。
    - 当前进展：C API smoke 已固定 `lua_concat(L, -1)` 在 Lua 5.4 wrapper 和默认 LuaJIT 5.1 ABI 下都会稳定报 `invalid value`；`lua_concat(L, 0)` 仍按官方语义压入空字符串。
+   - 当前进展：C API smoke 已固定 `luaL_error(NULL)`、`luaL_argerror(NULL message)`、`luaL_typeerror(NULL expected)` / 默认 ABI `luaL_typerror(NULL expected)` 和 `luaL_argexpected(..., NULL)` 的 lauxlib release 边界；这些入口会稳定报 `invalid value`，不再解引用空格式串或把 NULL 期望类型名格式化成普通参数错误。
 
 ## P0：核心语义缺口
 
@@ -627,6 +628,7 @@
 
 ## 当前验证结果
 
+- `cmd /c build.bat default` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 lauxlib 错误入口 NULL 指针 release C API 边界；默认 ABI smoke、Lua 5.4 compat smoke、官方 Lua 5.4.8 矩阵和 C API smoke 均保持通过。
 - `cmd /c build.bat lua54` 和 `cmd /c build.bat default` 已通过，覆盖本轮新增 `lua_len()` 无效栈索引 release C API 边界，并确认 `table.unpack()` 缺参仍保留 Lua 5.4 的 nil 长度错误文本；同时保持本轮 file method `seek` / `setvbuf` 参数编号和 tail-position 调用点名回归。
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `lua_rotate()` too-large / `INT_MIN` 旋转数量 release C API 边界；默认 ABI smoke、Lua 5.4 compat smoke、官方 Lua 5.4.8 矩阵和 C API smoke 均保持通过。
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增默认 ABI `lua_cpcall(NULL)`、debug API NULL 参数和 `lua_setlocal()` 不存在 local 不弹栈的 C API 边界；默认 ABI smoke、Lua 5.4 compat smoke、官方 Lua 5.4.8 矩阵和 C API smoke 均保持通过。

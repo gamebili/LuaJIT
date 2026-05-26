@@ -3176,9 +3176,20 @@ static int laux_argexpected_table_arg(lua_State *L)
   return 0;
 }
 
+static int laux_argexpected_null_name(lua_State *L)
+{
+  luaL_argexpected(L, 0, 1, NULL);
+  return 0;
+}
+
 static int laux_argerror_fail(lua_State *L)
 {
   return luaL_argerror(L, 1, "explicit laux failure");
+}
+
+static int laux_argerror_null_message(lua_State *L)
+{
+  return luaL_argerror(L, 1, NULL);
 }
 
 static int laux_argerror_negative_arg(lua_State *L)
@@ -3198,6 +3209,12 @@ static int laux_checkthread_arg(lua_State *L)
 {
   luaL_checktype(L, 1, LUA_TTHREAD);
   return 0;
+}
+
+static int laux_typeerror_null_name(lua_State *L)
+{
+  lua_pushnil(L);
+  return luaL_typeerror(L, 1, NULL);
 }
 
 static int laux_checktype_invalid_expected_low(lua_State *L)
@@ -3254,6 +3271,11 @@ static int laux_error_wide_integer_arg(lua_State *L)
 {
   lua_Integer big40 = (lua_Integer)1024 * 1024 * 1024 * 1024;
   return luaL_error(L, "laux big %I", big40);
+}
+
+static int laux_error_null_format(lua_State *L)
+{
+  return luaL_error(L, NULL);
 }
 
 static int traceback_null_thread(lua_State *L)
@@ -7258,6 +7280,10 @@ static void test_lauxlib_api(lua_State *L)
 	"luaL_argexpected light userdata name");
   lua_pop(L, 1);
 
+  check_fresh_invalid_value(L, laux_argexpected_null_name,
+			    "luaL_argexpected rejects NULL expected name",
+			    "luaL_argexpected NULL expected name error");
+
   lua_pushcfunction(L, laux_argerror_fail);
   lua_setglobal(L, "capi_argerror_fail");
   status = luaL_loadstring(L, "capi_argerror_fail(false)");
@@ -7269,6 +7295,10 @@ static void test_lauxlib_api(lua_State *L)
 	   strstr(lua_tostring(L, -1), "explicit laux failure") != NULL,
 	"luaL_argerror source global call name");
   lua_pop(L, 1);
+
+  check_fresh_invalid_value(L, laux_argerror_null_message,
+			    "luaL_argerror rejects NULL message",
+			    "luaL_argerror NULL message error");
 
   lua_pushcfunction(L, laux_argerror_negative_arg);
   lua_setglobal(L, "capi_argerror_negative_arg");
@@ -7348,6 +7378,10 @@ static void test_lauxlib_api(lua_State *L)
   check(L, strstr(lua_tostring(L, -1), "thread expected, got table") != NULL,
 	"luaL_typeerror numeric __name fallback");
   lua_pop(L, 1);
+
+  check_fresh_invalid_value(L, laux_typeerror_null_name,
+			    "luaL_typeerror rejects NULL expected name",
+			    "luaL_typeerror NULL expected name error");
 
   lua_pushcfunction(L, checkudata_arg);
   lua_pushinteger(L, 54);
@@ -7785,6 +7819,10 @@ static void test_lauxlib_api(lua_State *L)
 	  "luaL_error wide integer message");
     lua_pop(L, 1);
   }
+
+  check_fresh_invalid_value(L, laux_error_null_format,
+			    "luaL_error rejects NULL format",
+			    "luaL_error NULL format error");
 
   luaL_traceback(L, L, "trace-msg", 0);
   check(L, strstr(lua_tostring(L, -1), "trace-msg") != NULL,

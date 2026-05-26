@@ -621,6 +621,8 @@ LUALIB_API int luaL_typeerror(lua_State *L, int narg, const char *tname)
 {
   int idx = lua_absindex(L, narg);
   const char *typearg;
+  if (tname == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   if (luaL_getmetafield(L, idx, "__name")) {
     typearg = lua_tostring(L, -1);
     if (typearg == NULL) {
