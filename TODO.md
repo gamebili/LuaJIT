@@ -427,7 +427,7 @@
   - 当前进展：Lua 5.4 兼容模式下 `luaL_checkinteger()` / `luaL_optinteger()` 已拒绝无整数表示的 number，并进入 C API smoke。
 - 当前进展：`luaL_pushresultsize()` / `luaL_buffinitsize()` 已按官方 Lua 5.4 暴露为可取函数指针的真实 lauxlib 函数；默认构建仍保留 LuaJIT 旧宏表面。
 - 当前进展：`luaL_setfuncs()` 已补官方 Lua 5.4 `{name, NULL}` 占位项语义，会把目标字段设为 `false`，且不会为 placeholder 复制或消耗共享 upvalue。
-- 当前进展：`luaL_setfuncs()` 已补 `NULL` 函数列表和负 upvalue 数的 release 边界；默认 ABI 的旧 `luaL_openlib()` 也会拒绝负 upvalue 数，避免非法 `nup` 走到错误栈调整路径。
+- 当前进展：`luaL_setfuncs()` 已补 `NULL` 函数列表、负 upvalue 数、缺目标对象和缺共享 upvalue 的 release 边界；默认 ABI 的旧 `luaL_openlib()` 也会拒绝负 upvalue 数和缺共享 upvalue，且失败前不会发布半初始化模块表，避免非法 `nup` 走到错误栈调整路径。
 - 当前进展：Lua 5.4 兼容构建下 `luaL_getmetafield()` 已按官方返回被压入 metafield 的实际类型码，例如 `__name` 字符串返回 `LUA_TSTRING`；同时确认该 helper 对 metatable 字段使用 raw lookup，metatable 自己的 `__index` 不会参与缺失字段查找；默认 LuaJIT 构建继续保留旧 1/0 表面。
 - 当前进展：Lua 5.4 兼容构建下 `luaL_ref()` / `luaL_unref()` 的 freelist 已从旧 Lua 5.1 key `0` 移到 `LUA_RIDX_LAST + 1`，并在首次使用时初始化为 `0`；这保留官方 freed ref slot 链到整数 `0` 的行为，同时允许用户 ref table 自己安全使用 key `0`。
 - 当前进展：`luaL_checkversion_()` 的 version mismatch 错误已按 Lua 5.4 把版本号格式化为 Lua number 文本，例如 `503.0` / `504.0`，不再用旧整数 `%d` 文本。

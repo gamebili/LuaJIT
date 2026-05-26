@@ -145,6 +145,8 @@ LUALIB_API void luaL_openlib(lua_State *L, const char *libname,
   lj_lib_checkfpu(L);
   if (nup < 0)
     lj_err_msg(L, LJ_ERR_BADVAL);
+  if (lua_gettop(L) < nup)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   if (libname) {
     luaL_pushmodule(L, libname, libsize(l));
     lua_insert(L, -(nup + 1));  /* Move module table below upvalues. */
@@ -166,6 +168,8 @@ LUALIB_API void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup)
   if (l == NULL || nup < 0)
     lj_err_msg(L, LJ_ERR_BADVAL);
   luaL_checkstack(L, nup, "too many upvalues");
+  if (lua_gettop(L) < nup + 1)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   for (; l->name; l++) {
     if (LJ_54 && l->func == NULL) {
       /* Lua 5.4 uses NULL luaL_Reg entries as false placeholders; do not

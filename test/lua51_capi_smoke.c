@@ -508,9 +508,28 @@ static int capi51_setfuncs_negative_upvalues(lua_State *L)
   return 0;
 }
 
+static int capi51_setfuncs_missing_target(lua_State *L)
+{
+  luaL_setfuncs(L, capi51_reg, 0);
+  return 0;
+}
+
+static int capi51_setfuncs_missing_upvalue(lua_State *L)
+{
+  lua_newtable(L);
+  luaL_setfuncs(L, capi51_reg, 1);
+  return 0;
+}
+
 static int capi51_openlib_negative_upvalues(lua_State *L)
 {
   luaL_openlib(L, NULL, capi51_reg, -1);
+  return 0;
+}
+
+static int capi51_openlib_missing_upvalue(lua_State *L)
+{
+  luaL_openlib(L, "capi51.partialopen", capi51_reg, 1);
   return 0;
 }
 
@@ -660,9 +679,25 @@ int main(void)
   capi51_check_invalid_value(L, capi51_setfuncs_negative_upvalues,
 			     "luaL_setfuncs rejects negative upvalues",
 			     "luaL_setfuncs negative upvalues error");
+  capi51_check_invalid_value(L, capi51_setfuncs_missing_target,
+			     "luaL_setfuncs rejects missing target",
+			     "luaL_setfuncs missing target error");
+  capi51_check_invalid_value(L, capi51_setfuncs_missing_upvalue,
+			     "luaL_setfuncs rejects missing upvalue",
+			     "luaL_setfuncs missing upvalue error");
   capi51_check_invalid_value(L, capi51_openlib_negative_upvalues,
 			     "luaL_openlib rejects negative upvalues",
 			     "luaL_openlib negative upvalues error");
+  capi51_check_invalid_value(L, capi51_openlib_missing_upvalue,
+			     "luaL_openlib rejects missing upvalue",
+			     "luaL_openlib missing upvalue error");
+  lua_getfield(L, LUA_REGISTRYINDEX, "_LOADED");
+  if (lua_istable(L, -1)) {
+    lua_getfield(L, -1, "capi51.partialopen");
+    check(L, lua_isnil(L, -1), "luaL_openlib failure is not published");
+    lua_pop(L, 1);
+  }
+  lua_pop(L, 1);
   capi51_check_invalid_value(L, capi51_getupvalue_invalid_index,
 			     "lua_getupvalue rejects invalid function index",
 			     "lua_getupvalue invalid function index error");
