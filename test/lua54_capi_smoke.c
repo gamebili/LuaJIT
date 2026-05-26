@@ -3859,6 +3859,51 @@ static int addstring_null_string(lua_State *L)
   return 0;
 }
 
+static int buffer_prep_missing_placeholder(lua_State *L)
+{
+  luaL_Buffer b;
+  luaL_buffinit(L, &b);
+  lua_pop(L, 1);
+  (void)luaL_prepbuffsize(&b, 1);
+  return 0;
+}
+
+static int buffer_prep_wrong_placeholder(lua_State *L)
+{
+  luaL_Buffer b;
+  luaL_buffinit(L, &b);
+  lua_pop(L, 1);
+  lua_pushlightuserdata(L, (void *)L);
+  (void)luaL_prepbuffsize(&b, 1);
+  return 0;
+}
+
+static int buffer_pushresult_missing_placeholder(lua_State *L)
+{
+  luaL_Buffer b;
+  luaL_buffinit(L, &b);
+  lua_pop(L, 1);
+  luaL_pushresult(&b);
+  return 0;
+}
+
+static int buffer_addvalue_missing_value(lua_State *L)
+{
+  luaL_Buffer b;
+  luaL_buffinit(L, &b);
+  luaL_addvalue(&b);
+  return 0;
+}
+
+static int buffer_addvalue_bad_value(lua_State *L)
+{
+  luaL_Buffer b;
+  luaL_buffinit(L, &b);
+  lua_pushboolean(L, 1);
+  luaL_addvalue(&b);
+  return 0;
+}
+
 static int addgsub_null_subject(lua_State *L)
 {
   luaL_Buffer b;
@@ -7879,6 +7924,21 @@ static void test_lauxlib_api(lua_State *L)
   check_fresh_invalid_value(L, addstring_null_string,
 			    "luaL_addstring rejects NULL string",
 			    "luaL_addstring NULL string error");
+  check_fresh_invalid_value(L, buffer_prep_missing_placeholder,
+			    "luaL_prepbuffsize rejects missing placeholder",
+			    "luaL_prepbuffsize missing placeholder error");
+  check_fresh_invalid_value(L, buffer_prep_wrong_placeholder,
+			    "luaL_prepbuffsize rejects wrong placeholder",
+			    "luaL_prepbuffsize wrong placeholder error");
+  check_fresh_invalid_value(L, buffer_pushresult_missing_placeholder,
+			    "luaL_pushresult rejects missing placeholder",
+			    "luaL_pushresult missing placeholder error");
+  check_fresh_invalid_value(L, buffer_addvalue_missing_value,
+			    "luaL_addvalue rejects missing value",
+			    "luaL_addvalue missing value error");
+  check_fresh_invalid_value(L, buffer_addvalue_bad_value,
+			    "luaL_addvalue rejects non-string value",
+			    "luaL_addvalue non-string value error");
   check_fresh_invalid_value(L, addgsub_null_subject,
 			    "luaL_addgsub rejects NULL subject",
 			    "luaL_addgsub NULL subject error");

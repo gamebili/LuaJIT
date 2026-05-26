@@ -410,9 +410,9 @@ static const char *searchpath (lua_State *L, const char *name,
   const char *pathend = path + strlen(path);
   int first = 1;
 #endif
-  luaL_buffinit(L, &msg);
   if (*sep != '\0')  /* non-empty separator? */
     name = luaL_gsub(L, name, sep, dirsep);  /* replace it by 'dirsep' */
+  luaL_buffinit(L, &msg);
 #if LJ_54
   /* Lua 5.4 treats even an empty path as one empty template, so the public
   ** error fragment is "no file ''" instead of an empty string.
@@ -430,10 +430,9 @@ static const char *searchpath (lua_State *L, const char *name,
     /* Lua 5.4 searchers return plain error fragments; require() adds the
     ** leading newline/tab when it assembles the final module-not-found error.
     */
-    if (!first)
-      luaL_addstring(&msg, "\n\t");
+    lua_pushfstring(L, first ? "no file " LUA_QS :
+			      "\n\tno file " LUA_QS, filename);
     first = 0;
-    lua_pushfstring(L, "no file " LUA_QS, filename);
 #else
     lua_pushfstring(L, "\n\tno file " LUA_QS, filename);
 #endif

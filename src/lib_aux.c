@@ -300,6 +300,42 @@ static void newbox(lua_State *L)
 
 #define buffonstack(B)	((B)->b != (B)->init.b)
 
+static int bufferidxvalid(lua_State *L, int idx)
+{
+  int top = lua_gettop(L);
+  return idx > 0 ? idx <= top : idx < 0 && idx >= -top;
+}
+
+static int bufferboxvalid(lua_State *L, int idx)
+{
+  int absidx = lua_absindex(L, idx);
+  int ok;
+  if (lua_type(L, absidx) != LUA_TUSERDATA)
+    return 0;
+  if (!lua_getmetatable(L, absidx))
+    return 0;
+  luaL_getmetatable(L, "_UBOX*");
+  ok = lua_rawequal(L, -1, -2);
+  lua_pop(L, 2);
+  return ok;
+}
+
+static void checkbufferlevel(luaL_Buffer *B, int idx)
+{
+  lua_State *L = B->L;
+  int absidx;
+  if (!bufferidxvalid(L, idx))
+    lj_err_msg(L, LJ_ERR_BADVAL);
+  absidx = lua_absindex(L, idx);
+  if (buffonstack(B)) {
+    if (!bufferboxvalid(L, absidx))
+      lj_err_msg(L, LJ_ERR_BADVAL);
+  } else if (lua_type(L, absidx) != LUA_TLIGHTUSERDATA ||
+	     lua_touserdata(L, absidx) != (void *)B) {
+    lj_err_msg(L, LJ_ERR_BADVAL);
+  }
+}
+
 static size_t newbuffsize(luaL_Buffer *B, size_t sz)
 {
   size_t newsize = (B->size / 2) * 3;
@@ -312,6 +348,7 @@ static size_t newbuffsize(luaL_Buffer *B, size_t sz)
 
 static char *prepbuffsize(luaL_Buffer *B, size_t sz, int boxidx)
 {
+  checkbufferlevel(B, boxidx);
   if (bufffree(B) >= sz) {
     return B->b + B->n;
   } else {
@@ -370,6 +407,7 @@ LUALIB_API void luaL_addstring(luaL_Buffer *B, const char *s)
 LUALIB_API void luaL_pushresult(luaL_Buffer *B)
 {
   lua_State *L = B->L;
+  checkbufferlevel(B, -1);
   lua_pushlstring(L, B->b, B->n);
   if (B->b != B->init.b)
     lua_closeslot(L, -2);
@@ -386,8 +424,13 @@ LUALIB_API void luaL_addvalue(luaL_Buffer *B)
 {
   lua_State *L = B->L;
   size_t vl;
-  const char *s = lua_tolstring(L, -1, &vl);
-  char *p = prepbuffsize(B, vl, -2);
+  const char *s;
+  char *p;
+  checkbufferlevel(B, -2);
+  s = lua_tolstring(L, -1, &vl);
+  if (s == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
+  p = prepbuffsize(B, vl, -2);
   memcpy(p, s, vl);
   B->n += vl;
   lua_pop(L, 1);
@@ -484,7 +527,12 @@ LUALIB_API void luaL_addvalue(luaL_Buffer *B)
 {
   lua_State *L = B->L;
   size_t vl;
-  const char *s = lua_tolstring(L, -1, &vl);
+  const char *s;
+  if (lua_gettop(L) < 1)
+    lj_err_msg(L, LJ_ERR_BADVAL);
+  s = lua_tolstring(L, -1, &vl);
+  if (s == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   if (vl <= bufffree(B)) {  /* fit into buffer? */
     memcpy(B->p, s, vl);  /* put it there */
     B->p += vl;

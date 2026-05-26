@@ -308,6 +308,23 @@ static int capi51_addstring_null_string(lua_State *L)
   return 0;
 }
 
+static int capi51_addvalue_missing_value(lua_State *L)
+{
+  luaL_Buffer b;
+  luaL_buffinit(L, &b);
+  luaL_addvalue(&b);
+  return 0;
+}
+
+static int capi51_addvalue_bad_value(lua_State *L)
+{
+  luaL_Buffer b;
+  luaL_buffinit(L, &b);
+  lua_pushboolean(L, 1);
+  luaL_addvalue(&b);
+  return 0;
+}
+
 static int capi51_addgsub_null_subject(lua_State *L)
 {
   luaL_Buffer b;
@@ -631,6 +648,12 @@ int main(void)
   capi51_check_invalid_value(L, capi51_addstring_null_string,
 			     "luaL_addstring rejects NULL string",
 			     "luaL_addstring NULL string error");
+  capi51_check_invalid_value(L, capi51_addvalue_missing_value,
+			     "luaL_addvalue rejects missing value",
+			     "luaL_addvalue missing value error");
+  capi51_check_invalid_value(L, capi51_addvalue_bad_value,
+			     "luaL_addvalue rejects non-string value",
+			     "luaL_addvalue non-string value error");
   capi51_check_invalid_value(L, capi51_addgsub_null_subject,
 			     "luaL_addgsub rejects NULL subject",
 			     "luaL_addgsub NULL subject error");
