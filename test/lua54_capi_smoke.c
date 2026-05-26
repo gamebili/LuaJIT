@@ -1971,6 +1971,46 @@ static int pushcclosure_null_function(lua_State *L)
   return 1;
 }
 
+static int getinfo_null_what(lua_State *L)
+{
+  lua_Debug ar;
+  lua_getinfo(L, NULL, &ar);
+  return 0;
+}
+
+static int getinfo_null_debug(lua_State *L)
+{
+  lua_getinfo(L, "S", NULL);
+  return 0;
+}
+
+static int getstack_null_debug(lua_State *L)
+{
+  lua_getstack(L, 0, NULL);
+  return 0;
+}
+
+static int setlocal_null_debug(lua_State *L)
+{
+  lua_pushnil(L);
+  lua_setlocal(L, NULL, 1);
+  return 0;
+}
+
+static int setlocal_missing_name_preserves_stack(lua_State *L)
+{
+  lua_Debug ar;
+  int top;
+  check(L, lua_getstack(L, 0, &ar), "lua_setlocal missing-name setup");
+  lua_pushliteral(L, "sentinel");
+  top = lua_gettop(L);
+  check(L, lua_setlocal(L, &ar, 9999) == NULL,
+	"lua_setlocal missing name returns NULL");
+  check(L, lua_gettop(L) == top, "lua_setlocal missing name preserves stack");
+  lua_pop(L, 1);
+  return 0;
+}
+
 static int xmove_negative_count(lua_State *L)
 {
   lua_State *co = lua_newthread(L);
@@ -7760,6 +7800,25 @@ static void test_warning_and_gc_api(lua_State *L)
   check(L, status == LUA_OK, "lua_gc rejects C API reentry in finalizer");
   lua_pushnil(L);
   lua_setglobal(L, "capi_gc_reentry");
+
+  check(L, lua_getlocal(L, NULL, 1) == NULL,
+	"lua_getlocal NULL debug without function returns NULL");
+  check_fresh_invalid_value(L, getinfo_null_what,
+			    "lua_getinfo rejects NULL what",
+			    "lua_getinfo NULL what error");
+  check_fresh_invalid_value(L, getinfo_null_debug,
+			    "lua_getinfo rejects NULL debug record",
+			    "lua_getinfo NULL debug record error");
+  check_fresh_invalid_value(L, getstack_null_debug,
+			    "lua_getstack rejects NULL debug record",
+			    "lua_getstack NULL debug record error");
+  check_fresh_invalid_value(L, setlocal_null_debug,
+			    "lua_setlocal rejects NULL debug record",
+			    "lua_setlocal NULL debug record error");
+
+  lua_pushcfunction(L, setlocal_missing_name_preserves_stack);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_OK, "lua_setlocal missing name preserves stack");
 
   memset(&ar, 0, sizeof(ar));
   lua_pushcfunction(L, push_answer);

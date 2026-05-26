@@ -774,7 +774,8 @@ LUA_API const char *lua_getlocal(lua_State *L, const lua_Debug *ar, int n)
       copyTV(L, L->top, o);
       incr_top(L);
     }
-  } else if (tvisfunc(L->top-1) && isluafunc(funcV(L->top-1))) {
+  } else if (L->top > L->base &&
+	     tvisfunc(L->top-1) && isluafunc(funcV(L->top-1))) {
     name = debug_varname(funcproto(funcV(L->top-1)), 0, (BCReg)n-1);
   }
   return name;
@@ -783,10 +784,16 @@ LUA_API const char *lua_getlocal(lua_State *L, const lua_Debug *ar, int n)
 LUA_API const char *lua_setlocal(lua_State *L, const lua_Debug *ar, int n)
 {
   const char *name = NULL;
-  TValue *o = debug_localname(L, ar, &name, (BCReg)n);
-  if (name)
+  TValue *o;
+  if (ar == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
+  o = debug_localname(L, ar, &name, (BCReg)n);
+  if (name) {
+    if (L->top <= L->base)
+      lj_err_msg(L, LJ_ERR_BADVAL);
     copyTV(L, o, L->top-1);
-  L->top--;
+    L->top--;
+  }
   return name;
 }
 
@@ -953,6 +960,8 @@ int lj_debug_getinfo(lua_State *L, const char *what, lj_Debug *ar, int ext)
 
 LUA_API int lua_getinfo(lua_State *L, const char *what, lua_Debug *ar)
 {
+  if (what == NULL || ar == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   return lj_debug_getinfo(L, what, (lj_Debug *)ar, 1);
 }
 
@@ -960,6 +969,8 @@ LUA_API int lua_getstack(lua_State *L, int level, lua_Debug *ar)
 {
   int size;
   cTValue *frame = lj_debug_frame(L, level, &size);
+  if (ar == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   if (frame) {
     ar->i_ci = LJ_DEBUG_CI_ENCODE((size << 16) + (int)(frame - tvref(L->stack)));
     return 1;

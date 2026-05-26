@@ -67,6 +67,7 @@
    - 当前进展：C API smoke 已固定 `lua_load()` / `lua_loadx()` 的 reader 函数指针和 `lua_dump()` 的 writer 函数指针边界；传入 `NULL` 会稳定报 `invalid value`，不再让 load/dump 回调路径解引用空函数指针。
    - 当前进展：C API smoke 已固定 `lua_getfield()` / `lua_setfield()` / `lua_getglobal()` / `lua_setglobal()`、`lua_stringtonumber()` 以及 lauxlib 元表/模块名入口的 NULL C 字符串边界；传入 `NULL` 会稳定报 `invalid value`，不再让字段名、模块名或元表名路径解引用空指针。
    - 当前进展：C API smoke 已固定 `luaL_loadbufferx()` / `luaL_loadstring()` 和 `luaL_addlstring()` / `luaL_addstring()` / `luaL_addgsub()` 的外部 buffer/string 指针边界；`NULL` 加非零长度或需要 `strlen` / 替换扫描的 NULL 参数会稳定报 `invalid value`，`NULL` 加零长度仍按空 buffer 处理。
+   - 当前进展：C API smoke 已固定默认 ABI `lua_cpcall()` 的 NULL C 函数指针边界，以及 `lua_getinfo()` / `lua_getstack()` / `lua_setlocal()` 的 NULL debug 参数边界；`lua_setlocal()` 找不到目标 local 时不再错误弹出栈顶待写入值，`lua_getlocal(NULL, n)` 在栈顶没有函数时稳定返回 `NULL`。
    - 当前进展：Lua 5.4 C continuation smoke 已固定 `lua_yieldk()` continuation 返回负数或超过当前栈结果数量时，在 release 构建下统一报 `invalid value`，不再依赖 debug-only `api_check`。
    - 当前进展：C API smoke 已固定 `lua_setmetatable()` 非 table metatable、默认 ABI `lua_setfenv()` 非 table env，以及 `lua_replace(LUA_GLOBALSINDEX/LUA_ENVIRONINDEX)` 非 table value 在 release 构建下统一报 `invalid value`。
    - 当前进展：C API smoke 已固定 `lua_dump()` 空栈调用在 Lua 5.4 wrapper 和默认 LuaJIT 5.1 ABI 下都会稳定报 `invalid value`，不再只依赖 debug-only `lj_checkapi` 避免读取空 top slot。
@@ -618,6 +619,7 @@
 ## 当前验证结果
 
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `lua_rotate()` too-large / `INT_MIN` 旋转数量 release C API 边界；默认 ABI smoke、Lua 5.4 compat smoke、官方 Lua 5.4.8 矩阵和 C API smoke 均保持通过。
+- `cmd /c build.bat default` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增默认 ABI `lua_cpcall(NULL)`、debug API NULL 参数和 `lua_setlocal()` 不存在 local 不弹栈的 C API 边界；默认 ABI smoke、Lua 5.4 compat smoke、官方 Lua 5.4.8 矩阵和 C API smoke 均保持通过。
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `lua_typename()` 低于 `LUA_TNONE` 和超出 LuaJIT 扩展类型名表的 release C API 边界；默认 ABI smoke、Lua 5.4 compat smoke、官方 Lua 5.4.8 矩阵和 C API smoke 均保持通过。
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `lua_error()` 缺少错误对象的 release C API 边界；默认 ABI smoke、Lua 5.4 compat smoke、官方 Lua 5.4.8 矩阵和 C API smoke 均保持通过。
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `lua_pcall()` message handler 非函数值 release C API 边界；默认 ABI smoke、Lua 5.4 compat smoke、官方 Lua 5.4.8 矩阵和 C API smoke 均保持通过。

@@ -2673,6 +2673,8 @@ LUA_API int lua_cpcall(lua_State *L, lua_CFunction func, void *ud)
   global_State *g = G(L);
   uint8_t oldh = hook_save(g);
   int status;
+  if (func == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   lj_checkapi(L->status == LUA_OK || L->status == LUA_ERRERR,
 	      "thread called in wrong state %d", L->status);
   status = lj_vm_cpcall(L, func, ud, cpcall);

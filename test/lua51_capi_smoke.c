@@ -83,6 +83,52 @@ static int capi51_cpcall(lua_State *L)
   return 0;
 }
 
+static int capi51_cpcall_null_function(lua_State *L)
+{
+  lua_cpcall(L, NULL, NULL);
+  return 0;
+}
+
+static int capi51_getinfo_null_what(lua_State *L)
+{
+  lua_Debug ar;
+  lua_getinfo(L, NULL, &ar);
+  return 0;
+}
+
+static int capi51_getinfo_null_debug(lua_State *L)
+{
+  lua_getinfo(L, "S", NULL);
+  return 0;
+}
+
+static int capi51_getstack_null_debug(lua_State *L)
+{
+  lua_getstack(L, 0, NULL);
+  return 0;
+}
+
+static int capi51_setlocal_null_debug(lua_State *L)
+{
+  lua_pushnil(L);
+  lua_setlocal(L, NULL, 1);
+  return 0;
+}
+
+static int capi51_setlocal_missing_name_preserves_stack(lua_State *L)
+{
+  lua_Debug ar;
+  int top;
+  check(L, lua_getstack(L, 0, &ar), "lua_setlocal missing-name setup");
+  lua_pushliteral(L, "sentinel");
+  top = lua_gettop(L);
+  check(L, lua_setlocal(L, &ar, 9999) == NULL,
+	"lua_setlocal missing name returns NULL");
+  check(L, lua_gettop(L) == top, "lua_setlocal missing name preserves stack");
+  lua_pop(L, 1);
+  return 0;
+}
+
 static int capi51_dump_writer(lua_State *L, const void *p, size_t sz, void *ud)
 {
   (void)L; (void)p; (void)sz; (void)ud;
@@ -560,6 +606,28 @@ int main(void)
   lua_pop(L, 1);
   check(L, lua_getgccount(L) >= 0, "lua_getgccount default macro");
   lua_setlevel(L, L);
+  check(L, lua_getlocal(L, NULL, 1) == NULL,
+	"lua_getlocal NULL debug without function returns NULL");
+
+  capi51_check_invalid_value(L, capi51_cpcall_null_function,
+			     "lua_cpcall rejects NULL function",
+			     "lua_cpcall NULL function error");
+  capi51_check_invalid_value(L, capi51_getinfo_null_what,
+			     "lua_getinfo rejects NULL what",
+			     "lua_getinfo NULL what error");
+  capi51_check_invalid_value(L, capi51_getinfo_null_debug,
+			     "lua_getinfo rejects NULL debug record",
+			     "lua_getinfo NULL debug record error");
+  capi51_check_invalid_value(L, capi51_getstack_null_debug,
+			     "lua_getstack rejects NULL debug record",
+			     "lua_getstack NULL debug record error");
+  capi51_check_invalid_value(L, capi51_setlocal_null_debug,
+			     "lua_setlocal rejects NULL debug record",
+			     "lua_setlocal NULL debug record error");
+
+  lua_pushcfunction(L, capi51_setlocal_missing_name_preserves_stack);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_OK, "lua_setlocal missing name preserves stack");
 
   lua_pushcfunction(L, capi51_setfenv_missing_value);
   status = lua_pcall(L, 0, 0, 0);
