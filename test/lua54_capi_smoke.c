@@ -851,6 +851,73 @@ static void test_newstate_allocator_failure(lua_State *L)
 	"lua_newstate partial initialization failure exercised");
 }
 
+static int fail_createtable_after_alloc(lua_State *L)
+{
+  void *ud = NULL;
+  StrictAllocCtx *ctx;
+  int after = (int)luaL_checkinteger(L, 1);
+  lua_getallocf(L, &ud);
+  ctx = (StrictAllocCtx *)ud;
+  ctx->fail_at_alloc = ctx->alloc_requests + after;
+  lua_createtable(L, 128, 128);
+  ctx->fail_at_alloc = 0;
+  return 1;
+}
+
+static void test_createtable_allocator_failure(lua_State *L, lua_State *T,
+					       StrictAllocCtx *ctx)
+{
+  int limit;
+  int saw_failure = 0;
+  int saw_partial_cleanup = 0;
+  int saw_success_after_failure = 0;
+  lua_gc(T, LUA_GCCOLLECT, 0);
+  for (limit = 1; limit <= 4; limit++) {
+    int before_live = ctx->live_blocks;
+    int before_fails = ctx->call_fails;
+    int before_frees = ctx->frees;
+    int failed = 0;
+    lua_pushcfunction(T, fail_createtable_after_alloc);
+    lua_pushinteger(T, limit);
+    {
+      int status = lua_pcall(T, 1, 1, 0);
+      ctx->fail_at_alloc = 0;
+      if (status == LUA_OK) {
+	check(L, lua_istable(T, -1),
+	      "lua_createtable allocator success result");
+	lua_pushinteger(T, 54);
+	lua_rawseti(T, -2, 128);
+	lua_rawgeti(T, -1, 128);
+	check(L, lua_tointeger(T, -1) == 54,
+	      "lua_createtable allocator success table is usable");
+	if (saw_failure)
+	  saw_success_after_failure = 1;
+      } else {
+	check(L, status == LUA_ERRMEM,
+	      "lua_createtable allocator failure reports memory error");
+	check(L, ctx->call_fails > before_fails,
+	      "lua_createtable failure must come from allocator");
+	saw_failure = 1;
+	failed = 1;
+      }
+      lua_settop(T, 0);
+      lua_gc(T, LUA_GCCOLLECT, 0);
+      lua_gc(T, LUA_GCCOLLECT, 0);
+    }
+    if (failed && ctx->frees > before_frees)
+      saw_partial_cleanup = 1;
+    check(L, ctx->bad_osize == 0 && ctx->missing_ptr == 0,
+	  "lua_createtable failure preserves allocator block sizes");
+    check(L, ctx->live_blocks == before_live,
+	  "lua_createtable failure releases partial allocations");
+  }
+  check(L, saw_failure, "lua_createtable allocator failure exercised");
+  check(L, saw_partial_cleanup,
+	"lua_createtable partial allocation cleanup exercised");
+  check(L, saw_success_after_failure,
+	"lua_createtable failure scan reaches successful creation boundary");
+}
+
 static int fail_newthread_after_alloc(lua_State *L)
 {
   void *ud = NULL;
@@ -1774,6 +1841,7 @@ static void test_state_allocator_api(lua_State *L)
 	"table repartition must tolerate allocator refusing shrink");
   check(L, strict_ctx.shrink_fails == 0,
 	"table repartition must not use in-place shrink");
+  test_createtable_allocator_failure(L, T, &strict_ctx);
   test_table_shrink_allocator_failure(L, T, &strict_ctx);
   test_table_allocator_failure(L, T, &strict_ctx);
   test_newthread_allocator_failure(L, T, &strict_ctx);
