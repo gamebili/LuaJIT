@@ -3007,6 +3007,20 @@ static const luaL_Reg capi_setfuncs_placeholder[] = {
   { NULL, NULL }
 };
 
+static int setfuncs_null_list(lua_State *L)
+{
+  lua_newtable(L);
+  luaL_setfuncs(L, NULL, 0);
+  return 0;
+}
+
+static int setfuncs_negative_upvalues(lua_State *L)
+{
+  lua_newtable(L);
+  luaL_setfuncs(L, capi_setfuncs, -1);
+  return 0;
+}
+
 static int yield_once(lua_State *L)
 {
   return lua_yield(L, 0);
@@ -7296,6 +7310,12 @@ static void test_lauxlib_api(lua_State *L)
 	   lua_toboolean(L, -1) == 0,
 	"luaL_setfuncs NULL placeholder becomes false");
   lua_pop(L, 2);
+  check_fresh_invalid_value(L, setfuncs_null_list,
+			    "luaL_setfuncs rejects NULL list",
+			    "luaL_setfuncs NULL list error");
+  check_fresh_invalid_value(L, setfuncs_negative_upvalues,
+			    "luaL_setfuncs rejects negative upvalues",
+			    "luaL_setfuncs negative upvalues error");
 
   check(L, luaL_newmetatable(L, "capi.ud") == 1, "luaL_newmetatable creates");
   rtype = lua_getfield(L, -1, "__name");

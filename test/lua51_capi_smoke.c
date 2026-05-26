@@ -482,6 +482,26 @@ static const luaL_Reg capi51_reg[] = {
   { NULL, NULL }
 };
 
+static int capi51_setfuncs_null_list(lua_State *L)
+{
+  lua_newtable(L);
+  luaL_setfuncs(L, NULL, 0);
+  return 0;
+}
+
+static int capi51_setfuncs_negative_upvalues(lua_State *L)
+{
+  lua_newtable(L);
+  luaL_setfuncs(L, capi51_reg, -1);
+  return 0;
+}
+
+static int capi51_openlib_negative_upvalues(lua_State *L)
+{
+  luaL_openlib(L, NULL, capi51_reg, -1);
+  return 0;
+}
+
 static void capi51_check_invalid_value(lua_State *L, lua_CFunction fn,
 				       const char *statusmsg,
 				       const char *errmsg)
@@ -603,6 +623,15 @@ int main(void)
   capi51_check_invalid_value(L, capi51_setmetatable_null_name,
 			     "luaL_setmetatable rejects NULL name",
 			     "luaL_setmetatable NULL name error");
+  capi51_check_invalid_value(L, capi51_setfuncs_null_list,
+			     "luaL_setfuncs rejects NULL list",
+			     "luaL_setfuncs NULL list error");
+  capi51_check_invalid_value(L, capi51_setfuncs_negative_upvalues,
+			     "luaL_setfuncs rejects negative upvalues",
+			     "luaL_setfuncs negative upvalues error");
+  capi51_check_invalid_value(L, capi51_openlib_negative_upvalues,
+			     "luaL_openlib rejects negative upvalues",
+			     "luaL_openlib negative upvalues error");
 
   lua_pushinteger(L, 1);
   lua_pushinteger(L, 1);
