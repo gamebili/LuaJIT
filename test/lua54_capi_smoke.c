@@ -2341,6 +2341,19 @@ static int getfield_invalid_index(lua_State *L)
   return 0;
 }
 
+static int getfield_null_name(lua_State *L)
+{
+  lua_newtable(L);
+  lua_getfield_sig(L, -1, NULL);
+  return 0;
+}
+
+static int getglobal_null_name(lua_State *L)
+{
+  lua_getglobal_sig(L, NULL);
+  return 0;
+}
+
 static int settable_invalid_index(lua_State *L)
 {
   lua_pushliteral(L, "key");
@@ -2353,6 +2366,81 @@ static int setfield_invalid_index(lua_State *L)
 {
   lua_pushliteral(L, "value");
   lua_setfield(L, -2, "key");
+  return 0;
+}
+
+static int setfield_null_name(lua_State *L)
+{
+  lua_newtable(L);
+  lua_pushnil(L);
+  lua_setfield(L, -2, NULL);
+  return 0;
+}
+
+static int setglobal_null_name(lua_State *L)
+{
+  lua_pushnil(L);
+  lua_setglobal_sig(L, NULL);
+  return 0;
+}
+
+static int newmetatable_null_name(lua_State *L)
+{
+  luaL_newmetatable(L, NULL);
+  return 0;
+}
+
+static int getmetafield_null_name(lua_State *L)
+{
+  lua_newtable(L);
+  luaL_getmetafield(L, -1, NULL);
+  return 0;
+}
+
+static int callmeta_null_name(lua_State *L)
+{
+  lua_newtable(L);
+  luaL_callmeta(L, -1, NULL);
+  return 0;
+}
+
+static int setmetatable_laux_null_name(lua_State *L)
+{
+  lua_newtable(L);
+  luaL_setmetatable(L, NULL);
+  return 0;
+}
+
+static int testudata_null_name(lua_State *L)
+{
+  lua_newuserdatauv(L, 1, 0);
+  luaL_testudata(L, -1, NULL);
+  return 0;
+}
+
+static int checkudata_null_name(lua_State *L)
+{
+  lua_newuserdatauv(L, 1, 0);
+  luaL_checkudata(L, -1, NULL);
+  return 0;
+}
+
+static int getsubtable_null_name(lua_State *L)
+{
+  lua_newtable(L);
+  luaL_getsubtable(L, -1, NULL);
+  return 0;
+}
+
+static int requiref_null_name(lua_State *L)
+{
+  luaL_requiref(L, NULL, require_open, 0);
+  return 0;
+}
+
+static int requiref_null_openf(lua_State *L)
+{
+  luaL_requiref(L, "capi.nullopen", NULL, 0);
   return 0;
 }
 
@@ -3366,6 +3454,12 @@ static int load_null_reader(lua_State *L)
   return 0;
 }
 
+static int stringtonumber_null_string(lua_State *L)
+{
+  lua_stringtonumber(L, NULL);
+  return 0;
+}
+
 static int dump_fail_writer(lua_State *L, const void *p, size_t sz, void *ud)
 {
   int *calls = (int *)ud;
@@ -3816,12 +3910,51 @@ static void test_stack_and_number_api(lua_State *L)
   check_fresh_invalid_value(L, getfield_invalid_index,
 			    "lua_getfield rejects invalid table index",
 			    "lua_getfield invalid table index error");
+  check_fresh_invalid_value(L, getfield_null_name,
+			    "lua_getfield rejects NULL name",
+			    "lua_getfield NULL name error");
+  check_fresh_invalid_value(L, getglobal_null_name,
+			    "lua_getglobal rejects NULL name",
+			    "lua_getglobal NULL name error");
   check_fresh_invalid_value(L, settable_invalid_index,
 			    "lua_settable rejects invalid table index",
 			    "lua_settable invalid table index error");
   check_fresh_invalid_value(L, setfield_invalid_index,
 			    "lua_setfield rejects invalid table index",
 			    "lua_setfield invalid table index error");
+  check_fresh_invalid_value(L, setfield_null_name,
+			    "lua_setfield rejects NULL name",
+			    "lua_setfield NULL name error");
+  check_fresh_invalid_value(L, setglobal_null_name,
+			    "lua_setglobal rejects NULL name",
+			    "lua_setglobal NULL name error");
+  check_fresh_invalid_value(L, newmetatable_null_name,
+			    "luaL_newmetatable rejects NULL name",
+			    "luaL_newmetatable NULL name error");
+  check_fresh_invalid_value(L, getmetafield_null_name,
+			    "luaL_getmetafield rejects NULL name",
+			    "luaL_getmetafield NULL name error");
+  check_fresh_invalid_value(L, callmeta_null_name,
+			    "luaL_callmeta rejects NULL name",
+			    "luaL_callmeta NULL name error");
+  check_fresh_invalid_value(L, setmetatable_laux_null_name,
+			    "luaL_setmetatable rejects NULL name",
+			    "luaL_setmetatable NULL name error");
+  check_fresh_invalid_value(L, testudata_null_name,
+			    "luaL_testudata rejects NULL name",
+			    "luaL_testudata NULL name error");
+  check_fresh_invalid_value(L, checkudata_null_name,
+			    "luaL_checkudata rejects NULL name",
+			    "luaL_checkudata NULL name error");
+  check_fresh_invalid_value(L, getsubtable_null_name,
+			    "luaL_getsubtable rejects NULL name",
+			    "luaL_getsubtable NULL name error");
+  check_fresh_invalid_value(L, requiref_null_name,
+			    "luaL_requiref rejects NULL module name",
+			    "luaL_requiref NULL module name error");
+  check_fresh_invalid_value(L, requiref_null_openf,
+			    "luaL_requiref rejects NULL opener",
+			    "luaL_requiref NULL opener error");
   check_fresh_invalid_value(L, setmetatable_invalid_object_index,
 			    "lua_setmetatable rejects invalid object index",
 			    "lua_setmetatable invalid object index error");
@@ -3890,6 +4023,9 @@ static void test_stack_and_number_api(lua_State *L)
   check_string(L, -1, "pushstring", "lua_pushstring function pointer value");
   lua_pop(L, 1);
 
+  check_fresh_invalid_value(L, stringtonumber_null_string,
+			    "lua_stringtonumber rejects NULL string",
+			    "lua_stringtonumber NULL string error");
   check(L, lua_stringtonumber(L, "123") == 4, "lua_stringtonumber length");
   check_integer(L, -1, 123, "lua_stringtonumber value");
   lua_pop(L, 1);

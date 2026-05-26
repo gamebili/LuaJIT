@@ -92,6 +92,8 @@ LUALIB_API const char *luaL_findtable(lua_State *L, int idx,
 				      const char *fname, int szhint)
 {
   const char *e;
+  if (fname == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   lua_pushvalue(L, idx);
   do {
     e = strchr(fname, '.');
@@ -123,6 +125,8 @@ static int libsize(const luaL_Reg *l)
 
 LUALIB_API void luaL_pushmodule(lua_State *L, const char *modname, int sizehint)
 {
+  if (modname == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   luaL_findtable(L, LUA_REGISTRYINDEX, "_LOADED", 16);
   lua_getfield(L, -1, modname);
   if (!lua_istable(L, -1)) {
@@ -177,6 +181,8 @@ LUALIB_API void luaL_setfuncs(lua_State *L, const luaL_Reg *l, int nup)
 
 LUALIB_API int luaL_getsubtable(lua_State *L, int idx, const char *fname)
 {
+  if (fname == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   idx = lua_absindex(L, idx);
   lua_getfield(L, idx, fname);
   if (lua_istable(L, -1))
@@ -191,6 +197,8 @@ LUALIB_API int luaL_getsubtable(lua_State *L, int idx, const char *fname)
 LUALIB_API void luaL_requiref(lua_State *L, const char *modname,
 			      lua_CFunction openf, int glb)
 {
+  if (modname == NULL || openf == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   luaL_getsubtable(L, LUA_REGISTRYINDEX, "_LOADED");
   lua_getfield(L, -1, modname);
   if (!lua_toboolean(L, -1)) {

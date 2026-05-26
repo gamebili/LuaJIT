@@ -1100,7 +1100,10 @@ LUALIB_API int luaL_checkoption(lua_State *L, int idx, const char *def,
 LUA_API size_t lua_stringtonumber(lua_State *L, const char *s)
 {
   TValue tv;
-  size_t len = strlen(s);
+  size_t len;
+  if (s == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
+  len = strlen(s);
 #if LJ_54
   if (lj_strscan_rejectnum54(s, (MSize)len))
     return 0;  /* Keep lua_stringtonumber() aligned with Lua 5.4 tonumber(). */
@@ -1368,8 +1371,12 @@ LUA_API void lua_createtable(lua_State *L, int narray, int nrec)
 
 LUALIB_API int luaL_newmetatable(lua_State *L, const char *tname)
 {
-  GCtab *regt = tabV(registry(L));
-  TValue *tv = lj_tab_setstr(L, regt, lj_str_newz(L, tname));
+  GCtab *regt;
+  TValue *tv;
+  if (tname == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
+  regt = tabV(registry(L));
+  tv = lj_tab_setstr(L, regt, lj_str_newz(L, tname));
   if (tvisnil(tv)) {
     GCtab *mt = lj_tab_new(L, 0, 1);
     settabV(L, tv, mt);
@@ -1907,6 +1914,8 @@ LUA_API void lua_getfield(lua_State *L, int idx, const char *k)
 {
   cTValue *v, *t = index2adr_valid(L, idx);
   TValue key;
+  if (k == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   setstrV(L, &key, lj_str_newz(L, k));
   v = lj_meta_tget(L, t, &key);
   if (v == NULL) {
@@ -1998,6 +2007,8 @@ LUA_API int lua_rawgetp54(lua_State *L, int idx, const void *p)
 
 LUA_API int lua_getglobal54(lua_State *L, const char *name)
 {
+  if (name == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   lua_rawgeti(L, LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
   lua_getfield(L, -1, name);
   lua_remove(L, -2);
@@ -2006,6 +2017,8 @@ LUA_API int lua_getglobal54(lua_State *L, const char *name)
 
 LUA_API void lua_setglobal54(lua_State *L, const char *name)
 {
+  if (name == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   /* External Lua 5.4 headers hide LUA_GLOBALSINDEX, so set globals through
   ** the registry globals table while leaving LuaJIT's internal ABI unchanged.
   */
@@ -2035,6 +2048,8 @@ LUA_API int lua_getmetatable(lua_State *L, int idx)
 
 LUALIB_API int luaL_getmetafield(lua_State *L, int idx, const char *field)
 {
+  if (field == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   if (lua_getmetatable(L, idx)) {
     cTValue *tv = lj_tab_getstr(tabV(L->top-1), lj_str_newz(L, field));
     if (tv && !tvisnil(tv)) {
@@ -2231,6 +2246,8 @@ LUA_API void lua_upvaluejoin(lua_State *L, int idx1, int n1, int idx2, int n2)
 LUALIB_API void *luaL_testudata(lua_State *L, int idx, const char *tname)
 {
   cTValue *o = index2adr(L, idx);
+  if (tname == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   if (tvisudata(o)) {
     GCudata *ud = udataV(o);
     cTValue *tv = lj_tab_getstr(tabV(registry(L)), lj_str_newz(L, tname));
@@ -2273,6 +2290,8 @@ LUA_API void lua_setfield(lua_State *L, int idx, const char *k)
   TValue *o;
   TValue key;
   cTValue *t = index2adr_valid(L, idx);
+  if (k == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   api_checknelems(L, 1);
   setstrV(L, &key, lj_str_newz(L, k));
   o = lj_meta_tset(L, t, &key);

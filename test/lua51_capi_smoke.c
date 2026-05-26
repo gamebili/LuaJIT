@@ -215,6 +215,98 @@ static int capi51_setallocf_null_function(lua_State *L)
   return 0;
 }
 
+static int capi51_stringtonumber_null_string(lua_State *L)
+{
+  lua_stringtonumber(L, NULL);
+  return 0;
+}
+
+static int capi51_getfield_null_name(lua_State *L)
+{
+  lua_newtable(L);
+  lua_getfield(L, -1, NULL);
+  return 0;
+}
+
+static int capi51_setfield_null_name(lua_State *L)
+{
+  lua_newtable(L);
+  lua_pushnil(L);
+  lua_setfield(L, -2, NULL);
+  return 0;
+}
+
+static int capi51_getglobal_null_name(lua_State *L)
+{
+  lua_getglobal(L, NULL);
+  return 0;
+}
+
+static int capi51_setglobal_null_name(lua_State *L)
+{
+  lua_pushnil(L);
+  lua_setglobal(L, NULL);
+  return 0;
+}
+
+static int capi51_newmetatable_null_name(lua_State *L)
+{
+  luaL_newmetatable(L, NULL);
+  return 0;
+}
+
+static int capi51_getmetafield_null_name(lua_State *L)
+{
+  lua_newtable(L);
+  luaL_getmetafield(L, -1, NULL);
+  return 0;
+}
+
+static int capi51_checkudata_null_name(lua_State *L)
+{
+  lua_newuserdata(L, 1);
+  luaL_checkudata(L, -1, NULL);
+  return 0;
+}
+
+static int capi51_findtable_null_name(lua_State *L)
+{
+  luaL_findtable(L, LUA_REGISTRYINDEX, NULL, 1);
+  return 0;
+}
+
+static int capi51_pushmodule_null_name(lua_State *L)
+{
+  luaL_pushmodule(L, NULL, 1);
+  return 0;
+}
+
+static int capi51_getsubtable_null_name(lua_State *L)
+{
+  lua_newtable(L);
+  luaL_getsubtable(L, -1, NULL);
+  return 0;
+}
+
+static int capi51_requiref_null_name(lua_State *L)
+{
+  luaL_requiref(L, NULL, capi51_answer, 0);
+  return 0;
+}
+
+static int capi51_requiref_null_openf(lua_State *L)
+{
+  luaL_requiref(L, "capi51.nullopen", NULL, 0);
+  return 0;
+}
+
+static int capi51_setmetatable_null_name(lua_State *L)
+{
+  lua_newtable(L);
+  luaL_setmetatable(L, NULL);
+  return 0;
+}
+
 static int capi51_setfenv_missing_value(lua_State *L)
 {
   lua_setfenv(L, LUA_REGISTRYINDEX);
@@ -279,6 +371,18 @@ static const luaL_Reg capi51_reg[] = {
   { NULL, NULL }
 };
 
+static void capi51_check_invalid_value(lua_State *L, lua_CFunction fn,
+				       const char *statusmsg,
+				       const char *errmsg)
+{
+  int status;
+  lua_pushcfunction(L, fn);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, statusmsg);
+  check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL, errmsg);
+  lua_pop(L, 1);
+}
+
 int main(void)
 {
   lua_State *L = luaL_newstate();
@@ -312,6 +416,49 @@ int main(void)
   lua_pushlstring(L, NULL, 0);
   check(L, lua_objlen(L, -1) == 0, "lua_pushlstring NULL zero length");
   lua_pop(L, 1);
+
+  capi51_check_invalid_value(L, capi51_getfield_null_name,
+			     "lua_getfield rejects NULL name",
+			     "lua_getfield NULL name error");
+  capi51_check_invalid_value(L, capi51_setfield_null_name,
+			     "lua_setfield rejects NULL name",
+			     "lua_setfield NULL name error");
+  capi51_check_invalid_value(L, capi51_getglobal_null_name,
+			     "lua_getglobal rejects NULL name",
+			     "lua_getglobal NULL name error");
+  capi51_check_invalid_value(L, capi51_setglobal_null_name,
+			     "lua_setglobal rejects NULL name",
+			     "lua_setglobal NULL name error");
+  capi51_check_invalid_value(L, capi51_stringtonumber_null_string,
+			     "lua_stringtonumber rejects NULL string",
+			     "lua_stringtonumber NULL string error");
+  capi51_check_invalid_value(L, capi51_newmetatable_null_name,
+			     "luaL_newmetatable rejects NULL name",
+			     "luaL_newmetatable NULL name error");
+  capi51_check_invalid_value(L, capi51_getmetafield_null_name,
+			     "luaL_getmetafield rejects NULL name",
+			     "luaL_getmetafield NULL name error");
+  capi51_check_invalid_value(L, capi51_checkudata_null_name,
+			     "luaL_checkudata rejects NULL name",
+			     "luaL_checkudata NULL name error");
+  capi51_check_invalid_value(L, capi51_findtable_null_name,
+			     "luaL_findtable rejects NULL name",
+			     "luaL_findtable NULL name error");
+  capi51_check_invalid_value(L, capi51_pushmodule_null_name,
+			     "luaL_pushmodule rejects NULL name",
+			     "luaL_pushmodule NULL name error");
+  capi51_check_invalid_value(L, capi51_getsubtable_null_name,
+			     "luaL_getsubtable rejects NULL name",
+			     "luaL_getsubtable NULL name error");
+  capi51_check_invalid_value(L, capi51_requiref_null_name,
+			     "luaL_requiref rejects NULL module name",
+			     "luaL_requiref NULL module name error");
+  capi51_check_invalid_value(L, capi51_requiref_null_openf,
+			     "luaL_requiref rejects NULL opener",
+			     "luaL_requiref NULL opener error");
+  capi51_check_invalid_value(L, capi51_setmetatable_null_name,
+			     "luaL_setmetatable rejects NULL name",
+			     "luaL_setmetatable NULL name error");
 
   lua_pushinteger(L, 1);
   lua_pushinteger(L, 1);
