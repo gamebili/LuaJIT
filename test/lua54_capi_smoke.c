@@ -900,6 +900,76 @@ static void test_newthread_allocator_failure(lua_State *L, lua_State *T,
 	"lua_newthread partial initialization failure exercised");
 }
 
+static int push_allocator_upvalue(lua_State *L)
+{
+  lua_pushvalue(L, lua_upvalueindex(1));
+  return 1;
+}
+
+static int fail_pushcclosure_after_alloc(lua_State *L)
+{
+  void *ud = NULL;
+  StrictAllocCtx *ctx;
+  int after = (int)luaL_checkinteger(L, 1);
+  int nup = (int)luaL_checkinteger(L, 2);
+  int i;
+  lua_getallocf(L, &ud);
+  ctx = (StrictAllocCtx *)ud;
+  for (i = 0; i < nup; i++)
+    lua_pushinteger(L, i + 1);
+  ctx->fail_at_alloc = ctx->alloc_requests + after;
+  lua_pushcclosure(L, push_allocator_upvalue, nup);
+  ctx->fail_at_alloc = 0;
+  return 1;
+}
+
+static void test_pushcclosure_allocator_failure(lua_State *L, lua_State *T,
+					       StrictAllocCtx *ctx)
+{
+  int limit;
+  int saw_failure = 0;
+  int saw_success_after_failure = 0;
+  lua_gc(T, LUA_GCCOLLECT, 0);
+  for (limit = 1; limit <= 4; limit++) {
+    int before_live = ctx->live_blocks;
+    int before_fails = ctx->call_fails;
+    lua_pushcfunction(T, fail_pushcclosure_after_alloc);
+    lua_pushinteger(T, limit);
+    lua_pushinteger(T, 8);
+    {
+      int status = lua_pcall(T, 2, 1, 0);
+      ctx->fail_at_alloc = 0;
+      if (status == LUA_OK) {
+	int ok = 0;
+	lua_Integer got;
+	check(L, lua_isfunction(T, -1),
+	      "lua_pushcclosure allocator success result");
+	lua_call(T, 0, 1);
+	got = lua_tointegerx(T, -1, &ok);
+	check(L, ok && got == 1,
+	      "lua_pushcclosure allocator success upvalue");
+	if (saw_failure)
+	  saw_success_after_failure = 1;
+      } else {
+	check(L, status == LUA_ERRMEM,
+	      "lua_pushcclosure allocator failure reports memory error");
+	check(L, ctx->call_fails > before_fails,
+	      "lua_pushcclosure failure must come from allocator");
+	saw_failure = 1;
+      }
+      lua_settop(T, 0);
+      lua_gc(T, LUA_GCCOLLECT, 0);
+    }
+    check(L, ctx->bad_osize == 0 && ctx->missing_ptr == 0,
+	  "lua_pushcclosure failure preserves allocator block sizes");
+    check(L, ctx->live_blocks == before_live,
+	  "lua_pushcclosure failure releases partial allocations");
+  }
+  check(L, saw_failure, "lua_pushcclosure allocator failure exercised");
+  check(L, saw_success_after_failure,
+	"lua_pushcclosure failure scan reaches successful closure boundary");
+}
+
 static int fail_newuserdatauv_after_alloc(lua_State *L)
 {
   void *ud = NULL;
@@ -1707,6 +1777,7 @@ static void test_state_allocator_api(lua_State *L)
   test_table_shrink_allocator_failure(L, T, &strict_ctx);
   test_table_allocator_failure(L, T, &strict_ctx);
   test_newthread_allocator_failure(L, T, &strict_ctx);
+  test_pushcclosure_allocator_failure(L, T, &strict_ctx);
   test_newuserdatauv_allocator_failure(L, T, &strict_ctx);
   test_parser_allocator_failure(L, T, &strict_ctx);
   test_parser_exact_array_allocator_failure(L, T, &strict_ctx);
