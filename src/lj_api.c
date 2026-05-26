@@ -1374,24 +1374,35 @@ LUA_API void lua_createtable(lua_State *L, int narray, int nrec)
 LUALIB_API int luaL_newmetatable(lua_State *L, const char *tname)
 {
   GCtab *regt;
+  GCstr *name;
+  cTValue *oldv;
   TValue *tv;
+  TValue *nameslot;
   if (tname == NULL)
     lj_err_msg(L, LJ_ERR_BADVAL);
   regt = tabV(registry(L));
-  tv = lj_tab_setstr(L, regt, lj_str_newz(L, tname));
-  if (tvisnil(tv)) {
+  name = lj_str_newz(L, tname);
+  nameslot = L->top;
+  setstrV(L, nameslot, name);
+  incr_top(L);
+  oldv = lj_tab_getstr(regt, name);
+  if (oldv == NULL || tvisnil(oldv)) {
     GCtab *mt = lj_tab_new(L, 0, 1);
-    settabV(L, tv, mt);
     settabV(L, L->top++, mt);
 #if LJ_54
     /* Lua 5.4 records the registered metatable name for tostring/errors. */
     setstrV(L, lj_tab_setstr(L, mt, lj_str_newlit(L, "__name")),
-	    lj_str_newz(L, tname));
+	    name);
 #endif
+    tv = lj_tab_setstr(L, regt, name);
+    settabV(L, tv, mt);
     lj_gc_anybarriert(L, regt);
+    copyTV(L, nameslot, nameslot+1);
+    L->top = nameslot+1;
     return 1;
   } else {
-    copyTV(L, L->top++, tv);
+    L->top = nameslot;
+    copyTV(L, L->top++, oldv);
     return 0;
   }
 }

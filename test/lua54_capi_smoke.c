@@ -918,6 +918,120 @@ static void test_createtable_allocator_failure(lua_State *L, lua_State *T,
 	"lua_createtable failure scan reaches successful creation boundary");
 }
 
+static int fail_newmetatable_after_alloc(lua_State *L)
+{
+  void *ud = NULL;
+  StrictAllocCtx *ctx;
+  int after = (int)luaL_checkinteger(L, 1);
+  int id = (int)luaL_checkinteger(L, 2);
+  int created;
+  char name[64];
+  sprintf(name, "strict.alloc.mt.%d", id);
+  lua_getallocf(L, &ud);
+  ctx = (StrictAllocCtx *)ud;
+  if (after > 0)
+    ctx->fail_at_alloc = ctx->alloc_requests + after;
+  created = luaL_newmetatable(L, name);
+  ctx->fail_at_alloc = 0;
+  lua_pushboolean(L, created);
+  lua_insert(L, -2);
+  return 2;
+}
+
+static void check_newmetatable_result(lua_State *L, lua_State *T,
+				      int want_created, const char *name)
+{
+  const char *got;
+  check(L, lua_toboolean(T, -2) == want_created,
+	"luaL_newmetatable allocator created flag");
+  check(L, lua_istable(T, -1), "luaL_newmetatable allocator result table");
+  check(L, lua_getfield(T, -1, "__name") == LUA_TSTRING,
+	"luaL_newmetatable allocator __name type");
+  got = lua_tostring(T, -1);
+  check(L, got != NULL && strcmp(got, name) == 0,
+	"luaL_newmetatable allocator __name value");
+  lua_pop(T, 1);
+}
+
+static void test_newmetatable_allocator_failure(lua_State *L)
+{
+  int limit;
+  int saw_failure = 0;
+  int saw_partial_cleanup = 0;
+  int saw_success_after_failure = 0;
+  for (limit = 1; limit <= 12; limit++) {
+    StrictAllocCtx ctx;
+    lua_State *T;
+    int before_live;
+    int before_fails;
+    int before_frees;
+    int status;
+    int failed = 0;
+    char name[64];
+    sprintf(name, "strict.alloc.mt.%d", limit);
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.capacity = 8192;
+    ctx.blocks = (StrictAllocBlock *)calloc((size_t)ctx.capacity,
+					    sizeof(StrictAllocBlock));
+    check(L, ctx.blocks != NULL,
+	  "luaL_newmetatable allocator failure bookkeeping");
+    T = lua_newstate(strict_alloc, &ctx);
+    check(L, T != NULL, "lua_newstate luaL_newmetatable allocator failure");
+    lua_gc(T, LUA_GCCOLLECT, 0);
+    before_live = ctx.live_blocks;
+    before_fails = ctx.call_fails;
+    before_frees = ctx.frees;
+    lua_pushcfunction(T, fail_newmetatable_after_alloc);
+    lua_pushinteger(T, limit);
+    lua_pushinteger(T, limit);
+    status = lua_pcall(T, 2, 2, 0);
+    ctx.fail_at_alloc = 0;
+    if (status == LUA_OK) {
+      check_newmetatable_result(L, T, 1, name);
+    } else {
+      check(L, status == LUA_ERRMEM,
+	    "luaL_newmetatable allocator failure reports memory error");
+      check(L, ctx.call_fails > before_fails,
+	    "luaL_newmetatable failure must come from allocator");
+      saw_failure = 1;
+      failed = 1;
+      lua_settop(T, 0);
+      lua_gc(T, LUA_GCCOLLECT, 0);
+      lua_gc(T, LUA_GCCOLLECT, 0);
+      check(L, ctx.live_blocks == before_live,
+	    "luaL_newmetatable failure does not publish partial metatable");
+      lua_getfield(T, LUA_REGISTRYINDEX, name);
+      check(L, lua_isnil(T, -1),
+	    "luaL_newmetatable failure leaves registry name unset");
+      lua_pop(T, 1);
+      lua_pushcfunction(T, fail_newmetatable_after_alloc);
+      lua_pushinteger(T, 0);
+      lua_pushinteger(T, limit);
+      status = lua_pcall(T, 2, 2, 0);
+      check(L, status == LUA_OK,
+	    "luaL_newmetatable allocator retry status");
+      check_newmetatable_result(L, T, 1, name);
+      saw_success_after_failure = 1;
+    }
+    lua_settop(T, 0);
+    lua_gc(T, LUA_GCCOLLECT, 0);
+    lua_gc(T, LUA_GCCOLLECT, 0);
+    if (failed && ctx.frees > before_frees)
+      saw_partial_cleanup = 1;
+    check(L, ctx.bad_osize == 0 && ctx.missing_ptr == 0,
+	  "luaL_newmetatable failure preserves allocator block sizes");
+    lua_close(T);
+    check(L, ctx.live_blocks == 0,
+	  "luaL_newmetatable failure releases state allocations");
+    free(ctx.blocks);
+  }
+  check(L, saw_failure, "luaL_newmetatable allocator failure exercised");
+  check(L, saw_partial_cleanup,
+	"luaL_newmetatable partial allocation cleanup exercised");
+  check(L, saw_success_after_failure,
+	"luaL_newmetatable failure retry creates complete metatable");
+}
+
 static int fail_newthread_after_alloc(lua_State *L)
 {
   void *ud = NULL;
@@ -1664,6 +1778,7 @@ static void test_state_allocator_api(lua_State *L)
   int status;
   lua_State *T;
   test_newstate_allocator_failure(L);
+  test_newmetatable_allocator_failure(L);
   test_string_allocator_failure(L);
   check(L, lua_newstate(NULL, NULL) == NULL,
 	"lua_newstate rejects NULL allocator");
