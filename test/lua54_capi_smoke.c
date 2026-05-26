@@ -2711,6 +2711,12 @@ static int callmeta_null_name(lua_State *L)
   return 0;
 }
 
+static int callmeta_invalid_index(lua_State *L)
+{
+  luaL_callmeta(L, 1, "__tostring");
+  return 0;
+}
+
 static int setmetatable_laux_null_name(lua_State *L)
 {
   lua_newtable(L);
@@ -2725,10 +2731,22 @@ static int testudata_null_name(lua_State *L)
   return 0;
 }
 
+static int testudata_invalid_index(lua_State *L)
+{
+  luaL_testudata(L, 1, "capi.ud");
+  return 0;
+}
+
 static int checkudata_null_name(lua_State *L)
 {
   lua_newuserdatauv(L, 1, 0);
   luaL_checkudata(L, -1, NULL);
+  return 0;
+}
+
+static int checkudata_invalid_index(lua_State *L)
+{
+  luaL_checkudata(L, 1, "capi.ud");
   return 0;
 }
 
@@ -4329,15 +4347,24 @@ static void test_stack_and_number_api(lua_State *L)
   check_fresh_invalid_value(L, callmeta_null_name,
 			    "luaL_callmeta rejects NULL name",
 			    "luaL_callmeta NULL name error");
+  check_fresh_invalid_value(L, callmeta_invalid_index,
+			    "luaL_callmeta rejects invalid object index",
+			    "luaL_callmeta invalid object index error");
   check_fresh_invalid_value(L, setmetatable_laux_null_name,
 			    "luaL_setmetatable rejects NULL name",
 			    "luaL_setmetatable NULL name error");
   check_fresh_invalid_value(L, testudata_null_name,
 			    "luaL_testudata rejects NULL name",
 			    "luaL_testudata NULL name error");
+  check_fresh_invalid_value(L, testudata_invalid_index,
+			    "luaL_testudata rejects invalid object index",
+			    "luaL_testudata invalid object index error");
   check_fresh_invalid_value(L, checkudata_null_name,
 			    "luaL_checkudata rejects NULL name",
 			    "luaL_checkudata NULL name error");
+  check_fresh_invalid_value(L, checkudata_invalid_index,
+			    "luaL_checkudata rejects invalid object index",
+			    "luaL_checkudata invalid object index error");
   check_fresh_invalid_value(L, getsubtable_null_name,
 			    "luaL_getsubtable rejects NULL name",
 			    "luaL_getsubtable NULL name error");

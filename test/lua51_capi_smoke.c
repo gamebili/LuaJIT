@@ -373,10 +373,22 @@ static int capi51_getmetafield_null_name(lua_State *L)
   return 0;
 }
 
+static int capi51_callmeta_invalid_index(lua_State *L)
+{
+  luaL_callmeta(L, 1, "__tostring");
+  return 0;
+}
+
 static int capi51_checkudata_null_name(lua_State *L)
 {
   lua_newuserdata(L, 1);
   luaL_checkudata(L, -1, NULL);
+  return 0;
+}
+
+static int capi51_checkudata_invalid_index(lua_State *L)
+{
+  luaL_checkudata(L, 1, "capi51.ud");
   return 0;
 }
 
@@ -615,9 +627,15 @@ int main(void)
   capi51_check_invalid_value(L, capi51_getmetafield_null_name,
 			     "luaL_getmetafield rejects NULL name",
 			     "luaL_getmetafield NULL name error");
+  capi51_check_invalid_value(L, capi51_callmeta_invalid_index,
+			     "luaL_callmeta rejects invalid object index",
+			     "luaL_callmeta invalid object index error");
   capi51_check_invalid_value(L, capi51_checkudata_null_name,
 			     "luaL_checkudata rejects NULL name",
 			     "luaL_checkudata NULL name error");
+  capi51_check_invalid_value(L, capi51_checkudata_invalid_index,
+			     "luaL_checkudata rejects invalid object index",
+			     "luaL_checkudata invalid object index error");
   capi51_check_invalid_value(L, capi51_findtable_null_name,
 			     "luaL_findtable rejects NULL name",
 			     "luaL_findtable NULL name error");

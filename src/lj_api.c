@@ -2258,9 +2258,10 @@ LUA_API void lua_upvaluejoin(lua_State *L, int idx1, int n1, int idx2, int n2)
 
 LUALIB_API void *luaL_testudata(lua_State *L, int idx, const char *tname)
 {
-  cTValue *o = index2adr(L, idx);
+  cTValue *o;
   if (tname == NULL)
     lj_err_msg(L, LJ_ERR_BADVAL);
+  o = index2adr_valid(L, idx);
   if (tvisudata(o)) {
     GCudata *ud = udataV(o);
     cTValue *tv = lj_tab_getstr(tabV(registry(L)), lj_str_newz(L, tname));
@@ -2697,10 +2698,12 @@ LUA_API int lua_cpcall(lua_State *L, lua_CFunction func, void *ud)
 
 LUALIB_API int luaL_callmeta(lua_State *L, int idx, const char *field)
 {
+  idx = lua_absindex(L, idx);
+  (void)index2adr_valid(L, idx);
   if (luaL_getmetafield(L, idx, field)) {
     TValue *top = L->top--;
     if (LJ_FR2) setnilV(top++);
-    copyTV(L, top++, index2adr(L, idx));
+    copyTV(L, top++, index2adr_valid(L, idx));
     L->top = top;
     lj_vm_call(L, top-1, 1+1);
     return 1;
