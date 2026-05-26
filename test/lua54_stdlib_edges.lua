@@ -71,6 +71,12 @@ local cases = {
   { "io.read.wideneg", "local f = assert(io.tmpfile()); return f:read(-1099511627776)", err = "not enough memory" },
   { "io.seek.wide", "local f = assert(io.tmpfile()); return f:seek('set', 2147483648)", err = "bad argument #2 to 'seek' (not an integer in proper range)" },
   { "io.seek.widestr", "local f = assert(io.tmpfile()); return f:seek('set', '2147483648')", err = "bad argument #2 to 'seek' (not an integer in proper range)" },
+  { "io.seek.pcall.badofs", "local f = assert(io.tmpfile()); local ok, err = pcall(f.seek, f, 'set', {}); if ok then error('unexpected success', 0) end; error(err, 0)", err = "bad argument #3 to '?' (number expected, got table)" },
+  { "io.seek.dot.badofs", "local f = assert(io.tmpfile()); return f.seek(f, 'set', {})", err = "bad argument #3 to 'seek' (number expected, got table)" },
+  { "io.seek.alias.badofs", "local f = assert(io.tmpfile()); local s = f.seek; return s(f, 'set', {})", err = "bad argument #3 to 's' (number expected, got table)" },
+  { "io.setvbuf.pcall.badsize", "local f = assert(io.tmpfile()); local ok, err = pcall(f.setvbuf, f, 'full', {}); if ok then error('unexpected success', 0) end; error(err, 0)", err = "bad argument #3 to '?' (number expected, got table)" },
+  { "io.setvbuf.dot.badsize", "local f = assert(io.tmpfile()); return f.setvbuf(f, 'full', {})", err = "bad argument #3 to 'setvbuf' (number expected, got table)" },
+  { "io.setvbuf.alias.badsize", "local f = assert(io.tmpfile()); local s = f.setvbuf; return s(f, 'full', {})", err = "bad argument #3 to 's' (number expected, got table)" },
 
   { "math.abs.bad", "return math.abs(true)", err = "bad argument #1 to 'abs' (number expected, got boolean)" },
   { "math.atan.noarg", "return math.atan()", err = "bad argument #1 to 'atan' (number expected, got no value)" },

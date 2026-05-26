@@ -198,7 +198,9 @@ static const char *io_method_callinfo54(lua_State *L, const char *fallback,
   if (kind && name) {
     if (strcmp(kind, "method") == 0)
       *hiddenself = 1;
-    return io_method_direct_pcall54(L) ? "?" : name;
+    if (io_method_direct_pcall54(L) && strcmp(kind, "function") == 0)
+      return "?";
+    return name;
   }
   return io_method_direct_pcall54(L) ? "?" : fallback;
 }
@@ -363,7 +365,7 @@ static IOFileUD *io_method_file_named54(lua_State *L, const char *fname)
 
 static void io_seekargtype54(lua_State *L, const char *xname)
 {
-  io_methodargerror54(L, "seek", 2,
+  io_methodargerror_at54(L, "seek", 3,
     lj_strfmt_pushf(L, "%s expected, got %s", xname, io_typename54(L, 3)));
 }
 
@@ -389,12 +391,12 @@ static int64_t io_checkseekofs54(lua_State *L)
     ** fractions or decimal strings such as "1.5" before passing them to C.
     */
     if (!(n >= (lua_Number)INT64_MIN && n < -((lua_Number)INT64_MIN)))
-      io_methodargerror54(L, "seek", 2,
-			  "number has no integer representation");
+      io_methodargerror_at54(L, "seek", 3,
+			     "number has no integer representation");
     k = lj_num2i64(n);
     if ((lua_Number)k != n)
-      io_methodargerror54(L, "seek", 2,
-			  "number has no integer representation");
+      io_methodargerror_at54(L, "seek", 3,
+			     "number has no integer representation");
   } else {
     io_seekargtype54(L, "number");
     k = 0;  /* Unreachable. */
@@ -402,15 +404,15 @@ static int64_t io_checkseekofs54(lua_State *L)
 #if defined(__MINGW32__) || (!LJ_TARGET_POSIX && \
     !(defined(_MSC_VER) && _MSC_VER >= 1400))
   if (k < (int64_t)LONG_MIN || k > (int64_t)LONG_MAX)
-    io_methodargerror54(L, "seek", 2,
-			"not an integer in proper range");
+    io_methodargerror_at54(L, "seek", 3,
+			   "not an integer in proper range");
 #endif
   return k;
 }
 
 static void io_setvbufargtype54(lua_State *L, const char *xname)
 {
-  io_methodargerror54(L, "setvbuf", 2,
+  io_methodargerror_at54(L, "setvbuf", 3,
     lj_strfmt_pushf(L, "%s expected, got %s", xname, io_typename54(L, 3)));
 }
 
@@ -437,12 +439,12 @@ static size_t io_checksetvbufsize54(lua_State *L)
     ** platform-dependent setvbuf failure.
     */
     if (!(n >= (lua_Number)INT64_MIN && n < -((lua_Number)INT64_MIN)))
-      io_methodargerror54(L, "setvbuf", 2,
-			  "number has no integer representation");
+      io_methodargerror_at54(L, "setvbuf", 3,
+			     "number has no integer representation");
     k = lj_num2i64(n);
     if ((lua_Number)k != n)
-      io_methodargerror54(L, "setvbuf", 2,
-			  "number has no integer representation");
+      io_methodargerror_at54(L, "setvbuf", 3,
+			     "number has no integer representation");
   } else {
     io_setvbufargtype54(L, "number");
     k = 0;  /* Unreachable. */
