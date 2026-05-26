@@ -2314,6 +2314,12 @@ static int pushvalue_invalid_index(lua_State *L)
   return 0;
 }
 
+static int len_invalid_index(lua_State *L)
+{
+  lua_len(L, 1);
+  return 1;
+}
+
 static int copy_invalid_from_index(lua_State *L)
 {
   lua_pushnil(L);
@@ -4258,6 +4264,9 @@ static void test_stack_and_number_api(lua_State *L)
   check_fresh_invalid_value(L, pushvalue_invalid_index,
 			    "lua_pushvalue rejects invalid index",
 			    "lua_pushvalue invalid index error");
+  check_fresh_invalid_value(L, len_invalid_index,
+			    "lua_len rejects invalid index",
+			    "lua_len invalid index error");
   check_fresh_invalid_value(L, copy_invalid_from_index,
 			    "lua_copy rejects invalid source index",
 			    "lua_copy invalid source index error");

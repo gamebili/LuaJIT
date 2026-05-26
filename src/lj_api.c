@@ -1187,7 +1187,7 @@ LUA_API void lua_len(lua_State *L, int idx)
   cTValue *mo;
   idx = lua_absindex(L, idx);
   lj_state_checkstack(L, 3);
-  o = index2adr_check(L, idx);
+  o = index2adr_valid(L, idx);
   if (tvisstr(o)) {
     setintptrV(L->top, strV(o)->len);
     incr_top(L);

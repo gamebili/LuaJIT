@@ -770,6 +770,8 @@ static int lj_cf_table_unpack54(lua_State *L)
     e = table_len_integer_obj54(L, 1);
   } else {
     int ok = 0;
+    if (L->base >= L->top)
+      setnilV(L->top++);
     lua_len(L, 1);
     /* lua_numbertointeger is the public Lua 5.4 header macro and intentionally
     ** truncates in-range floats. Runtime length checks need exact integers.

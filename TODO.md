@@ -59,6 +59,7 @@
    - 当前进展：C API smoke 已固定 `lua_typename()` 的 type code 边界；低于 `LUA_TNONE` 或超过 LuaJIT 扩展类型名表的值会在 release 构建下稳定报 `invalid value`，避免非法大 type code 直接越界读取类型名表。
    - 当前进展：C API smoke 已固定 `lua_error()` 缺少错误对象的 release 边界；空 C 栈调用会稳定报 `invalid value`，不再从 `top-1` 读取错误槽位。
    - 当前进展：C API smoke 已固定 `lua_pcall()` message handler 类型边界；`errfunc` 指向非函数值时会在 release 构建下稳定报 `invalid value`，不再把非函数错误处理器延后到错误展开阶段才二次失败。
+   - 当前进展：C API smoke 已固定 `lua_len()` 无效栈索引的 release 边界；外部 C API 会稳定报 `invalid value`，同时 table 库内部保留 `table.unpack()` 缺参时对 nil 求长度的 Lua 级错误文本。
    - 当前进展：C API smoke 已固定 `luaL_checktype()` 的期望类型码边界；低于 `LUA_TNONE` 或超过 LuaJIT 扩展类型名表的值会在 release 构建下稳定报 `invalid value`，避免通过 lauxlib 错误路径越界读取类型名表。
    - 当前进展：C API smoke 已固定 `luaL_ref()` 缺少待引用值的 release 边界；空栈调用会稳定报 `invalid value`，不再通过 `lua_isnil(-1)` 读取不存在的 top slot。
    - 当前进展：C API smoke 已固定 `lua_pushcclosure()` 的函数指针边界；传入 `NULL` 会稳定报 `invalid value`，不再创建后续调用会跳到空函数指针的 C closure。
@@ -626,6 +627,7 @@
 
 ## 当前验证结果
 
+- `cmd /c build.bat lua54` 和 `cmd /c build.bat default` 已通过，覆盖本轮新增 `lua_len()` 无效栈索引 release C API 边界，并确认 `table.unpack()` 缺参仍保留 Lua 5.4 的 nil 长度错误文本；同时保持本轮 file method `seek` / `setvbuf` 参数编号和 tail-position 调用点名回归。
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `lua_rotate()` too-large / `INT_MIN` 旋转数量 release C API 边界；默认 ABI smoke、Lua 5.4 compat smoke、官方 Lua 5.4.8 矩阵和 C API smoke 均保持通过。
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增默认 ABI `lua_cpcall(NULL)`、debug API NULL 参数和 `lua_setlocal()` 不存在 local 不弹栈的 C API 边界；默认 ABI smoke、Lua 5.4 compat smoke、官方 Lua 5.4.8 矩阵和 C API smoke 均保持通过。
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `luaL_checkoption(NULL list)` 和 `luaL_traceback(NULL thread)` 的 lauxlib 指针边界；默认 ABI smoke、Lua 5.4 compat smoke、官方 Lua 5.4.8 矩阵和 C API smoke 均保持通过。
