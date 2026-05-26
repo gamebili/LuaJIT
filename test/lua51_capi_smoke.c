@@ -129,6 +129,19 @@ static int capi51_setlocal_missing_name_preserves_stack(lua_State *L)
   return 0;
 }
 
+static int capi51_checkoption_null_list(lua_State *L)
+{
+  lua_pushliteral(L, "alpha");
+  luaL_checkoption(L, 1, NULL, NULL);
+  return 0;
+}
+
+static int capi51_traceback_null_thread(lua_State *L)
+{
+  luaL_traceback(L, NULL, "trace", 0);
+  return 0;
+}
+
 static int capi51_dump_writer(lua_State *L, const void *p, size_t sz, void *ud)
 {
   (void)L; (void)p; (void)sz; (void)ud;
@@ -624,6 +637,12 @@ int main(void)
   capi51_check_invalid_value(L, capi51_setlocal_null_debug,
 			     "lua_setlocal rejects NULL debug record",
 			     "lua_setlocal NULL debug record error");
+  capi51_check_invalid_value(L, capi51_checkoption_null_list,
+			     "luaL_checkoption rejects NULL option list",
+			     "luaL_checkoption NULL option list error");
+  capi51_check_invalid_value(L, capi51_traceback_null_thread,
+			     "luaL_traceback rejects NULL target thread",
+			     "luaL_traceback NULL target thread error");
 
   lua_pushcfunction(L, capi51_setlocal_missing_name_preserves_stack);
   status = lua_pcall(L, 0, 0, 0);

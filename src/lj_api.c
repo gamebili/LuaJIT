@@ -1073,6 +1073,8 @@ LUALIB_API int luaL_checkoption(lua_State *L, int idx, const char *def,
 				const char *const lst[])
 {
   ptrdiff_t i;
+  if (lst == NULL)
+    lj_err_msg(L, LJ_ERR_BADVAL);
 #if LJ_54
   cTValue *o = index2adr(L, idx);
   const char *s;

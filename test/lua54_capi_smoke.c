@@ -2843,6 +2843,13 @@ static int checkoption_arg(lua_State *L)
   return 1;
 }
 
+static int checkoption_null_list(lua_State *L)
+{
+  lua_pushliteral(L, "alpha");
+  luaL_checkoption(L, 1, NULL, NULL);
+  return 0;
+}
+
 static int laux_string_macro_arg(lua_State *L)
 {
   const char *required = luaL_checkstring(L, 1);
@@ -2950,6 +2957,12 @@ static int laux_error_wide_integer_arg(lua_State *L)
 {
   lua_Integer big40 = (lua_Integer)1024 * 1024 * 1024 * 1024;
   return luaL_error(L, "laux big %I", big40);
+}
+
+static int traceback_null_thread(lua_State *L)
+{
+  luaL_traceback(L, NULL, "trace", 0);
+  return 0;
 }
 
 static const luaL_Reg capi_newlib[] = {
@@ -6796,6 +6809,9 @@ static void test_lauxlib_api(lua_State *L)
   check(L, strstr(lua_tostring(L, -1), "string expected") != NULL,
 	"luaL_checkoption table error");
   lua_pop(L, 1);
+  check_fresh_invalid_value(L, checkoption_null_list,
+			    "luaL_checkoption rejects NULL option list",
+			    "luaL_checkoption NULL option list error");
 
   lua_pushcfunction(L, laux_string_macro_arg);
   lua_pushliteral(L, "left");
@@ -7366,6 +7382,9 @@ static void test_lauxlib_api(lua_State *L)
   check(L, strstr(lua_tostring(L, -1), "stack traceback") != NULL,
 	"luaL_traceback stack");
   lua_pop(L, 1);
+  check_fresh_invalid_value(L, traceback_null_thread,
+			    "luaL_traceback rejects NULL target thread",
+			    "luaL_traceback NULL target thread error");
 
   status = luaL_dostring(L, "return 12");
   check(L, status == LUA_OK, "luaL_dostring status");
