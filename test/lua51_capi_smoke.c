@@ -223,6 +223,42 @@ static int capi51_typename_too_high(lua_State *L)
   return 0;
 }
 
+static int capi51_type_zero_index(lua_State *L)
+{
+  (void)lua_type(L, 0);
+  return 0;
+}
+
+static int capi51_type_too_negative(lua_State *L)
+{
+  (void)lua_type(L, -1);
+  return 0;
+}
+
+static int capi51_objlen_zero_index(lua_State *L)
+{
+  (void)lua_objlen(L, 0);
+  return 0;
+}
+
+static int capi51_objlen_too_negative(lua_State *L)
+{
+  (void)lua_objlen(L, -1);
+  return 0;
+}
+
+static int capi51_topointer_zero_index(lua_State *L)
+{
+  (void)lua_topointer(L, 0);
+  return 0;
+}
+
+static int capi51_rawequal_too_negative(lua_State *L)
+{
+  (void)lua_rawequal(L, -1, 1);
+  return 0;
+}
+
 static int capi51_error_missing_object(lua_State *L)
 {
   return lua_error(L);
@@ -903,6 +939,25 @@ int main(void)
   check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
 	"lua_typename too-large type code error");
   lua_pop(L, 1);
+
+  capi51_check_invalid_value(L, capi51_type_zero_index,
+			     "lua_type rejects zero index",
+			     "lua_type zero index error");
+  capi51_check_invalid_value(L, capi51_type_too_negative,
+			     "lua_type rejects too-negative index",
+			     "lua_type too-negative index error");
+  capi51_check_invalid_value(L, capi51_objlen_zero_index,
+			     "lua_objlen rejects zero index",
+			     "lua_objlen zero index error");
+  capi51_check_invalid_value(L, capi51_objlen_too_negative,
+			     "lua_objlen rejects too-negative index",
+			     "lua_objlen too-negative index error");
+  capi51_check_invalid_value(L, capi51_topointer_zero_index,
+			     "lua_topointer rejects zero index",
+			     "lua_topointer zero index error");
+  capi51_check_invalid_value(L, capi51_rawequal_too_negative,
+			     "lua_rawequal rejects too-negative index",
+			     "lua_rawequal too-negative index error");
 
   lua_pushcfunction(L, capi51_error_missing_object);
   status = lua_pcall(L, 0, 0, 0);

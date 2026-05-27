@@ -2381,6 +2381,42 @@ static int typename_too_high(lua_State *L)
   return 0;
 }
 
+static int type_zero_index(lua_State *L)
+{
+  (void)lua_type(L, 0);
+  return 0;
+}
+
+static int type_too_negative(lua_State *L)
+{
+  (void)lua_type(L, -1);
+  return 0;
+}
+
+static int rawlen_zero_index(lua_State *L)
+{
+  (void)lua_rawlen(L, 0);
+  return 0;
+}
+
+static int rawlen_too_negative(lua_State *L)
+{
+  (void)lua_rawlen(L, -1);
+  return 0;
+}
+
+static int topointer_zero_index(lua_State *L)
+{
+  (void)lua_topointer(L, 0);
+  return 0;
+}
+
+static int rawequal_too_negative(lua_State *L)
+{
+  (void)lua_rawequal(L, -1, 1);
+  return 0;
+}
+
 static int pcall_invalid_errfunc(lua_State *L)
 {
   lua_pushcfunction(L, push_answer);
@@ -4147,6 +4183,24 @@ static void test_stack_and_number_api(lua_State *L)
   check_fresh_invalid_value(L, typename_too_high,
 			    "lua_typename rejects too-large type code",
 			    "lua_typename too-large type code error");
+  check_fresh_invalid_value(L, type_zero_index,
+			    "lua_type rejects zero index",
+			    "lua_type zero index error");
+  check_fresh_invalid_value(L, type_too_negative,
+			    "lua_type rejects too-negative index",
+			    "lua_type too-negative index error");
+  check_fresh_invalid_value(L, rawlen_zero_index,
+			    "lua_rawlen rejects zero index",
+			    "lua_rawlen zero index error");
+  check_fresh_invalid_value(L, rawlen_too_negative,
+			    "lua_rawlen rejects too-negative index",
+			    "lua_rawlen too-negative index error");
+  check_fresh_invalid_value(L, topointer_zero_index,
+			    "lua_topointer rejects zero index",
+			    "lua_topointer zero index error");
+  check_fresh_invalid_value(L, rawequal_too_negative,
+			    "lua_rawequal rejects too-negative index",
+			    "lua_rawequal too-negative index error");
 
   lua_pushnil(L);
   check(L, lua_type(L, -1) == LUA_TNIL, "lua_type nil");

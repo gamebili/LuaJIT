@@ -82,6 +82,8 @@ static TValue *index2adr(lua_State *L, int idx)
     TValue *o = L->base + (idx - 1);
     return o < L->top ? o : niltv(L);
   } else if (idx > LUA_REGISTRYINDEX) {
+    if (idx == 0 || -idx > L->top - L->base)
+      lj_err_msg(L, LJ_ERR_BADVAL);
     lj_checkapi(idx != 0 && -idx <= L->top - L->base,
 		"bad stack slot %d", idx);
     return L->top + idx;
