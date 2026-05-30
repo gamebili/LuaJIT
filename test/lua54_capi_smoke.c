@@ -2708,6 +2708,12 @@ static int getfield_invalid_index(lua_State *L)
   return 0;
 }
 
+static int geti_invalid_index(lua_State *L)
+{
+  lua_geti_sig(L, 1, 1);
+  return 0;
+}
+
 static int getfield_null_name(lua_State *L)
 {
   lua_newtable(L);
@@ -2733,6 +2739,13 @@ static int setfield_invalid_index(lua_State *L)
 {
   lua_pushliteral(L, "value");
   lua_setfield(L, -2, "key");
+  return 0;
+}
+
+static int seti_invalid_index(lua_State *L)
+{
+  lua_pushliteral(L, "value");
+  lua_seti(L, 2, 1);
   return 0;
 }
 
@@ -4522,6 +4535,9 @@ static void test_stack_and_number_api(lua_State *L)
   check_fresh_invalid_value(L, getfield_invalid_index,
 			    "lua_getfield rejects invalid table index",
 			    "lua_getfield invalid table index error");
+  check_fresh_invalid_value(L, geti_invalid_index,
+			    "lua_geti rejects invalid table index",
+			    "lua_geti invalid table index error");
   check_fresh_invalid_value(L, getfield_null_name,
 			    "lua_getfield rejects NULL name",
 			    "lua_getfield NULL name error");
@@ -4534,6 +4550,9 @@ static void test_stack_and_number_api(lua_State *L)
   check_fresh_invalid_value(L, setfield_invalid_index,
 			    "lua_setfield rejects invalid table index",
 			    "lua_setfield invalid table index error");
+  check_fresh_invalid_value(L, seti_invalid_index,
+			    "lua_seti rejects invalid table index",
+			    "lua_seti invalid table index error");
   check_fresh_invalid_value(L, setfield_null_name,
 			    "lua_setfield rejects NULL name",
 			    "lua_setfield NULL name error");

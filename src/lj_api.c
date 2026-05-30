@@ -192,6 +192,20 @@ static TValue *index2adr_stack(lua_State *L, int idx)
   }
 }
 
+static LJ_AINLINE int api_absindex_valid(lua_State *L, int idx)
+{
+  idx = lua_absindex(L, idx);
+  (void)index2adr_valid(L, idx);
+  return idx;
+}
+
+static LJ_AINLINE int api_absindex_table(lua_State *L, int idx)
+{
+  idx = lua_absindex(L, idx);
+  (void)api_checktable(L, idx);
+  return idx;
+}
+
 #if LJ_54
 #define api_tvisnumber(o)	(tvisnumber(o) || tvisi64(o))
 #else
@@ -1949,7 +1963,7 @@ LUA_API void lua_getfield(lua_State *L, int idx, const char *k)
 
 LUA_API void lua_geti(lua_State *L, int idx, lua_Integer n)
 {
-  idx = lua_absindex(L, idx);
+  idx = api_absindex_valid(L, idx);
   lua_pushinteger(L, n);
   lua_gettable(L, idx);
 }
@@ -1976,7 +1990,7 @@ LUA_API void lua_rawgeti(lua_State *L, int idx, int n)
 
 LUA_API void lua_rawgetp(lua_State *L, int idx, const void *p)
 {
-  idx = lua_absindex(L, idx);
+  idx = api_absindex_table(L, idx);
   lua_pushlightuserdata(L, (void *)p);
   lua_rawget(L, idx);
 }
@@ -2011,7 +2025,7 @@ LUA_API int lua_rawgeti54(lua_State *L, int idx, lua_Integer n)
   if (checki32(n)) {
     lua_rawgeti(L, idx, (int)n);
   } else {
-    idx = lua_absindex(L, idx);
+    idx = api_absindex_table(L, idx);
     lua_pushinteger(L, n);
     lua_rawget(L, idx);
   }
@@ -2038,6 +2052,7 @@ LUA_API void lua_setglobal54(lua_State *L, const char *name)
 {
   if (name == NULL)
     lj_err_msg(L, LJ_ERR_BADVAL);
+  api_checknelems(L, 1);
   /* External Lua 5.4 headers hide LUA_GLOBALSINDEX, so set globals through
   ** the registry globals table while leaving LuaJIT's internal ABI unchanged.
   */
@@ -2330,7 +2345,7 @@ LUA_API void lua_setfield(lua_State *L, int idx, const char *k)
 LUA_API void lua_seti(lua_State *L, int idx, lua_Integer n)
 {
   api_checknelems(L, 1);
-  idx = lua_absindex(L, idx);
+  idx = api_absindex_valid(L, idx);
   lua_pushinteger(L, n);
   lua_insert(L, -2);
   lua_settable(L, idx);
@@ -2369,7 +2384,7 @@ LUA_API void lua_rawseti54(lua_State *L, int idx, lua_Integer n)
     lua_rawseti(L, idx, (int)n);
   } else {
     api_checknelems(L, 1);
-    idx = lua_absindex(L, idx);
+    idx = api_absindex_table(L, idx);
     lua_pushinteger(L, n);
     lua_insert(L, -2);
     lua_rawset(L, idx);
@@ -2380,7 +2395,7 @@ LUA_API void lua_rawseti54(lua_State *L, int idx, lua_Integer n)
 LUA_API void lua_rawsetp(lua_State *L, int idx, const void *p)
 {
   api_checknelems(L, 1);
-  idx = lua_absindex(L, idx);
+  idx = api_absindex_table(L, idx);
   lua_pushlightuserdata(L, (void *)p);
   lua_insert(L, -2);
   lua_rawset(L, idx);

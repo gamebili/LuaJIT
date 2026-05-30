@@ -437,11 +437,24 @@ static int capi51_getfield_null_name(lua_State *L)
   return 0;
 }
 
+static int capi51_geti_invalid_index(lua_State *L)
+{
+  lua_geti(L, 1, 1);
+  return 0;
+}
+
 static int capi51_setfield_null_name(lua_State *L)
 {
   lua_newtable(L);
   lua_pushnil(L);
   lua_setfield(L, -2, NULL);
+  return 0;
+}
+
+static int capi51_seti_invalid_index(lua_State *L)
+{
+  lua_pushliteral(L, "value");
+  lua_seti(L, 2, 1);
   return 0;
 }
 
@@ -725,6 +738,12 @@ int main(void)
   capi51_check_invalid_value(L, capi51_setfield_null_name,
 			     "lua_setfield rejects NULL name",
 			     "lua_setfield NULL name error");
+  capi51_check_invalid_value(L, capi51_geti_invalid_index,
+			     "lua_geti rejects invalid table index",
+			     "lua_geti invalid table index error");
+  capi51_check_invalid_value(L, capi51_seti_invalid_index,
+			     "lua_seti rejects invalid table index",
+			     "lua_seti invalid table index error");
   capi51_check_invalid_value(L, capi51_getglobal_null_name,
 			     "lua_getglobal rejects NULL name",
 			     "lua_getglobal NULL name error");
