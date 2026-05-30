@@ -97,6 +97,16 @@ static void api_checkcallstatus(lua_State *L)
 #define LJ_54_LJ_REGISTRYINDEX	(-LUAI_MAXSTACK - 1000)
 #endif
 
+static GCfunc *api_curr_cfunc(lua_State *L)
+{
+  GCfunc *fn = curr_func(L);
+  if (fn->c.gct != ~LJ_TFUNC || isluafunc(fn))
+    lj_err_msg(L, LJ_ERR_BADVAL);
+  lj_checkapi(fn->c.gct == ~LJ_TFUNC && !isluafunc(fn),
+	      "calling frame is not a C function");
+  return fn;
+}
+
 static TValue *index2adr(lua_State *L, int idx)
 {
   if (idx > 0) {
@@ -115,18 +125,14 @@ static TValue *index2adr(lua_State *L, int idx)
     */
     return registry(L);
   } else if (idx < LJ_54_REGISTRYINDEX) {
-    GCfunc *fn = curr_func(L);
-    lj_checkapi(fn->c.gct == ~LJ_TFUNC && !isluafunc(fn),
-		"calling frame is not a C function");
+    GCfunc *fn = api_curr_cfunc(L);
     idx = LJ_54_REGISTRYINDEX - idx;
     return idx <= fn->c.nupvalues ? &fn->c.upvalue[idx-1] : niltv(L);
   } else if (idx < LJ_54_LJ_REGISTRYINDEX) {
-    GCfunc *fn = curr_func(L);
+    GCfunc *fn = api_curr_cfunc(L);
     /* Accept modules compiled against earlier compat headers from this branch;
     ** they used LuaJIT's internal LUAI_MAXSTACK in the official 5.4 formula.
     */
-    lj_checkapi(fn->c.gct == ~LJ_TFUNC && !isluafunc(fn),
-		"calling frame is not a C function");
     idx = LJ_54_LJ_REGISTRYINDEX - idx;
     return idx <= fn->c.nupvalues ? &fn->c.upvalue[idx-1] : niltv(L);
 #endif
@@ -137,9 +143,7 @@ static TValue *index2adr(lua_State *L, int idx)
   } else if (idx == LUA_REGISTRYINDEX) {
     return registry(L);
   } else {
-    GCfunc *fn = curr_func(L);
-    lj_checkapi(fn->c.gct == ~LJ_TFUNC && !isluafunc(fn),
-		"calling frame is not a C function");
+    GCfunc *fn = api_curr_cfunc(L);
     if (idx == LUA_ENVIRONINDEX) {
       TValue *o = &G(L)->tmptv;
       settabV(L, o, tabref(fn->c.env));

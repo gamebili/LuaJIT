@@ -79,6 +79,7 @@
    - 当前进展：C API smoke 已固定 Lua 5.4 wrapper 和默认 LuaJIT 5.1 ABI 下 `lua_absindex()`、`lua_type()` / `lua_rawlen()` / `lua_objlen()` / `lua_topointer()` / `lua_rawequal()` 等栈索引查询入口对 `0` 和过深负索引的 release 边界；正向越界仍保留 Lua C API 的 `LUA_TNONE` / 空查询语义，但非法栈索引会稳定报 `invalid value`，不再只依赖 debug-only `lj_checkapi`。
    - 当前进展：C API smoke 已补齐合成 key wrapper 的目标索引边界；默认 ABI 和 Lua 5.4 wrapper 下 `lua_rawgeti()` / `lua_rawgetp()` / `lua_rawseti()` / `lua_rawsetp()` 正向越界 table index 会在压入 synthetic key 或移动待写入值前稳定报 `invalid value`，Lua 5.4 `lua_setglobal()` 缺少待写入值也会先报 `invalid value`。
    - 当前进展：C API smoke 已固定调用入口的线程状态边界；默认 ABI 和 Lua 5.4 wrapper 下对 suspended coroutine 再次执行 `lua_pcall()` 会返回 `LUA_ERRRUN` 与 `invalid value`，默认 ABI 的 `lua_cpcall()` 也覆盖同类边界，避免 release 构建继续进入 VM 调用路径。
+   - 当前进展：C API smoke 已固定 pseudo-index 的当前帧边界；debug hook 等非 C 当前帧下访问 `lua_upvalueindex()` 会稳定报 `invalid value`，默认 ABI 的 `LUA_ENVIRONINDEX` 也覆盖同类边界，不再只依赖 debug-only `lj_checkapi`。
 
 ## P0：核心语义缺口
 

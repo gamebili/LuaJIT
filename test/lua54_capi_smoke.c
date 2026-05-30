@@ -2444,6 +2444,23 @@ static int pcall_nonfunction_errfunc(lua_State *L)
   return 0;
 }
 
+static void invalid_upvalueindex_hook(lua_State *L, lua_Debug *ar)
+{
+  (void)ar;
+  lua_sethook(L, NULL, 0, 0);
+  (void)lua_type(L, lua_upvalueindex(1));
+}
+
+static int upvalueindex_from_lua_hook(lua_State *L)
+{
+  check(L, luaL_loadstring(L, "local x = 1\nx = x + 1\n") == LUA_OK,
+	"lua_upvalueindex hook load");
+  lua_sethook(L, invalid_upvalueindex_hook, LUA_MASKLINE, 0);
+  lua_call(L, 0, 0);
+  lua_sethook(L, NULL, 0, 0);
+  return 0;
+}
+
 static int concat_negative_count(lua_State *L)
 {
   lua_concat(L, -1);
@@ -4618,6 +4635,9 @@ static void test_stack_and_number_api(lua_State *L)
   check_fresh_invalid_value(L, setupvalue_invalid_index,
 			    "lua_setupvalue rejects invalid function index",
 			    "lua_setupvalue invalid function index error");
+  check_fresh_invalid_value(L, upvalueindex_from_lua_hook,
+			    "lua_upvalueindex rejects non-C current frame",
+			    "lua_upvalueindex non-C frame error");
   check_fresh_invalid_value(L, upvalueid_invalid_index,
 			    "lua_upvalueid rejects invalid function index",
 			    "lua_upvalueid invalid function index error");

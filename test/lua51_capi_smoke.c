@@ -695,6 +695,38 @@ static int capi51_setupvalue_invalid_index(lua_State *L)
   return 0;
 }
 
+static int capi51_hook_pseudoindex;
+
+static void capi51_invalid_pseudoindex_hook(lua_State *L, lua_Debug *ar)
+{
+  int idx;
+  (void)ar;
+  lua_sethook(L, NULL, 0, 0);
+  idx = capi51_hook_pseudoindex ? LUA_ENVIRONINDEX : lua_upvalueindex(1);
+  (void)lua_type(L, idx);
+}
+
+static int capi51_run_pseudoindex_hook(lua_State *L, int use_env_index)
+{
+  check(L, luaL_loadstring(L, "local x = 1\nx = x + 1\n") == LUA_OK,
+	"lua51 pseudo-index hook load");
+  capi51_hook_pseudoindex = use_env_index;
+  lua_sethook(L, capi51_invalid_pseudoindex_hook, LUA_MASKLINE, 0);
+  lua_call(L, 0, 0);
+  lua_sethook(L, NULL, 0, 0);
+  return 0;
+}
+
+static int capi51_upvalueindex_from_lua_hook(lua_State *L)
+{
+  return capi51_run_pseudoindex_hook(L, 0);
+}
+
+static int capi51_environindex_from_lua_hook(lua_State *L)
+{
+  return capi51_run_pseudoindex_hook(L, 1);
+}
+
 static void capi51_check_invalid_value(lua_State *L, lua_CFunction fn,
 				       const char *statusmsg,
 				       const char *errmsg)
@@ -931,6 +963,12 @@ int main(void)
   capi51_check_invalid_value(L, capi51_setupvalue_invalid_index,
 			     "lua_setupvalue rejects invalid function index",
 			     "lua_setupvalue invalid function index error");
+  capi51_check_invalid_value(L, capi51_upvalueindex_from_lua_hook,
+			     "lua_upvalueindex rejects non-C current frame",
+			     "lua_upvalueindex non-C frame error");
+  capi51_check_invalid_value(L, capi51_environindex_from_lua_hook,
+			     "LUA_ENVIRONINDEX rejects non-C current frame",
+			     "LUA_ENVIRONINDEX non-C frame error");
 
   lua_pushinteger(L, 1);
   lua_pushinteger(L, 1);
