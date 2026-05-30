@@ -283,6 +283,9 @@ LJLIB_CF(debug_getinfo)
 #if LJ_54
   GCstr *optstr = debug_optstr_named54(L, arg+2, "debug.getinfo");
   const char *options = optstr ? strdata(optstr) : "flnSrtu";
+  if (options[0] == '>')
+    debug_argerror_named54(L, arg+2, "debug.getinfo",
+			   "invalid option '>'");
   if (L->base+arg < L->top && tvisfunc(L->base+arg)) {
     options = lua_pushfstring(L, ">%s", options);
     setfuncV(L1, L1->top++, funcV(L->base+arg));
