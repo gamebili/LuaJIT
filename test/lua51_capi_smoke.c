@@ -458,6 +458,32 @@ static int capi51_seti_invalid_index(lua_State *L)
   return 0;
 }
 
+static int capi51_rawgeti_invalid_index(lua_State *L)
+{
+  lua_rawgeti(L, 1, 1);
+  return 0;
+}
+
+static int capi51_rawgetp_invalid_index(lua_State *L)
+{
+  lua_rawgetp(L, 1, (const void *)capi51_rawgetp_invalid_index);
+  return 0;
+}
+
+static int capi51_rawseti_invalid_index(lua_State *L)
+{
+  lua_pushliteral(L, "value");
+  lua_rawseti(L, 2, 1);
+  return 0;
+}
+
+static int capi51_rawsetp_invalid_index(lua_State *L)
+{
+  lua_pushliteral(L, "value");
+  lua_rawsetp(L, 2, (const void *)capi51_rawsetp_invalid_index);
+  return 0;
+}
+
 static int capi51_getglobal_null_name(lua_State *L)
 {
   lua_getglobal(L, NULL);
@@ -750,6 +776,18 @@ int main(void)
   capi51_check_invalid_value(L, capi51_seti_invalid_index,
 			     "lua_seti rejects invalid table index",
 			     "lua_seti invalid table index error");
+  capi51_check_invalid_value(L, capi51_rawgeti_invalid_index,
+			     "lua_rawgeti rejects invalid table index",
+			     "lua_rawgeti invalid table index error");
+  capi51_check_invalid_value(L, capi51_rawgetp_invalid_index,
+			     "lua_rawgetp rejects invalid table index",
+			     "lua_rawgetp invalid table index error");
+  capi51_check_invalid_value(L, capi51_rawseti_invalid_index,
+			     "lua_rawseti rejects invalid table index",
+			     "lua_rawseti invalid table index error");
+  capi51_check_invalid_value(L, capi51_rawsetp_invalid_index,
+			     "lua_rawsetp rejects invalid table index",
+			     "lua_rawsetp invalid table index error");
   capi51_check_invalid_value(L, capi51_getglobal_null_name,
 			     "lua_getglobal rejects NULL name",
 			     "lua_getglobal NULL name error");

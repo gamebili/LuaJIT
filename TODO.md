@@ -77,6 +77,7 @@
    - 当前进展：C API smoke 已固定 `lua_concat(L, -1)` 在 Lua 5.4 wrapper 和默认 LuaJIT 5.1 ABI 下都会稳定报 `invalid value`；`lua_concat(L, 0)` 仍按官方语义压入空字符串。
    - 当前进展：C API smoke 已固定 `luaL_error(NULL)`、`luaL_argerror(NULL message)`、`luaL_typeerror(NULL expected)` / 默认 ABI `luaL_typerror(NULL expected)` 和 `luaL_argexpected(..., NULL)` 的 lauxlib release 边界；这些入口会稳定报 `invalid value`，不再解引用空格式串或把 NULL 期望类型名格式化成普通参数错误。
    - 当前进展：C API smoke 已固定 Lua 5.4 wrapper 和默认 LuaJIT 5.1 ABI 下 `lua_absindex()`、`lua_type()` / `lua_rawlen()` / `lua_objlen()` / `lua_topointer()` / `lua_rawequal()` 等栈索引查询入口对 `0` 和过深负索引的 release 边界；正向越界仍保留 Lua C API 的 `LUA_TNONE` / 空查询语义，但非法栈索引会稳定报 `invalid value`，不再只依赖 debug-only `lj_checkapi`。
+   - 当前进展：C API smoke 已补齐合成 key wrapper 的目标索引边界；默认 ABI 和 Lua 5.4 wrapper 下 `lua_rawgeti()` / `lua_rawgetp()` / `lua_rawseti()` / `lua_rawsetp()` 正向越界 table index 会在压入 synthetic key 或移动待写入值前稳定报 `invalid value`，Lua 5.4 `lua_setglobal()` 缺少待写入值也会先报 `invalid value`。
 
 ## P0：核心语义缺口
 

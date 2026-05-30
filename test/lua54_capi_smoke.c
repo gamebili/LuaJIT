@@ -2533,10 +2533,28 @@ static int rawgeti54_non_table(lua_State *L)
   return 0;
 }
 
+static int rawgeti_invalid_index(lua_State *L)
+{
+  lua_rawgeti_sig(L, 1, 1);
+  return 0;
+}
+
+static int rawgeti54_invalid_index(lua_State *L)
+{
+  lua_rawgeti_sig(L, 1, (lua_Integer)1024 * 1024 * 1024 * 1024);
+  return 0;
+}
+
 static int rawgetp_non_table(lua_State *L)
 {
   lua_pushinteger(L, 1);
   lua_rawgetp(L, -1, (const void *)rawgetp_non_table);
+  return 0;
+}
+
+static int rawgetp_invalid_index(lua_State *L)
+{
+  lua_rawgetp_sig(L, 1, (const void *)rawgetp_invalid_index);
   return 0;
 }
 
@@ -2579,11 +2597,32 @@ static int rawseti54_non_table(lua_State *L)
   return 0;
 }
 
+static int rawseti_invalid_index(lua_State *L)
+{
+  lua_pushliteral(L, "v");
+  lua_rawseti_sig(L, 2, 1);
+  return 0;
+}
+
+static int rawseti54_invalid_index(lua_State *L)
+{
+  lua_pushliteral(L, "v");
+  lua_rawseti_sig(L, 2, (lua_Integer)1024 * 1024 * 1024 * 1024);
+  return 0;
+}
+
 static int rawsetp_non_table(lua_State *L)
 {
   lua_pushinteger(L, 1);
   lua_pushliteral(L, "v");
   lua_rawsetp(L, -2, (const void *)rawsetp_non_table);
+  return 0;
+}
+
+static int rawsetp_invalid_index(lua_State *L)
+{
+  lua_pushliteral(L, "v");
+  lua_rawsetp(L, 2, (const void *)rawsetp_invalid_index);
   return 0;
 }
 
@@ -2761,6 +2800,12 @@ static int setglobal_null_name(lua_State *L)
 {
   lua_pushnil(L);
   lua_setglobal_sig(L, NULL);
+  return 0;
+}
+
+static int setglobal_missing_value(lua_State *L)
+{
+  lua_setglobal_sig(L, "__capi_missing_global_value");
   return 0;
 }
 
@@ -4463,9 +4508,18 @@ static void test_stack_and_number_api(lua_State *L)
   check_fresh_invalid_value(L, rawgeti54_non_table,
 			    "lua_rawgeti rejects wide-key non-table",
 			    "lua_rawgeti wide-key non-table error");
+  check_fresh_invalid_value(L, rawgeti_invalid_index,
+			    "lua_rawgeti rejects invalid table index",
+			    "lua_rawgeti invalid table index error");
+  check_fresh_invalid_value(L, rawgeti54_invalid_index,
+			    "lua_rawgeti rejects invalid wide-key table index",
+			    "lua_rawgeti invalid wide-key table index error");
   check_fresh_invalid_value(L, rawgetp_non_table,
 			    "lua_rawgetp rejects non-table",
 			    "lua_rawgetp non-table error");
+  check_fresh_invalid_value(L, rawgetp_invalid_index,
+			    "lua_rawgetp rejects invalid table index",
+			    "lua_rawgetp invalid table index error");
   check_fresh_invalid_value(L, next_missing_key,
 			    "lua_next rejects missing key",
 			    "lua_next missing key error");
@@ -4484,18 +4538,27 @@ static void test_stack_and_number_api(lua_State *L)
   check_fresh_invalid_value(L, rawseti_non_table,
 			    "lua_rawseti rejects non-table",
 			    "lua_rawseti non-table error");
+  check_fresh_invalid_value(L, rawseti_invalid_index,
+			    "lua_rawseti rejects invalid table index",
+			    "lua_rawseti invalid table index error");
   check_fresh_invalid_value(L, rawseti54_missing_value,
 			    "lua_rawseti rejects missing wide-key value",
 			    "lua_rawseti missing wide-key value error");
   check_fresh_invalid_value(L, rawseti54_non_table,
 			    "lua_rawseti rejects wide-key non-table",
 			    "lua_rawseti wide-key non-table error");
+  check_fresh_invalid_value(L, rawseti54_invalid_index,
+			    "lua_rawseti rejects invalid wide-key table index",
+			    "lua_rawseti invalid wide-key table index error");
   check_fresh_invalid_value(L, rawsetp_missing_value,
 			    "lua_rawsetp rejects missing value",
 			    "lua_rawsetp missing value error");
   check_fresh_invalid_value(L, rawsetp_non_table,
 			    "lua_rawsetp rejects non-table",
 			    "lua_rawsetp non-table error");
+  check_fresh_invalid_value(L, rawsetp_invalid_index,
+			    "lua_rawsetp rejects invalid table index",
+			    "lua_rawsetp invalid table index error");
   check_fresh_invalid_value(L, setmetatable_missing_value,
 			    "lua_setmetatable rejects missing value",
 			    "lua_setmetatable missing value error");
@@ -4565,6 +4628,9 @@ static void test_stack_and_number_api(lua_State *L)
   check_fresh_invalid_value(L, setglobal_null_name,
 			    "lua_setglobal rejects NULL name",
 			    "lua_setglobal NULL name error");
+  check_fresh_invalid_value(L, setglobal_missing_value,
+			    "lua_setglobal rejects missing value",
+			    "lua_setglobal missing value error");
   check_fresh_invalid_value(L, newmetatable_null_name,
 			    "luaL_newmetatable rejects NULL name",
 			    "luaL_newmetatable NULL name error");
