@@ -633,7 +633,7 @@ do
   assert(math.random(0) == -7928649372492011025)
   assert(math.random(0) == 2966187919354626699)
 
-  assert_records_trace(function()
+  assert_records_ir_calls(function()
     math.randomseed(1099511627776, "1")
     local n, hi_pos, hi_neg, very_wide = 0, 0, 0, 0
     for _ = 1, 80 do
@@ -647,7 +647,8 @@ do
     end
     assert(n == 80)
     assert(hi_pos > 0 and hi_neg > 0 and very_wide > 0)
-  end, "Lua 5.4 math.randomseed int64 seeds")
+  end, "Lua 5.4 math.randomseed int64 seeds",
+  { "lj_prng_i64_random54", "lj_obj_newint64" })
 end
 
 do
@@ -703,6 +704,49 @@ do
     -- dynamic string integers must guard before the xoshiro helper mutates PRNG.
     assert(got_sum == expect_sum)
   end, "Lua 5.4 math.random string interval recorder", "CALLS")
+end
+
+do
+  local wide_low = 1099511627776
+  local wide_up = wide_low + 3
+
+  local function random_wide_interval_mix(low, up, low_s, up_s, single_s)
+    local sum = 0
+    for _ = 1, 80 do
+      local v = math.random(low, up)
+      if math.type(v) == "integer" and v >= wide_low and v <= wide_up then
+	sum = sum + (v - wide_low)
+      end
+
+      local w = math.random(low_s, up_s)
+      if math.type(w) == "integer" and w >= wide_low and w <= wide_up then
+	sum = sum + (w - wide_low)
+      end
+
+      local single = math.random(single_s)
+      if math.type(single) == "integer" and single >= 1 and single <= wide_up then
+	sum = sum + (single % 17)
+      end
+    end
+    return sum
+  end
+
+  jitmod.off()
+  math.randomseed(0x12345678, 0x2468ace0)
+  local expect_sum = random_wide_interval_mix(wide_low, wide_up,
+					      tostring(wide_low),
+					      tostring(wide_up),
+					      tostring(wide_up))
+
+  assert_records_ir_calls(function()
+    math.randomseed(0x12345678, 0x2468ace0)
+    local got_sum = random_wide_interval_mix(wide_low, wide_up,
+					     tostring(wide_low),
+					     tostring(wide_up),
+					     tostring(wide_up))
+    assert(got_sum == expect_sum)
+  end, "Lua 5.4 math.random wide interval recorder",
+  { "lj_prng_i64_random54", "lj_obj_newint64" })
 end
 
 do

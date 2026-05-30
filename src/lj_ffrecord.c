@@ -841,6 +841,8 @@ static int recff_lua54_tointvalue(TValue *tv, int32_t *ip)
   ni = lj_vm_floor(n);
   if (n != ni)
     return 0;
+  if (!(n >= -2147483648.0 && n <= 2147483647.0))
+    return 0;
   *ip = (int32_t)n;
   return 1;
 }
@@ -1523,12 +1525,16 @@ nyi:
 #if LJ_54
 static int recff_lua54_random_intvalue(TValue *tv, int32_t *ip)
 {
-  TValue tmp;
   lua_Number n, ni;
   if (tvisstr(tv)) {
-    if (!lj_strscan_number(strV(tv), &tmp))
+    int64_t i64;
+    if (!lj_strscan_toi64ok54(strV(tv)))
       return 0;
-    tv = &tmp;
+    i64 = lj_strscan_toi6454(strV(tv));
+    if (!checki32(i64))
+      return 0;
+    *ip = (int32_t)i64;
+    return 1;
   }
   if (tvisint(tv)) {
     *ip = intV(tv);
@@ -1542,6 +1548,8 @@ static int recff_lua54_random_intvalue(TValue *tv, int32_t *ip)
     return 0;
   ni = lj_vm_floor(n);
   if (n != ni)
+    return 0;
+  if (!(n >= -2147483648.0 && n <= 2147483647.0))
     return 0;
   *ip = (int32_t)n;
   return 1;
@@ -1564,16 +1572,40 @@ static TRef recff_lua54_random_intref(jit_State *J, TRef tr, TValue *tv,
     return emitir(IRTGI(IR_CONV), tr, IRCONV_INT_NUM|IRCONV_CHECK);
   }
   if (tref_isstr(tr)) {
-    TRef ok = lj_ir_call(J, IRCALL_lj_strscan_tocheckintok54, tr);
+    TRef i64;
+    TRef ok = lj_ir_call(J, IRCALL_lj_strscan_toi64ok54, tr);
     /* math.random() consumes PRNG state before checking arguments in the
     ** interpreter. Guard dynamic string integers first so side exits preserve
     ** that official error path and PRNG consumption order.
     */
-    emitir(IRTGI(IR_EQ), ok, lj_ir_kint(J, 1));
-    return lj_ir_call(J, IRCALL_lj_strscan_tocheckint54, tr);
+    emitir(IRTG(IR_NE, IRT_INT), ok, lj_ir_kint(J, 0));
+    i64 = lj_ir_call(J, IRCALL_lj_strscan_toi6454, tr);
+    emitir(IRTG(IR_GE, IRT_I64), i64,
+	   lj_ir_kint64(J, (uint64_t)(int64_t)-2147483648));
+    emitir(IRTG(IR_LE, IRT_I64), i64, lj_ir_kint64(J, 2147483647));
+    return emitir(IRTI(IR_CONV), i64, RECFF_IRCONV_INT_I64_NARROW);
   }
   return 0;
 }
+
+#if LJ_DUALNUM
+static TRef recff_lua54_random_i64ref(jit_State *J, TRef tr, TValue *tv,
+				      int64_t *ip)
+{
+  if (!tr || !recff_lua54_tv_toi64(tv, ip))
+    return 0;
+  if (tref_isk(tr))
+    return lj_ir_kint64(J, (uint64_t)*ip);
+  return recff_lua54_toi64ref(J, tr, tv);
+}
+
+static TRef recff_lua54_random_boxi64(jit_State *J, TRef rs,
+				      TRef low, TRef up)
+{
+  TRef tr = lj_ir_call(J, IRCALL_lj_prng_i64_random54, rs, low, up);
+  return lj_ir_call(J, IRCALL_lj_obj_newint64, tr);
+}
+#endif
 #endif
 
 static void LJ_FASTCALL recff_math_random(jit_State *J, RecordFFData *rd)
@@ -1583,22 +1615,36 @@ static void LJ_FASTCALL recff_math_random(jit_State *J, RecordFFData *rd)
   TRef rs = lj_ir_kptr(J, uddata(ud));
   TRef trlow, trup;
   int32_t low, up;
+#if LJ_DUALNUM
+  TRef trlow64, trup64;
+  int64_t low64, up64;
+#endif
   lj_ir_kgc(J, obj2gco(ud), IRT_UDATA);  /* Keep PRNG state alive. */
   if (!J->base[0]) {
     J->base[0] = lj_ir_call(J, IRCALL_lj_prng_num_random54, rs);
   } else if (!J->base[1]) {
     trup = recff_lua54_random_intref(J, J->base[0], &rd->argv[0], &up);
-    if (!trup) {
+    if (trup && up == 0) {
+      emitir(IRTGI(IR_EQ), trup, lj_ir_kint(J, 0));
+#if LJ_DUALNUM
+      J->base[0] = recff_lua54_random_boxi64(J, rs, lj_ir_kint64(J, 0),
+					     lj_ir_kint64(J, (uint64_t)-1));
+#else
       recff_nyiu(J, rd);
       return;
-    }
-    if (up == 0) {
-      recff_nyiu(J, rd);
-      return;
-    } else if (up >= 1) {
+#endif
+    } else if (trup && up >= 1) {
       emitir(IRTGI(IR_GE), trup, lj_ir_kint(J, 1));
       J->base[0] = lj_ir_call(J, IRCALL_lj_prng_int_random54,
 			      rs, lj_ir_kint(J, 1), trup);
+#if LJ_DUALNUM
+    } else if ((trup64 = recff_lua54_random_i64ref(J, J->base[0],
+						   &rd->argv[0], &up64)) &&
+	       up64 >= 1) {
+      emitir(IRTG(IR_GE, IRT_I64), trup64, lj_ir_kint64(J, 1));
+      J->base[0] = recff_lua54_random_boxi64(J, rs, lj_ir_kint64(J, 1),
+					     trup64);
+#endif
     } else {
       recff_nyiu(J, rd);
       return;
@@ -1611,6 +1657,15 @@ static void LJ_FASTCALL recff_math_random(jit_State *J, RecordFFData *rd)
     emitir(IRTGI(IR_LE), trlow, trup);
     J->base[0] = lj_ir_call(J, IRCALL_lj_prng_int_random54,
 			    rs, trlow, trup);
+#if LJ_DUALNUM
+  } else if ((trlow64 = recff_lua54_random_i64ref(J, J->base[0],
+						  &rd->argv[0], &low64)) &&
+	     (trup64 = recff_lua54_random_i64ref(J, J->base[1],
+						 &rd->argv[1], &up64)) &&
+	     low64 <= up64) {
+    emitir(IRTG(IR_LE, IRT_I64), trlow64, trup64);
+    J->base[0] = recff_lua54_random_boxi64(J, rs, trlow64, trup64);
+#endif
   } else {
     recff_nyiu(J, rd);
     return;

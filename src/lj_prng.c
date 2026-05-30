@@ -112,6 +112,25 @@ static uint32_t lj_prng_project_random54(PRNGState *rs,
   }
 }
 
+static uint64_t lj_prng_project64_random54(PRNGState *rs,
+					   uint64_t ran, uint64_t n)
+{
+  if ((n & (n + 1u)) == 0) {
+    return ran & n;
+  } else {
+    uint64_t lim = n;
+    lim |= (lim >> 1);
+    lim |= (lim >> 2);
+    lim |= (lim >> 4);
+    lim |= (lim >> 8);
+    lim |= (lim >> 16);
+    lim |= (lim >> 32);
+    while ((ran &= lim) > n)
+      ran = lj_prng_u64_random54(rs);
+    return ran;
+  }
+}
+
 LJ_NOINLINE int32_t lj_prng_int_random54(PRNGState *rs,
 					 int32_t low, int32_t up)
 {
@@ -119,6 +138,15 @@ LJ_NOINLINE int32_t lj_prng_int_random54(PRNGState *rs,
   uint32_t p = lj_prng_project_random54(rs, (uint32_t)rv,
 					(uint32_t)up - (uint32_t)low);
   return (int32_t)(p + (uint32_t)low);
+}
+
+LJ_NOINLINE int64_t lj_prng_i64_random54(PRNGState *rs,
+					 int64_t low, int64_t up)
+{
+  uint64_t rv = lj_prng_u64_random54(rs);
+  uint64_t p = lj_prng_project64_random54(rs, rv,
+					  (uint64_t)up - (uint64_t)low);
+  return (int64_t)((uint64_t)low + p);
 }
 
 /* Condition seed: ensure k[i] MSB of u[i] are non-zero. */

@@ -223,6 +223,7 @@ typedef struct CCallInfo {
   _(ANY,	lj_prng_num_random54,	1,  FS, NUM, 0) \
   _(ANY,	lj_prng_i32_random54,	1,  FS, INT, 0) \
   _(ANY,	lj_prng_int_random54,	3,   S, INT, 0) \
+  _(ANY,	lj_prng_i64_random54,	3,   S, I64, XA2_64) \
   _(ANY,	lj_prng_u64d,		1,  FS, NUM, CCI_CASTU64) \
   _(ANY,	lj_vm_modi,		2,  FN, INT, 0) \
   _(ANY,	log10,			1,   N, NUM, XA_FP) \
