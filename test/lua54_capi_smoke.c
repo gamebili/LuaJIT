@@ -2842,6 +2842,12 @@ static int requiref_null_openf(lua_State *L)
   return 0;
 }
 
+static int getmetatable_invalid_index(lua_State *L)
+{
+  (void)lua_getmetatable(L, 1);
+  return 0;
+}
+
 static int setmetatable_invalid_object_index(lua_State *L)
 {
   lua_newtable(L);
@@ -4595,6 +4601,9 @@ static void test_stack_and_number_api(lua_State *L)
   check_fresh_invalid_value(L, requiref_null_openf,
 			    "luaL_requiref rejects NULL opener",
 			    "luaL_requiref NULL opener error");
+  check_fresh_invalid_value(L, getmetatable_invalid_index,
+			    "lua_getmetatable rejects invalid object index",
+			    "lua_getmetatable invalid object index error");
   check_fresh_invalid_value(L, setmetatable_invalid_object_index,
 			    "lua_setmetatable rejects invalid object index",
 			    "lua_setmetatable invalid object index error");

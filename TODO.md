@@ -147,6 +147,7 @@
   - 当前进展：C API `lua_createtable()` 的负预分配 hint 已在运行期归零；`narray < 0` 或 `nrec < 0` 不再被传入表分配层并把负 hash hint 扩展成巨大 hsize，从而避免无意义的大表分配/溢出路径。
   - 当前进展：C API `lua_createtable()` 的超大正数组 hint 已在 release 构建下稳定报 `table overflow`；`INT_MAX` 不再进入 `lj_tab_new_ah()` 的 `a+1` signed overflow 路径，默认 ABI 和 Lua 5.4 wrapper 均有 smoke 覆盖。
   - 当前进展：C API 合成 key 的索引 wrapper 已先验证目标 index 再压栈/插槽；`lua_geti()` / `lua_seti()` 对正向越界 table index 会稳定报 `invalid value`，不再因为后续压入 integer key 或移动待写入值而把越界 index 误解释成新栈槽，默认 ABI 和 Lua 5.4 wrapper 均有 smoke 覆盖。
+  - 当前进展：C API `lua_getmetatable()` 已对无效对象 index 增加 release 运行期 guard；正向越界 index 会稳定报 `invalid value`，不再被当成 `nil` 查询并受 nil/base metatable 状态影响。
   - 当前进展：C API `lua_checkstack()` / `lua_settop()` 的栈计数边界已增加 release 构建下的运行期 guard；负 stack request 会返回失败，过大的正 top 或低于当前 frame 的负 top 会稳定报 `invalid value`，不再依赖 API assert 避免越界栈指针计算。
   - 当前进展：C API `lua_concat()` 的 count 边界已对齐 Lua 5.4；`n <= 0` 会压入空串，超过当前栈元素数量的 `n` 会稳定报 `invalid value`，不再在 release 构建下静默忽略负数或访问错误栈槽。
   - 当前进展：C API `lua_arith()` 的 operand/op 边界已增加 release 构建下的运行期 guard；缺少一元/二元操作数或传入无效 op 会稳定报 `invalid value`，不再依赖 API assert 避免越界栈槽读取或错误元方法枚举。

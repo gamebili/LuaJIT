@@ -2065,7 +2065,7 @@ LUA_API void lua_setglobal54(lua_State *L, const char *name)
 
 LUA_API int lua_getmetatable(lua_State *L, int idx)
 {
-  cTValue *o = index2adr(L, idx);
+  cTValue *o = index2adr_valid(L, idx);
   GCtab *mt = NULL;
   if (tvistab(o))
     mt = tabref(tabV(o)->metatable);
@@ -2084,6 +2084,8 @@ LUALIB_API int luaL_getmetafield(lua_State *L, int idx, const char *field)
 {
   if (field == NULL)
     lj_err_msg(L, LJ_ERR_BADVAL);
+  if (lua_type(L, idx) == LUA_TNONE)
+    return 0;
   if (lua_getmetatable(L, idx)) {
     cTValue *tv = lj_tab_getstr(tabV(L->top-1), lj_str_newz(L, field));
     if (tv && !tvisnil(tv)) {

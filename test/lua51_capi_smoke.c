@@ -541,6 +541,12 @@ static int capi51_setmetatable_null_name(lua_State *L)
   return 0;
 }
 
+static int capi51_getmetatable_invalid_index(lua_State *L)
+{
+  (void)lua_getmetatable(L, 1);
+  return 0;
+}
+
 static int capi51_setfenv_missing_value(lua_State *L)
 {
   lua_setfenv(L, LUA_REGISTRYINDEX);
@@ -813,6 +819,9 @@ int main(void)
   capi51_check_invalid_value(L, capi51_setmetatable_null_name,
 			     "luaL_setmetatable rejects NULL name",
 			     "luaL_setmetatable NULL name error");
+  capi51_check_invalid_value(L, capi51_getmetatable_invalid_index,
+			     "lua_getmetatable rejects invalid object index",
+			     "lua_getmetatable invalid object index error");
   capi51_check_invalid_value(L, capi51_setfuncs_null_list,
 			     "luaL_setfuncs rejects NULL list",
 			     "luaL_setfuncs NULL list error");
