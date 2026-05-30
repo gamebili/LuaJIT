@@ -38,8 +38,8 @@
 #define LUA54_NOTAIL_GLOBAL_TABLE_ALIAS_MAX	64
 #define LUA54_NOTAIL_TABLE_FIELD_ALIAS_MAX	64
 #define LUA54_NOTAIL_GLOBAL_TABLE_FIELD_MAX	8
-#define LUA54_NOTAIL_NESTED_TABLE_FIELD_MAX	8
-#define LUA54_NOTAIL_GLOBAL_NESTED_FIELD_MAX	8
+#define LUA54_NOTAIL_NESTED_TABLE_FIELD_MAX	32
+#define LUA54_NOTAIL_GLOBAL_NESTED_FIELD_MAX	32
 #endif
 
 /* -- Parser structures and definitions ----------------------------------- */
@@ -825,6 +825,20 @@ static GCstr *bcemit_lua54_const_str_by_slot(FuncState *fs, BCReg slot)
     if (tvhaskslot(&n->val) && tvkslot(&n->val) == slot &&
 	tvisstr(&n->key))
       return strV(&n->key);
+  }
+  return NULL;
+}
+
+static GCtab *bcemit_lua54_const_tab_by_slot(FuncState *fs, BCReg slot)
+{
+  GCtab *kt = fs->kt;
+  Node *node = noderef(kt->node);
+  MSize i;
+  for (i = 0; i <= kt->hmask; i++) {
+    Node *n = &node[i];
+    if (tvhaskslot(&n->val) && tvkslot(&n->val) == slot &&
+	tvistab(&n->key))
+      return tabV(&n->key);
   }
   return NULL;
 }
@@ -3254,6 +3268,75 @@ static int lua54_slot_table_constructor_init(FuncState *fs, BCReg slot,
 static VarIndex lua54_store_value_table_source(FuncState *fs, BCReg reg,
 					       BCPos storepc);
 
+static int lua54_const_tab_invalidated(BCIns ins, BCReg reg)
+{
+  BCOp op = bc_op(ins);
+  return (op == BC_TSETS || op == BC_TSETV || op == BC_TSETB) &&
+	 bc_b(ins) == reg;
+}
+
+static GCtab *lua54_reg_const_tab(FuncState *fs, BCReg reg, BCPos pc)
+{
+  if (fs->pc == 0 || pc <= fs->lasttarget)
+    return NULL;
+  if (pc >= fs->pc)
+    pc = fs->pc - 1;
+  while (pc-- > fs->lasttarget) {
+    BCIns ins = fs->bcbase[pc].ins;
+    BCOp op = bc_op(ins);
+    if (lua54_const_tab_invalidated(ins, reg))
+      return NULL;
+    if (bc_a(ins) != reg)
+      continue;
+    if (op == BC_TDUP)
+      return bcemit_lua54_const_tab_by_slot(fs, bc_d(ins));
+    if (op == BC_MOV)
+      return lua54_reg_const_tab(fs, bc_d(ins), pc);
+    return NULL;
+  }
+  return NULL;
+}
+
+static GCstr *lua54_reg_const_str(FuncState *fs, BCReg reg, BCPos pc);
+
+static GCstr *lua54_reg_const_cat_str(FuncState *fs, BCIns ins, BCPos pc)
+{
+  GCstr *part[BCMAX_C+1];
+  BCReg first = bc_b(ins);
+  BCReg last = bc_c(ins);
+  BCReg r;
+  MSize i = 0, total = 0;
+  char *p;
+  if (first > last)
+    return NULL;
+  for (r = first; r <= last; r++) {
+    GCstr *s = lua54_reg_const_str(fs, r, pc);
+    if (s == NULL)
+      return NULL;
+    if (total + s->len < total)
+      return NULL;
+    total += s->len;
+    part[i++] = s;
+  }
+  if (total == 0)
+    return lj_parse_keepstr(fs->ls, "", 0);
+  lj_buf_reset(&fs->ls->sb);
+  p = lj_buf_more(&fs->ls->sb, total);
+  for (r = 0; r < i; r++)
+    p = lj_buf_wmem(p, strdata(part[r]), part[r]->len);
+  fs->ls->sb.w = p;
+  return lj_parse_keepstr(fs->ls, fs->ls->sb.b, total);
+}
+
+static GCstr *lua54_const_tab_str_field(GCtab *tab, GCstr *field)
+{
+  cTValue *tv;
+  if (tab == NULL || field == NULL)
+    return NULL;
+  tv = lj_tab_getstr(tab, field);
+  return tv != NULL && tvisstr(tv) ? strV(tv) : NULL;
+}
+
 static GCstr *lua54_reg_const_str(FuncState *fs, BCReg reg, BCPos pc)
 {
   if (fs->pc == 0 || pc <= fs->lasttarget)
@@ -3269,6 +3352,24 @@ static GCstr *lua54_reg_const_str(FuncState *fs, BCReg reg, BCPos pc)
       return bcemit_lua54_const_str_by_slot(fs, bc_d(ins));
     if (op == BC_MOV)
       return lua54_reg_const_str(fs, bc_d(ins), pc);
+    if (op == BC_CAT)
+      return lua54_reg_const_cat_str(fs, ins, pc);
+    if (op == BC_TGETS) {
+      GCtab *tab = lua54_reg_const_tab(fs, bc_b(ins), pc);
+      GCstr *field = bcemit_lua54_const_str_by_slot(fs, bc_c(ins));
+      return lua54_const_tab_str_field(tab, field);
+    }
+    if (op == BC_TGETV && pc > 0) {
+      GCtab *tab = lua54_reg_const_tab(fs, bc_b(ins), pc);
+      GCstr *field = NULL;
+      BCIns key = fs->bcbase[pc - 1].ins;
+      if (bc_op(key) == BC_KSTR && bc_a(key) == bc_c(ins) &&
+	  bc_c(ins) >= fs->nactvar)
+	field = bcemit_lua54_const_str_by_slot(fs, bc_d(key));
+      else
+	field = lua54_reg_const_str(fs, bc_c(ins), pc);
+      return lua54_const_tab_str_field(tab, field);
+    }
     return NULL;
   }
   return NULL;

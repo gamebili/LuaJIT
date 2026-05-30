@@ -1427,6 +1427,22 @@ do
     local lua54_jit_table_rhs_assign_holder = {}
     lua54_jit_table_rhs_assign_holder.alias = lua54_jit_table_rhs_base.inner
     lua54_jit_table_rhs_assign_holder.alias.n = math.abs
+    local lua54_jit_concat_ctor_key = "u" .. "2"
+    local lua54_jit_concat_ctor_holder = {
+      [lua54_jit_concat_ctor_key] = math.abs,
+    }
+    local lua54_jit_template_key_source = { name = "u3" }
+    local lua54_jit_template_key = lua54_jit_template_key_source.name
+    local lua54_jit_template_key_holder = {
+      [lua54_jit_template_key] = math.abs,
+    }
+    local lua54_jit_concat_assign_holder = {}
+    local lua54_jit_concat_assign_key = "w" .. "2"
+    lua54_jit_concat_assign_holder[lua54_jit_concat_assign_key] = math.abs
+    local lua54_jit_nested_concat_key_holder = { inner = {} }
+    local lua54_jit_nested_concat_key = "x" .. "2"
+    lua54_jit_nested_concat_key_holder.inner[lua54_jit_nested_concat_key] =
+      math.abs
     for _ = 1, 80 do
       local ok_fmod_missing, err_fmod_missing = pcall(math.fmod)
       local ok_fmod_nil, err_fmod_nil = pcall(function()
@@ -1473,6 +1489,18 @@ do
 	pcall(function()
 	  return lua54_jit_table_rhs_assign_holder.alias.n(true)
 	end)
+      local ok_concat_ctor_key, err_concat_ctor_key = pcall(function()
+	return lua54_jit_concat_ctor_holder.u2(true)
+      end)
+      local ok_template_key, err_template_key = pcall(function()
+	return lua54_jit_template_key_holder.u3(true)
+      end)
+      local ok_concat_assign_key, err_concat_assign_key = pcall(function()
+	return lua54_jit_concat_assign_holder.w2(true)
+      end)
+      local ok_nested_concat_key, err_nested_concat_key = pcall(function()
+	return lua54_jit_nested_concat_key_holder.inner.x2(true)
+      end)
       if not ok_fmod_missing and
 	 err_fmod_missing:find("bad argument #2 to 'math.fmod'", 1, true) and
 	 not ok_fmod_nil and
@@ -1530,6 +1558,22 @@ do
 	 err_table_rhs_assign_read:find("bad argument #1 to 'n'", 1, true) then
 	n = n + 1
       end
+      if not ok_concat_ctor_key and
+	 err_concat_ctor_key:find("bad argument #1 to 'u2'", 1, true) then
+	n = n + 1
+      end
+      if not ok_template_key and
+	 err_template_key:find("bad argument #1 to 'u3'", 1, true) then
+	n = n + 1
+      end
+      if not ok_concat_assign_key and
+	 err_concat_assign_key:find("bad argument #1 to 'w2'", 1, true) then
+	n = n + 1
+      end
+      if not ok_nested_concat_key and
+	 err_nested_concat_key:find("bad argument #1 to 'x2'", 1, true) then
+	n = n + 1
+      end
       if math.ult(-1, 1) == false and math.ult(1, -1) == true then
 	n = n + 1
       end
@@ -1537,7 +1581,7 @@ do
     lua54_jit_global_abs_alias = nil
     lua54_jit_table_global_alias = nil
     lua54_jit_table_global_alias2 = nil
-    assert(n == 1120)
+    assert(n == 1440)
   end, "Lua 5.4 math.ult")
 end
 

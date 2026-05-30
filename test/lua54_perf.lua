@@ -146,6 +146,22 @@ lua54_perf_table_rhs_ctor_holder.alias.m = math.abs
 local lua54_perf_table_rhs_assign_holder = {}
 lua54_perf_table_rhs_assign_holder.alias = lua54_perf_table_rhs_base.inner
 lua54_perf_table_rhs_assign_holder.alias.n = math.abs
+local lua54_perf_concat_ctor_key = "u" .. "2"
+local lua54_perf_concat_ctor_holder = {
+  [lua54_perf_concat_ctor_key] = math.abs,
+}
+local lua54_perf_template_key_source = { name = "u3" }
+local lua54_perf_template_key = lua54_perf_template_key_source.name
+local lua54_perf_template_key_holder = {
+  [lua54_perf_template_key] = math.abs,
+}
+local lua54_perf_concat_assign_holder = {}
+local lua54_perf_concat_assign_key = "w" .. "2"
+lua54_perf_concat_assign_holder[lua54_perf_concat_assign_key] = math.abs
+local lua54_perf_nested_concat_key_holder = { inner = {} }
+local lua54_perf_nested_concat_key = "x" .. "2"
+lua54_perf_nested_concat_key_holder.inner[lua54_perf_nested_concat_key] =
+  math.abs
 
 local function protected_add(a, b)
   return a + b
@@ -324,6 +340,34 @@ local function base_value_helpers(n)
       end)
     if not ok_table_rhs_assign_read and
        err_table_rhs_assign_read:find("bad argument #1 to 'n'", 1, true) then
+      sum = sum + 1
+    end
+    local ok_concat_ctor_key, err_concat_ctor_key = pcall(function()
+      return lua54_perf_concat_ctor_holder.u2(true)
+    end)
+    if not ok_concat_ctor_key and
+       err_concat_ctor_key:find("bad argument #1 to 'u2'", 1, true) then
+      sum = sum + 1
+    end
+    local ok_template_key, err_template_key = pcall(function()
+      return lua54_perf_template_key_holder.u3(true)
+    end)
+    if not ok_template_key and
+       err_template_key:find("bad argument #1 to 'u3'", 1, true) then
+      sum = sum + 1
+    end
+    local ok_concat_assign_key, err_concat_assign_key = pcall(function()
+      return lua54_perf_concat_assign_holder.w2(true)
+    end)
+    if not ok_concat_assign_key and
+       err_concat_assign_key:find("bad argument #1 to 'w2'", 1, true) then
+      sum = sum + 1
+    end
+    local ok_nested_concat_key, err_nested_concat_key = pcall(function()
+      return lua54_perf_nested_concat_key_holder.inner.x2(true)
+    end)
+    if not ok_nested_concat_key and
+       err_nested_concat_key:find("bad argument #1 to 'x2'", 1, true) then
       sum = sum + 1
     end
     local text_fn, text_err = load("return 54", "lua54-load-text", "b")
