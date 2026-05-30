@@ -410,6 +410,21 @@ static TRef recff_lua54_toi64ref(jit_State *J, TRef tr, cTValue *tv)
   return 0;
 }
 
+#if defined(LUA_COMPAT_MATHLIB)
+static TRef recff_lua54_cintref(jit_State *J, TRef tr, cTValue *tv)
+{
+  int64_t i;
+  if (!tr || !recff_lua54_tv_toi64(tv, &i))
+    return 0;
+  if (tref_isk(tr))
+    return lj_ir_kint(J, (int32_t)i);
+  tr = recff_lua54_toi64ref(J, tr, tv);
+  if (!tr)
+    return 0;
+  return emitir(IRTI(IR_CONV), tr, RECFF_IRCONV_INT_I64_NARROW);
+}
+#endif
+
 static TRef recff_lua54_toint64ref(jit_State *J, TRef tr, cTValue *tv)
 {
   if (recff_lua54_tv_isinteger(tv)) {
@@ -1388,7 +1403,16 @@ static void LJ_FASTCALL recff_math_ldexp(jit_State *J, RecordFFData *rd)
 #else
   TRef tr = lj_ir_tonum(J, J->base[0]);
 #endif
+#if LJ_54 && LJ_DUALNUM && defined(LUA_COMPAT_MATHLIB)
+  TRef tr2 = recff_lua54_cintref(J, J->base[1], &rd->argv[1]);
+  if (!tr2) {
+    recff_nyiu(J, rd);
+    return;
+  }
 #if LJ_TARGET_X86ORX64
+  tr2 = emitir(IRTN(IR_CONV), tr2, IRCONV_NUM_INT);
+#endif
+#elif LJ_TARGET_X86ORX64
 #if LJ_54 && LJ_DUALNUM
   TRef tr2 = recff_lua54_checknumref(J, J->base[1], &rd->argv[1]);
 #else

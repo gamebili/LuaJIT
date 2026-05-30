@@ -101,7 +101,7 @@ static int math_tointeger54(lua_State *L, int narg, lua_Integer *ip, int *isnum)
   return 1;
 }
 
-#if !LJ_DUALNUM || defined(LUA_COMPAT_MATHLIB)
+#if !LJ_DUALNUM
 static int math_toint32(lua_State *L, int narg, int32_t *ip, int *isnum)
 {
   TValue tmp;
@@ -145,8 +145,8 @@ static int math_toint32(lua_State *L, int narg, int32_t *ip, int *isnum)
 static void math_argtype_named54(lua_State *L, int narg, const char *fname,
 				 const char *xname);
 
-static lua_Integer math_checkrandominteger(lua_State *L, int narg,
-					   const char *fname)
+static lua_Integer math_checkinteger_named54(lua_State *L, int narg,
+					     const char *fname)
 {
   lua_Integer i;
   int isnum;
@@ -621,17 +621,10 @@ static int lj_cf_math_frexp_compat54(lua_State *L)
 
 static int lj_cf_math_ldexp_compat54(lua_State *L)
 {
-  int32_t ep;
-  int isnum;
+  lua_Integer ep;
   lua_Number x = math_checknum_named54(L, 1, "math.ldexp");
-  if (!math_toint32(L, 2, &ep, &isnum)) {
-    if (isnum)
-      lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #2 to '%s' "
-	"(number has no integer representation)",
-	math_argname54(L, "math.ldexp")));
-    math_argtype_named54(L, 2, "math.ldexp", "number");
-  }
-  setnumV(L->top++, ldexp(x, ep));
+  ep = math_checkinteger_named54(L, 2, "math.ldexp");
+  setnumV(L->top++, ldexp(x, (int)ep));
   return 1;
 }
 #endif
@@ -767,15 +760,15 @@ LJLIB_CF(math_random)		LJLIB_REC(.)
     return 1;
   } else if (n == 1) {
     low = 1;
-    up = math_checkrandominteger(L, 1, "math.random");
+    up = math_checkinteger_named54(L, 1, "math.random");
     if (up == 0) {
       lj_obj_setint64(L, L->top, (int64_t)(lua_Integer)(lua_Unsigned)rv);
       L->top++;
       return 1;
     }
   } else {
-    low = math_checkrandominteger(L, 1, "math.random");
-    up = math_checkrandominteger(L, 2, "math.random");
+    low = math_checkinteger_named54(L, 1, "math.random");
+    up = math_checkinteger_named54(L, 2, "math.random");
   }
   if (low > up)
     lj_err_callermsg(L,
@@ -843,9 +836,9 @@ LJLIB_CF(math_randomseed)
 #if LJ_54
   lua_Unsigned s1, s2;
   if (L->base != L->top) {
-    s1 = (lua_Unsigned)math_checkrandominteger(L, 1, "math.randomseed");
+    s1 = (lua_Unsigned)math_checkinteger_named54(L, 1, "math.randomseed");
     s2 = (L->base+1 < L->top && !tvisnil(L->base+1)) ?
-	 (lua_Unsigned)math_checkrandominteger(L, 2, "math.randomseed") : 0;
+	 (lua_Unsigned)math_checkinteger_named54(L, 2, "math.randomseed") : 0;
   } else {
     s1 = (lua_Unsigned)time(NULL);
     s2 = (lua_Unsigned)(uintptr_t)L;

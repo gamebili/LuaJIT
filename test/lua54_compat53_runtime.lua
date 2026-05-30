@@ -22,6 +22,16 @@ local mantissa, exponent = math.frexp(8)
 assert(mantissa == 0.5 and exponent == 4)
 assert(math.ldexp(mantissa, exponent) == 8)
 
+local ldexp_wide_number = math.ldexp(1, 4294967297)
+assert(type(ldexp_wide_number) == "number")
+assert(math.ldexp(1, "4294967297") == ldexp_wide_number)
+assert(math.ldexp(1, "4294967297.0") == ldexp_wide_number)
+do
+  local ok, err = pcall(math.ldexp, 1, 1.5)
+  assert(ok == false and err:find("number has no integer representation",
+				  1, true))
+end
+
 do
   local ok_util, jutil = pcall(require, "jit.util")
   if ok_util then
@@ -147,6 +157,44 @@ do
       end
       assert(ldexp_loop(1099511627776, 1) == 80)
     end, "compat math.ldexp int64", "LDEXP")
+
+    assert_records_ir_op(function()
+      local function ldexp_wide_loop(a, e, se)
+	local n = 0
+	for _ = 1, 80 do
+	  if math.ldexp(a, e) == ldexp_wide_number and
+	     math.ldexp(a, se) == ldexp_wide_number then
+	    n = n + 1
+	  end
+	end
+	return n
+      end
+      assert(ldexp_wide_loop(1, 4294967297, "4294967297") == 80)
+    end, "compat math.ldexp wide exponent", "LDEXP")
+
+    do
+      jit.off()
+      jit.flush()
+      collectgarbage()
+      jit.on()
+      jit.opt.start("hotloop=1", "hotexit=1")
+      local e = 1.0
+      local function ldexp_guard_loop()
+	local n = 0
+	for _ = 1, 80 do
+	  n = n + math.ldexp(1, e)
+	end
+	return n
+      end
+      local before = trace_highwater()
+      assert(ldexp_guard_loop() == 160)
+      assert(trace_highwater() > before,
+	     "compat math.ldexp integer guard did not record")
+      e = 1.5
+      local ok, err = pcall(ldexp_guard_loop)
+      assert(ok == false and err:find("number has no integer representation",
+				      1, true))
+    end
   end
 end
 
