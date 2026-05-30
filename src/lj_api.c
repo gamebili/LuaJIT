@@ -2812,36 +2812,51 @@ LUA_API int (lua_yieldk)(lua_State *L, int nresults, lua_KContext ctx,
 }
 #endif
 
+static int api_resume_error(lua_State *L, ErrMsg em)
+{
+  L->top = L->base;
+  setstrV(L, L->top, lj_err_str(L, em));
+  incr_top(L);
+  return LUA_ERRRUN;
+}
+
+static int api_checkresumeargs(lua_State *L, int nargs)
+{
+  ptrdiff_t need;
+  if (nargs < 0 || nargs == INT_MAX)
+    return 0;
+  need = (ptrdiff_t)nargs + (L->status == LUA_OK ? 1 : 0);
+  return L->top - L->base >= need;
+}
+
 LUA_API int lua_resume(lua_State *L, int nargs)
 {
+  if (nargs < 0 || nargs == INT_MAX)
+    return api_resume_error(L, LJ_ERR_BADVAL);
 #if LJ_54
   if (L->status == LUA_OK && L->top == L->base) {
     /* A reset/dead coroutine has no initial function left on its stack. Lua
     ** 5.4 reports this as a dead coroutine instead of trying to call nil.
     */
-    L->top = L->base;
-    setstrV(L, L->top, lj_err_str(L, LJ_ERR_CODEAD));
-    incr_top(L);
-    return LUA_ERRRUN;
+    return api_resume_error(L, LJ_ERR_CODEAD);
   }
 #endif
-  if (L->cframe == NULL && L->status <= LUA_YIELD)
+  if (L->cframe == NULL && L->status <= LUA_YIELD) {
+    if (!api_checkresumeargs(L, nargs))
+      return api_resume_error(L, LJ_ERR_BADVAL);
     return lj_vm_resume(L,
       L->status == LUA_OK ? api_call_base(L, nargs) : L->top - nargs,
       0, 0);
+  }
 #if LJ_54
   {
     int dead = (L->status > LUA_YIELD ||
 		(L->status == LUA_OK && L->top == L->base));
-    L->top = L->base;
-    setstrV(L, L->top, lj_err_str(L, dead ? LJ_ERR_CODEAD : LJ_ERR_COSUSP));
+    return api_resume_error(L, dead ? LJ_ERR_CODEAD : LJ_ERR_COSUSP);
   }
 #else
-  L->top = L->base;
-  setstrV(L, L->top, lj_err_str(L, LJ_ERR_COSUSP));
+  return api_resume_error(L, LJ_ERR_COSUSP);
 #endif
-  incr_top(L);
-  return LUA_ERRRUN;
 }
 
 #if LJ_54
@@ -3098,6 +3113,12 @@ LUA_API int lua_resume54(lua_State *L, lua_State *from, int nargs,
   */
   if (L->status == LUA_YIELD && L->capi_yield_k != NULL &&
       L->capi_yield_kind == LUA54_CAPI_CONT_YIELDK) {
+    if (!api_checkresumeargs(L, nargs)) {
+      status = api_resume_error(L, LJ_ERR_BADVAL);
+      if (nresults) *nresults = lua_gettop(L);
+      lua54_resume_restore_from(L, from);
+      return status;
+    }
     status = resume_lua54_yieldk_cont(L, nargs, nresults);
     lua54_resume_restore_from(L, from);
     return status;

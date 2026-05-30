@@ -2912,6 +2912,16 @@ static void check_yieldk_cont_invalid_value(lua_State *L, lua_CFunction fn,
   lua_pop(L, 1);
 }
 
+static void check_resume_invalid_result(lua_State *L, lua_State *co,
+					int status, int nres,
+					const char *statusmsg,
+					const char *errmsg)
+{
+  check(L, status == LUA_ERRRUN, statusmsg);
+  check(L, nres == 1 && lua_gettop(co) == 1, statusmsg);
+  check(L, strstr(lua_tostring(co, -1), "invalid value") != NULL, errmsg);
+}
+
 static int capi_gc_reentry(lua_State *L)
 {
   lua_pushinteger(L, lua_gc(L, LUA_GCCOUNT));
@@ -5611,6 +5621,60 @@ static void test_stack_and_number_api(lua_State *L)
 				  "lua_yieldk large continuation initial yield",
 				  "lua_yieldk rejects too-large continuation result count",
 				  "lua_yieldk too-large continuation result error");
+
+  co = lua_newthread(L);
+  lua_pushcfunction(L, push_answer);
+  lua_xmove(L, co, 1);
+  {
+    int nres = -1;
+    int status = lua_resume_sig(co, L, -1, &nres);
+    check_resume_invalid_result(L, co, status, nres,
+				"lua_resume54 rejects negative nargs",
+				"lua_resume54 negative nargs error");
+  }
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  lua_pushcfunction(L, push_answer);
+  lua_xmove(L, co, 1);
+  {
+    int nres = -1;
+    int status = lua_resume_sig(co, L, 1, &nres);
+    check_resume_invalid_result(L, co, status, nres,
+				"lua_resume54 rejects too many initial args",
+				"lua_resume54 too many initial args error");
+  }
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  lua_pushcfunction(L, yield_once);
+  lua_xmove(L, co, 1);
+  {
+    int nres = -1;
+    int status = lua_resume_sig(co, L, 0, &nres);
+    check(L, status == LUA_YIELD && nres == 0 && lua_gettop(co) == 0,
+	  "lua_resume54 yielded invalid nargs setup");
+    status = lua_resume_sig(co, L, 1, &nres);
+    check_resume_invalid_result(L, co, status, nres,
+				"lua_resume54 rejects too many resume args",
+				"lua_resume54 too many resume args error");
+  }
+  lua_pop(L, 1);
+
+  co = lua_newthread(L);
+  lua_pushcfunction(L, yield_with_cont);
+  lua_xmove(L, co, 1);
+  {
+    int nres = -1;
+    int status = lua_resume_sig(co, L, 0, &nres);
+    check(L, status == LUA_YIELD && nres == 1 && lua_gettop(co) == 1,
+	  "lua_resume54 yieldk invalid nargs setup");
+    status = lua_resume_sig(co, L, 2, &nres);
+    check_resume_invalid_result(L, co, status, nres,
+				"lua_resume54 rejects too many yieldk resume args",
+				"lua_resume54 yieldk resume arg error");
+  }
+  lua_pop(L, 1);
 
   co = lua_newthread(L);
   lua_pushcfunction(L, yield_two);

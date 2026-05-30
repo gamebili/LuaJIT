@@ -71,6 +71,7 @@
    - 当前进展：C API smoke 已固定默认 ABI `lua_cpcall()` 的 NULL C 函数指针边界，以及 `lua_getinfo()` / `lua_getstack()` / `lua_setlocal()` 的 NULL debug 参数边界；`lua_setlocal()` 找不到目标 local 时不再错误弹出栈顶待写入值，`lua_getlocal(NULL, n)` 在栈顶没有函数时稳定返回 `NULL`。
    - 当前进展：C API smoke 已固定 `luaL_checkoption()` 的 NULL option list 和 `luaL_traceback()` 的 NULL 目标线程边界；这些外部 lauxlib 指针参数会稳定报 `invalid value`，不再走空指针解引用。
    - 当前进展：Lua 5.4 C continuation smoke 已固定 `lua_yieldk()` continuation 返回负数或超过当前栈结果数量时，在 release 构建下统一报 `invalid value`，不再依赖 debug-only `api_check`。
+   - 当前进展：C API smoke 已固定默认 ABI `lua_resume()` 和 Lua 5.4 wrapper `lua_resume()` / `lua_resume54()` 的参数数量边界；负 `nargs`、初始调用缺少函数/参数槽位或挂起 coroutine 缺少 resume 参数槽位时会稳定返回 `LUA_ERRRUN` 与 `invalid value`，Lua 5.4 wrapper 同步回填单个错误结果。
    - 当前进展：C API smoke 已固定 `lua_setmetatable()` 非 table metatable、默认 ABI `lua_setfenv()` 非 table env，以及 `lua_replace(LUA_GLOBALSINDEX/LUA_ENVIRONINDEX)` 非 table value 在 release 构建下统一报 `invalid value`。
    - 当前进展：C API smoke 已固定 `lua_dump()` 空栈调用在 Lua 5.4 wrapper 和默认 LuaJIT 5.1 ABI 下都会稳定报 `invalid value`，不再只依赖 debug-only `lj_checkapi` 避免读取空 top slot。
    - 当前进展：C API smoke 已固定 `lua_concat(L, -1)` 在 Lua 5.4 wrapper 和默认 LuaJIT 5.1 ABI 下都会稳定报 `invalid value`；`lua_concat(L, 0)` 仍按官方语义压入空字符串。

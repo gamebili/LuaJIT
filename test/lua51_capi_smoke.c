@@ -65,6 +65,11 @@ static int capi51_answer(lua_State *L)
   return 1;
 }
 
+static int capi51_yield_once(lua_State *L)
+{
+  return lua_yield(L, 0);
+}
+
 static int capi51_return_upvalue(lua_State *L)
 {
   lua_pushvalue(L, lua_upvalueindex(1));
@@ -645,6 +650,16 @@ static void capi51_check_invalid_value(lua_State *L, lua_CFunction fn,
   lua_pop(L, 1);
 }
 
+static void capi51_check_resume_invalid_result(lua_State *L, lua_State *co,
+					       int status,
+					       const char *statusmsg,
+					       const char *errmsg)
+{
+  check(L, status == LUA_ERRRUN, statusmsg);
+  check(L, lua_gettop(co) == 1, statusmsg);
+  check(L, strstr(lua_tostring(co, -1), "invalid value") != NULL, errmsg);
+}
+
 int main(void)
 {
   lua_State *L = luaL_newstate();
@@ -1099,6 +1114,29 @@ int main(void)
 	  "lua_cpcall default API userdata");
     lua_pop(L, 1);
   }
+
+  L2 = lua_newthread(L);
+  lua_pushcfunction(L2, capi51_answer);
+  capi51_check_resume_invalid_result(L, L2, lua_resume(L2, -1),
+				     "lua_resume rejects negative nargs",
+				     "lua_resume negative nargs error");
+  lua_pop(L, 1);
+
+  L2 = lua_newthread(L);
+  lua_pushcfunction(L2, capi51_answer);
+  capi51_check_resume_invalid_result(L, L2, lua_resume(L2, 1),
+				     "lua_resume rejects too many initial args",
+				     "lua_resume too many initial args error");
+  lua_pop(L, 1);
+
+  L2 = lua_newthread(L);
+  lua_pushcfunction(L2, capi51_yield_once);
+  check(L, lua_resume(L2, 0) == LUA_YIELD, "lua_resume yield setup");
+  check(L, lua_gettop(L2) == 0, "lua_resume yield setup stack");
+  capi51_check_resume_invalid_result(L, L2, lua_resume(L2, 1),
+				     "lua_resume rejects too many resume args",
+				     "lua_resume too many resume args error");
+  lua_pop(L, 1);
 
   {
     Capi51ReaderCtx ctx = { "return 40 + 2", 0 };
