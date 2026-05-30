@@ -3399,6 +3399,12 @@ static int laux_checkstack_null_msg(lua_State *L)
   return 0;
 }
 
+static int laux_checkstack_negative(lua_State *L)
+{
+  luaL_checkstack(L, -1, "negative stack size");
+  return 0;
+}
+
 static int laux_error_arg(lua_State *L)
 {
   return luaL_error(L, "laux boom");
@@ -7730,6 +7736,10 @@ static void test_lauxlib_api(lua_State *L)
 	   strstr(lua_tostring(L, -1), "(null)") == NULL,
 	"luaL_checkstack NULL message text");
   lua_pop(L, 1);
+
+  check_fresh_invalid_value(L, laux_checkstack_negative,
+			    "luaL_checkstack rejects negative size",
+			    "luaL_checkstack negative size error");
 
   lua_pushcfunction(L, laux_len_arg);
   lua_pushliteral(L, "abcd");

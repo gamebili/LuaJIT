@@ -347,6 +347,8 @@ LUA_API int lua_setcstacklimit(lua_State *L, unsigned int limit)
 
 LUALIB_API void luaL_checkstack(lua_State *L, int size, const char *msg)
 {
+  if (size < 0)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   if (!lua_checkstack(L, size)) {
 #if LJ_54
     if (msg == NULL)

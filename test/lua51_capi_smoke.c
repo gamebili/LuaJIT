@@ -175,6 +175,12 @@ static int capi51_traceback_null_thread(lua_State *L)
   return 0;
 }
 
+static int capi51_checkstack_negative(lua_State *L)
+{
+  luaL_checkstack(L, -1, "negative stack size");
+  return 0;
+}
+
 static int capi51_dump_writer(lua_State *L, const void *p, size_t sz, void *ud)
 {
   (void)L; (void)p; (void)sz; (void)ud;
@@ -943,6 +949,9 @@ int main(void)
   capi51_check_invalid_value(L, capi51_traceback_null_thread,
 			     "luaL_traceback rejects NULL target thread",
 			     "luaL_traceback NULL target thread error");
+  capi51_check_invalid_value(L, capi51_checkstack_negative,
+			     "luaL_checkstack rejects negative size",
+			     "luaL_checkstack negative size error");
 
   lua_pushcfunction(L, capi51_setlocal_missing_name_preserves_stack);
   status = lua_pcall(L, 0, 0, 0);
