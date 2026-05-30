@@ -116,6 +116,12 @@ static int capi51_cpcall_null_function(lua_State *L)
   return 0;
 }
 
+static int capi51_createtable_large_array_hint(lua_State *L)
+{
+  lua_createtable(L, INT_MAX, 0);
+  return 1;
+}
+
 static int capi51_getinfo_null_what(lua_State *L)
 {
   lua_Debug ar;
@@ -692,6 +698,13 @@ int main(void)
   lua_pop(L, 1);
   lua_pushlstring(L, NULL, 0);
   check(L, lua_objlen(L, -1) == 0, "lua_pushlstring NULL zero length");
+  lua_pop(L, 1);
+  lua_pushcfunction(L, capi51_createtable_large_array_hint);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN,
+	"lua_createtable rejects large array hint");
+  check(L, strstr(lua_tostring(L, -1), "table overflow") != NULL,
+	"lua_createtable large array hint error");
   lua_pop(L, 1);
   status = luaL_loadbuffer(L, NULL, 0, "=empty-null-buffer");
   check(L, status == LUA_OK, "luaL_loadbuffer accepts NULL zero length");

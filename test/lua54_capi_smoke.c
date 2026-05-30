@@ -4131,6 +4131,27 @@ static int arith_invalid_op(lua_State *L)
   return 1;
 }
 
+static int createtable_large_array_hint(lua_State *L)
+{
+  lua_createtable(L, INT_MAX, 0);
+  return 1;
+}
+
+static void check_fresh_error_contains(lua_State *L, lua_CFunction fn,
+				       const char *want,
+				       const char *statusmsg,
+				       const char *errmsg)
+{
+  lua_State *T = luaL_newstate();
+  int status;
+  check(L, T != NULL, statusmsg);
+  lua_pushcfunction(T, fn);
+  status = lua_pcall(T, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, statusmsg);
+  check(L, strstr(lua_tostring(T, -1), want) != NULL, errmsg);
+  lua_close(T);
+}
+
 static void test_stack_and_number_api(lua_State *L)
 {
   static const char light_key;
@@ -4189,6 +4210,10 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, lua_rawlen(L, -1) == 0,
 	"lua_createtable negative array hint length");
   lua_pop(L, 1);
+  check_fresh_error_contains(L, createtable_large_array_hint,
+			     "table overflow",
+			     "lua_createtable rejects huge array hint",
+			     "lua_createtable huge array hint error");
 
   check(L, lua_type(L, lua_gettop(L) + 1) == LUA_TNONE,
 	"lua_type none");

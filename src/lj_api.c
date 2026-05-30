@@ -1368,6 +1368,8 @@ LUA_API void lua_createtable(lua_State *L, int narray, int nrec)
 {
   if (narray < 0)
     narray = 0;
+  else if (narray >= LJ_MAX_ASIZE)
+    lj_err_msg(L, LJ_ERR_TABOV);
   if (nrec < 0)
     nrec = 0;
   lj_gc_check(L);
