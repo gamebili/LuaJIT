@@ -2131,8 +2131,12 @@ LUA_API int lua_getiuservalue(lua_State *L, int idx, int n)
   cTValue *o = index2adr_valid(L, idx);
   GCudata *ud;
   cTValue *tv;
-  if (!tvisudata(o))
+  if (!tvisudata(o)) {
+#if LJ_54
+    lj_err_msg(L, LJ_ERR_BADVAL);
+#endif
     return LUA_TNONE;
+  }
   ud = udataV(o);
   if (n < 1 || n > api_udata_uvcount(L, ud)) {
     setnilV(L->top);
@@ -2487,6 +2491,9 @@ LUA_API int lua_setiuservalue(lua_State *L, int idx, int n)
   api_checknelems(L, 1);
   o = index2adr_valid(L, idx);
   if (!tvisudata(o)) {
+#if LJ_54
+    lj_err_msg(L, LJ_ERR_BADVAL);
+#endif
     L->top--;
     return 0;
   }

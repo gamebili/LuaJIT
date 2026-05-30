@@ -2906,9 +2906,24 @@ static int getiuservalue_invalid_index(lua_State *L)
   return 0;
 }
 
+static int getiuservalue_non_userdata(lua_State *L)
+{
+  lua_newtable(L);
+  lua_getiuservalue(L, -1, 1);
+  return 0;
+}
+
 static int setiuservalue_invalid_index(lua_State *L)
 {
   lua_pushnil(L);
+  lua_setiuservalue(L, -2, 1);
+  return 0;
+}
+
+static int setiuservalue_non_userdata(lua_State *L)
+{
+  lua_newtable(L);
+  lua_pushliteral(L, "value");
   lua_setiuservalue(L, -2, 1);
   return 0;
 }
@@ -6848,18 +6863,12 @@ static void test_uservalue_api(lua_State *L)
   check(L, lua_setiuservalue(L, -2, 3) == 0,
 	"lua_setiuservalue out of range");
   check(L, lua_gettop(L) == top, "lua_setiuservalue invalid pops value");
-  lua_newtable(L);
-  top = lua_gettop(L);
-  check(L, lua_getiuservalue(L, -1, 1) == LUA_TNONE,
-	"lua_getiuservalue non-userdata");
-  check(L, lua_gettop(L) == top,
-	"lua_getiuservalue non-userdata pushes nothing");
-  lua_pushliteral(L, "ignored");
-  check(L, lua_setiuservalue(L, -2, 1) == 0,
-	"lua_setiuservalue non-userdata");
-  check(L, lua_gettop(L) == top,
-	"lua_setiuservalue non-userdata pops value");
-  lua_pop(L, 1);
+  check_fresh_invalid_value(L, getiuservalue_non_userdata,
+			    "lua_getiuservalue rejects non-userdata",
+			    "lua_getiuservalue non-userdata error");
+  check_fresh_invalid_value(L, setiuservalue_non_userdata,
+			    "lua_setiuservalue rejects non-userdata",
+			    "lua_setiuservalue non-userdata error");
 
   alias_ud = lua_newuserdata(L, 4);
   check(L, alias_ud != NULL, "lua_newuserdata alias");
