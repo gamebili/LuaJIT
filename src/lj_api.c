@@ -67,6 +67,27 @@ static void api_checkcallargs(lua_State *L, int nargs, int nresults)
   api_checknelems(L, nargs+1);
 }
 
+static int api_error_result(lua_State *L, ErrMsg em)
+{
+  L->top = L->base;
+  setstrV(L, L->top, lj_err_str(L, em));
+  incr_top(L);
+  return LUA_ERRRUN;
+}
+
+static int api_call_status_ok(lua_State *L)
+{
+  return L->status == LUA_OK || L->status == LUA_ERRERR;
+}
+
+static void api_checkcallstatus(lua_State *L)
+{
+  if (!api_call_status_ok(L))
+    lj_err_msg(L, LJ_ERR_BADVAL);
+  lj_checkapi(L->status == LUA_OK || L->status == LUA_ERRERR,
+	      "thread called in wrong state %d", L->status);
+}
+
 #if LJ_54
 #if LUAI_IS32INT
 #define LJ_54_REGISTRYINDEX	(-1000000 - 1000)
@@ -2587,8 +2608,7 @@ static TValue *api_call_base(lua_State *L, int nargs)
 
 LUA_API void lua_call(lua_State *L, int nargs, int nresults)
 {
-  lj_checkapi(L->status == LUA_OK || L->status == LUA_ERRERR,
-	      "thread called in wrong state %d", L->status);
+  api_checkcallstatus(L);
   api_checkcallargs(L, nargs, nresults);
   lj_vm_call(L, api_call_base(L, nargs), nresults+1);
 }
@@ -2599,6 +2619,8 @@ LUA_API int lua_pcall(lua_State *L, int nargs, int nresults, int errfunc)
   uint8_t oldh = hook_save(g);
   ptrdiff_t ef;
   int status;
+  if (!api_call_status_ok(L))
+    return api_error_result(L, LJ_ERR_BADVAL);
   lj_checkapi(L->status == LUA_OK || L->status == LUA_ERRERR,
 	      "thread called in wrong state %d", L->status);
   api_checkcallargs(L, nargs, nresults);
@@ -2629,8 +2651,7 @@ LUA_API void (lua_callk)(lua_State *L, int nargs, int nresults,
   if (k != NULL && cframe_canyield(L->cframe)) {
     void *oldcf = L->cframe;
     int status;
-    lj_checkapi(L->status == LUA_OK || L->status == LUA_ERRERR,
-		"thread called in wrong state %d", L->status);
+    api_checkcallstatus(L);
     api_checkcallargs(L, nargs, nresults);
     L->capi_yield_ctx = ctx;
     L->capi_yield_k = k;
@@ -2665,6 +2686,8 @@ LUA_API int (lua_pcallk)(lua_State *L, int nargs, int nresults, int errfunc,
     void *oldcf = L->cframe;
     ptrdiff_t ef;
     int status;
+    if (!api_call_status_ok(L))
+      return api_error_result(L, LJ_ERR_BADVAL);
     lj_checkapi(L->status == LUA_OK || L->status == LUA_ERRERR,
 		"thread called in wrong state %d", L->status);
     api_checkcallargs(L, nargs, nresults);
@@ -2719,6 +2742,8 @@ LUA_API int lua_cpcall(lua_State *L, lua_CFunction func, void *ud)
   global_State *g = G(L);
   uint8_t oldh = hook_save(g);
   int status;
+  if (!api_call_status_ok(L))
+    return api_error_result(L, LJ_ERR_BADVAL);
   if (func == NULL)
     lj_err_msg(L, LJ_ERR_BADVAL);
   lj_checkapi(L->status == LUA_OK || L->status == LUA_ERRERR,
@@ -2842,10 +2867,7 @@ LUA_API int (lua_yieldk)(lua_State *L, int nresults, lua_KContext ctx,
 
 static int api_resume_error(lua_State *L, ErrMsg em)
 {
-  L->top = L->base;
-  setstrV(L, L->top, lj_err_str(L, em));
-  incr_top(L);
-  return LUA_ERRRUN;
+  return api_error_result(L, em);
 }
 
 static int api_checkresumeargs(lua_State *L, int nargs)

@@ -717,6 +717,28 @@ static void capi51_check_resume_invalid_result(lua_State *L, lua_State *co,
   check(L, strstr(lua_tostring(co, -1), "invalid value") != NULL, errmsg);
 }
 
+static void capi51_check_yielded_thread_call_state(lua_State *L)
+{
+  lua_State *co = lua_newthread(L);
+  int status;
+  lua_pushcfunction(co, capi51_yield_once);
+  check(L, lua_resume(co, 0) == LUA_YIELD, "lua_pcall yield setup");
+  check(L, lua_gettop(co) == 0, "lua_pcall yield setup stack");
+  lua_pushcfunction(co, capi51_answer);
+  status = lua_pcall(co, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "lua_pcall rejects yielded thread state");
+  check(L, lua_gettop(co) == 1 &&
+	   strstr(lua_tostring(co, -1), "invalid value") != NULL,
+	"lua_pcall yielded thread state error");
+  lua_settop(co, 0);
+  status = lua_cpcall(co, capi51_answer, NULL);
+  check(L, status == LUA_ERRRUN, "lua_cpcall rejects yielded thread state");
+  check(L, lua_gettop(co) == 1 &&
+	   strstr(lua_tostring(co, -1), "invalid value") != NULL,
+	"lua_cpcall yielded thread state error");
+  lua_pop(L, 1);
+}
+
 int main(void)
 {
   lua_State *L = luaL_newstate();
@@ -1225,6 +1247,7 @@ int main(void)
 				     "lua_resume rejects too many resume args",
 				     "lua_resume too many resume args error");
   lua_pop(L, 1);
+  capi51_check_yielded_thread_call_state(L);
 
   {
     Capi51ReaderCtx ctx = { "return 40 + 2", 0 };

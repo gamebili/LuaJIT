@@ -3501,6 +3501,26 @@ static int yield_once(lua_State *L)
   return lua_yield(L, 0);
 }
 
+static void check_pcall_yielded_thread_state(lua_State *L)
+{
+  lua_State *co = lua_newthread(L);
+  int nres = -1;
+  int status;
+  lua_pushcfunction(co, yield_once);
+  status = lua_resume_sig(co, L, 0, &nres);
+  check(L, status == LUA_YIELD, "lua_pcall yielded thread setup");
+  check(L, nres == 0 && lua_gettop(co) == 0,
+	"lua_pcall yielded thread setup stack");
+  lua_pushcfunction(co, push_answer);
+  status = lua_pcall(co, 0, 0, 0);
+  check(L, status == LUA_ERRRUN,
+	"lua_pcall rejects yielded thread state");
+  check(L, lua_gettop(co) == 1 &&
+	   strstr(lua_tostring(co, -1), "invalid value") != NULL,
+	"lua_pcall yielded thread state error");
+  lua_pop(L, 1);
+}
+
 static int yield_two(lua_State *L)
 {
   lua_pushliteral(L, "y1");
@@ -5761,6 +5781,7 @@ static void test_stack_and_number_api(lua_State *L)
 				  "lua_yieldk large continuation initial yield",
 				  "lua_yieldk rejects too-large continuation result count",
 				  "lua_yieldk too-large continuation result error");
+  check_pcall_yielded_thread_state(L);
 
   co = lua_newthread(L);
   lua_pushcfunction(L, push_answer);
