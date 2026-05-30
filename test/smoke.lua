@@ -777,6 +777,15 @@ do
     end, "u3")
   end
   do
+    local function key()
+      return "u4"
+    end
+    local holder = { [key()] = math.abs }
+    expect_public_tail_callname(function()
+      return holder.u4(true)
+    end, "u4")
+  end
+  do
     lua54_nested_global_alias = { inner = { v = math.abs } }
     expect_public_tail_callname(function()
       return lua54_nested_global_alias.inner.v(true)
@@ -809,6 +818,16 @@ do
     end, "w3")
   end
   do
+    local function key()
+      return "w4"
+    end
+    local holder = {}
+    holder[key()] = math.abs
+    expect_public_tail_callname(function()
+      return holder.w4(true)
+    end, "w4")
+  end
+  do
     local holder = { inner = {} }
     local k = "x"
     holder.inner[k] = math.abs
@@ -823,6 +842,27 @@ do
     expect_public_tail_callname(function()
       return holder.inner.x2(true)
     end, "x2")
+  end
+  do
+    local function key()
+      return "x4"
+    end
+    local holder = { inner = {} }
+    holder.inner[key()] = math.abs
+    expect_public_tail_callname(function()
+      return holder.inner.x4(true)
+    end, "x4")
+  end
+  do
+    local function key()
+      return "y4"
+    end
+    lua54_global_dynamic_key_alias = {}
+    lua54_global_dynamic_key_alias[key()] = math.abs
+    expect_public_tail_callname(function()
+      return lua54_global_dynamic_key_alias.y4(true)
+    end, "y4")
+    lua54_global_dynamic_key_alias = nil
   end
   do
     lua54_global_table_alias = {}

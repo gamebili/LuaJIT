@@ -1443,6 +1443,30 @@ do
     local lua54_jit_nested_concat_key = "x" .. "2"
     lua54_jit_nested_concat_key_holder.inner[lua54_jit_nested_concat_key] =
       math.abs
+    local function lua54_jit_runtime_ctor_key()
+      return "u4"
+    end
+    local lua54_jit_runtime_ctor_key_holder = {
+      [lua54_jit_runtime_ctor_key()] = math.abs,
+    }
+    local function lua54_jit_runtime_assign_key()
+      return "w4"
+    end
+    local lua54_jit_runtime_assign_key_holder = {}
+    lua54_jit_runtime_assign_key_holder[lua54_jit_runtime_assign_key()] =
+      math.abs
+    local function lua54_jit_runtime_nested_key()
+      return "x4"
+    end
+    local lua54_jit_runtime_nested_key_holder = { inner = {} }
+    lua54_jit_runtime_nested_key_holder.inner[lua54_jit_runtime_nested_key()] =
+      math.abs
+    local function lua54_jit_runtime_global_key()
+      return "y4"
+    end
+    lua54_jit_runtime_global_key_holder = {}
+    lua54_jit_runtime_global_key_holder[lua54_jit_runtime_global_key()] =
+      math.abs
     for _ = 1, 80 do
       local ok_fmod_missing, err_fmod_missing = pcall(math.fmod)
       local ok_fmod_nil, err_fmod_nil = pcall(function()
@@ -1500,6 +1524,18 @@ do
       end)
       local ok_nested_concat_key, err_nested_concat_key = pcall(function()
 	return lua54_jit_nested_concat_key_holder.inner.x2(true)
+      end)
+      local ok_runtime_ctor_key, err_runtime_ctor_key = pcall(function()
+	return lua54_jit_runtime_ctor_key_holder.u4(true)
+      end)
+      local ok_runtime_assign_key, err_runtime_assign_key = pcall(function()
+	return lua54_jit_runtime_assign_key_holder.w4(true)
+      end)
+      local ok_runtime_nested_key, err_runtime_nested_key = pcall(function()
+	return lua54_jit_runtime_nested_key_holder.inner.x4(true)
+      end)
+      local ok_runtime_global_key, err_runtime_global_key = pcall(function()
+	return lua54_jit_runtime_global_key_holder.y4(true)
       end)
       if not ok_fmod_missing and
 	 err_fmod_missing:find("bad argument #2 to 'math.fmod'", 1, true) and
@@ -1574,6 +1610,22 @@ do
 	 err_nested_concat_key:find("bad argument #1 to 'x2'", 1, true) then
 	n = n + 1
       end
+      if not ok_runtime_ctor_key and
+	 err_runtime_ctor_key:find("bad argument #1 to 'u4'", 1, true) then
+	n = n + 1
+      end
+      if not ok_runtime_assign_key and
+	 err_runtime_assign_key:find("bad argument #1 to 'w4'", 1, true) then
+	n = n + 1
+      end
+      if not ok_runtime_nested_key and
+	 err_runtime_nested_key:find("bad argument #1 to 'x4'", 1, true) then
+	n = n + 1
+      end
+      if not ok_runtime_global_key and
+	 err_runtime_global_key:find("bad argument #1 to 'y4'", 1, true) then
+	n = n + 1
+      end
       if math.ult(-1, 1) == false and math.ult(1, -1) == true then
 	n = n + 1
       end
@@ -1581,7 +1633,8 @@ do
     lua54_jit_global_abs_alias = nil
     lua54_jit_table_global_alias = nil
     lua54_jit_table_global_alias2 = nil
-    assert(n == 1440)
+    lua54_jit_runtime_global_key_holder = nil
+    assert(n == 1760)
   end, "Lua 5.4 math.ult")
 end
 

@@ -633,12 +633,14 @@
   - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 `table.pack()` 的 `n` 字段和 nil 洞纳入 JIT on/off 覆盖，固定热路径不能丢失 Lua 5.4 多返回打包语义。
   - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 `debug.setcstacklimit()` 纳入 JIT on/off 覆盖，固定 Lua 5.4 debug 库公开 C stack limit shim 的热路径返回旧 limit 语义。
   - 当前进展：解析期 notail/callsite-name 传播已支持可静态归约的动态 key：常量字符串拼接生成的 table key、`TDUP` 模板表静态字符串字段取出的 key，以及这些 key 在构造器字段、后续 table 赋值和 nested table-field 赋值中的 helper alias；嵌套 table-field notail 跟踪容量同步提升，避免同一 chunk 中多个静态 nested alias 把后续字段名标记挤掉。`test/smoke.lua`、`test/lua54_jit_regress.lua` 和 `test/lua54_perf.lua` 已覆盖 `u2` / `u3` / `w2` / `x2` 调用点名不能退回 `math.abs`。
-  - 剩余边界：`io.lines` iterator 或标准库 C 函数经过当前解析路径可静态定位的 table 字段 alias、global table alias、table-field table alias 链、静态 table 构造器字段 alias、RHS table-field alias 和可静态归约动态 key 后再 tail-position 调用时已可保留字段名；复杂 table 重赋值、运行期不可静态归约的构造器动态 key、跨 chunk/module 的运行期全局赋值或其它动态传播后再 tail-position 调用时，调用点名传播仍需归入更通用的 debug frame metadata / notail 标记传播批次处理。
+  - 当前进展：对于运行期才能得出具体 key 的 table 写入，只要同一解析路径能静态证明 RHS 是需要保留调用点名的标准库/C helper alias，parser 会给目标 table/global table/nested path 设置 wildcard notail 标记；后续 `return holder.u4(true)` / `holder.w4` / `holder.inner.x4` / `global.y4` 这类 tail-position 调用会保留源码字段名，不再退回 `math.abs`。普通未标记 table 仍不受影响。
+  - 剩余边界：`io.lines` iterator 或标准库 C 函数经过当前解析路径可静态定位的 table 字段 alias、global table alias、table-field table alias 链、静态 table 构造器字段 alias、RHS table-field alias、可静态归约动态 key，以及 RHS 静态可证 helper 的运行期 dynamic key 后再 tail-position 调用时已可保留字段名；复杂 table 重赋值、运行期不可静态证明 RHS helper 的动态 key、跨 chunk/module 的运行期全局赋值或其它动态传播后再 tail-position 调用时，调用点名传播仍需归入更通用的 debug frame metadata / notail 标记传播批次处理。
   - 需要补测试：继续扩展到更多 Lua 5.4 helper 路径，并在 unsupported trace 路径上补退出或 recorder。
 
 ## 当前验证结果
 
 - `cmd /c build.bat lua54` 和 `cmd /c build.bat default` 已通过，覆盖本轮新增可静态归约动态 key 的 tail-position 调用点名传播；Lua 5.4 compat smoke/JIT 回归/perf 负载、官方 Lua 5.4.8 矩阵、C API smoke 和默认 ABI smoke 均保持通过。
+- `cmd /c build.bat lua54` 和 `cmd /c build.bat default` 已通过，覆盖本轮新增 RHS 静态可证 helper 的运行期 dynamic key wildcard notail 传播；Lua 5.4 compat smoke/JIT 回归/perf 负载、官方 Lua 5.4.8 矩阵、C API smoke 和默认 ABI smoke 均保持通过。
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `luaL_checkstack()` 负 size release lauxlib 边界；默认 ABI smoke、Lua 5.4 compat smoke、官方 Lua 5.4.8 矩阵和 C API smoke 均保持通过。
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 Lua 5.4 `lua_getiuservalue()` / `lua_setiuservalue()` 非 userdata `invalid value` C API 边界；默认 ABI smoke、Lua 5.4 compat smoke、官方 Lua 5.4.8 矩阵和 C API smoke 均保持通过。
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 lauxlib 错误入口 NULL 指针 release C API 边界；默认 ABI smoke、Lua 5.4 compat smoke、官方 Lua 5.4.8 矩阵和 C API smoke 均保持通过。

@@ -162,6 +162,30 @@ local lua54_perf_nested_concat_key_holder = { inner = {} }
 local lua54_perf_nested_concat_key = "x" .. "2"
 lua54_perf_nested_concat_key_holder.inner[lua54_perf_nested_concat_key] =
   math.abs
+local function lua54_perf_runtime_ctor_key()
+  return "u4"
+end
+local lua54_perf_runtime_ctor_key_holder = {
+  [lua54_perf_runtime_ctor_key()] = math.abs,
+}
+local function lua54_perf_runtime_assign_key()
+  return "w4"
+end
+local lua54_perf_runtime_assign_key_holder = {}
+lua54_perf_runtime_assign_key_holder[lua54_perf_runtime_assign_key()] =
+  math.abs
+local function lua54_perf_runtime_nested_key()
+  return "x4"
+end
+local lua54_perf_runtime_nested_key_holder = { inner = {} }
+lua54_perf_runtime_nested_key_holder.inner[lua54_perf_runtime_nested_key()] =
+  math.abs
+local function lua54_perf_runtime_global_key()
+  return "y4"
+end
+lua54_perf_runtime_global_key_holder = {}
+lua54_perf_runtime_global_key_holder[lua54_perf_runtime_global_key()] =
+  math.abs
 
 local function protected_add(a, b)
   return a + b
@@ -368,6 +392,34 @@ local function base_value_helpers(n)
     end)
     if not ok_nested_concat_key and
        err_nested_concat_key:find("bad argument #1 to 'x2'", 1, true) then
+      sum = sum + 1
+    end
+    local ok_runtime_ctor_key, err_runtime_ctor_key = pcall(function()
+      return lua54_perf_runtime_ctor_key_holder.u4(true)
+    end)
+    if not ok_runtime_ctor_key and
+       err_runtime_ctor_key:find("bad argument #1 to 'u4'", 1, true) then
+      sum = sum + 1
+    end
+    local ok_runtime_assign_key, err_runtime_assign_key = pcall(function()
+      return lua54_perf_runtime_assign_key_holder.w4(true)
+    end)
+    if not ok_runtime_assign_key and
+       err_runtime_assign_key:find("bad argument #1 to 'w4'", 1, true) then
+      sum = sum + 1
+    end
+    local ok_runtime_nested_key, err_runtime_nested_key = pcall(function()
+      return lua54_perf_runtime_nested_key_holder.inner.x4(true)
+    end)
+    if not ok_runtime_nested_key and
+       err_runtime_nested_key:find("bad argument #1 to 'x4'", 1, true) then
+      sum = sum + 1
+    end
+    local ok_runtime_global_key, err_runtime_global_key = pcall(function()
+      return lua54_perf_runtime_global_key_holder.y4(true)
+    end)
+    if not ok_runtime_global_key and
+       err_runtime_global_key:find("bad argument #1 to 'y4'", 1, true) then
       sum = sum + 1
     end
     local text_fn, text_err = load("return 54", "lua54-load-text", "b")
