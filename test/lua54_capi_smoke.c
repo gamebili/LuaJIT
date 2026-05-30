@@ -2381,6 +2381,18 @@ static int typename_too_high(lua_State *L)
   return 0;
 }
 
+static int absindex_zero_index(lua_State *L)
+{
+  (void)lua_absindex(L, 0);
+  return 0;
+}
+
+static int absindex_too_negative(lua_State *L)
+{
+  (void)lua_absindex(L, -1);
+  return 0;
+}
+
 static int type_zero_index(lua_State *L)
 {
   (void)lua_type(L, 0);
@@ -4183,6 +4195,12 @@ static void test_stack_and_number_api(lua_State *L)
   check_fresh_invalid_value(L, typename_too_high,
 			    "lua_typename rejects too-large type code",
 			    "lua_typename too-large type code error");
+  check_fresh_invalid_value(L, absindex_zero_index,
+			    "lua_absindex rejects zero index",
+			    "lua_absindex zero index error");
+  check_fresh_invalid_value(L, absindex_too_negative,
+			    "lua_absindex rejects too-negative index",
+			    "lua_absindex too-negative index error");
   check_fresh_invalid_value(L, type_zero_index,
 			    "lua_type rejects zero index",
 			    "lua_type zero index error");

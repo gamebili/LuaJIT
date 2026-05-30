@@ -223,6 +223,18 @@ static int capi51_typename_too_high(lua_State *L)
   return 0;
 }
 
+static int capi51_absindex_zero_index(lua_State *L)
+{
+  (void)lua_absindex(L, 0);
+  return 0;
+}
+
+static int capi51_absindex_too_negative(lua_State *L)
+{
+  (void)lua_absindex(L, -1);
+  return 0;
+}
+
 static int capi51_type_zero_index(lua_State *L)
 {
   (void)lua_type(L, 0);
@@ -940,6 +952,12 @@ int main(void)
 	"lua_typename too-large type code error");
   lua_pop(L, 1);
 
+  capi51_check_invalid_value(L, capi51_absindex_zero_index,
+			     "lua_absindex rejects zero index",
+			     "lua_absindex zero index error");
+  capi51_check_invalid_value(L, capi51_absindex_too_negative,
+			     "lua_absindex rejects too-negative index",
+			     "lua_absindex too-negative index error");
   capi51_check_invalid_value(L, capi51_type_zero_index,
 			     "lua_type rejects zero index",
 			     "lua_type zero index error");

@@ -401,6 +401,8 @@ LUA_API int lua_absindex(lua_State *L, int idx)
 {
   if (idx > 0 || idx <= LUA_REGISTRYINDEX)
     return idx;
+  if (idx == 0 || -idx > L->top - L->base)
+    lj_err_msg(L, LJ_ERR_BADVAL);
   return (int)(L->top - L->base) + idx + 1;
 }
 
