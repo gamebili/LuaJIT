@@ -640,6 +640,36 @@ nyi:
 #endif
   recff_nyiu(J, rd);
 }
+
+static void LJ_FASTCALL recff_lua54_forstep(jit_State *J, RecordFFData *rd)
+{
+  TRef tr = J->base[0];
+  cTValue *tv = &rd->argv[0];
+  if (!tr)
+    lj_trace_err(J, LJ_TRERR_BADTYPE);
+  if (tvisint(tv)) {
+    if (intV(tv) == 0)
+      lj_trace_err(J, LJ_TRERR_BADTYPE);
+    emitir(IRTGI(IR_NE), tr, lj_ir_kint(J, 0));
+  } else if (tvisi64(tv)) {
+    TRef i64;
+    if (i64V(tv) == 0)
+      lj_trace_err(J, LJ_TRERR_BADTYPE);
+    i64 = recff_lua54_i64ref(J, tr);
+    emitir(IRTG(IR_NE, IRT_I64), i64, lj_ir_kint64(J, 0));
+  } else if (tvisnum(tv)) {
+    TRef num;
+    if (tviszero(tv))
+      lj_trace_err(J, LJ_TRERR_BADTYPE);
+    num = recff_lua54_numref(J, tr);
+    if (!num)
+      lj_trace_err(J, LJ_TRERR_BADTYPE);
+    emitir(IRTG(IR_NE, IRT_NUM), num, lj_ir_knum_zero(J));
+  } else {
+    lj_trace_err(J, LJ_TRERR_BADTYPE);
+  }
+  J->base[0] = tr;
+}
 #endif
 
 /* Emit BUFHDR for the global temporary buffer. */

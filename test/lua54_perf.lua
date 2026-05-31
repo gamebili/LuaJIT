@@ -18,7 +18,7 @@ local abs_limit = envnum("LUA54_PERF_ABS", 4.0)
 local mem_limit_kb = envnum("LUA54_PERF_MEM_KB", 1024)
 local jit_opt_profiles = os.getenv("LUA54_PERF_JIT_OPTS") or
   os.getenv("LUA54_PERF_JIT_OPT") or
-  "3,hotloop=3,hotexit=2,instunroll=4,loopunroll=4;3,hotloop=56,hotexit=10"
+  "3,hotloop=3,hotexit=2,instunroll=4,loopunroll=4;3,hotloop=56,hotexit=10;0,hotloop=3,hotexit=2"
 
 local function split_opts(s)
   local out = {}

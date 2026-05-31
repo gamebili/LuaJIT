@@ -283,6 +283,7 @@ smoketest-perf-lua54compat:
 	$(MAKE) XCFLAGS='-DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2'
 	LUA54_PERF_JIT_OPTS='3,hotloop=3,hotexit=2,instunroll=4,loopunroll=4' ./src/luajit test/lua54_perf.lua jit_on
 	LUA54_PERF_JIT_OPTS='3,hotloop=56,hotexit=10' ./src/luajit test/lua54_perf.lua jit_on
+	LUA54_PERF_JIT_OPTS='0,hotloop=3,hotexit=2' ./src/luajit test/lua54_perf.lua jit_on
 	./src/luajit test/lua54_perf.lua jit_off
 
 smoketest-capi-default: smoketest

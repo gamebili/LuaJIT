@@ -682,7 +682,7 @@ static void lua54_forerror(lua_State *L, cTValue *o, const char *what)
     "bad 'for' %s (number expected, got %s)", what, tname));
 }
 
-static int lj_cf_jit__lua54_forstep(lua_State *L)
+LJLIB_CF(jit__lua54_forstep)		LJLIB_REC(lua54_forstep)
 {
   TValue tmp;
   cTValue *o = L->base;

@@ -5169,6 +5169,10 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
 	|  checkinttp FOR_STOP, ->assert_bad_for_arg_type
 	|  checkinttp FOR_STEP, ->assert_bad_for_arg_type
 #endif
+#if LJ_54
+	|  checkinttp FOR_STOP, >8
+	|  checkinttp FOR_STEP, >8
+#endif
 	|  mov ITYPE, FOR_STEP
 	|  test ITYPEd, ITYPEd; js >5
 	|  add RBd, ITYPEd; jo >1

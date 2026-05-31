@@ -6000,6 +6000,10 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
 	|  cmp FOR_TSTOP, LJ_TISNUM; jne ->assert_bad_for_arg_type
 	|  cmp FOR_TSTEP, LJ_TISNUM; jne ->assert_bad_for_arg_type
 #endif
+#if LJ_54
+	|  cmp FOR_TSTOP, LJ_TISNUM; jne >8
+	|  cmp FOR_TSTEP, LJ_TISNUM; jne >8
+#endif
 	|  mov RB, dword FOR_STEP
 	|  test RB, RB; js >5
 	|  add RB, dword FOR_IDX; jo >1

@@ -1403,6 +1403,40 @@ do
     collectgarbage()
   end, "Lua 5.4 boxed int64 numeric for float limit trace", "lj_obj_newint64")
 
+  do
+    local function boundary_churn(n)
+      local sum = 0
+      for _ = 1, n do
+	local count, last, tlast = 0
+	for i = 2147483646, 2147483653 do
+	  count = count + 1
+	  last = i
+	  tlast = math.type(i)
+	end
+	if count == 8 and last == 2147483653 and tlast == "integer" then
+	  sum = sum + 1
+	end
+	count, last, tlast = 0
+	for i = 2147483646, 2147483653.0 do
+	  count = count + 1
+	  last = i
+	  tlast = math.type(i)
+	end
+	if count == 8 and last == 2147483653 and tlast == "integer" then
+	  sum = sum + 1
+	end
+      end
+      return sum
+    end
+    jitmod.off()
+    jitmod.flush()
+    collectgarbage()
+    jitmod.on()
+    jit.opt.start("0", "hotloop=3", "hotexit=2")
+    assert(boundary_churn(20) == 40,
+      "Lua 5.4 int32-to-boxed-int64 numeric for must survive opt0 recording")
+  end
+
   assert_records_trace(function()
     local n = 0
     local wide = "1099511627776"

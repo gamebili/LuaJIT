@@ -641,6 +641,7 @@
 
 ## 当前验证结果
 
+- `cmd /c build.bat lua54`、`cmd /c build.bat lua54perf` 和 `cmd /c build.bat default` 已通过，覆盖本轮新增 `_lua54_forstep` recorder、`IFORL/JFORL` int32-to-boxed-int64 VM 回退和恢复后的三档默认 JIT profile：`3,hotloop=3,hotexit=2,instunroll=4,loopunroll=4`、`3,hotloop=56,hotexit=10`、`0,hotloop=3,hotexit=2`；`lua54perf` 继续覆盖 JIT off。
 - `cmd /c build.bat lua54` 和 `cmd /c build.bat default` 已通过，覆盖本轮新增可静态归约动态 key 的 tail-position 调用点名传播；Lua 5.4 compat smoke/JIT 回归/perf 负载、官方 Lua 5.4.8 矩阵、C API smoke 和默认 ABI smoke 均保持通过。
 - `cmd /c build.bat lua54` 和 `cmd /c build.bat default` 已通过，覆盖本轮新增 RHS 静态可证 helper 的运行期 dynamic key wildcard notail 传播；Lua 5.4 compat smoke/JIT 回归/perf 负载、官方 Lua 5.4.8 矩阵、C API smoke 和默认 ABI smoke 均保持通过。
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `luaL_checkstack()` 负 size release lauxlib 边界；默认 ABI smoke、Lua 5.4 compat smoke、官方 Lua 5.4.8 矩阵和 C API smoke 均保持通过。
