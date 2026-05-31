@@ -430,6 +430,9 @@ endif
 ifneq (,$(findstring LJ_DUALNUM 1,$(TARGET_TESTARCH)))
   DASM_AFLAGS+= -D DUALNUM
 endif
+ifneq (,$(findstring LUAJIT_ENABLE_LUA54COMPAT,$(XCFLAGS)))
+  DASM_AFLAGS+= -D LJ_54
+endif
 ifneq (,$(findstring LJ_ARCH_HASFPU 1,$(TARGET_TESTARCH)))
   DASM_AFLAGS+= -D FPU
   TARGET_ARCH+= -DLJ_ARCH_HASFPU=1

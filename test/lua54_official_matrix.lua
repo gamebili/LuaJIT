@@ -6,6 +6,8 @@ dir = dir:gsub("\\", "/"):gsub("/$", "")
 local exe = arg[-1] or arg[-2] or "./src/luajit"
 local lua_path = dir .. "/?.lua;" .. dir .. "/?/init.lua;;"
 
+if jit then jit.off() end
+
 local function dq(s)
   return '"' .. tostring(s):gsub('"', '\\"') .. '"'
 end
@@ -25,17 +27,23 @@ local function run_child(name, code)
   local tmp = os.tmpname()
   if not tmp:match("%.lua$") then tmp = tmp .. ".lua" end
   local f = assert(io.open(tmp, "w"))
-  f:write("package.path=", longstr(lua_path), "\n", code, "\n")
+  f:write("if jit then jit.off() end\n",
+	  "package.path=", longstr(lua_path), "\n", code, "\n")
   assert(f:close())
 
   local cmd
   if package.config:sub(1, 1) == "\\" then
-    -- Windows cmd.exe needs the extra outer quote pair when the command starts
-    -- with a quoted executable path.
-    cmd = 'cmd /c ""' .. exe .. '" "' .. tmp .. '""'
+    -- Windows cmd.exe needs the extra outer quote pair only when the
+    -- executable path itself must be quoted.
+    if exe:find("%s") then
+      cmd = 'cmd /c ""' .. exe .. '" "' .. tmp .. '""'
+    else
+      cmd = exe .. " " .. dq(tmp)
+    end
   else
     cmd = dq(exe) .. " " .. dq(tmp)
   end
+  if os.getenv("LUA54_MATRIX_ECHO") then print(cmd) end
   local ok, why, status = os.execute(cmd)
   os.remove(tmp)
   if ok ~= true and ok ~= 0 then

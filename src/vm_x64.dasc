@@ -394,10 +394,27 @@
 |
 |// Move table write barrier back. Overwrites reg.
 |.macro barrierback, tab, reg
+|.if LJ_54
+|  cmp byte [DISPATCH+DISPATCH_GL(gc_mode54)], 0
+|  jz >8
+|  cmp byte tab->age, LJ_GC_AGE_SURVIVAL
+|  jbe >8
+|  cmp byte tab->age, LJ_GC_AGE_TOUCHED2
+|  je >9
+|  mov byte tab->age, LJ_GC_AGE_TOUCHED1
+|8:
+|.endif
 |  and byte tab->marked, (uint8_t)~LJ_GC_BLACK	// black2gray(tab)
 |  mov reg, [DISPATCH+DISPATCH_GL(gc.grayagain)]
 |  mov [DISPATCH+DISPATCH_GL(gc.grayagain)], tab
 |  mov tab->gclist, reg
+|.if LJ_54
+|  jmp >7
+|9:
+|  mov byte tab->age, LJ_GC_AGE_TOUCHED1
+|  and byte tab->marked, (uint8_t)~LJ_GC_BLACK	// black2gray(tab)
+|7:
+|.endif
 |.endmacro
 |
 |//-----------------------------------------------------------------------

@@ -151,6 +151,15 @@ static int gc_gen_has_gclist54(GCobj *o)
 	 0;
 }
 
+static int gc_gen_is_grayagain54(global_State *g, GCobj *target)
+{
+  GCobj *o;
+  for (o = gcref(g->gc.grayagain); o != NULL; o = gcref(o->gch.gclist))
+    if (o == target)
+      return 1;
+  return 0;
+}
+
 static void gc_gen_link_gray54(global_State *g, GCobj *o)
 {
   if (gc_gen_has_gclist54(o) && isblack(o)) {
@@ -736,7 +745,11 @@ static size_t propagatemark(global_State *g)
 {
   GCobj *o = gcref(g->gc.gray);
   int gct = o->gch.gct;
+#if LJ_54
+  lj_assertG(!iswhite(o), "propagation of white object");
+#else
   lj_assertG(isgray(o), "propagation of non-gray object");
+#endif
   gray2black(o);
   setgcrefr(g->gc.gray, o->gch.gclist);  /* Remove from gray list. */
   if (LJ_LIKELY(gct == ~LJ_TTAB)) {
@@ -769,8 +782,15 @@ static size_t propagatemark(global_State *g)
     return pt->sizept;
   } else if (LJ_LIKELY(gct == ~LJ_TTHREAD)) {
     lua_State *th = gco2th(o);
+#if LJ_54
+    if (!gc_gen_is_grayagain54(g, o)) {
+      setgcrefr(th->gclist, g->gc.grayagain);
+      setgcref(g->gc.grayagain, o);
+    }
+#else
     setgcrefr(th->gclist, g->gc.grayagain);
     setgcref(g->gc.grayagain, o);
+#endif
     black2gray(o);  /* Threads are never black. */
     gc_traverse_thread(g, th);
     return sizeof(lua_State) + sizeof(TValue) * th->stacksize;
@@ -1061,6 +1081,7 @@ static void gc_correctgraygen54(global_State *g)
       setgcrefr(*p, o->gch.gclist);
     } else if (gcage(o) == LJ_GC_AGE_TOUCHED1) {
       setgcage(o, LJ_GC_AGE_TOUCHED2);
+      gray2black(o);
       p = &o->gch.gclist;
     } else if (o->gch.gct == ~LJ_TTHREAD) {
       p = &o->gch.gclist;
@@ -1724,6 +1745,29 @@ void lj_gc_barrierf(global_State *g, GCobj *o, GCobj *v)
   } else {
     makewhite(g, o);  /* Make it white to avoid the following barrier. */
   }
+}
+
+/* Move the GC propagation frontier back for tables (make it gray again). */
+void LJ_FASTCALL lj_gc_barrierback(global_State *g, GCtab *t)
+{
+  GCobj *o = obj2gco(t);
+  lj_assertG(isblack(o) && !isdead(g, o),
+	     "bad object states for backward barrier");
+  lj_assertG(g->gc.state != GCSfinalize && g->gc.state != GCSpause,
+	     "bad GC state");
+#if LJ_54
+  if (g->gc_mode54 && isoldgc(o)) {
+    if (gcage(o) == LJ_GC_AGE_TOUCHED2) {
+      setgcage(o, LJ_GC_AGE_TOUCHED1);
+      black2gray(o);
+      return;
+    }
+    setgcage(o, LJ_GC_AGE_TOUCHED1);
+  }
+#endif
+  black2gray(o);
+  setgcrefr(t->gclist, g->gc.grayagain);
+  setgcref(g->gc.grayagain, o);
 }
 
 /* Specialized barrier for closed upvalue. Pass &uv->tv. */

@@ -107,36 +107,12 @@ static LJ_AINLINE void lj_gc_arm_finalizer54(global_State *g)
 
 /* Write barriers. */
 LJ_FUNC void lj_gc_barrierf(global_State *g, GCobj *o, GCobj *v);
+LJ_FUNCA void LJ_FASTCALL lj_gc_barrierback(global_State *g, GCtab *t);
 LJ_FUNCA void LJ_FASTCALL lj_gc_barrieruv(global_State *g, TValue *tv);
 LJ_FUNC void lj_gc_closeuv(global_State *g, GCupval *uv);
 #if LJ_HASJIT
 LJ_FUNC void lj_gc_barriertrace(global_State *g, uint32_t traceno);
 #endif
-
-/* Move the GC propagation frontier back for tables (make it gray again). */
-static LJ_AINLINE void lj_gc_barrierback(global_State *g, GCtab *t)
-{
-  GCobj *o = obj2gco(t);
-  lj_assertG(isblack(o) && !isdead(g, o),
-	     "bad object states for backward barrier");
-  lj_assertG(g->gc.state != GCSfinalize && g->gc.state != GCSpause,
-	     "bad GC state");
-#if LJ_54
-  if (g->gc_mode54 && isoldgc(o)) {
-    if (gcage(o) == LJ_GC_AGE_TOUCHED2) {
-      setgcage(o, LJ_GC_AGE_TOUCHED1);
-      black2gray(o);
-      setgcrefr(t->gclist, g->gc.gray);
-      setgcref(g->gc.gray, o);
-      return;
-    }
-    setgcage(o, LJ_GC_AGE_TOUCHED1);
-  }
-#endif
-  black2gray(o);
-  setgcrefr(t->gclist, g->gc.grayagain);
-  setgcref(g->gc.grayagain, o);
-}
 
 /* Barrier for stores to table objects. TValue and GCobj variant. */
 #define lj_gc_anybarriert(L, t)  \

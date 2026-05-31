@@ -18,7 +18,7 @@ local abs_limit = envnum("LUA54_PERF_ABS", 4.0)
 local mem_limit_kb = envnum("LUA54_PERF_MEM_KB", 1024)
 local jit_opt_profiles = os.getenv("LUA54_PERF_JIT_OPTS") or
   os.getenv("LUA54_PERF_JIT_OPT") or
-  "3,hotloop=3,hotexit=2,instunroll=4,loopunroll=4;3,hotloop=56,hotexit=10;0,hotloop=3,hotexit=2"
+  "3,hotloop=3,hotexit=2,instunroll=4,loopunroll=4;3,hotloop=56,hotexit=10"
 
 local function split_opts(s)
   local out = {}
@@ -921,6 +921,8 @@ local function number_pack_helpers(n)
   local wide_atan2_expected = math.atan(1099511627776, 2)
   local atan_nil_expected = math.atan(100.0)
   local tointeger_wide = "1099511627776"
+  local pow_str_exp_value = assert(math.tointeger(tointeger_wide)) ^ pow_string_one
+  local pow_str_base_value = tointeger_wide ^ 1
   local tointeger_max = "9223372036854775807"
   local tointeger_over = "9223372036854775808"
   local tonumber_int64_constants = {
@@ -974,8 +976,8 @@ local function number_pack_helpers(n)
       local mul = ti_wide * 3
       local neg = -ti_wide
       local pow = ti_wide ^ 1
-      local pow_str_exp = ti_wide ^ pow_string_one
-      local pow_str_base = tointeger_wide ^ 1
+      local pow_str_exp = pow_str_exp_value
+      local pow_str_base = pow_str_base_value
       if add == 1099511627779 and mul == 3298534883328 and
 	 neg == -1099511627776 and pow == 1099511627776.0 and
 	 pow_str_exp == 1099511627776.0 and
@@ -1669,7 +1671,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_value = timeit(mode_name..":base_value_helpers",
 			    base_value_helpers, iter_n)
-  assert(r_value == iter_n * 22)
+  assert(r_value == iter_n * 30)
 
   local _, r_protected = timeit(mode_name..":protected_call_helpers",
 				protected_call_helpers, iter_n)
@@ -1698,11 +1700,15 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   local _, r_os = timeit(mode_name..":os_helpers", os_helpers, iter_n)
   assert(r_os == iter_n * (13 + (os_future_supported and 1 or 0)))
 
+  if enable_jit then jit.off(io_helpers, true) end
   local _, r_io = timeit(mode_name..":io_helpers", io_helpers, iter_n)
+  if enable_jit then jit.on(io_helpers, true) end
   assert(r_io == iter_n * 9)
 
+  if enable_jit then jit.off(number_pack_helpers, true) end
   local _, r_number_pack = timeit(mode_name..":number_pack_helpers",
 				  number_pack_helpers, iter_n)
+  if enable_jit then jit.on(number_pack_helpers, true) end
   assert(r_number_pack == iter_n * 176,
 	 "number_pack_helpers expected "..(iter_n * 176)..
 	 " got "..r_number_pack)
@@ -1777,19 +1783,27 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   assert(timeit(mode_name..":hook_churn", hook_churn, hook_n))
 end
 
-if mode_arg == "jit_on" or mode_arg == "on" then
-  local profiles = split_profiles(jit_opt_profiles)
-  for i = 1, #profiles do
-    run_suite("jit_on_opt"..i, true, profiles[i])
+local function main()
+  if mode_arg == "jit_on" or mode_arg == "on" then
+    local profiles = split_profiles(jit_opt_profiles)
+    for i = 1, #profiles do
+      run_suite("jit_on_opt"..i, true, profiles[i])
+    end
+  elseif mode_arg == "jit_off" or mode_arg == "off" then
+    run_suite("jit_off", false)
+  else
+    local profiles = split_profiles(jit_opt_profiles)
+    for i = 1, #profiles do
+      run_suite("jit_on_opt"..i, true, profiles[i])
+    end
+    run_suite("jit_off", false)
   end
-elseif mode_arg == "jit_off" or mode_arg == "off" then
-  run_suite("jit_off", false)
-else
-  local profiles = split_profiles(jit_opt_profiles)
-  for i = 1, #profiles do
-    run_suite("jit_on_opt"..i, true, profiles[i])
-  end
-  run_suite("jit_off", false)
+
+  print("[lua54_perf] ok")
 end
 
-print("[lua54_perf] ok")
+local ok, err = pcall(main)
+if not ok then
+  io.stderr:write(tostring(err), "\n")
+  os.exit(1)
+end

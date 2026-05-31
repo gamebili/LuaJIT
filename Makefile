@@ -182,6 +182,7 @@ smoketest:
 smoketest-lua54compat:
 	$(MAKE) clean
 	$(MAKE) XCFLAGS='-DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2'
+	MAKEFLAGS= ./src/luajit test/lua54_official_matrix.lua "$(LUA54_TESTES_DIR)"
 	./src/luajit test/lua54_cstack_regress.lua
 	./src/luajit test/lua54_gc_regress.lua
 	LUA_PATH_5_4='./src/?.lua;./src/?/init.lua;;' ./src/luajit test/lua54_jit_regress.lua
@@ -191,7 +192,6 @@ smoketest-lua54compat:
 	./src/luajit test/lua54_vm_backend_dynasm.lua
 	LUA_PATH_5_4='./src/?.lua;./src/?/init.lua;;' ./src/luajit test/smoke.lua lua54compat
 	./src/luajit test/lua54_standalone_regress.lua ./src/luajit
-	$(MAKE) run-official-lua54compat
 	out=$$(./src/luajit -e 'warn("@on"); warn("lua54 ", "warning")' 2>&1 >/dev/null) && test "$$out" = "Lua warning: lua54 warning"
 	out=$$(./src/luajit -W -e 'warn("lua54 -W warning")' 2>&1 >/dev/null) && test "$$out" = "Lua warning: lua54 -W warning"
 	out=$$(./src/luajit -e 'warn("lua54 before -W")' -W 2>&1 >/dev/null) && test "$$out" = ""
@@ -219,12 +219,12 @@ smoketest-lua54compat-nogc64:
 	LUA_PATH_5_4='./src/?.lua;./src/?/init.lua;;' ./src/luajit test/lua54_jit_regress.lua
 
 run-official-lua54compat:
-	./src/luajit test/lua54_official_matrix.lua "$(LUA54_TESTES_DIR)"
+	MAKEFLAGS= ./src/luajit test/lua54_official_matrix.lua "$(LUA54_TESTES_DIR)"
 
 smoketest-official-lua54compat:
 	$(MAKE) clean
 	$(MAKE) XCFLAGS='-DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2'
-	$(MAKE) run-official-lua54compat
+	MAKEFLAGS= ./src/luajit test/lua54_official_matrix.lua "$(LUA54_TESTES_DIR)"
 
 smoketest-capi-lua54compat: smoketest-lua54compat
 	gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -I src -c test/lua54_luaconf_guard_smoke.c -o src/lua54_luaconf_guard_smoke.o
@@ -281,7 +281,8 @@ smoketest-capi-lua54compat: smoketest-lua54compat
 smoketest-perf-lua54compat:
 	$(MAKE) clean
 	$(MAKE) XCFLAGS='-DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2'
-	./src/luajit test/lua54_perf.lua jit_on
+	LUA54_PERF_JIT_OPTS='3,hotloop=3,hotexit=2,instunroll=4,loopunroll=4' ./src/luajit test/lua54_perf.lua jit_on
+	LUA54_PERF_JIT_OPTS='3,hotloop=56,hotexit=10' ./src/luajit test/lua54_perf.lua jit_on
 	./src/luajit test/lua54_perf.lua jit_off
 
 smoketest-capi-default: smoketest

@@ -1930,6 +1930,22 @@ static void asm_cnew(ASMState *as, IRIns *ir)
 
 static void asm_tbar(ASMState *as, IRIns *ir)
 {
+#if LJ_54
+  const CCallInfo *ci = &lj_ir_callinfo[IRCALL_lj_gc_barrierback];
+  IRRef args[2];
+  MCLabel l_end;
+  Reg tab;
+  ra_evictset(as, RSET_SCRATCH);
+  l_end = emit_label(as);
+  args[0] = ASMREF_TMP1;  /* global_State *g */
+  args[1] = ir->op1;      /* GCtab *tab      */
+  asm_gencall(as, ci, args);
+  emit_loada(as, ra_releasetmp(as, ASMREF_TMP1), J2G(as->J));
+  tab = IR(ir->op1)->r;
+  emit_sjcc(as, CC_Z, l_end);
+  emit_i8(as, LJ_GC_BLACK);
+  emit_rmro(as, XO_GROUP3b, XOg_TEST, tab, offsetof(GCtab, marked));
+#else
   Reg tab = ra_alloc1(as, ir->op1, RSET_GPR);
   Reg tmp = ra_scratch(as, rset_exclude(RSET_GPR, tab));
   MCLabel l_end = emit_label(as);
@@ -1941,6 +1957,7 @@ static void asm_tbar(ASMState *as, IRIns *ir)
   emit_sjcc(as, CC_Z, l_end);
   emit_i8(as, LJ_GC_BLACK);
   emit_rmro(as, XO_GROUP3b, XOg_TEST, tab, offsetof(GCtab, marked));
+#endif
 }
 
 static void asm_obar(ASMState *as, IRIns *ir)

@@ -173,6 +173,83 @@ do
   end
 
   do
+    local mod_loaded = "__lua54_gc_touched_preload_loaded"
+    local mod_nil = "__lua54_gc_touched_preload_nil"
+    local mod_err = "__lua54_gc_touched_preload_err"
+
+    local function churn_modes(n)
+      collectgarbage("restart")
+      collectgarbage("generational")
+      for i = 1, n do
+	local old_mode = collectgarbage((i % 2 == 0) and
+					"generational" or "incremental")
+	assert(old_mode == "generational" or old_mode == "incremental")
+      end
+    end
+
+    local function package_churn(n)
+      local sum = 0
+      local nil_loader_count = 0
+      package.loaded[mod_loaded] = { v = 7 }
+      package.loaded[mod_nil] = nil
+      package.preload[mod_nil] = function()
+	nil_loader_count = nil_loader_count + 1
+	return nil
+      end
+      package.loaded[mod_err] = nil
+      package.preload[mod_err] = function()
+	error("lua54 gc touched preload boom", 0)
+      end
+
+      for _ = 1, n do
+	local loaded, loaded_data = require(mod_loaded)
+	if loaded.v == 7 and loaded_data == nil then sum = sum + 1 end
+
+	local nil_loaded, nil_data = require(mod_nil)
+	if nil_loaded == true and
+	   (nil_data == nil or nil_data == ":preload:") then
+	  sum = sum + 1
+	end
+
+	local ok_err, err = pcall(require, mod_err)
+	if not ok_err and err == "lua54 gc touched preload boom" and
+	   package.loaded[mod_err] == nil then
+	  sum = sum + 1
+	end
+
+	local found, searcherr = package.searchpath("__lua54_gc_missing__",
+						    "?.lua;;none/?.lua")
+	if found == nil and searcherr:find("no file ''", 1, true) then
+	  sum = sum + 1
+	end
+
+	found, searcherr = package.searchpath("__lua54_gc_missing__", "")
+	if found == nil and searcherr == "no file ''" then
+	  sum = sum + 1
+	end
+
+	found, searcherr = package.searchpath(1099511627776, "?.lua")
+	if found == nil and searcherr:find("1099511627776.lua", 1, true) then
+	  sum = sum + 1
+	end
+      end
+
+      package.loaded[mod_loaded] = nil
+      package.loaded[mod_nil] = nil
+      package.preload[mod_nil] = nil
+      package.preload[mod_err] = nil
+      assert(nil_loader_count == 1)
+      return sum
+    end
+
+    churn_modes(64)
+    churn_modes(3000)
+    package_churn(64)
+    assert(package_churn(128) == 128 * 6,
+      "generational touched2 package.preload barrier must keep young loader")
+  end
+
+  do
     local function noop() end
     local old = { 10 }
     collectgarbage("generational", 1, 1000)
@@ -323,12 +400,14 @@ do
     collectgarbage("generational", 1, 1000)
     collectgarbage("collect")
     collectgarbage("collect")
+    collectgarbage("stop")
     do
       local tmp = {}
       for i = 1, 180000 do
 	tmp[i] = "lua54_gc_ms_" .. i
       end
     end
+    collectgarbage("restart")
     local after_first
     for i = 1, 6 do
       collectgarbage("step", 0)
