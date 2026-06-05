@@ -226,6 +226,8 @@ local cases = {
   { "string.unpack.short", "return string.unpack('i4', '')", err = "bad argument #2 to 'unpack' (data string too short)" },
   { "string.unpack.pos0", "return string.unpack('b', 'abc', 0)", ok = { "number:97", "number:2" } },
   { "string.unpack.negzero", "return string.unpack('b', 'abc', -0)", ok = { "number:97", "number:2" } },
+  { "string.unpack.strpos", "return string.unpack('b', 'abc', '2')", ok = { "number:98", "number:3" } },
+  { "string.unpack.fracpos", "return string.unpack('b', 'abc', 1.2)", err = "bad argument #3 to 'unpack' (number has no integer representation)" },
   { "string.unpack.pos5", "return string.unpack('b', 'abc', 5)", err = "bad argument #3 to 'unpack' (initial position out of string)" },
   { "string.unpack.wideneg", "return string.unpack('b', 'abc', -1099511627776)", ok = { "number:97", "number:2" } },
 
