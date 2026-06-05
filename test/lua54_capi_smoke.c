@@ -8181,6 +8181,21 @@ static void test_lauxlib_api(lua_State *L)
 	"luaL_testudata mismatch");
   check(L, luaL_checkudata(L, -1, "capi.ud") == ud, "luaL_checkudata match");
   lua_pop(L, 1);
+  {
+    int top;
+    lua_newtable(L);
+    top = lua_gettop(L);
+    check(L, luaL_testudata(L, -1, "capi.ud") == NULL,
+	  "luaL_testudata non-userdata");
+    check(L, lua_gettop(L) == top, "luaL_testudata non-userdata stack");
+    lua_pop(L, 1);
+    lua_newuserdatauv(L, 1, 0);
+    top = lua_gettop(L);
+    check(L, luaL_testudata(L, -1, "capi.ud") == NULL,
+	  "luaL_testudata no metatable");
+    check(L, lua_gettop(L) == top, "luaL_testudata no metatable stack");
+    lua_pop(L, 1);
+  }
 
   lua_newtable(L);
   check(L, strcmp(luaL_typename(L, -1), "table") == 0,
