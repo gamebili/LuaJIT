@@ -7705,6 +7705,24 @@ static void test_lauxlib_api(lua_State *L)
   check_string(L, -1, "7.0", "luaL_optlstring float string");
   lua_pop(L, 4);
 
+  lua_pushcfunction(L, laux_lstring_arg);
+  lua_pushliteral(L, "left");
+  lua_pushnil(L);
+  status = lua_pcall(L, 2, 4, 0);
+  check(L, status == LUA_OK, "luaL_optlstring nil default status");
+  check_integer(L, -4, 4, "luaL_checklstring nil-default length");
+  check_integer(L, -3, 8, "luaL_optlstring nil default length");
+  check_string(L, -2, "left", "luaL_checklstring nil-default string");
+  check_string(L, -1, "fallback", "luaL_optlstring nil default string");
+  lua_pop(L, 4);
+
+  lua_pushcfunction(L, laux_lstring_arg);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_checklstring rejects missing arg");
+  check(L, strstr(lua_tostring(L, -1), "string expected") != NULL,
+	"luaL_checklstring missing arg error");
+  lua_pop(L, 1);
+
   lua_pushcfunction(L, laux_string_macro_arg);
   status = lua_pcall(L, 0, 0, 0);
   check(L, status == LUA_ERRRUN, "luaL_checkstring rejects missing arg");
