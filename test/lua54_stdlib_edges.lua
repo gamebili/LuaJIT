@@ -243,6 +243,8 @@ local cases = {
   { "table.move.stridx", "return table.move({}, '1', '2', '3')", ok = { "table" } },
   { "table.move.wrap", "return table.move({}, 1, math.maxinteger, 2)", err = "bad argument #4 to 'move' (destination wrap around)" },
   { "table.move.same", "local t = {1,2,3}; return table.move(t, 1, 3, 1) == t, table.concat(t, ',')", ok = { "boolean:true", "string:1,2,3" } },
+  { "table.move.overlap.right", "local t = {1,2,3,4}; return table.move(t, 1, 3, 2) == t, table.concat(t, ',')", ok = { "boolean:true", "string:1,1,2,3" } },
+  { "table.move.overlap.left", "local t = {1,2,3,4}; return table.move(t, 2, 4, 1) == t, table.concat(t, ',')", ok = { "boolean:true", "string:2,3,4,4" } },
   { "table.move.badtarget", "return table.move({}, 1, 2, 1, true)", err = "bad argument #5 to 'move' (table expected, got boolean)" },
   { "table.pack.extra", "return table.pack(1, nil, 3).n", ok = { "number:3" } },
   { "table.remove.noarg", "return table.remove()", err = "bad argument #1 to 'remove' (table expected, got no value)" },
