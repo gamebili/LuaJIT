@@ -546,6 +546,7 @@
   - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入本机官方 Lua 5.4.8 对照过的 `utf8.offset()` n==0 continuation-byte 回退、`utf8.offset/len/codepoint` final/position 越界错误、`string.unpack()` 初始位置越界错误、`package.searchpath()` 自定义 separator / 空 module name 结果、`table.insert()` / `table.remove()` 位置越界，以及 `math.random(0, 0)` / 空区间边界。
   - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `load()` reader 返回 number/空串/首个 nil、text chunk 被 binary-only mode 拒绝、`loadfile()` mode 参数错误、`package.loadlib()` 基础参数错误、`require()` 对 truthy/zero loaded 值和非 table `package.searchers` 的行为、`debug.sethook()` count 字符串/小数边界，以及 `debug.traceback()` 无参数返回边界。
   - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 string 库官方对照边界，覆盖 `gmatch/lower/upper/reverse` 缺参、`rep()` separator / 负 repeat / 非 string separator、`find/match/gmatch` init 参数、`gsub()` table/function replacement 的 false/nil fallback、limit 为 0/字符串整数/小数的边界。
+  - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 math/table 官方对照边界，覆盖 `math.type()` 非 number / float、`math.min/max()` 字符串比较、混合 number/string 比较错误和 NaN 结果，`table.concat()` 空范围 / number separator / 非 string item，`table.insert()` / `table.remove()` 字符串位置和边界位置，以及 `table.move()` 原表返回和非法目标表参数。
   - 剩余边界：继续用本机 `lua5.4.8` 扩展更多标准库逐字错误文本对照；标准库公开入口的 direct `pcall` fallback、普通源码字段/全局调用、局部/upvalue alias、当前解析路径可静态证明的 global alias / table-field alias 和 tail-position 调用点名已扩展覆盖 base/global、string、base loader、math、os、io、debug、utf8、package 以及 `coroutine.resume()` / `coroutine.close()` 代表路径；parser 只对真实来自 `_ENV`、标准库表或已静态证明来源的 table 字段保留调用帧，并按“字段名 + 实际库表/静态来源”组合识别，普通未标记的 `t.pack()` / `t.resume()` / `t.f()` 这类非标准库表调用仍保持 tail call。
   - 当前进展：字符串库方法语法的 tail-position 错误名/参数编号已按 Lua 5.4 收紧；`s:byte({})` / `s:find({})` / `s:format(true)` 会保留源码方法帧并按隐藏 self 之后的公开实参报 `#1`，不再被 tail call 擦成 `string.byte` / `string.find` / `string.format` 的 `#2` fallback。
   - 做法：将本机 `lua5.4.8` 的边界行为固化为对照测试，先覆盖返回值和是否报错，再逐步收紧错误文本。
@@ -649,6 +650,7 @@
 
 ## 当前验证结果
 
+- `.\src\luajit.exe test\lua54_stdlib_edges.lua` 已通过，覆盖本轮新增的 math/table 官方对照边界。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 已通过，覆盖本轮新增的 string 库官方对照边界。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 已通过，覆盖本轮新增的 load/loadfile/package/debug 标准库官方对照边界。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 已通过，覆盖本轮新增的 utf8/string.unpack/package.searchpath/table/math 标准库官方对照边界。
