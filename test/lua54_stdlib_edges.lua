@@ -221,6 +221,8 @@ local cases = {
   { "string.pack.noarg", "return string.pack()", err = "bad argument #1 to 'pack' (string expected, got no value)" },
   { "string.pack.badfmt", "return string.pack('z')", err = "bad argument #2 to 'pack' (string expected, got nil)" },
   { "string.pack.missing", "return string.pack('i')", err = "bad argument #2 to 'pack' (number expected, got nil)" },
+  { "string.pack.strint", "local s = string.pack('b', '65'); return string.unpack('b', s)", ok = { "number:65", "number:2" } },
+  { "string.pack.fracint", "return string.pack('b', 1.2)", err = "bad argument #2 to 'pack' (number has no integer representation)" },
   { "string.pack.Xspace", "return string.pack('X i', 1)", err = "bad argument #1 to 'pack' (invalid next option for option 'X')" },
   { "string.packsize.badfmt", "return string.packsize('z')", err = "bad argument #1 to 'packsize' (variable-length format)" },
   { "string.rep.noarg", "return string.rep()", err = "bad argument #1 to 'rep' (string expected, got no value)" },
