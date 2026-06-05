@@ -2852,6 +2852,17 @@ static int callmeta_invalid_index(lua_State *L)
   return 0;
 }
 
+static int callmeta_false_field(lua_State *L)
+{
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "__tostring");
+  lua_setmetatable(L, -2);
+  luaL_callmeta(L, -1, "__tostring");
+  return 0;
+}
+
 static int setmetatable_laux_null_name(lua_State *L)
 {
   lua_newtable(L);
@@ -8237,6 +8248,9 @@ static void test_lauxlib_api(lua_State *L)
     check(L, lua_gettop(L) == top + 1, "luaL_callmeta no metatable stack");
     lua_pop(L, 1);
   }
+  check_fresh_error_contains(L, callmeta_false_field, "attempt to call",
+			     "luaL_callmeta nonfunction status",
+			     "luaL_callmeta nonfunction error");
   {
     lua_newtable(L);
     lua_newtable(L);
