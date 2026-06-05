@@ -8736,6 +8736,12 @@ static void test_lauxlib_api(lua_State *L)
   check_integer(L, -1, 54, "luaL_loadbufferx loaded function");
   lua_pop(L, 1);
 
+  status = luaL_loadbufferx(L, "return 56", 9, "=capi-buffer-null", NULL);
+  check(L, status == LUA_OK, "luaL_loadbufferx NULL mode accepts text");
+  lua_call(L, 0, 1);
+  check_integer(L, -1, 56, "luaL_loadbufferx NULL mode text result");
+  lua_pop(L, 1);
+
   status = luaL_loadbuffer(L, "return 55", 9, "=capi-loadbuffer");
   check(L, status == LUA_OK, "luaL_loadbuffer macro");
   lua_call(L, 0, 1);
@@ -8799,6 +8805,11 @@ static void test_lauxlib_api(lua_State *L)
   lua_call(L, 0, 1);
   check_integer(L, -1, 79, "luaL_loadfilex hash binary result");
   lua_pop(L, 1);
+  status = luaL_loadfilex(L, binname, NULL);
+  check(L, status == LUA_OK, "luaL_loadfilex NULL mode accepts hash binary");
+  lua_call(L, 0, 1);
+  check_integer(L, -1, 79, "luaL_loadfilex NULL mode hash binary result");
+  lua_pop(L, 1);
   status = luaL_loadfilex(L, binname, "t");
   remove(binname);
   check(L, status == LUA_ERRSYNTAX,
@@ -8814,6 +8825,14 @@ static void test_lauxlib_api(lua_State *L)
   check(L, status == LUA_OK, "lua_load function pointer text mode");
   lua_call(L, 0, 1);
   check_integer(L, -1, 64, "lua_load loaded function");
+  lua_pop(L, 1);
+
+  reader.src = "return 65";
+  reader.len = 9;
+  status = lua_load_sig(L, capi_reader, &reader, "=capi-reader-null", NULL);
+  check(L, status == LUA_OK, "lua_load function pointer NULL mode text");
+  lua_call(L, 0, 1);
+  check_integer(L, -1, 65, "lua_load NULL mode text result");
   lua_pop(L, 1);
 
   reader.src = "return 64";
@@ -8878,6 +8897,14 @@ static void test_dump_api(lua_State *L)
   check_integer(L, -1, 42, "lua_dump stripped roundtrip");
   lua_pop(L, 1);
 
+  status = luaL_loadbufferx(L, stripped.data, stripped.len,
+			    "=dumped-null-mode", NULL);
+  check(L, status == LUA_OK, "luaL_loadbufferx NULL mode accepts binary");
+  lua_pushinteger(L, 41);
+  lua_call(L, 1, 1);
+  check_integer(L, -1, 42, "luaL_loadbufferx NULL mode binary result");
+  lua_pop(L, 1);
+
   status = luaL_loadbufferx(L, stripped.data, stripped.len, "=dumped", "t");
   check(L, status == LUA_ERRSYNTAX,
 	"luaL_loadbufferx text mode rejects binary");
@@ -8893,6 +8920,16 @@ static void test_dump_api(lua_State *L)
   lua_pushinteger(L, 41);
   lua_call(L, 1, 1);
   check_integer(L, -1, 42, "lua_load binary reader result");
+  lua_pop(L, 1);
+
+  reader.src = stripped.data;
+  reader.len = stripped.len;
+  status = lua_load_sig(L, capi_reader, &reader,
+			"=dumped-reader-null-mode", NULL);
+  check(L, status == LUA_OK, "lua_load NULL mode accepts binary reader");
+  lua_pushinteger(L, 41);
+  lua_call(L, 1, 1);
+  check_integer(L, -1, 42, "lua_load NULL mode binary reader result");
   lua_pop(L, 1);
 
   reader.src = stripped.data;
