@@ -8145,6 +8145,15 @@ static void test_lauxlib_api(lua_State *L)
   check_integer(L, -1, 0, "luaL_fileresult errno-zero code");
   lua_pop(L, 3);
 
+  errno = 0;
+  check(L, luaL_fileresult(L, 0, "mystery.lua") == 3,
+	"luaL_fileresult errno-zero filename arity");
+  check(L, lua_isnil(L, -3), "luaL_fileresult errno-zero filename nil");
+  check_string(L, -2, "mystery.lua: (no extra info)",
+	       "luaL_fileresult errno-zero filename message");
+  check_integer(L, -1, 0, "luaL_fileresult errno-zero filename code");
+  lua_pop(L, 3);
+
   check(L, luaL_execresult(L, 0) == 3, "luaL_execresult success arity");
   check(L, lua_toboolean(L, -3), "luaL_execresult success bool");
   check_string(L, -2, "exit", "luaL_execresult success kind");
