@@ -3286,6 +3286,31 @@ static int capi_tostring_meta(lua_State *L)
   return 1;
 }
 
+static int capi_tostring_number_meta(lua_State *L)
+{
+  (void)L;
+  lua_pushinteger(L, 123);
+  return 1;
+}
+
+static int capi_tostring_bool_meta(lua_State *L)
+{
+  (void)L;
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+static int laux_tolstring_bool_meta_arg(lua_State *L)
+{
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushcfunction(L, capi_tostring_bool_meta);
+  lua_setfield(L, -2, "__tostring");
+  lua_setmetatable(L, -2);
+  luaL_tolstring(L, -1, NULL);
+  return 1;
+}
+
 static int capi_metafield_index(lua_State *L)
 {
   (void)L;
@@ -8255,6 +8280,27 @@ static void test_lauxlib_api(lua_State *L)
   luaL_tolstring(L, -1, NULL);
   check_string(L, -1, "1.5", "luaL_tolstring float fraction subtype");
   lua_pop(L, 2);
+
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushcfunction(L, capi_tostring_number_meta);
+  lua_setfield(L, -2, "__tostring");
+  lua_setmetatable(L, -2);
+  {
+    size_t len = 0;
+    const char *s = luaL_tolstring(L, -1, &len);
+    check(L, len == 3, "luaL_tolstring numeric __tostring length");
+    check(L, strcmp(s, "123") == 0, "luaL_tolstring numeric __tostring");
+    check_string(L, -1, "123", "luaL_tolstring numeric __tostring stack");
+    lua_pop(L, 2);
+  }
+
+  lua_pushcfunction(L, laux_tolstring_bool_meta_arg);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_tolstring boolean __tostring status");
+  check(L, strstr(lua_tostring(L, -1), "'__tostring' must return a string") != NULL,
+	"luaL_tolstring boolean __tostring error");
+  lua_pop(L, 1);
 
   lua_newtable(L);
   lua_newtable(L);
