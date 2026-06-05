@@ -7993,6 +7993,16 @@ static void test_lauxlib_api(lua_State *L)
   luaL_requiref(L, "capi.mod", require_open, 1);
   check(L, require_open_count == 1, "luaL_requiref reuses loaded module");
   lua_pop(L, 1);
+  lua_pushliteral(L, "stale-global");
+  lua_setglobal(L, "capi.mod");
+  luaL_requiref(L, "capi.mod", require_open, 1);
+  check(L, require_open_count == 1,
+	"luaL_requiref does not reopen loaded module for global");
+  lua_pop(L, 1);
+  lua_getglobal(L, "capi.mod");
+  lua_getfield(L, -1, "state");
+  check_string(L, -1, "ready", "luaL_requiref republishes loaded global");
+  lua_pop(L, 2);
 
   luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
   lua_pushboolean(L, 0);
