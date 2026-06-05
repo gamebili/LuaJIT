@@ -2126,6 +2126,18 @@ static int require_open_false(lua_State *L)
   return 1;
 }
 
+static int require_open_multi(lua_State *L)
+{
+  check_string(L, 1, "capi.multimod",
+	       "luaL_requiref passes multi-result module name");
+  require_open_count++;
+  lua_newtable(L);
+  lua_pushliteral(L, "multi-ready");
+  lua_setfield(L, -2, "state");
+  lua_pushliteral(L, "extra-result");
+  return 2;
+}
+
 static int require_open_nil(lua_State *L)
 {
   check_string(L, 1, "capi.nilmod",
@@ -7301,6 +7313,7 @@ static void test_lauxlib_api(lua_State *L)
   int ref;
   int rtype;
   int before_count;
+  int top;
   void *ud;
   FILE *tmpf;
   const char *tmpname = "test/lua54_capi_dofile.tmp.lua";
@@ -8110,6 +8123,22 @@ static void test_lauxlib_api(lua_State *L)
   lua_getglobal(L, "capi.loadedzero");
   check_integer(L, -1, 0, "luaL_requiref republishes truthy loaded global");
   lua_pop(L, 1);
+
+  before_count = require_open_count;
+  top = lua_gettop(L);
+  luaL_requiref(L, "capi.multimod", require_open_multi, 1);
+  check(L, require_open_count == before_count + 1,
+	"luaL_requiref calls multi-result opener");
+  check(L, lua_gettop(L) == top + 1,
+	"luaL_requiref keeps one opener result");
+  lua_getfield(L, -1, "state");
+  check_string(L, -1, "multi-ready", "luaL_requiref multi-result module");
+  lua_pop(L, 1);
+  lua_getglobal(L, "capi.multimod");
+  lua_getfield(L, -1, "state");
+  check_string(L, -1, "multi-ready",
+	       "luaL_requiref multi-result global");
+  lua_pop(L, 3);
 
   luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
   lua_pushboolean(L, 0);
