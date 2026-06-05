@@ -471,8 +471,8 @@ LJLIB_CF(debug_setupvalue)
 LJLIB_CF(debug_upvalueid)
 {
 #if LJ_54
-  GCfunc *fn = debug_checkfunc_named54(L, 1, "debug.upvalueid");
   int32_t n = debug_checkint_named54(L, 2, "debug.upvalueid");
+  GCfunc *fn = debug_checkfunc_named54(L, 1, "debug.upvalueid");
 #else
   GCfunc *fn = lj_lib_checkfunc(L, 1);
   int32_t n = lj_lib_checkint(L, 2);
@@ -523,8 +523,8 @@ LJLIB_CF(debug_upvaluejoin)
   for (i = 0; i < 2; i++) {
     int32_t n;
 #if LJ_54
-    fn[i] = debug_checkfunc_named54(L, 2*i+1, "debug.upvaluejoin");
     n = debug_checkint_named54(L, 2*i+2, "debug.upvaluejoin");
+    fn[i] = debug_checkfunc_named54(L, 2*i+1, "debug.upvaluejoin");
     if (lj_debug_hasenvuv(fn[i])) {
       if (n == 1) {
 	envuv[i] = 1;
