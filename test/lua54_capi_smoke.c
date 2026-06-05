@@ -7978,6 +7978,22 @@ static void test_lauxlib_api(lua_State *L)
   check_integer(L, -1, 54, "luaL_opt macro explicit");
   lua_pop(L, 1);
 
+  lua_pushcfunction(L, laux_opt_macro_arg);
+  lua_pushnil(L);
+  status = lua_pcall(L, 1, 1, 0);
+  check(L, status == LUA_OK, "luaL_opt macro nil default status");
+  check_integer(L, -1, 77, "luaL_opt macro nil default");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_opt_macro_arg);
+  lua_pushnumber(L, (lua_Number)1.5);
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_opt macro rejects fraction");
+  check(L, strstr(lua_tostring(L, -1),
+		  "number has no integer representation") != NULL,
+	"luaL_opt macro fraction error");
+  lua_pop(L, 1);
+
   lua_pushcfunction(L, laux_checkstack_arg);
   status = lua_pcall(L, 0, 1, 0);
   check(L, status == LUA_OK, "luaL_checkstack status");
