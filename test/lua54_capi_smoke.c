@@ -7938,6 +7938,17 @@ static void test_lauxlib_api(lua_State *L)
   lua_pop(L, 2);
 
   lua_newtable(L);
+  lua_pushliteral(L, "old-child");
+  lua_setfield(L, -2, "child");
+  check(L, luaL_getsubtable(L, -1, "child") == 0,
+	"luaL_getsubtable replaces non-table");
+  check(L, lua_istable(L, -1), "luaL_getsubtable replacement table");
+  lua_getfield(L, -2, "child");
+  check(L, lua_rawequal(L, -1, -2),
+	"luaL_getsubtable stores replacement table");
+  lua_pop(L, 3);
+
+  lua_newtable(L);
   lua_newtable(L);
   lua_pushcfunction(L, getsubtable_index_meta);
   lua_setfield(L, -2, "__index");
