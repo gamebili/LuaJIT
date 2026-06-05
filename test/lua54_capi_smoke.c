@@ -8617,6 +8617,11 @@ static void test_lauxlib_api(lua_State *L)
   lua_pop(L, 1);
 
   luaL_buffinit(L, &b);
+  pushresultsize_fn(&b, 0);
+  check_string(L, -1, "", "luaL_pushresultsize zero");
+  lua_pop(L, 1);
+
+  luaL_buffinit(L, &b);
   {
     size_t big = LUAL_BUFFERSIZE + 32;
     p = luaL_prepbuffsize(&b, big);
@@ -8642,6 +8647,12 @@ static void test_lauxlib_api(lua_State *L)
 	  "luaL_buffinitsize big result bytes");
     lua_pop(L, 1);
   }
+
+  p = buffinitsize_fn(L, &b, 0);
+  check(L, p == luaL_buffaddr(&b), "luaL_buffinitsize zero address");
+  pushresultsize_fn(&b, 0);
+  check_string(L, -1, "", "luaL_buffinitsize zero result");
+  lua_pop(L, 1);
 
   test_lauxlib_buffer_too_large(L);
 
