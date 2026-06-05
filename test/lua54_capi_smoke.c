@@ -8610,6 +8610,21 @@ static void test_lauxlib_api(lua_State *L)
   lua_pop(L, 1);
 
   luaL_buffinit(L, &b);
+  luaL_addlstring(&b, "a\0b", 3);
+  lua_pushlstring(L, "c\0d", 3);
+  luaL_addvalue(&b);
+  luaL_pushresult(&b);
+  {
+    static const char expect[] = {'a', '\0', 'b', 'c', '\0', 'd'};
+    size_t len = 0;
+    const char *s = lua_tolstring(L, -1, &len);
+    check(L, len == sizeof(expect), "luaL_Buffer binary result length");
+    check(L, memcmp(s, expect, sizeof(expect)) == 0,
+          "luaL_Buffer binary result bytes");
+    lua_pop(L, 1);
+  }
+
+  luaL_buffinit(L, &b);
   lua_pushinteger(L, 7);
   luaL_addvalue(&b);
   luaL_addchar(&b, '/');
