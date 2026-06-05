@@ -7694,6 +7694,17 @@ static void test_lauxlib_api(lua_State *L)
 	"luaL_optlstring explicit binary bytes");
   lua_pop(L, 4);
 
+  lua_pushcfunction(L, laux_lstring_arg);
+  lua_pushinteger(L, 7);
+  lua_pushnumber(L, (lua_Number)7.0);
+  status = lua_pcall(L, 2, 4, 0);
+  check(L, status == LUA_OK, "luaL_checklstring number subtype status");
+  check_integer(L, -4, 1, "luaL_checklstring integer length");
+  check_integer(L, -3, 3, "luaL_optlstring float length");
+  check_string(L, -2, "7", "luaL_checklstring integer string");
+  check_string(L, -1, "7.0", "luaL_optlstring float string");
+  lua_pop(L, 4);
+
   lua_pushcfunction(L, laux_string_macro_arg);
   status = lua_pcall(L, 0, 0, 0);
   check(L, status == LUA_ERRRUN, "luaL_checkstring rejects missing arg");
