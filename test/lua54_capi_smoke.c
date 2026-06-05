@@ -8587,6 +8587,18 @@ static void test_lauxlib_api(lua_State *L)
   lua_pop(L, 1);
 
   luaL_buffinit(L, &b);
+  p = luaL_prepbuffer(&b);
+  memcpy(p, "edge", 4);
+  luaL_addsize(&b, 4);
+  luaL_buffsub(&b, 0);
+  check(L, luaL_bufflen(&b) == 4, "luaL_buffsub zero keeps length");
+  luaL_buffsub(&b, 4);
+  check(L, luaL_bufflen(&b) == 0, "luaL_buffsub full clears length");
+  luaL_pushresult(&b);
+  check_string(L, -1, "", "luaL_buffsub full result");
+  lua_pop(L, 1);
+
+  luaL_buffinit(L, &b);
   luaL_addchar(&b, 'L');
   luaL_addlstring(&b, "ua", 2);
   luaL_addstring(&b, "54");
