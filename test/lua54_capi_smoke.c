@@ -7667,6 +7667,23 @@ static void test_lauxlib_api(lua_State *L)
   check_string(L, -1, "left/right", "luaL_optstring explicit");
   lua_pop(L, 1);
 
+  lua_pushcfunction(L, laux_string_macro_arg);
+  lua_pushliteral(L, "left");
+  lua_pushnil(L);
+  status = lua_pcall(L, 2, 1, 0);
+  check(L, status == LUA_OK, "luaL_optstring nil default status");
+  check_string(L, -1, "left/fallback", "luaL_optstring nil default");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_string_macro_arg);
+  lua_pushinteger(L, 7);
+  lua_pushnumber(L, (lua_Number)7.0);
+  status = lua_pcall(L, 2, 1, 0);
+  check(L, status == LUA_OK, "luaL_checkstring/luaL_optstring number subtype status");
+  check_string(L, -1, "7/7.0",
+	       "luaL_checkstring/luaL_optstring number subtypes");
+  lua_pop(L, 1);
+
   lua_pushcfunction(L, laux_lstring_arg);
   lua_pushlstring(L, "a\0b", 3);
   status = lua_pcall(L, 1, 4, 0);
