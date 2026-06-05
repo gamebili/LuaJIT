@@ -8065,6 +8065,22 @@ static void test_lauxlib_api(lua_State *L)
   lua_pop(L, 2);
 
   luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
+  lua_pushinteger(L, 0);
+  lua_setfield(L, -2, "capi.loadedzero");
+  lua_pop(L, 1);
+  before_count = require_open_count;
+  lua_pushliteral(L, "stale-zero-global");
+  lua_setglobal(L, "capi.loadedzero");
+  luaL_requiref(L, "capi.loadedzero", require_open, 1);
+  check(L, require_open_count == before_count,
+	"luaL_requiref does not reopen truthy loaded value");
+  check_integer(L, -1, 0, "luaL_requiref truthy loaded result");
+  lua_pop(L, 1);
+  lua_getglobal(L, "capi.loadedzero");
+  check_integer(L, -1, 0, "luaL_requiref republishes truthy loaded global");
+  lua_pop(L, 1);
+
+  luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
   lua_pushboolean(L, 0);
   lua_setfield(L, -2, "capi.falsemod");
   lua_pop(L, 1);
