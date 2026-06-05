@@ -480,7 +480,7 @@
   - 当前进展：`tools/lua54_platform_matrix.ps1` 现在会在未设置 `ANDROID_NDK_ROOT` / `ANDROID_NDK_HOME` / `NDK_ROOT` 时自动探测本机 `H:\p4\gl_home_u4\pristine\android-ndk-r25b`、`android-ndk-r21b` 和 `ndk`，避免 Windows 工作区已有 NDK 但平台矩阵直接 SKIP。
   - 当前进展：Android device smoke 的 `adb` 探测已补本机 `H:\p4\gl_home_u4\pristine\android-sdk-windows\platform-tools`、`platform-tools.backup` 和 `tools\logcat\adb`，使平台矩阵能在已有 SDK 时继续检查在线设备，而不是停在 `adb not found`。
   - 当前进展：`tools/lua54_platform_matrix.ps1` 的独立 MSYS2 探测已对齐当前 Windows 工作区，优先使用 `H:\p4\gl_home_u4\pristine\ruby\msys64`，并一次性加入 `usr\bin` / `ucrt64\bin` / `mingw64\bin`，因此直接运行平台脚本和通过 `build.bat platform*` 都能找到同一套 `make` / gcc 工具链；平台矩阵内部调用 `make` 时也会使用当前物理核心数/2 的 `-jN`，并允许 `BUILD_JOBS` 只向下收紧并发，不再绕过 `build.bat` 的并发策略。
-  - 已知缺口：本轮 `cmd /c build.bat platformpc` 已通过 PC x64 default 与 Lua 5.4 compat smoke，并确认两个产物都是 AMD64 PE；`cmd /c build.bat platformandroid` 已通过 Android ARM64 Lua 5.4 compat 静态 artifact 构建和 AArch64 检查，但当前 Windows 主机无在线 adb 设备，因此设备 smoke 输出 SKIP，仍需在有设备/模拟器时补最新运行验证。iOS ARM64 已有 macOS/Xcode 构建入口和静态库 artifact 架构检查，但当前 Windows 环境无法实际验证该分支，也还缺 iOS device/app smoke harness；Emscripten wasm/wasm64 已有工具探测和 LuaJIT target-selection 级别的失败探针，但当前主机未找到 `emcc`，且 LuaJIT 仍缺 wasm/wasm64 JIT 或解释器 VM 后端，不能产出 Emscripten artifact。
+  - 已知缺口：本轮 `cmd /c build.bat platformpc` 已通过 PC x64 default 与 Lua 5.4 compat smoke，并确认两个产物都是 AMD64 PE；本轮 `cmd /c build.bat platformprobe` 已通过，iOS 因当前 Windows 主机限制输出 SKIP，Emscripten 已探测到本机 emcc 5.0.6，wasm32/wasm64 probes 均能到达 LuaJIT target selection，但因本树仍缺 wasm/wasm64 target/VM 后端而输出 SKIP，不能产出 Emscripten artifact。`cmd /c build.bat platformandroid` 先前已通过 Android ARM64 Lua 5.4 compat 静态 artifact 构建和 AArch64 检查，但当前 Windows 主机无在线 adb 设备，因此设备 smoke 仍需在有设备/模拟器时补最新运行验证。iOS ARM64 已有 macOS/Xcode 构建入口和静态库 artifact 架构检查，但当前 Windows 环境无法实际验证该分支，也还缺 iOS device/app smoke harness。
   - 需要补测试/脚本：继续在 macOS/Xcode 主机实际跑通 iOS ARM64 artifact 构建并补 device/app smoke；继续设计 Emscripten 的 interpreter/wasm 可行路径；Android 继续补设备/模拟器 smoke；每个目标至少验证编译完成、`LUAJIT_ENABLE_LUA54COMPAT` 可打开、目标可运行时执行 smoke，不可直接运行时产出可检查 artifact。
   - 实现重点：Emscripten 通常不能使用传统本机 JIT，需要明确解释器/wasm 可行路径；Android/iOS 需要分别确认 JIT 权限、mcode 分配和平台 ABI。
 
@@ -719,6 +719,7 @@
 - `.\src\luajit.exe test\lua54_jit_regress.lua`、`.\src\luajit.exe test\lua54_perf.lua jit_on` 和 `.\src\luajit.exe test\lua54_perf.lua jit_off` 已通过，覆盖本轮 `debug.upvalueid()` / `debug.upvaluejoin()` direct `pcall` 缺参检查顺序的 JIT on/off 回归和固定 `jit.opt` perf profile。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat smoke54` 已通过，覆盖本轮新增 base/coroutine/os/package/string/utf8 官方对照边界、官方 Lua 5.4.8 可执行矩阵、Lua 5.4 compat smoke、standalone 回归，以及 VM 后端静态/DynASM 门禁。
 - `.\src\luajit.exe test\lua54_jit_regress.lua`、`.\src\luajit.exe test\lua54_perf.lua jit_on`、`.\src\luajit.exe test\lua54_perf.lua jit_off` 和 `cmd /c build.bat smoke54` 已通过，覆盖本轮新增 base/coroutine/os/package/string/utf8 官方对照边界的 JIT on/off 热路径、`stdlib_edge_helpers` 三档固定 `jit.opt` profile、官方 Lua 5.4.8 可执行矩阵、Lua 5.4 compat smoke、standalone 回归以及 VM 后端静态/DynASM 门禁。
+- `cmd /c build.bat platformprobe` 和 `cmd /c build.bat platformpc` 已通过；probe 当前确认 iOS 在 Windows 主机上 SKIP、Emscripten emcc 5.0.6 可用但 wasm32/wasm64 probes 因 LuaJIT 缺 wasm/wasm64 target/VM 后端 SKIP，platformpc 覆盖 PC x64 default 与 Lua 5.4 compat 双构建、AMD64 PE header 检查和 `test/smoke.lua` default/lua54compat smoke。
 
 ## 已确认不列入当前 TODO 的已实现项
 
