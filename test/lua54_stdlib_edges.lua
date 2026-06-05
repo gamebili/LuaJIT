@@ -258,6 +258,8 @@ local cases = {
   { "table.sort.badcomp", "return table.sort({}, true)", ok = {} },
   { "table.sort.badcomp2", "return table.sort({2,1}, true)", err = "bad argument #2 to 'sort' (function expected, got boolean)" },
   { "table.unpack.noarg", "return table.unpack()", err = "attempt to get length of a nil value" },
+  { "table.unpack.stridx", "return table.unpack({1,2,3}, '2', '3')", ok = { "number:2", "number:3" } },
+  { "table.unpack.fracidx", "return table.unpack({1,2,3}, 1.2, 3)", err = "bad argument #2 to 'unpack' (number has no integer representation)" },
   { "table.unpack.emptyrange", "return table.unpack({}, 2, 1)", ok = {} },
 
   { "utf8.char.noarg", "return utf8.char()", ok = { "string:" } },
