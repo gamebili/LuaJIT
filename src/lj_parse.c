@@ -1734,10 +1734,16 @@ static int bcemit_lua54_is_helper_name(GCstr *field)
       (field->len == 6 && memcmp(strdata(field), "unpack", 6) == 0))
     return 1;
   /* File methods reached from an arbitrary file handle need the source
-  ** callsite to distinguish colon calls from explicit-self field/alias calls
-  ** when reporting later arguments such as seek offset and setvbuf size.
+  ** callsite to report dot-called missing self by public method name and to
+  ** distinguish colon calls from explicit-self field/alias calls when
+  ** reporting later arguments such as seek offset and setvbuf size.
   */
-  if ((field->len == 4 && memcmp(strdata(field), "seek", 4) == 0) ||
+  if ((field->len == 4 && memcmp(strdata(field), "read", 4) == 0) ||
+      (field->len == 4 && memcmp(strdata(field), "seek", 4) == 0) ||
+      (field->len == 5 && memcmp(strdata(field), "close", 5) == 0) ||
+      (field->len == 5 && memcmp(strdata(field), "flush", 5) == 0) ||
+      (field->len == 5 && memcmp(strdata(field), "lines", 5) == 0) ||
+      (field->len == 5 && memcmp(strdata(field), "write", 5) == 0) ||
       (field->len == 7 && memcmp(strdata(field), "setvbuf", 7) == 0))
     return 1;
   /* Keep covered math fast functions in return position as ordinary calls for
