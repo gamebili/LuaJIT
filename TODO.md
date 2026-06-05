@@ -721,6 +721,7 @@
 - `.\src\luajit.exe test\lua54_jit_regress.lua`、`.\src\luajit.exe test\lua54_perf.lua jit_on`、`.\src\luajit.exe test\lua54_perf.lua jit_off` 和 `cmd /c build.bat smoke54` 已通过，覆盖本轮新增 base/coroutine/os/package/string/utf8 官方对照边界的 JIT on/off 热路径、`stdlib_edge_helpers` 三档固定 `jit.opt` profile、官方 Lua 5.4.8 可执行矩阵、Lua 5.4 compat smoke、standalone 回归以及 VM 后端静态/DynASM 门禁。
 - `cmd /c build.bat platformprobe` 和 `cmd /c build.bat platformpc` 已通过；probe 当前确认 iOS 在 Windows 主机上 SKIP、Emscripten emcc 5.0.6 可用但 wasm32/wasm64 probes 因 LuaJIT 缺 wasm/wasm64 target/VM 后端 SKIP，platformpc 覆盖 PC x64 default 与 Lua 5.4 compat 双构建、AMD64 PE header 检查和 `test/smoke.lua` default/lua54compat smoke。
 - `cmd /c build.bat platformandroid` 已通过，覆盖 Android ARM64 Lua 5.4 compat 静态 artifact 构建、AArch64 后端汇编和 NDK `H:\p4\gl_home_u4\pristine\android-ndk-r25b` 路径探测；adb 可在本机 Android SDK 路径找到，但当前无在线设备，因此 Android device smoke 输出 SKIP。
+- `cmd /c build.bat test` 已通过，覆盖默认构建 smoke/C API/C++ `lua.hpp` gate、Lua 5.4 compat smoke/C API/C++ `lua.hpp` gate、x64 非 GC64 Lua 5.4 JIT smoke、官方 Lua 5.4.8 可执行矩阵、VM 后端静态/DynASM 门禁，以及 Lua 5.4 perf/memory smoke；本轮新增 `stdlib_edge_helpers` 也进入三档固定 `jit.opt` profile 和 JIT off 全量测试。
 
 ## 已确认不列入当前 TODO 的已实现项
 
