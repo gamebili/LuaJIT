@@ -582,6 +582,130 @@ local function stdlib_edge_helpers(n)
        err_offset:find("number expected, got boolean", 1, true) then
       sum = sum + 1
     end
+
+    local ok_xpcall_handler, err_xpcall_handler = pcall(function()
+      return xpcall(function() end, true)
+    end)
+    if not ok_xpcall_handler and
+       err_xpcall_handler:find("bad argument #2 to 'xpcall'", 1, true) and
+       err_xpcall_handler:find("function expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_pcall_noncall, err_pcall_noncall = pcall(1)
+    if not ok_pcall_noncall and
+       err_pcall_noncall:find("attempt to call a number value", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_close_bad, err_close_bad = pcall(function()
+      return coroutine.close(true)
+    end)
+    if not ok_close_bad and
+       err_close_bad:find("bad argument #1 to 'close'", 1, true) and
+       err_close_bad:find("thread expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+
+    local running_co, running_main = coroutine.running(true)
+    if type(running_co) == "thread" and running_main == true then
+      sum = sum + 1
+    end
+
+    if math.abs(math.log(8, nil) - math.log(8)) < 1e-12 then
+      sum = sum + 1
+    end
+    if math.abs(math.log(8, "2") - 3) < 1e-12 then sum = sum + 1 end
+
+    local ok_sqrt_noarg, err_sqrt_noarg = pcall(function()
+      return math.sqrt()
+    end)
+    if not ok_sqrt_noarg and
+       err_sqrt_noarg:find("bad argument #1 to 'sqrt'", 1, true) and
+       err_sqrt_noarg:find("number expected, got no value", 1, true) then
+      sum = sum + 1
+    end
+    if math.sqrt("4") == 2 then sum = sum + 1 end
+
+    local ok_modf_noarg, err_modf_noarg = pcall(function()
+      return math.modf()
+    end)
+    if not ok_modf_noarg and
+       err_modf_noarg:find("bad argument #1 to 'modf'", 1, true) and
+       err_modf_noarg:find("number expected, got no value", 1, true) then
+      sum = sum + 1
+    end
+    local modf_int, modf_frac = math.modf("4.5")
+    if modf_int == 4 and modf_frac == 0.5 then sum = sum + 1 end
+
+    if os.execute() == true then sum = sum + 1 end
+
+    local ok_remove_bad, err_remove_bad = pcall(function()
+      return os.remove(true)
+    end)
+    if not ok_remove_bad and
+       err_remove_bad:find("bad argument #1 to 'remove'", 1, true) and
+       err_remove_bad:find("string expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+
+    local found_nilsep, err_nilsep = package.searchpath("a.b", "?.lua",
+							nil, "/")
+    if found_nilsep == nil and
+       err_nilsep:find("no file 'a/b.lua'", 1, true) then
+      sum = sum + 1
+    end
+
+    local byte_empty_n = result_count(string.byte(""))
+    if byte_empty_n == 0 then sum = sum + 1 end
+    local byte_range_n = result_count(string.byte("abc", 3, 2))
+    if byte_range_n == 0 then sum = sum + 1 end
+    if string.char() == "" then sum = sum + 1 end
+
+    local ok_find_frac, err_find_frac = pcall(function()
+      return string.find("abc", "a", 1.2, true)
+    end)
+    if not ok_find_frac and
+       err_find_frac:find("bad argument #3 to 'find'", 1, true) and
+       err_find_frac:find("integer representation", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_match_frac, err_match_frac = pcall(function()
+      return string.match("abc", "a", 1.2)
+    end)
+    if not ok_match_frac and
+       err_match_frac:find("bad argument #3 to 'match'", 1, true) and
+       err_match_frac:find("integer representation", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_gmatch_bool, err_gmatch_bool = pcall(function()
+      return string.gmatch("abc", ".", true)
+    end)
+    if not ok_gmatch_bool and
+       err_gmatch_bool:find("bad argument #3 to 'gmatch'", 1, true) and
+       err_gmatch_bool:find("number expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+
+    local unpack_value, unpack_pos = string.unpack("b", "abc", -0)
+    if unpack_value == 97 and unpack_pos == 2 then sum = sum + 1 end
+
+    local unpack_empty_n = result_count(table.unpack({}, 2, 1))
+    if unpack_empty_n == 0 then sum = sum + 1 end
+
+    local ok_sort_bad, err_sort_bad = pcall(function()
+      return table.sort({ 2, 1 }, true)
+    end)
+    if not ok_sort_bad and
+       err_sort_bad:find("bad argument #2 to 'sort'", 1, true) and
+       err_sort_bad:find("function expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+
+    if utf8.len("abc", 3, 2) == 0 then sum = sum + 1 end
+    if utf8.offset("abc", -1) == 3 then sum = sum + 1 end
   end
   return sum
 end
@@ -1860,7 +1984,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_stdlib_edge = timeit(mode_name..":stdlib_edge_helpers",
 				  stdlib_edge_helpers, iter_n)
-  assert(r_stdlib_edge == iter_n * 19)
+  assert(r_stdlib_edge == iter_n * 43)
 
   local _, r_protected = timeit(mode_name..":protected_call_helpers",
 				protected_call_helpers, iter_n)

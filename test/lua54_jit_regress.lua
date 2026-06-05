@@ -2727,15 +2727,38 @@ do
     assert(n == 240)
   end, "Lua 5.4 package.searchpath string coercion")
 
+  local function result_count(...)
+    return select("#", ...), ...
+  end
+
   assert_records_trace(function()
     local n = 0
     for _ = 1, 80 do
+      local ok_xpcall_handler, err_xpcall_handler = pcall(function()
+	return xpcall(function() end, true)
+      end)
+      local ok_pcall_noncall, err_pcall_noncall = pcall(1)
       local ok_create, err_create = pcall(function()
 	return coroutine.create()
       end)
+      local ok_close_bad, err_close_bad = pcall(function()
+	return coroutine.close(true)
+      end)
+      local running_co, running_main = coroutine.running(true)
       local ok_resume, err_resume = pcall(function()
 	return coroutine.resume(true)
       end)
+      local log_nil = math.log(8, nil)
+      local log_strbase = math.log(8, "2")
+      local ok_sqrt_noarg, err_sqrt_noarg = pcall(function()
+	return math.sqrt()
+      end)
+      local sqrt_string = math.sqrt("4")
+      local ok_modf_noarg, err_modf_noarg = pcall(function()
+	return math.modf()
+      end)
+      local modf_int, modf_frac = math.modf("4.5")
+      local execute_noarg = os.execute()
       local ok_getenv_noarg, err_getenv_noarg = pcall(function()
 	return os.getenv()
       end)
@@ -2744,6 +2767,9 @@ do
       end)
       local ok_rename, err_rename = pcall(function()
 	return os.rename("x", true)
+      end)
+      local ok_remove_bad, err_remove_bad = pcall(function()
+	return os.remove(true)
       end)
       local ok_setlocale1, err_setlocale1 = pcall(function()
 	return os.setlocale(true)
@@ -2754,23 +2780,75 @@ do
       local ok_searchrep, err_searchrep = pcall(function()
 	return package.searchpath("a", "?.lua", ".", true)
       end)
+      local found_nilsep, err_nilsep = package.searchpath("a.b", "?.lua",
+							  nil, "/")
       local ok_byte, err_byte = pcall(function()
 	return string.byte("x", 1, true)
       end)
+      local byte_empty_n = result_count(string.byte(""))
+      local byte_range_n = result_count(string.byte("abc", 3, 2))
+      local char_empty = string.char()
       local first, last = string.find("a", "a", 1, {})
+      local ok_find_frac, err_find_frac = pcall(function()
+	return string.find("abc", "a", 1.2, true)
+      end)
+      local ok_match_frac, err_match_frac = pcall(function()
+	return string.match("abc", "a", 1.2)
+      end)
+      local ok_gmatch_bool, err_gmatch_bool = pcall(function()
+	return string.gmatch("abc", ".", true)
+      end)
+      local unpack_value, unpack_pos = string.unpack("b", "abc", -0)
+      local unpack_empty_n = result_count(table.unpack({}, 2, 1))
+      local ok_sort_bad, err_sort_bad = pcall(function()
+	return table.sort({ 2, 1 }, true)
+      end)
       local ok_offset, err_offset = pcall(function()
 	return utf8.offset("a", true)
       end)
+      local utf8_len_empty = utf8.len("abc", 3, 2)
+      local utf8_offset_neg = utf8.offset("abc", -1)
+      if not ok_xpcall_handler and
+	 err_xpcall_handler:find("bad argument #2 to 'xpcall'", 1, true) and
+	 err_xpcall_handler:find("function expected, got boolean",
+				 1, true) then
+	n = n + 1
+      end
+      if not ok_pcall_noncall and
+	 err_pcall_noncall:find("attempt to call a number value", 1, true) then
+	n = n + 1
+      end
       if not ok_create and
 	 err_create:find("bad argument #1 to 'create'", 1, true) and
 	 err_create:find("function expected, got no value", 1, true) then
 	n = n + 1
       end
+      if not ok_close_bad and
+	 err_close_bad:find("bad argument #1 to 'close'", 1, true) and
+	 err_close_bad:find("thread expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if type(running_co) == "thread" and running_main == true then n = n + 1 end
       if not ok_resume and
 	 err_resume:find("bad argument #1 to 'resume'", 1, true) and
 	 err_resume:find("thread expected, got boolean", 1, true) then
 	n = n + 1
       end
+      if math.abs(log_nil - math.log(8)) < 1e-12 then n = n + 1 end
+      if math.abs(log_strbase - 3) < 1e-12 then n = n + 1 end
+      if not ok_sqrt_noarg and
+	 err_sqrt_noarg:find("bad argument #1 to 'sqrt'", 1, true) and
+	 err_sqrt_noarg:find("number expected, got no value", 1, true) then
+	n = n + 1
+      end
+      if sqrt_string == 2 then n = n + 1 end
+      if not ok_modf_noarg and
+	 err_modf_noarg:find("bad argument #1 to 'modf'", 1, true) and
+	 err_modf_noarg:find("number expected, got no value", 1, true) then
+	n = n + 1
+      end
+      if modf_int == 4 and modf_frac == 0.5 then n = n + 1 end
+      if execute_noarg == true then n = n + 1 end
       if not ok_getenv_noarg and
 	 err_getenv_noarg:find("bad argument #1 to 'getenv'", 1, true) and
 	 err_getenv_noarg:find("string expected, got no value", 1, true) then
@@ -2784,6 +2862,11 @@ do
       if not ok_rename and
 	 err_rename:find("bad argument #2 to 'rename'", 1, true) and
 	 err_rename:find("string expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if not ok_remove_bad and
+	 err_remove_bad:find("bad argument #1 to 'remove'", 1, true) and
+	 err_remove_bad:find("string expected, got boolean", 1, true) then
 	n = n + 1
       end
       if not ok_setlocale1 and
@@ -2801,19 +2884,50 @@ do
 	 err_searchrep:find("string expected, got boolean", 1, true) then
 	n = n + 1
       end
+      if found_nilsep == nil and
+	 err_nilsep:find("no file 'a/b.lua'", 1, true) then
+	n = n + 1
+      end
       if not ok_byte and
 	 err_byte:find("bad argument #3 to 'byte'", 1, true) and
 	 err_byte:find("number expected, got boolean", 1, true) then
 	n = n + 1
       end
+      if byte_empty_n == 0 then n = n + 1 end
+      if byte_range_n == 0 then n = n + 1 end
+      if char_empty == "" then n = n + 1 end
       if first == 1 and last == 1 then n = n + 1 end
+      if not ok_find_frac and
+	 err_find_frac:find("bad argument #3 to 'find'", 1, true) and
+	 err_find_frac:find("integer representation", 1, true) then
+	n = n + 1
+      end
+      if not ok_match_frac and
+	 err_match_frac:find("bad argument #3 to 'match'", 1, true) and
+	 err_match_frac:find("integer representation", 1, true) then
+	n = n + 1
+      end
+      if not ok_gmatch_bool and
+	 err_gmatch_bool:find("bad argument #3 to 'gmatch'", 1, true) and
+	 err_gmatch_bool:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if unpack_value == 97 and unpack_pos == 2 then n = n + 1 end
+      if unpack_empty_n == 0 then n = n + 1 end
+      if not ok_sort_bad and
+	 err_sort_bad:find("bad argument #2 to 'sort'", 1, true) and
+	 err_sort_bad:find("function expected, got boolean", 1, true) then
+	n = n + 1
+      end
       if not ok_offset and
 	 err_offset:find("bad argument #2 to 'offset'", 1, true) and
 	 err_offset:find("number expected, got boolean", 1, true) then
 	n = n + 1
       end
+      if utf8_len_empty == 0 then n = n + 1 end
+      if utf8_offset_neg == 3 then n = n + 1 end
     end
-    assert(n == 880)
+    assert(n == 2800)
   end, "Lua 5.4 mixed stdlib edge errors")
 end
 
