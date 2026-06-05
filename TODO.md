@@ -449,7 +449,7 @@
 - 当前进展：C API smoke 已固定 `luaL_getsubtable()` 的目标索引 release 边界；无效 table index 会稳定报 `invalid value`，不再只依赖内部 `lua_getfield()` / `lua_setfield()` 路径间接覆盖。
 - 当前进展：`luaL_checkversion_()` 的 version mismatch 错误已按 Lua 5.4 把版本号格式化为 Lua number 文本，例如 `503.0` / `504.0`，不再用旧整数 `%d` 文本。
 - 当前进展：`luaL_typeerror()` 已按 Lua 5.4 在没有字符串 `__name` 覆盖时把 light userdata 报为 `light userdata`；C API smoke 同时覆盖直接 `luaL_checktype()` 路径和 `luaL_argexpected()` 宏路径。
-- 当前进展：`luaL_fileresult()` 已按 Lua 5.4 在失败且 `errno == 0` 时返回 `"(no extra info)"`；`luaL_execresult(nonzero)` 在 `errno` 有值时会优先返回 system-error tuple，而不是普通 `"exit"` tuple。
+- 当前进展：`luaL_fileresult()` 已按 Lua 5.4 在失败且 `errno == 0` 时返回 `"(no extra info)"`；`luaL_execresult(nonzero)` 在 `errno` 有值时会优先返回 system-error tuple，而 `errno == 0` 时保留普通 `"exit"` tuple。
 - 当前进展：`luaL_checkstack()` 已按 Lua 5.4 收紧 NULL auxiliary message 边界，栈溢出错误只报告 `stack overflow`，不再把旧格式化路径的 `(null)` 拼进错误文本；负 size 会在 lauxlib 层稳定报 `invalid value`，不再被当成普通 stack overflow。
 - 当前进展：`luaL_checkoption()` 已按 Lua 5.4 收紧默认参数语义，只有缺参/`nil` 会使用 `def`；显式 table/boolean 等不可转字符串参数不再被默认值吞掉，而会按 `luaL_checkstring` 路径报类型错误，数字参数仍可转成字符串后匹配 option。
 - 当前进展：Lua 5.4 `luaL_Buffer` 大缓冲现在通过 to-be-closed userdata box 绑定到栈，避免 C API 使用者在 `luaL_pushresult()` 前抛错时泄漏侧缓冲；新增 C API smoke 用 allocator live-bytes 断言该错误展开路径会清理到零。
@@ -737,6 +737,7 @@
 - `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `luaL_checkudata()` 对 full userdata metatable mismatch 使用实际 `__name` 报错的 C API 边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `luaL_getsubtable()` 遇到已有非 table 字段时替换为新 table 并回写目标字段的 C API 边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `luaL_requiref()` 遇到 `_LOADED[modname]` 为 truthy 非 table 值时不重开 opener、直接返回并在 `glb=true` 下重新发布全局的 C API 边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
+- `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `luaL_execresult(nonzero)` 在 `errno == 0` 时保留普通 `"exit"` tuple 的 C API 边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 
 ## 已确认不列入当前 TODO 的已实现项
 

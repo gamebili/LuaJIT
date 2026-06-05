@@ -8141,6 +8141,14 @@ static void test_lauxlib_api(lua_State *L)
   check_integer(L, -1, 0, "luaL_execresult success code");
   lua_pop(L, 3);
 
+  errno = 0;
+  check(L, luaL_execresult(L, 7) == 3,
+	"luaL_execresult errno-zero failure arity");
+  check(L, lua_isnil(L, -3), "luaL_execresult errno-zero failure nil");
+  check_string(L, -2, "exit", "luaL_execresult errno-zero failure kind");
+  check_integer(L, -1, 7, "luaL_execresult errno-zero failure code");
+  lua_pop(L, 3);
+
   errno = EACCES;
   check(L, luaL_execresult(L, 1) == 3,
 	"luaL_execresult errno failure arity");
