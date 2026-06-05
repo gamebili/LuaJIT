@@ -7317,6 +7317,7 @@ static void test_lauxlib_api(lua_State *L)
   void *ud;
   FILE *tmpf;
   const char *tmpname = "test/lua54_capi_dofile.tmp.lua";
+  const char *missing_tmpname = "test/lua54_capi_missing_dofile.tmp.lua";
   const char *binname = "test/lua54_capi_hash_binary.tmp";
   CApiReaderCtx reader;
   DumpBuffer dump;
@@ -8452,6 +8453,15 @@ static void test_lauxlib_api(lua_State *L)
   check(L, status == LUA_OK, "luaL_dostring status");
   check_integer(L, -1, 12, "luaL_dostring result");
   lua_pop(L, 1);
+  status = luaL_dostring(L, "error('dostring boom', 0)");
+  check(L, status != LUA_OK, "luaL_dostring runtime error status");
+  check(L, strstr(lua_tostring(L, -1), "dostring boom") != NULL,
+	"luaL_dostring runtime error message");
+  lua_pop(L, 1);
+  status = luaL_dostring(L, "return )");
+  check(L, status != LUA_OK, "luaL_dostring syntax error status");
+  check(L, lua_isstring(L, -1), "luaL_dostring syntax error message");
+  lua_pop(L, 1);
 
   tmpf = fopen(tmpname, "wb");
   check(L, tmpf != NULL, "luaL_dofile temp open");
@@ -8461,6 +8471,12 @@ static void test_lauxlib_api(lua_State *L)
   remove(tmpname);
   check(L, status == LUA_OK, "luaL_dofile status");
   check_integer(L, -1, 13, "luaL_dofile result");
+  lua_pop(L, 1);
+  remove(missing_tmpname);
+  status = luaL_dofile(L, missing_tmpname);
+  check(L, status != LUA_OK, "luaL_dofile missing file status");
+  check(L, strstr(lua_tostring(L, -1), missing_tmpname) != NULL,
+	"luaL_dofile missing file message");
   lua_pop(L, 1);
 
   lua_pushboolean(L, 1);
