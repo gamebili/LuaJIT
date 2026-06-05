@@ -2536,6 +2536,44 @@ do
   end, "Lua 5.4 debug.upvaluejoin C function index errors")
 
   assert_records_trace(function()
+    local up
+    local fn = function() return up end
+    local n = 0
+    for _ = 1, 80 do
+      local ok_id_noarg, err_id_noarg = pcall(debug.upvalueid)
+      local ok_id_badfunc, err_id_badfunc = pcall(debug.upvalueid, true)
+      local ok_join_noarg, err_join_noarg = pcall(debug.upvaluejoin)
+      local ok_join_second, err_join_second = pcall(debug.upvaluejoin,
+						    fn, 1)
+      local ok_join_badf2_noidx, err_join_badf2_noidx =
+	pcall(debug.upvaluejoin, fn, 1, true)
+      local ok_join_badf2, err_join_badf2 =
+	pcall(debug.upvaluejoin, fn, 1, true, 1)
+      if not ok_id_noarg and
+	 err_id_noarg:find("bad argument #2 to 'debug.upvalueid'",
+			   1, true) and
+	 not ok_id_badfunc and
+	 err_id_badfunc:find("bad argument #2 to 'debug.upvalueid'",
+			     1, true) and
+	 not ok_join_noarg and
+	 err_join_noarg:find("bad argument #2 to 'debug.upvaluejoin'",
+			     1, true) and
+	 not ok_join_second and
+	 err_join_second:find("bad argument #4 to 'debug.upvaluejoin'",
+			      1, true) and
+	 not ok_join_badf2_noidx and
+	 err_join_badf2_noidx:find("bad argument #4 to 'debug.upvaluejoin'",
+				   1, true) and
+	 not ok_join_badf2 and
+	 err_join_badf2:find("bad argument #3 to 'debug.upvaluejoin'",
+			     1, true) then
+	n = n + 1
+      end
+    end
+    assert(n == 80)
+  end, "Lua 5.4 debug upvalue argument order errors")
+
+  assert_records_trace(function()
     local co = coroutine.create(function()
       local x = 1
       coroutine.yield()
