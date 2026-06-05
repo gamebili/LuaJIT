@@ -8144,6 +8144,13 @@ static void test_lauxlib_api(lua_State *L)
   }
   {
     int top = lua_gettop(L);
+    check(L, luaL_getmetafield(L, top + 1, "__missing") == LUA_TNIL,
+	  "luaL_getmetafield invalid index");
+    check(L, lua_gettop(L) == top,
+	  "luaL_getmetafield invalid index stack");
+  }
+  {
+    int top = lua_gettop(L);
     lua_newtable(L);
     lua_newtable(L);
     lua_newtable(L);
