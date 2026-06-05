@@ -3316,6 +3316,13 @@ static int capi_tostring_number_meta(lua_State *L)
   return 1;
 }
 
+static int capi_tostring_binary_meta(lua_State *L)
+{
+  (void)L;
+  lua_pushlstring(L, "a\0b", 3);
+  return 1;
+}
+
 static int capi_tostring_bool_meta(lua_State *L)
 {
   (void)L;
@@ -8510,6 +8517,22 @@ static void test_lauxlib_api(lua_State *L)
     check(L, len == 3, "luaL_tolstring numeric __tostring length");
     check(L, strcmp(s, "123") == 0, "luaL_tolstring numeric __tostring");
     check_string(L, -1, "123", "luaL_tolstring numeric __tostring stack");
+    lua_pop(L, 2);
+  }
+
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushcfunction(L, capi_tostring_binary_meta);
+  lua_setfield(L, -2, "__tostring");
+  lua_setmetatable(L, -2);
+  {
+    size_t len = 0;
+    const char *s = luaL_tolstring(L, -1, &len);
+    check(L, len == 3, "luaL_tolstring binary __tostring length");
+    check(L, memcmp(s, "a\0b", 3) == 0,
+	  "luaL_tolstring binary __tostring");
+    check(L, lua_rawlen(L, -1) == 3,
+	  "luaL_tolstring binary __tostring stack length");
     lua_pop(L, 2);
   }
 
