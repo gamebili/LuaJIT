@@ -434,6 +434,158 @@ local function base_value_helpers(n)
   return sum
 end
 
+local function stdlib_edge_helpers(n)
+  local function result_count(...)
+    return select("#", ...), ...
+  end
+  local sum = 0
+  for _ = 1, n do
+    local ok_step, err_step = pcall(collectgarbage, "step", true)
+    if not ok_step and
+       err_step:find("bad argument #2 to 'collectgarbage'", 1, true) and
+       err_step:find("number expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+
+    local error_n, ok_error, err_error = result_count(pcall(error))
+    if error_n == 2 and not ok_error and err_error == nil then
+      sum = sum + 1
+    end
+
+    local ok_level, err_level = pcall(error, "x", true)
+    if not ok_level and
+       err_level:find("bad argument #2 to 'error'", 1, true) and
+       err_level:find("number expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_rawlen, err_rawlen = pcall(rawlen, true)
+    if not ok_rawlen and
+       err_rawlen:find("bad argument #1 to 'rawlen'", 1, true) and
+       err_rawlen:find("table or string expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_select, err_select = pcall(select)
+    if not ok_select and
+       err_select:find("bad argument #1 to 'select'", 1, true) and
+       err_select:find("number expected, got no value", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_tonumber, err_tonumber = pcall(function()
+      return tonumber()
+    end)
+    if not ok_tonumber and
+       err_tonumber:find("bad argument #1 to 'tonumber'", 1, true) and
+       err_tonumber:find("value expected", 1, true) then
+      sum = sum + 1
+    end
+    if tonumber({}) == nil then sum = sum + 1 end
+
+    local ok_warn, err_warn = pcall(warn, {})
+    if not ok_warn and
+       err_warn:find("bad argument #1 to 'warn'", 1, true) and
+       err_warn:find("string expected, got table", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_create, err_create = pcall(function()
+      return coroutine.create()
+    end)
+    if not ok_create and
+       err_create:find("bad argument #1 to 'create'", 1, true) and
+       err_create:find("function expected, got no value", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_resume, err_resume = pcall(function()
+      return coroutine.resume(true)
+    end)
+    if not ok_resume and
+       err_resume:find("bad argument #1 to 'resume'", 1, true) and
+       err_resume:find("thread expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_getenv_noarg, err_getenv_noarg = pcall(function()
+      return os.getenv()
+    end)
+    if not ok_getenv_noarg and
+       err_getenv_noarg:find("bad argument #1 to 'getenv'", 1, true) and
+       err_getenv_noarg:find("string expected, got no value", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_getenv_bad, err_getenv_bad = pcall(function()
+      return os.getenv(true)
+    end)
+    if not ok_getenv_bad and
+       err_getenv_bad:find("bad argument #1 to 'getenv'", 1, true) and
+       err_getenv_bad:find("string expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_rename, err_rename = pcall(function()
+      return os.rename("x", true)
+    end)
+    if not ok_rename and
+       err_rename:find("bad argument #2 to 'rename'", 1, true) and
+       err_rename:find("string expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_setlocale1, err_setlocale1 = pcall(function()
+      return os.setlocale(true)
+    end)
+    if not ok_setlocale1 and
+       err_setlocale1:find("bad argument #1 to 'setlocale'", 1, true) and
+       err_setlocale1:find("string expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_setlocale2, err_setlocale2 = pcall(function()
+      return os.setlocale("", true)
+    end)
+    if not ok_setlocale2 and
+       err_setlocale2:find("bad argument #2 to 'setlocale'", 1, true) and
+       err_setlocale2:find("string expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_searchrep, err_searchrep = pcall(function()
+      return package.searchpath("a", "?.lua", ".", true)
+    end)
+    if not ok_searchrep and
+       err_searchrep:find("bad argument #4 to 'searchpath'", 1, true) and
+       err_searchrep:find("string expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_byte, err_byte = pcall(function()
+      return string.byte("x", 1, true)
+    end)
+    if not ok_byte and
+       err_byte:find("bad argument #3 to 'byte'", 1, true) and
+       err_byte:find("number expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+
+    local first, last = string.find("a", "a", 1, {})
+    if first == 1 and last == 1 then sum = sum + 1 end
+
+    local ok_offset, err_offset = pcall(function()
+      return utf8.offset("a", true)
+    end)
+    if not ok_offset and
+       err_offset:find("bad argument #2 to 'offset'", 1, true) and
+       err_offset:find("number expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+  end
+  return sum
+end
+
 local function protected_call_helpers(n)
   local sum = 0
   for _ = 1, n do
@@ -1705,6 +1857,10 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   local _, r_value = timeit(mode_name..":base_value_helpers",
 			    base_value_helpers, iter_n)
   assert(r_value == iter_n * 30)
+
+  local _, r_stdlib_edge = timeit(mode_name..":stdlib_edge_helpers",
+				  stdlib_edge_helpers, iter_n)
+  assert(r_stdlib_edge == iter_n * 19)
 
   local _, r_protected = timeit(mode_name..":protected_call_helpers",
 				protected_call_helpers, iter_n)
