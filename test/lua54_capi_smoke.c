@@ -8168,12 +8168,18 @@ static void test_lauxlib_api(lua_State *L)
   lua_newtable(L);
   lua_pushliteral(L, "CapiMeta");
   lua_setfield(L, -2, "__name");
+  lua_pushinteger(L, 77);
+  lua_setfield(L, -2, "__rank");
   lua_pushcfunction(L, capi_tostring_meta);
   lua_setfield(L, -2, "__tostring");
   lua_setmetatable(L, -2);
   check(L, luaL_getmetafield(L, -1, "__name") == LUA_TSTRING,
 	"luaL_getmetafield returns field type");
   check_string(L, -1, "CapiMeta", "luaL_getmetafield value");
+  lua_pop(L, 1);
+  check(L, luaL_getmetafield(L, -1, "__rank") == LUA_TNUMBER,
+	"luaL_getmetafield returns numeric field type");
+  check_integer(L, -1, 77, "luaL_getmetafield numeric value");
   lua_pop(L, 1);
   {
     int top = lua_gettop(L);
@@ -8213,6 +8219,17 @@ static void test_lauxlib_api(lua_State *L)
     check(L, lua_gettop(L) == top, "luaL_callmeta missing stack");
   }
   lua_pop(L, 1);
+  {
+    lua_newtable(L);
+    lua_newtable(L);
+    lua_pushcfunction(L, capi_tostring_number_meta);
+    lua_setfield(L, -2, "__tostring");
+    lua_setmetatable(L, -2);
+    check(L, luaL_callmeta(L, -1, "__tostring") == 1,
+	  "luaL_callmeta calls numeric metamethod");
+    check_integer(L, -1, 123, "luaL_callmeta numeric result");
+    lua_pop(L, 2);
+  }
 
   luaL_where(L, 0);
   check(L, lua_isstring(L, -1), "luaL_where pushes string");
