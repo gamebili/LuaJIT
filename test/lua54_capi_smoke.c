@@ -8174,12 +8174,24 @@ static void test_lauxlib_api(lua_State *L)
   check(L, luaL_getmetatable(L, "capi.ud") == LUA_TTABLE,
 	"luaL_getmetatable type");
   lua_pop(L, 1);
+  check(L, luaL_getmetatable(L, "capi.missing") == LUA_TNIL,
+	"luaL_getmetatable missing type");
+  check(L, lua_isnil(L, -1), "luaL_getmetatable missing value");
+  lua_pop(L, 1);
   ud = lua_newuserdatauv(L, 1, 0);
   luaL_setmetatable(L, "capi.ud");
   check(L, luaL_testudata(L, -1, "capi.ud") == ud, "luaL_testudata match");
   check(L, luaL_testudata(L, -1, "capi.other") == NULL,
 	"luaL_testudata mismatch");
   check(L, luaL_checkudata(L, -1, "capi.ud") == ud, "luaL_checkudata match");
+  lua_pop(L, 1);
+  lua_newuserdatauv(L, 1, 0);
+  luaL_setmetatable(L, "capi.ud");
+  luaL_setmetatable(L, "capi.missing");
+  check(L, lua_getmetatable(L, -1) == 0,
+	"luaL_setmetatable missing clears metatable");
+  check(L, luaL_testudata(L, -1, "capi.ud") == NULL,
+	"luaL_setmetatable missing clears udata match");
   lua_pop(L, 1);
   {
     int top;
