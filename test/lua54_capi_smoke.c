@@ -7799,6 +7799,19 @@ static void test_lauxlib_api(lua_State *L)
 	"luaL_checkudata __name typeerror");
   lua_pop(L, 1);
 
+  check(L, luaL_newmetatable(L, "capi.other") == 1,
+	"luaL_checkudata other metatable creates");
+  lua_pop(L, 1);
+  lua_pushcfunction(L, checkudata_arg);
+  lua_newuserdatauv(L, 1, 0);
+  luaL_setmetatable(L, "capi.other");
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_checkudata rejects other userdata");
+  check(L, strstr(lua_tostring(L, -1),
+		  "capi.ud expected, got capi.other") != NULL,
+	"luaL_checkudata other userdata typeerror");
+  lua_pop(L, 1);
+
   lua_pushcfunction(L, checkudata_arg);
   lua_setglobal(L, "capi_checkudata_arg");
   status = luaL_loadstring(L, "capi_checkudata_arg(54)");

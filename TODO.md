@@ -454,7 +454,7 @@
 - 当前进展：`luaL_checkoption()` 已按 Lua 5.4 收紧默认参数语义，只有缺参/`nil` 会使用 `def`；显式 table/boolean 等不可转字符串参数不再被默认值吞掉，而会按 `luaL_checkstring` 路径报类型错误，数字参数仍可转成字符串后匹配 option。
 - 当前进展：Lua 5.4 `luaL_Buffer` 大缓冲现在通过 to-be-closed userdata box 绑定到栈，避免 C API 使用者在 `luaL_pushresult()` 前抛错时泄漏侧缓冲；新增 C API smoke 用 allocator live-bytes 断言该错误展开路径会清理到零。
 - 当前进展：Lua 5.4 `luaL_Buffer` 现在在 release 路径验证栈顶 placeholder/box 形态，`luaL_prepbuffsize()` / `luaL_pushresult()` / `luaL_addvalue()` 遇到缺失或错误 buffer 栈槽会报 `invalid value`；`luaL_addvalue()` 也拒绝缺失或不可转字符串的待消费值，默认 ABI 同步覆盖该非法值边界；`package.searchpath()` 的错误片段组装顺序已调整为保持 buffer placeholder 在合法栈位。
-- 当前进展：C API smoke 已补充 `luaL_fileresult()` 成功、errno 失败和 errno-zero 失败、`luaL_execresult()` exit 成功和 errno 失败、`luaL_newlib()`、`luaL_newlibtable()`、`luaL_setfuncs()` upvalue 和 NULL placeholder、`luaL_newmetatable()` 首次创建/重复复用 / `luaL_getmetatable()` 存在/缺失、`luaL_setmetatable()` 命中和缺失清空、`luaL_testudata()` 的匹配/不匹配/非 userdata / 无 metatable 查询、`luaL_checkudata()`、`luaL_traceback()`、`luaL_dostring()`、`luaL_dofile()` 以及 `luaL_requiref()` 的全局注册、false-loaded 重载和 nil-returning module 继续保持 unloaded / 可重载语义覆盖。
+- 当前进展：C API smoke 已补充 `luaL_fileresult()` 成功、errno 失败和 errno-zero 失败、`luaL_execresult()` exit 成功和 errno 失败、`luaL_newlib()`、`luaL_newlibtable()`、`luaL_setfuncs()` upvalue 和 NULL placeholder、`luaL_newmetatable()` 首次创建/重复复用 / `luaL_getmetatable()` 存在/缺失、`luaL_setmetatable()` 命中和缺失清空、`luaL_testudata()` 的匹配/不匹配/非 userdata / 无 metatable 查询、`luaL_checkudata()` 的非 userdata / light userdata / named table / full userdata metatable mismatch 错误、`luaL_traceback()`、`luaL_dostring()`、`luaL_dofile()` 以及 `luaL_requiref()` 的全局注册、false-loaded 重载和 nil-returning module 继续保持 unloaded / 可重载语义覆盖。
 - 当前进展：C API smoke 已固定 `luaL_requiref()` 在 `_LOADED[modname]` 已有 truthy 模块且 `glb=true` 时不会重新调用 opener，但仍会把 loaded 模块重新发布到全局表，覆盖 stale global 被修正的路径。
 - 当前进展：C API smoke 已固定 `luaL_tolstring()` 经过 `__tostring` metamethod 时的 Lua 5.4 表面：metamethod 返回 number 会继续按 `lua_isstring()` / `lua_tolstring()` 转成字符串并回填长度，metamethod 返回 boolean 等不可转字符串值会稳定报 `'__tostring' must return a string`。
 - 当前进展：C API smoke 已固定 `luaL_callmeta()` 遇到已存在但不可调用的 metafield 时会进入普通调用错误路径；例如 `__tostring = false` 会报 `attempt to call`，不会被当作缺失 metafield 静默返回 0。
@@ -733,6 +733,7 @@
 - `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `luaL_newmetatable()` 重复调用返回 0、复用同一 registry metatable 并保留既有字段的 C API 边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `luaL_testudata()` 对非 userdata 和无 metatable userdata 返回 NULL 且保持栈不变的 C API 查询边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `luaL_getmetatable()` 缺失注册名压入 nil，以及 `luaL_setmetatable()` 对缺失注册名清空对象 metatable / 取消 userdata 匹配的 C API 边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
+- `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `luaL_checkudata()` 对 full userdata metatable mismatch 使用实际 `__name` 报错的 C API 边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 
 ## 已确认不列入当前 TODO 的已实现项
 
