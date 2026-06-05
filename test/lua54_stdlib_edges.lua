@@ -277,6 +277,8 @@ local cases = {
   { "table.remove.noarg", "return table.remove()", err = "bad argument #1 to 'remove' (table expected, got no value)" },
   { "table.remove.pos0", "return table.remove({1}, 0)", err = "bad argument #2 to 'remove' (position out of bounds)" },
   { "table.remove.strpos", "local t = {1}; return table.remove(t, '1'), #t", ok = { "number:1", "number:0" } },
+  { "table.remove.strpos2", "local t = {1,2,3}; return table.remove(t, '2'), table.concat(t, ',')", ok = { "number:2", "string:1,3" } },
+  { "table.remove.fracpos", "return table.remove({1}, 1.2)", err = "bad argument #2 to 'remove' (number has no integer representation)" },
   { "table.remove.empty", "local t = {}; return table.remove(t)", ok = { "nil:nil" } },
   { "table.remove.pos2", "return table.remove({1}, 2)", ok = { "nil:nil" } },
   { "table.sort.noarg", "return table.sort()", err = "bad argument #1 to 'sort' (table expected, got no value)" },
