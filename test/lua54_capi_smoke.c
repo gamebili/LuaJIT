@@ -2892,6 +2892,12 @@ static int getsubtable_null_name(lua_State *L)
   return 0;
 }
 
+static int getsubtable_invalid_index(lua_State *L)
+{
+  luaL_getsubtable(L, 1, "child");
+  return 0;
+}
+
 static int requiref_null_name(lua_State *L)
 {
   luaL_requiref(L, NULL, require_open, 0);
@@ -3400,6 +3406,34 @@ static int laux_len_arg(lua_State *L)
 static int laux_ref_missing_value(lua_State *L)
 {
   (void)luaL_ref(L, LUA_REGISTRYINDEX);
+  return 0;
+}
+
+static int laux_ref_invalid_table(lua_State *L)
+{
+  lua_pushliteral(L, "ref-value");
+  (void)luaL_ref(L, 2);
+  return 0;
+}
+
+static int laux_ref_non_table(lua_State *L)
+{
+  lua_pushliteral(L, "not-table");
+  lua_pushliteral(L, "ref-value");
+  (void)luaL_ref(L, -2);
+  return 0;
+}
+
+static int laux_unref_invalid_table(lua_State *L)
+{
+  luaL_unref(L, 1, 1);
+  return 0;
+}
+
+static int laux_unref_non_table(lua_State *L)
+{
+  lua_pushliteral(L, "not-table");
+  luaL_unref(L, -1, 1);
   return 0;
 }
 
@@ -4722,6 +4756,9 @@ static void test_stack_and_number_api(lua_State *L)
   check_fresh_invalid_value(L, getsubtable_null_name,
 			    "luaL_getsubtable rejects NULL name",
 			    "luaL_getsubtable NULL name error");
+  check_fresh_invalid_value(L, getsubtable_invalid_index,
+			    "luaL_getsubtable rejects invalid table index",
+			    "luaL_getsubtable invalid table index error");
   check_fresh_invalid_value(L, requiref_null_name,
 			    "luaL_requiref rejects NULL module name",
 			    "luaL_requiref NULL module name error");
@@ -7900,6 +7937,20 @@ static void test_lauxlib_api(lua_State *L)
   check_fresh_invalid_value(L, laux_ref_missing_value,
 			    "luaL_ref rejects missing value",
 			    "luaL_ref missing value error");
+  check_fresh_invalid_value(L, laux_ref_invalid_table,
+			    "luaL_ref rejects invalid ref table index",
+			    "luaL_ref invalid ref table index error");
+  check_fresh_invalid_value(L, laux_ref_non_table,
+			    "luaL_ref rejects non-table ref table",
+			    "luaL_ref non-table ref table error");
+  luaL_unref(L, 1, LUA_NOREF);
+  luaL_unref(L, 1, LUA_REFNIL);
+  check_fresh_invalid_value(L, laux_unref_invalid_table,
+			    "luaL_unref rejects invalid ref table index",
+			    "luaL_unref invalid ref table index error");
+  check_fresh_invalid_value(L, laux_unref_non_table,
+			    "luaL_unref rejects non-table ref table",
+			    "luaL_unref non-table ref table error");
 
   lua_newtable(L);
   lua_pushliteral(L, "ref-value");
