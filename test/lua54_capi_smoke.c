@@ -8639,6 +8639,18 @@ static void test_lauxlib_api(lua_State *L)
   check_string(L, -1, "aLua54$Lua54", "luaL_addgsub result");
   lua_pop(L, 1);
 
+  luaL_buffinit(L, &b);
+  luaL_addgsub(&b, "plain", "z", "_");
+  luaL_pushresult(&b);
+  check_string(L, -1, "plain", "luaL_addgsub no-match result");
+  lua_pop(L, 1);
+
+  luaL_buffinit(L, &b);
+  luaL_addgsub(&b, "aaaa", "aa", "b");
+  luaL_pushresult(&b);
+  check_string(L, -1, "bb", "luaL_addgsub non-overlap result");
+  lua_pop(L, 1);
+
   check_fresh_invalid_value(L, addlstring_null_nonzero,
 			    "luaL_addlstring rejects NULL nonzero string",
 			    "luaL_addlstring NULL nonzero string error");
