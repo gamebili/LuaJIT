@@ -7993,6 +7993,16 @@ static void test_lauxlib_api(lua_State *L)
 	"luaL_gsub return value");
   check_string(L, -1, "a_b_a", "luaL_gsub pushes result");
   lua_pop(L, 1);
+  gs = luaL_gsub(L, "plain", "z", "_");
+  check(L, gs != NULL && strcmp(gs, "plain") == 0,
+	"luaL_gsub no-match return value");
+  check_string(L, -1, "plain", "luaL_gsub no-match pushes result");
+  lua_pop(L, 1);
+  gs = luaL_gsub(L, "aaaa", "aa", "b");
+  check(L, gs != NULL && strcmp(gs, "bb") == 0,
+	"luaL_gsub non-overlap return value");
+  check_string(L, -1, "bb", "luaL_gsub non-overlap pushes result");
+  lua_pop(L, 1);
 
   check_fresh_invalid_value(L, laux_ref_missing_value,
 			    "luaL_ref rejects missing value",
