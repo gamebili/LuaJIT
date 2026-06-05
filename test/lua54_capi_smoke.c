@@ -3355,6 +3355,13 @@ static int checkoption_arg(lua_State *L)
   return 1;
 }
 
+static int checkoption_number_arg(lua_State *L)
+{
+  static const char *opts[] = { "7", "7.0", NULL };
+  lua_pushinteger(L, luaL_checkoption(L, 1, NULL, opts));
+  return 1;
+}
+
 static int checkoption_null_list(lua_State *L)
 {
   lua_pushliteral(L, "alpha");
@@ -7630,6 +7637,20 @@ static void test_lauxlib_api(lua_State *L)
   status = lua_pcall(L, 1, 1, 0);
   check(L, status == LUA_OK, "luaL_checkoption explicit status");
   check_integer(L, -1, 2, "luaL_checkoption explicit index");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, checkoption_number_arg);
+  lua_pushinteger(L, 7);
+  status = lua_pcall(L, 1, 1, 0);
+  check(L, status == LUA_OK, "luaL_checkoption integer subtype status");
+  check_integer(L, -1, 0, "luaL_checkoption integer subtype index");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, checkoption_number_arg);
+  lua_pushnumber(L, (lua_Number)7.0);
+  status = lua_pcall(L, 1, 1, 0);
+  check(L, status == LUA_OK, "luaL_checkoption float subtype status");
+  check_integer(L, -1, 1, "luaL_checkoption float subtype index");
   lua_pop(L, 1);
 
   lua_pushcfunction(L, checkoption_arg);
