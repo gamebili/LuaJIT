@@ -8158,10 +8158,19 @@ static void test_lauxlib_api(lua_State *L)
 			    "luaL_setfuncs missing upvalue error");
 
   check(L, luaL_newmetatable(L, "capi.ud") == 1, "luaL_newmetatable creates");
+  lua_pushliteral(L, "created");
+  lua_setfield(L, -2, "__probe");
   rtype = lua_getfield(L, -1, "__name");
   check(L, rtype == LUA_TSTRING, "luaL_newmetatable __name type");
   check_string(L, -1, "capi.ud", "luaL_newmetatable __name value");
-  lua_pop(L, 2);
+  lua_pop(L, 1);
+  check(L, luaL_newmetatable(L, "capi.ud") == 0,
+	"luaL_newmetatable reuses existing");
+  check(L, lua_rawequal(L, -1, -2), "luaL_newmetatable existing value");
+  rtype = lua_getfield(L, -1, "__probe");
+  check(L, rtype == LUA_TSTRING, "luaL_newmetatable existing marker type");
+  check_string(L, -1, "created", "luaL_newmetatable existing marker");
+  lua_pop(L, 3);
   check(L, luaL_getmetatable(L, "capi.ud") == LUA_TTABLE,
 	"luaL_getmetatable type");
   lua_pop(L, 1);
