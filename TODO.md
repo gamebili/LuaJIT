@@ -650,6 +650,7 @@
 
 ## 当前验证结果
 
+- `cmd /c build.bat smoke54` 已通过，覆盖 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、`lua54_stdlib_edges.lua` 新增标准库边界、JIT/GC/VM 后端静态与 DynASM 门禁，以及 standalone Lua 5.4 smoke。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 已通过，覆盖本轮新增的 math/table 官方对照边界。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 已通过，覆盖本轮新增的 string 库官方对照边界。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 已通过，覆盖本轮新增的 load/loadfile/package/debug 标准库官方对照边界。
