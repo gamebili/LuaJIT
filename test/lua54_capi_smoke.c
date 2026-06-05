@@ -8610,6 +8610,16 @@ static void test_lauxlib_api(lua_State *L)
   lua_pop(L, 1);
 
   luaL_buffinit(L, &b);
+  lua_pushinteger(L, 7);
+  luaL_addvalue(&b);
+  luaL_addchar(&b, '/');
+  lua_pushnumber(L, (lua_Number)7.0);
+  luaL_addvalue(&b);
+  luaL_pushresult(&b);
+  check_string(L, -1, "7/7.0", "luaL_addvalue number subtypes");
+  lua_pop(L, 1);
+
+  luaL_buffinit(L, &b);
   p = luaL_prepbuffer(&b);
   memcpy(p, "xy", 2);
   pushresultsize_fn(&b, 2);
