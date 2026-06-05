@@ -8170,6 +8170,8 @@ static void test_lauxlib_api(lua_State *L)
   lua_setfield(L, -2, "__name");
   lua_pushinteger(L, 77);
   lua_setfield(L, -2, "__rank");
+  lua_pushboolean(L, 0);
+  lua_setfield(L, -2, "__disabled");
   lua_pushcfunction(L, capi_tostring_meta);
   lua_setfield(L, -2, "__tostring");
   lua_setmetatable(L, -2);
@@ -8180,6 +8182,10 @@ static void test_lauxlib_api(lua_State *L)
   check(L, luaL_getmetafield(L, -1, "__rank") == LUA_TNUMBER,
 	"luaL_getmetafield returns numeric field type");
   check_integer(L, -1, 77, "luaL_getmetafield numeric value");
+  lua_pop(L, 1);
+  check(L, luaL_getmetafield(L, -1, "__disabled") == LUA_TBOOLEAN,
+	"luaL_getmetafield returns false field type");
+  check(L, lua_toboolean(L, -1) == 0, "luaL_getmetafield false value");
   lua_pop(L, 1);
   {
     int top = lua_gettop(L);
@@ -8219,6 +8225,18 @@ static void test_lauxlib_api(lua_State *L)
     check(L, lua_gettop(L) == top, "luaL_callmeta missing stack");
   }
   lua_pop(L, 1);
+  {
+    int top = lua_gettop(L);
+    lua_newtable(L);
+    check(L, luaL_getmetafield(L, -1, "__missing") == LUA_TNIL,
+	  "luaL_getmetafield no metatable");
+    check(L, lua_gettop(L) == top + 1,
+	  "luaL_getmetafield no metatable stack");
+    check(L, luaL_callmeta(L, -1, "__missing") == 0,
+	  "luaL_callmeta no metatable");
+    check(L, lua_gettop(L) == top + 1, "luaL_callmeta no metatable stack");
+    lua_pop(L, 1);
+  }
   {
     lua_newtable(L);
     lua_newtable(L);
