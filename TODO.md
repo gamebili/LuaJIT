@@ -544,6 +544,7 @@
   - 当前进展：lowered `//` / `%` / 位运算 helper 调用 `__idiv` / `__mod` / `__band` / `__bor` / `__bxor` / `__bnot` / `__shl` / `__shr` 时，同样会为带非可调用 `__call` 链的元方法保留原始 `metamethod '...'` 来源标注。
   - 当前进展：新增 `test/lua54_stdlib_edges.lua` 并接入 `smoketest-lua54compat`，把本机官方 Lua 5.4.8 对照过的一组 base/coroutine/debug/math/os/package/string/table/utf8 边界固化为正式门禁；覆盖 direct 字段调用的逐字错误文本、`pairs(nil)` / `ipairs(nil)` 的 nil 洞返回计数、`table.sort({}, true)` 的延迟 comparator 校验、`table.pack(...).n`、`utf8.char()` 空串返回以及 `debug.gethook(true)` / `debug.getuservalue()` 等单 nil 返回；本轮继续补入官方对照过的 `load(reader)` 非字符串返回、`package.searchpath("", path)` 空 path 结果、`string.pack("X i")`、`string.unpack(..., 0)`、字符串整数形式的 `table.move` 下标和 `utf8.codepoint` 空范围边界。
   - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入本机官方 Lua 5.4.8 对照过的 `utf8.offset()` n==0 continuation-byte 回退、`utf8.offset/len/codepoint` final/position 越界错误、`string.unpack()` 初始位置越界错误、`package.searchpath()` 自定义 separator / 空 module name 结果、`table.insert()` / `table.remove()` 位置越界，以及 `math.random(0, 0)` / 空区间边界。
+  - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `load()` reader 返回 number/空串/首个 nil、text chunk 被 binary-only mode 拒绝、`loadfile()` mode 参数错误、`package.loadlib()` 基础参数错误、`require()` 对 truthy/zero loaded 值和非 table `package.searchers` 的行为、`debug.sethook()` count 字符串/小数边界，以及 `debug.traceback()` 无参数返回边界。
   - 剩余边界：继续用本机 `lua5.4.8` 扩展更多标准库逐字错误文本对照；标准库公开入口的 direct `pcall` fallback、普通源码字段/全局调用、局部/upvalue alias、当前解析路径可静态证明的 global alias / table-field alias 和 tail-position 调用点名已扩展覆盖 base/global、string、base loader、math、os、io、debug、utf8、package 以及 `coroutine.resume()` / `coroutine.close()` 代表路径；parser 只对真实来自 `_ENV`、标准库表或已静态证明来源的 table 字段保留调用帧，并按“字段名 + 实际库表/静态来源”组合识别，普通未标记的 `t.pack()` / `t.resume()` / `t.f()` 这类非标准库表调用仍保持 tail call。
   - 当前进展：字符串库方法语法的 tail-position 错误名/参数编号已按 Lua 5.4 收紧；`s:byte({})` / `s:find({})` / `s:format(true)` 会保留源码方法帧并按隐藏 self 之后的公开实参报 `#1`，不再被 tail call 擦成 `string.byte` / `string.find` / `string.format` 的 `#2` fallback。
   - 做法：将本机 `lua5.4.8` 的边界行为固化为对照测试，先覆盖返回值和是否报错，再逐步收紧错误文本。
@@ -647,6 +648,7 @@
 
 ## 当前验证结果
 
+- `.\src\luajit.exe test\lua54_stdlib_edges.lua` 已通过，覆盖本轮新增的 load/loadfile/package/debug 标准库官方对照边界。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 已通过，覆盖本轮新增的 utf8/string.unpack/package.searchpath/table/math 标准库官方对照边界。
 - 已单独编译并运行 `test/lua54_capi_smoke.c`：`gcc -DLUAJIT_ENABLE_LUA54COMPAT -I src -x c test/lua54_capi_smoke.c -x none src/lua51.dll -o src/lua54_capi_smoke.exe` 后执行 `src/lua54_capi_smoke.exe` 通过，覆盖本轮新增 `luaL_requiref()` 已 loaded 模块在 `glb=true` 下重新发布全局的回归。
 - `cmd /c build.bat lua54` 已通过，覆盖本轮 `luaL_unref(t, 0)` 在 Lua 5.4 compat 下保留用户 key `0` 的修复，以及官方 Lua 5.4.8 矩阵、Lua 5.4 smoke/JIT/header gates 和 C API smoke。
