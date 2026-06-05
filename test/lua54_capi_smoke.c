@@ -3370,6 +3370,19 @@ static int laux_string_macro_arg(lua_State *L)
   return 1;
 }
 
+static int laux_lstring_arg(lua_State *L)
+{
+  size_t lrequired = 0;
+  size_t loptional = 0;
+  const char *required = luaL_checklstring(L, 1, &lrequired);
+  const char *optional = luaL_optlstring(L, 2, "fallback", &loptional);
+  lua_pushinteger(L, (lua_Integer)lrequired);
+  lua_pushinteger(L, (lua_Integer)loptional);
+  lua_pushlstring(L, required, lrequired);
+  lua_pushlstring(L, optional, loptional);
+  return 4;
+}
+
 static int laux_argcheck_fail(lua_State *L)
 {
   /* Exercise the Lua 5.4 macro path, not only the exported luaL_argerror()
@@ -7653,6 +7666,33 @@ static void test_lauxlib_api(lua_State *L)
   check(L, status == LUA_OK, "luaL_optstring explicit status");
   check_string(L, -1, "left/right", "luaL_optstring explicit");
   lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_lstring_arg);
+  lua_pushlstring(L, "a\0b", 3);
+  status = lua_pcall(L, 1, 4, 0);
+  check(L, status == LUA_OK, "luaL_checklstring/luaL_optlstring default status");
+  check_integer(L, -4, 3, "luaL_checklstring binary length");
+  check_integer(L, -3, 8, "luaL_optlstring default length");
+  check(L, lua_rawlen(L, -2) == 3 &&
+	   memcmp(lua_tostring(L, -2), "a\0b", 3) == 0,
+	"luaL_checklstring binary bytes");
+  check_string(L, -1, "fallback", "luaL_optlstring default bytes");
+  lua_pop(L, 4);
+
+  lua_pushcfunction(L, laux_lstring_arg);
+  lua_pushlstring(L, "a\0b", 3);
+  lua_pushlstring(L, "c\0d", 3);
+  status = lua_pcall(L, 2, 4, 0);
+  check(L, status == LUA_OK, "luaL_optlstring explicit binary status");
+  check_integer(L, -4, 3, "luaL_checklstring explicit binary length");
+  check_integer(L, -3, 3, "luaL_optlstring explicit binary length");
+  check(L, lua_rawlen(L, -2) == 3 &&
+	   memcmp(lua_tostring(L, -2), "a\0b", 3) == 0,
+	"luaL_checklstring explicit binary bytes");
+  check(L, lua_rawlen(L, -1) == 3 &&
+	   memcmp(lua_tostring(L, -1), "c\0d", 3) == 0,
+	"luaL_optlstring explicit binary bytes");
+  lua_pop(L, 4);
 
   lua_pushcfunction(L, laux_string_macro_arg);
   status = lua_pcall(L, 0, 0, 0);
