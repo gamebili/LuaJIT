@@ -7877,6 +7877,19 @@ static void test_lauxlib_api(lua_State *L)
 
   lua_pushcfunction(L, laux_len_arg);
   lua_newtable(L);
+  lua_pushinteger(L, 10);
+  lua_rawseti(L, -2, 1);
+  lua_pushinteger(L, 20);
+  lua_rawseti(L, -2, 2);
+  lua_pushinteger(L, 30);
+  lua_rawseti(L, -2, 3);
+  status = lua_pcall(L, 1, 1, 0);
+  check(L, status == LUA_OK, "luaL_len table status");
+  check_integer(L, -1, 3, "luaL_len table");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_len_arg);
+  lua_newtable(L);
   lua_newtable(L);
   lua_pushcfunction(L, len_meta);
   lua_setfield(L, -2, "__len");
@@ -7927,6 +7940,14 @@ static void test_lauxlib_api(lua_State *L)
 	"luaL_intop sub wrap");
   check(L, luaL_intop(&, (lua_Integer)0x33, (lua_Integer)0x55) == 0x11,
 	"luaL_intop bit and");
+  check(L, luaL_intop(|, (lua_Integer)0x33, (lua_Integer)0x55) == 0x77,
+	"luaL_intop bit or");
+  check(L, luaL_intop(^, (lua_Integer)0x33, (lua_Integer)0x55) == 0x66,
+	"luaL_intop bit xor");
+  check(L, luaL_intop(<<, (lua_Integer)1, (lua_Integer)12) == 0x1000,
+	"luaL_intop left shift");
+  check(L, luaL_intop(>>, (lua_Integer)0x1000, (lua_Integer)8) == 0x10,
+	"luaL_intop right shift");
 
   lua_newtable(L);
   check(L, luaL_getsubtable(L, -1, "child") == 0,
