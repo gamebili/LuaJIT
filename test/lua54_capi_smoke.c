@@ -7975,6 +7975,10 @@ static void test_lauxlib_api(lua_State *L)
   lua_rawgeti(L, -1, 0);
   check_string(L, -1, "zero-key", "luaL_ref freelist preserves key 0");
   lua_pop(L, 1);
+  luaL_unref(L, -1, 0);
+  lua_rawgeti(L, -1, 0);
+  check_string(L, -1, "zero-key", "luaL_unref zero ref preserves key 0");
+  lua_pop(L, 1);
   lua_pop(L, 1);
 
   luaL_requiref(L, "capi.mod", require_open, 1);

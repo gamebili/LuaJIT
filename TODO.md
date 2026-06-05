@@ -444,6 +444,7 @@
 - 当前进展：Lua 5.4 兼容构建下 `luaL_getmetafield()` 已按官方返回被压入 metafield 的实际类型码，例如 `__name` 字符串返回 `LUA_TSTRING`；同时确认该 helper 对 metatable 字段使用 raw lookup，metatable 自己的 `__index` 不会参与缺失字段查找；默认 LuaJIT 构建继续保留旧 1/0 表面。
 - 当前进展：C API smoke 已固定 `luaL_getmetafield()` 无效对象索引的查询语义；无效索引会返回 `LUA_TNIL` 且不改变栈，而不是走 release `invalid value` 错误。
 - 当前进展：Lua 5.4 兼容构建下 `luaL_ref()` / `luaL_unref()` 的 freelist 已从旧 Lua 5.1 key `0` 移到 `LUA_RIDX_LAST + 1`，并在首次使用时初始化为 `0`；这保留官方 freed ref slot 链到整数 `0` 的行为，同时允许用户 ref table 自己安全使用 key `0`。
+- 当前进展：Lua 5.4 兼容构建下 `luaL_unref(t, 0)` 已不再按旧 freelist 入口改写用户 ref table 的 key `0`；默认 LuaJIT 5.1 ABI 仍保留 key `0` freelist 行为。
 - 当前进展：C API smoke 已固定 `luaL_ref()` / `luaL_unref()` 的 ref table release 边界；`luaL_ref()` 缺少待引用值、无效 ref table 索引或非 table ref table 会稳定报 `invalid value`，`luaL_unref()` 对 `LUA_NOREF` / `LUA_REFNIL` 保持无操作，但正 ref 下同样拒绝无效或非 table ref table。
 - 当前进展：C API smoke 已固定 `luaL_getsubtable()` 的目标索引 release 边界；无效 table index 会稳定报 `invalid value`，不再只依赖内部 `lua_getfield()` / `lua_setfield()` 路径间接覆盖。
 - 当前进展：`luaL_checkversion_()` 的 version mismatch 错误已按 Lua 5.4 把版本号格式化为 Lua number 文本，例如 `503.0` / `504.0`，不再用旧整数 `%d` 文本。
@@ -644,6 +645,7 @@
 
 ## 当前验证结果
 
+- `cmd /c build.bat lua54` 已通过，覆盖本轮 `luaL_unref(t, 0)` 在 Lua 5.4 compat 下保留用户 key `0` 的修复，以及官方 Lua 5.4.8 矩阵、Lua 5.4 smoke/JIT/header gates 和 C API smoke。
 - 已单独编译并运行 `test/lua54_capi_smoke.c`：`gcc -DLUAJIT_ENABLE_LUA54COMPAT -I src -x c test/lua54_capi_smoke.c -x none src/lua51.dll -o src/lua54_capi_smoke.exe` 后执行 `src/lua54_capi_smoke.exe` 通过，覆盖本轮新增 `luaL_getmetafield()` 无效索引查询语义、`luaL_ref()` / `luaL_unref()` ref table 和 `luaL_getsubtable()` 目标索引边界回归。
 - `cmd /c build.bat lua54`、`cmd /c build.bat lua54perf` 和 `cmd /c build.bat default` 已通过，覆盖本轮新增 `_lua54_forstep` recorder、`IFORL/JFORL` int32-to-boxed-int64 VM 回退和恢复后的三档默认 JIT profile：`3,hotloop=3,hotexit=2,instunroll=4,loopunroll=4`、`3,hotloop=56,hotexit=10`、`0,hotloop=3,hotexit=2`；`lua54perf` 继续覆盖 JIT off。
 - `cmd /c build.bat lua54` 和 `cmd /c build.bat default` 已通过，覆盖本轮新增可静态归约动态 key 的 tail-position 调用点名传播；Lua 5.4 compat smoke/JIT 回归/perf 负载、官方 Lua 5.4.8 矩阵、C API smoke 和默认 ABI smoke 均保持通过。
