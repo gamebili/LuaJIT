@@ -5,6 +5,11 @@ local function near(a, b)
   return math.abs(a - b) < 1e-12
 end
 
+local function expect_error(fragment, fn)
+  local ok, err = pcall(fn)
+  assert(ok == false and err:find(fragment, 1, true), err)
+end
+
 for _, name in ipairs{
   "atan2", "pow", "log10", "sinh", "cosh", "tanh", "frexp", "ldexp",
 } do
@@ -18,9 +23,24 @@ assert(near(math.sinh(0), 0))
 assert(near(math.cosh(0), 1))
 assert(near(math.tanh(0), 0))
 
+assert(near(math.atan2("1", "1"), math.atan(1, 1)))
+do
+  local p = math.pow("2", "3")
+  assert(p == 8.0 and math.type(p) == "float")
+end
+assert(math.log10("100") == 2.0)
+assert(math.sinh("0") == 0.0)
+assert(math.cosh("0") == 1.0)
+assert(math.tanh("0") == 0.0)
+
 local mantissa, exponent = math.frexp(8)
 assert(mantissa == 0.5 and exponent == 4)
 assert(math.ldexp(mantissa, exponent) == 8)
+local mantissa_s, exponent_s = math.frexp("8")
+assert(mantissa_s == 0.5 and exponent_s == 4 and
+       math.type(mantissa_s) == "float" and math.type(exponent_s) == "integer")
+local ldexp_strfloat = math.ldexp(1, "1.0")
+assert(ldexp_strfloat == 2.0 and math.type(ldexp_strfloat) == "float")
 
 local ldexp_wide_number = math.ldexp(1, 4294967297)
 assert(type(ldexp_wide_number) == "number")
@@ -31,6 +51,19 @@ do
   assert(ok == false and err:find("number has no integer representation",
 				  1, true))
 end
+
+expect_error("bad argument #1 to 'math.atan2' (number expected, got no value)",
+	     function() return math.atan2() end)
+expect_error("bad argument #2 to 'math.pow' (number expected, got table)",
+	     function() return math.pow(2, {}) end)
+expect_error("bad argument #1 to 'math.log10' (number expected, got no value)",
+	     function() return math.log10() end)
+expect_error("bad argument #1 to 'math.cosh' (number expected, got boolean)",
+	     function() return math.cosh(true) end)
+expect_error("bad argument #1 to 'math.frexp' (number expected, got no value)",
+	     function() return math.frexp() end)
+expect_error("bad argument #2 to 'math.ldexp' (number expected, got no value)",
+	     function() return math.ldexp(1) end)
 
 do
   local ok_util, jutil = pcall(require, "jit.util")
