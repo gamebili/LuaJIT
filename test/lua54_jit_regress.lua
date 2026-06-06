@@ -3294,6 +3294,13 @@ do
     for _ = 1, 80 do
       local out, count = string.gsub("a b cd", " *", "-")
       if out == "-a-b-c-d-" then n = n + count end
+      local number_out, number_count = string.gsub("a", "a", 1)
+      if number_out == "1" and number_count == 1 then n = n + 1 end
+      local table_zero_out, table_zero_count = string.gsub("ab", ".", {
+	a = 0,
+	b = "x"
+      })
+      if table_zero_out == "0x" and table_zero_count == 2 then n = n + 1 end
       local table_out, table_count = string.gsub("ab", ".", {
 	a = false,
 	b = "y"
@@ -3334,7 +3341,7 @@ do
 	n = n + 5
       end
     end
-    assert(n == 1280)
+    assert(n == 1440)
   end, "Lua 5.4 string.gsub empty match")
 end
 
