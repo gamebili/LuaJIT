@@ -1426,6 +1426,47 @@ int main(void)
 	"luaL_typename default macro");
   lua_pop(L, 1);
 
+  lua_pushlstring(L, "a\0b", 3);
+  {
+    size_t len = 0;
+    const char *s = luaL_checklstring(L, -1, &len);
+    check(L, len == 3 && memcmp(s, "a\0b", 3) == 0,
+	  "luaL_checklstring default binary");
+    s = luaL_optlstring(L, 2, "fallback", &len);
+    check(L, len == 8 && strcmp(s, "fallback") == 0,
+	  "luaL_optlstring default fallback");
+    lua_pop(L, 1);
+  }
+
+  lua_pushlstring(L, "a\0b", 3);
+  lua_pushlstring(L, "c\0d", 3);
+  {
+    size_t len = 0;
+    const char *s = luaL_optlstring(L, -1, "fallback", &len);
+    check(L, len == 3 && memcmp(s, "c\0d", 3) == 0,
+	  "luaL_optlstring default explicit binary");
+    lua_pop(L, 2);
+  }
+
+  lua_pushliteral(L, "left");
+  lua_pushnil(L);
+  {
+    size_t len = 0;
+    const char *s = luaL_optlstring(L, -1, "fallback", &len);
+    check(L, len == 8 && strcmp(s, "fallback") == 0,
+	  "luaL_optlstring default explicit nil");
+    lua_pop(L, 2);
+  }
+
+  lua_pushnumber(L, (lua_Number)7.0);
+  {
+    size_t len = 0;
+    const char *s = luaL_checklstring(L, -1, &len);
+    check(L, len == 1 && strcmp(s, "7") == 0,
+	  "luaL_checklstring default number string");
+    lua_pop(L, 1);
+  }
+
   lua_pushnumber(L, 3.5);
   check(L, luaL_checknumber(L, -1) == (lua_Number)3.5,
 	"luaL_checknumber default API");
