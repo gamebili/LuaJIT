@@ -93,6 +93,7 @@
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.unpack()` 的 `nil` / 非 table 空范围跳过读取、实际读取错误和 `math.mininteger..math.maxinteger` 全宽范围 too many 保护，固定空范围优先级与超大结果数诊断。
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.concat(nil)` 的直接源码字段调用、局部 alias 调用和 direct `pcall(table.concat, nil)` 诊断路径，固定错误函数名分别恢复为 `concat`、`f` 和 `table.concat`。
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.insert(nil, ...)`、`table.remove(nil)` 和 `table.sort(nil)` 的 nil 参数诊断，固定这些表库入口区别 no-value、nil 和 number 非 table 参数。
+   - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.move(nil, 1, 0, 1)` 空范围源对象校验和 direct `pcall(table.move, nil, ...)` 诊断路径，固定空移动范围也会先校验源 table，且 direct pcall 函数名保持 `table.move`。
 
 ## P0：核心语义缺口
 

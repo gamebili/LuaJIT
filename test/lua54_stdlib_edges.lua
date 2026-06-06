@@ -600,6 +600,8 @@ local cases = {
   { "table.insert.pos3", "return table.insert({1}, 3, 'x')", err = "bad argument #2 to 'insert' (position out of bounds)" },
   { "table.insert.lenfrac", "local t = setmetatable({}, { __len = function() return 1.2 end }); return table.insert(t, 'x')", err = "object length is not an integer" },
   { "table.move.noarg", "return table.move()", err = "bad argument #2 to 'move' (number expected, got no value)" },
+  { "table.move.nil", "return table.move(nil, 1, 0, 1)", err = "bad argument #1 to 'move' (table expected, got nil)" },
+  { "table.move.nil.pcall", "local ok, err = pcall(table.move, nil, 1, 0, 1); return ok, err", ok = { "boolean:false", "string:bad argument #1 to 'table.move' (table expected, got nil)" } },
   { "table.move.badfrom", "return table.move({}, 1.2, 2, 1)", err = "bad argument #2 to 'move' (number has no integer representation)" },
   { "table.move.badto", "return table.move({}, 1, 2.2, 1)", err = "bad argument #3 to 'move' (number has no integer representation)" },
   { "table.move.baddest", "return table.move({}, 1, 2, 1.2)", err = "bad argument #4 to 'move' (number has no integer representation)" },
