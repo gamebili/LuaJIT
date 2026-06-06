@@ -1175,6 +1175,9 @@ local function debug_helpers(n)
     end
     local info = debug.getinfo(info_fn, "u")
     if info.nparams == 1 and info.isvararg == true then sum = sum + 1 end
+    if debug.traceback():find("stack traceback", 1, true) then
+      sum = sum + 1
+    end
     if debug.traceback(true) == true then sum = sum + 1 end
     if debug.traceback("m", 1099511627776):
        find("stack traceback", 1, true) then
@@ -2288,7 +2291,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_debug = timeit(mode_name..":debug_helpers",
 			    debug_helpers, iter_n)
-  assert(r_debug == iter_n * 36)
+  assert(r_debug == iter_n * 37)
 
   local _, r_many_upvalue = timeit(mode_name..":many_upvalue_helpers",
 				   many_upvalue_helpers, iter_n)

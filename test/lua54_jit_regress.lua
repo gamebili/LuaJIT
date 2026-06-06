@@ -2894,13 +2894,16 @@ do
 
       local u = debug.getinfo(fn, "u")
       if u.nparams == 1 and u.isvararg == true then n = n + 1 end
+      if debug.traceback():find("stack traceback", 1, true) then
+	n = n + 1
+      end
       if debug.traceback(true) == true then n = n + 1 end
       if debug.traceback("m", 1099511627776):
 	 find("stack traceback", 1, true) then
 	n = n + 1
       end
     end
-    assert(n == 80 * 6)
+    assert(n == 80 * 7)
   end, "Lua 5.4 debug.getinfo traceback edges")
 
   assert_records_trace(function()
