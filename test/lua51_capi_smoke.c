@@ -1503,18 +1503,59 @@ int main(void)
     lua_call(L, 0, 1);
     check(L, lua_tointeger(L, -1) == 43, "luaL_loadfile default API result");
     lua_pop(L, 1);
+    check(L, luaL_loadfilex(L, fname, "t") == LUA_OK,
+	  "luaL_loadfilex default text mode status");
+    lua_call(L, 0, 1);
+    check(L, lua_tointeger(L, -1) == 43,
+	  "luaL_loadfilex default text mode result");
+    lua_pop(L, 1);
+    status = luaL_loadfilex(L, fname, "b");
+    check(L, status == LUA_ERRSYNTAX,
+	  "luaL_loadfilex default binary mode rejects text");
+    check(L, strstr(lua_tostring(L, -1), "wrong mode") != NULL,
+	  "luaL_loadfilex default wrong mode error");
+    lua_pop(L, 1);
     check(L, luaL_dofile(L, fname) == LUA_OK,
 	  "luaL_dofile default macro status");
     check(L, lua_tointeger(L, -1) == 43, "luaL_dofile default macro result");
     lua_pop(L, 1);
     check(L, remove(fname) == 0, "luaL_loadfile fixture remove");
   }
+  status = luaL_loadfilex(L, "test/does_not_exist_lua51_capi.lua", "t");
+  check(L, status == LUA_ERRFILE, "luaL_loadfilex default missing status");
+  check(L, strstr(lua_tostring(L, -1), "cannot open") != NULL,
+	"luaL_loadfilex default missing error");
+  lua_pop(L, 1);
 
   check(L, luaL_loadbuffer(L, "return 44", strlen("return 44"),
 			   "=lua51_loadbuffer") == LUA_OK,
 	"luaL_loadbuffer default API status");
   lua_call(L, 0, 1);
   check(L, lua_tointeger(L, -1) == 44, "luaL_loadbuffer default API result");
+  lua_pop(L, 1);
+
+  status = luaL_loadbufferx(L, "return 46", strlen("return 46"),
+			    "=lua51_loadbufferx", "t");
+  check(L, status == LUA_OK, "luaL_loadbufferx default text mode status");
+  lua_call(L, 0, 1);
+  check(L, lua_tointeger(L, -1) == 46,
+	"luaL_loadbufferx default text mode result");
+  lua_pop(L, 1);
+
+  status = luaL_loadbufferx(L, "return 47", strlen("return 47"),
+			    "=lua51_loadbufferx-null", NULL);
+  check(L, status == LUA_OK, "luaL_loadbufferx default NULL mode status");
+  lua_call(L, 0, 1);
+  check(L, lua_tointeger(L, -1) == 47,
+	"luaL_loadbufferx default NULL mode result");
+  lua_pop(L, 1);
+
+  status = luaL_loadbufferx(L, "return 48", strlen("return 48"),
+			    "=lua51_loadbufferx-binary", "b");
+  check(L, status == LUA_ERRSYNTAX,
+	"luaL_loadbufferx default binary mode rejects text");
+  check(L, strstr(lua_tostring(L, -1), "wrong mode") != NULL,
+	"luaL_loadbufferx default wrong mode error");
   lua_pop(L, 1);
 
   check(L, luaL_dostring(L, "return 45") == LUA_OK,

@@ -457,6 +457,7 @@
   - 当前进展：默认 LuaJIT 5.1 C API smoke 已继续补 `luaL_argcheck()` / `luaL_argexpected()` / `luaL_typeerror()` 覆盖，固定默认 lauxlib 参数诊断 helper 的 no-op 成功路径、custom argument error 失败路径和 `table expected` 类型错误文本。
   - 当前进展：默认 LuaJIT 5.1 C API smoke 已继续补 `luaL_checkversion()` / `luaL_checkversion_()` 覆盖，固定默认 ABI 下版本/数值 ABI 检查成功路径、版本 mismatch 和 numeric type mismatch 错误路径。
   - 当前进展：默认 LuaJIT 5.1 C API smoke 已继续补 `luaL_len()` 覆盖，固定 string/table 长度、默认 ABI 下 table `__len` 元方法结果，以及 fractional number 长度结果仍走旧数字转整数路径。
+  - 当前进展：默认 LuaJIT 5.1 C API smoke 已继续补 `luaL_loadfilex()` / `luaL_loadbufferx()` mode 覆盖，固定 text/NULL mode 成功路径、text chunk 传入 binary mode 的旧 `wrong mode` 错误，以及缺失文件 `LUA_ERRFILE` 路径。
   - 当前进展：默认 LuaJIT 5.1 C API smoke 已继续补 `luaL_fileresult()` / `luaL_execresult()` 旧 lauxlib result helper 覆盖，固定成功返回、带文件名 errno 失败、errno 为 0 的普通失败、普通 exit tuple 以及 `stat == -1` 系统错误 tuple；默认 ABI 下 `luaL_execresult(nonzero)` 仍保持旧 exit tuple，不按 Lua 5.4 兼容构建的 errno 优先规则分流。
   - 当前进展：默认 LuaJIT 5.1 C API smoke 已继续补 `luaL_tolstring()` 覆盖，固定 boolean / nil / number 普通转换、`__tostring` 返回 number 或含 NUL string 的转换、`__tostring` 返回 boolean 的错误路径、字符串 `__name` 前缀，以及默认 ABI 专属的 numeric `__name` 经 `lua_tostring()` 转换后作为对象前缀。
   - 当前进展：默认 LuaJIT 5.1 `lua_getfenv()` / `lua_setfenv()` 的非法目标索引已从 debug-only stack slot 检查收敛为 release 可见 `invalid value`，同时保留合法非 env 对象返回 nil/0 的旧表面。
@@ -988,6 +989,7 @@
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54quick` 已通过；覆盖本轮新增默认 LuaJIT 5.1 `luaL_argcheck()` / `luaL_argexpected()` / `luaL_typeerror()` 参数诊断 helper smoke，固定默认 lauxlib 成功 no-op、custom argument error、`table expected` 类型错误文本，并确认 Lua 5.4 兼容构建、官方矩阵、runtime smoke、C API/header smoke 仍通过。
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54quick` 已通过；覆盖本轮新增默认 LuaJIT 5.1 `luaL_checkversion()` / `luaL_checkversion_()` smoke，固定默认 ABI 版本/数值 ABI 检查成功路径、version mismatch 和 incompatible numeric types 错误路径，并确认 Lua 5.4 兼容构建、官方矩阵、runtime smoke、C API/header smoke 仍通过。
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54quick` 已通过；覆盖本轮新增默认 LuaJIT 5.1 `luaL_len()` smoke，固定 string/table 长度、table `__len` 元方法结果，以及 fractional number 长度结果在默认 ABI 下仍走旧数字转整数路径，并确认 Lua 5.4 兼容构建、官方矩阵、runtime smoke、C API/header smoke 仍通过。
+- `cmd /c build.bat default` 和 `cmd /c build.bat lua54quick` 已通过；覆盖本轮新增默认 LuaJIT 5.1 `luaL_loadfilex()` / `luaL_loadbufferx()` mode smoke，固定 text/NULL mode 成功、text chunk 传入 binary mode 的旧 `wrong mode` 错误以及缺失文件 `LUA_ERRFILE` 路径，并确认 Lua 5.4 兼容构建、官方矩阵、runtime smoke、C API/header smoke 仍通过。
 
 ## 已确认不列入当前 TODO 的已实现项
 
