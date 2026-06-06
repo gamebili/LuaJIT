@@ -3294,6 +3294,16 @@ do
     for _ = 1, 80 do
       local out, count = string.gsub("a b cd", " *", "-")
       if out == "-a-b-c-d-" then n = n + count end
+      local table_out, table_count = string.gsub("ab", ".", {
+	a = false,
+	b = "y"
+      })
+      if table_out == "ay" and table_count == 2 then n = n + 1 end
+      local fn_out, fn_count = string.gsub("ab", ".", function(c)
+	if c == "a" then return nil end
+	return "y"
+      end)
+      if fn_out == "ay" and fn_count == 2 then n = n + 1 end
       local ok_missing, err_missing = pcall(string.gsub, "abc", "a")
       local ok_nil, err_nil = pcall(function()
 	return string.gsub("abc", "a", nil)
@@ -3311,7 +3321,7 @@ do
 	n = n + 4
       end
     end
-    assert(n == 720)
+    assert(n == 880)
   end, "Lua 5.4 string.gsub empty match")
 end
 

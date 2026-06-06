@@ -1780,6 +1780,16 @@ local function string_helpers(n)
     if string.format("%6s", 12) == "    12" then sum = sum + 1 end
     local replaced, count = string.gsub("a b cd", " *", "-")
     sum = sum + #replaced + count
+    local table_out, table_count = string.gsub("ab", ".", {
+      a = false,
+      b = "y"
+    })
+    if table_out == "ay" and table_count == 2 then sum = sum + 1 end
+    local fn_out, fn_count = string.gsub("ab", ".", function(c)
+      if c == "a" then return nil end
+      return "y"
+    end)
+    if fn_out == "ay" and fn_count == 2 then sum = sum + 1 end
     local ok_missing, err_missing = pcall(string.gsub, "abc", "a")
     local ok_nil, err_nil = pcall(function()
       return string.gsub("abc", "a", nil)
@@ -2130,7 +2140,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   ratio_check(mode_name..":divmod_vs_floor", t_floor, t_lua54)
 
   local _, r_string = timeit(mode_name..":string_helpers", string_helpers, string_n)
-  assert(r_string == string_n * 206)
+  assert(r_string == string_n * 208)
 
   local _, r_utf8 = timeit(mode_name..":utf8_helpers", utf8_helpers, utf8_n)
   assert(r_utf8 == utf8_n * 14)
