@@ -76,6 +76,10 @@
 #error "default lauxlib header must keep exposing luaL_newlib"
 #endif
 
+#ifndef luaL_argcheck
+#error "default lauxlib header must keep exposing luaL_argcheck"
+#endif
+
 static void check(lua_State *L, int cond, const char *msg)
 {
   if (!cond) {
@@ -149,6 +153,37 @@ static int capi51_require_open(lua_State *L)
 static int capi51_typerror(lua_State *L)
 {
   return luaL_typerror(L, 1, "number");
+}
+
+static int capi51_typeerror(lua_State *L)
+{
+  return luaL_typeerror(L, 1, "table");
+}
+
+static int capi51_argcheck_pass(lua_State *L)
+{
+  luaL_argcheck(L, lua_isstring(L, 1), 1, "string expected");
+  lua_pushliteral(L, "ok");
+  return 1;
+}
+
+static int capi51_argcheck_fail(lua_State *L)
+{
+  luaL_argcheck(L, 0, 1, "custom argument error");
+  return 0;
+}
+
+static int capi51_argexpected_pass(lua_State *L)
+{
+  luaL_argexpected(L, lua_istable(L, 1), 1, "table");
+  lua_pushliteral(L, "ok");
+  return 1;
+}
+
+static int capi51_argexpected_fail(lua_State *L)
+{
+  luaL_argexpected(L, 0, 1, "table");
+  return 0;
 }
 
 static int capi51_typerror_null_name(lua_State *L)
@@ -2000,6 +2035,46 @@ int main(void)
 	"luaL_typerror default API status");
   check(L, strstr(lua_tostring(L, -1), "number expected") != NULL,
 	"luaL_typerror default API message");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_typeerror);
+  lua_pushliteral(L, "bad");
+  check(L, lua_pcall(L, 1, 0, 0) == LUA_ERRRUN,
+	"luaL_typeerror default API status");
+  check(L, strstr(lua_tostring(L, -1), "table expected") != NULL,
+	"luaL_typeerror default API message");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_argcheck_pass);
+  lua_pushliteral(L, "arg");
+  check(L, lua_pcall(L, 1, 1, 0) == LUA_OK,
+	"luaL_argcheck default pass status");
+  check(L, strcmp(lua_tostring(L, -1), "ok") == 0,
+	"luaL_argcheck default pass result");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_argcheck_fail);
+  lua_pushliteral(L, "arg");
+  check(L, lua_pcall(L, 1, 0, 0) == LUA_ERRRUN,
+	"luaL_argcheck default fail status");
+  check(L, strstr(lua_tostring(L, -1), "custom argument error") != NULL,
+	"luaL_argcheck default fail message");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_argexpected_pass);
+  lua_newtable(L);
+  check(L, lua_pcall(L, 1, 1, 0) == LUA_OK,
+	"luaL_argexpected default pass status");
+  check(L, strcmp(lua_tostring(L, -1), "ok") == 0,
+	"luaL_argexpected default pass result");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_argexpected_fail);
+  lua_pushliteral(L, "arg");
+  check(L, lua_pcall(L, 1, 0, 0) == LUA_ERRRUN,
+	"luaL_argexpected default fail status");
+  check(L, strstr(lua_tostring(L, -1), "table expected") != NULL,
+	"luaL_argexpected default fail message");
   lua_pop(L, 1);
 
   lua_close(L);
