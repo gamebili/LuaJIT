@@ -661,6 +661,7 @@
   - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 table 构造器字段 alias 纳入 JIT on/off 覆盖，固定 `local holder = { inner = alias_table }; holder.inner.l = math.abs` 后，`return alias_table.l(true)` 和 `return holder.inner.l(true)` 都保留字段名 `l`。
   - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 table-field alias 作为 RHS 的静态来源传播纳入 JIT on/off 覆盖，固定 `base.inner = alias_table` 后，`local holder = { alias = base.inner }` 和 `holder.alias = base.inner` 两种写法继续让 `holder.alias.m/n = math.abs` 保留字段名。
   - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 `coroutine.status(nil)` / `coroutine.isyieldable(nil)` / `coroutine.create(nil)` / `coroutine.wrap(nil)` 的 tail-position 源码调用点名纳入 JIT on/off 覆盖，固定这类 wrapper 错误不能退回 `coroutine.xxx` fallback 名。
+  - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 `coroutine.close()` 关闭 suspended `<close>` local 的 `__close(value, nil)` 参数和 close-error 后重复 close 单 `true` 纳入 JIT on/off 覆盖，固定热路径下不会丢失 close error 传参、返回值数量或 dead coroutine 状态。
   - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把字符串库方法语法 tail-position 诊断纳入 JIT on/off 覆盖，固定 `s:byte({})` / `s:find({})` 必须保留短方法名 `byte` / `find` 和公开参数 `#1`。
   - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 `pairs(nil)` 返回的 iterator 在 direct/local/upvalue/global/table-field alias 后的 tail-position 调用点名纳入 JIT on/off 覆盖，固定这类后续 `next()` 参数错误不能退回 `next` fallback 名。
   - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 table 库非 table 代理对象纳入热路径覆盖，固定 `table.concat` / `insert` / `remove` / `sort` / `unpack` 和无 `__len` 的 `table.move` 不能退回旧 raw table 假设。
@@ -815,6 +816,7 @@
 - `cmd /c build.bat lua54` 已通过，覆盖本轮新增 dead coroutine `status()` / `resume()` / `close()`、running coroutine `close()` 错误、`yield()` / `resume()` nil 洞和多返回、`wrap()` yield 多返回、yielded coroutine `isyieldable()`，以及 `coroutine.create()` / `wrap()` 拒绝 callable table 的标准库边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `cmd /c build.bat lua54` 已通过，覆盖本轮新增 suspended coroutine `debug.getlocal()` / `debug.setlocal()` 有效 local 读写、`debug.sethook()` count 0/1 状态、`debug.upvalueid()` 有效 upvalue id，以及 `debug.upvaluejoin()` 成功共享 upvalue 的标准库边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `coroutine.close()` 关闭 suspended `<close>` local 时的 `__close(value, nil)` 参数、成功单返回、`__close` 字符串/非字符串错误对象返回 `false, err`、close-error 后 dead 状态和重复 close 单 `true` 的标准库边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
+- `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `coroutine.close()` 关闭 suspended `<close>` local 的 `__close(value, nil)` 参数和 close-error 后重复 close 单 `true` 的 JIT/perf 热路径回归、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 
 ## 已确认不列入当前 TODO 的已实现项
 

@@ -2383,6 +2383,52 @@ do
   assert_records_trace(function()
     local n = 0
     for _ = 1, 80 do
+      local seen, same, obj
+      obj = setmetatable({}, {
+	__close = function(self, err)
+	  same = self == obj
+	  seen = err
+	end
+      })
+      local co = coroutine.create(function()
+	local x <close> = obj
+	coroutine.yield("pause")
+      end)
+      local ok, value = coroutine.resume(co)
+      local close_n, close_ok = result_count(coroutine.close(co))
+      if ok and value == "pause" and same and seen == nil and
+	 close_n == 1 and close_ok == true and coroutine.status(co) == "dead" then
+	n = n + 1
+      end
+    end
+    assert(n == 80)
+  end, "Lua 5.4 coroutine close passes nil close error")
+
+  assert_records_trace(function()
+    local n = 0
+    for _ = 1, 80 do
+      local co = coroutine.create(function()
+	local x <close> = setmetatable({}, {
+	  __close = function()
+	    error(close_marker, 0)
+	  end
+	})
+	coroutine.yield("pause")
+      end)
+      assert(coroutine.resume(co))
+      local ok, err = coroutine.close(co)
+      local reclose_n, reclosed = result_count(coroutine.close(co))
+      if not ok and err == close_marker and reclose_n == 1 and
+	 reclosed == true and coroutine.status(co) == "dead" then
+	n = n + 1
+      end
+    end
+    assert(n == 80)
+  end, "Lua 5.4 coroutine close error reclose")
+
+  assert_records_trace(function()
+    local n = 0
+    for _ = 1, 80 do
       local log = {}
       local wrapped = coroutine.wrap(function()
 	local x <close> = setmetatable({}, {

@@ -798,6 +798,42 @@ local function coroutine_helpers(n)
       sum = sum + 1
     end
 
+    local seen, same, obj
+    obj = setmetatable({}, {
+      __close = function(self, err)
+	same = self == obj
+	seen = err
+      end
+    })
+    co = coroutine.create(function()
+      local x <close> = obj
+      coroutine.yield("pause")
+    end)
+    local ok_tbc, value_tbc = coroutine.resume(co)
+    local tbc_n, tbc_closed = result_count(coroutine.close(co))
+    if ok_tbc and value_tbc == "pause" and same and seen == nil and
+       tbc_n == 1 and tbc_closed == true and
+       coroutine.status(co) == "dead" then
+      sum = sum + 1
+    end
+
+    co = coroutine.create(function()
+      local x <close> = setmetatable({}, {
+	__close = function()
+	  error(coroutine_marker, 0)
+	end
+      })
+      coroutine.yield("pause")
+    end)
+    assert(coroutine.resume(co))
+    ok_close, err_close = coroutine.close(co)
+    local reclose_n, reclosed = result_count(coroutine.close(co))
+    if not ok_close and err_close == coroutine_marker and
+       reclose_n == 1 and reclosed == true and
+       coroutine.status(co) == "dead" then
+      sum = sum + 1
+    end
+
     local log = {}
     local wrapped = coroutine.wrap(function()
       local x <close> = setmetatable({}, {
@@ -1992,7 +2028,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_coroutine = timeit(mode_name..":coroutine_helpers",
 				coroutine_helpers, iter_n)
-  assert(r_coroutine == iter_n * 9)
+  assert(r_coroutine == iter_n * 11)
 
   local _, r_gc_mode = timeit(mode_name..":gc_mode_helpers",
 			      gc_mode_helpers, iter_n)
