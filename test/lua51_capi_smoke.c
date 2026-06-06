@@ -239,6 +239,20 @@ static int capi51_checkoption_null_list(lua_State *L)
   return 0;
 }
 
+static int capi51_checkoption_arg(lua_State *L)
+{
+  static const char *opts[] = { "alpha", "beta", "gamma", NULL };
+  lua_pushinteger(L, luaL_checkoption(L, 1, "beta", opts));
+  return 1;
+}
+
+static int capi51_checkoption_number_arg(lua_State *L)
+{
+  static const char *opts[] = { "7", NULL };
+  lua_pushinteger(L, luaL_checkoption(L, 1, NULL, opts));
+  return 1;
+}
+
 static int capi51_traceback_null_thread(lua_State *L)
 {
   luaL_traceback(L, NULL, "trace", 0);
@@ -1497,6 +1511,50 @@ int main(void)
 	  "luaL_checklstring default number string");
     lua_pop(L, 1);
   }
+
+  lua_pushcfunction(L, capi51_checkoption_arg);
+  status = lua_pcall(L, 0, 1, 0);
+  check(L, status == LUA_OK, "luaL_checkoption default status");
+  check(L, lua_tointeger(L, -1) == 1, "luaL_checkoption default index");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_checkoption_arg);
+  lua_pushnil(L);
+  status = lua_pcall(L, 1, 1, 0);
+  check(L, status == LUA_OK, "luaL_checkoption nil default status");
+  check(L, lua_tointeger(L, -1) == 1,
+	"luaL_checkoption nil default index");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_checkoption_arg);
+  lua_pushliteral(L, "gamma");
+  status = lua_pcall(L, 1, 1, 0);
+  check(L, status == LUA_OK, "luaL_checkoption explicit status");
+  check(L, lua_tointeger(L, -1) == 2, "luaL_checkoption explicit index");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_checkoption_number_arg);
+  lua_pushinteger(L, 7);
+  status = lua_pcall(L, 1, 1, 0);
+  check(L, status == LUA_OK, "luaL_checkoption number status");
+  check(L, lua_tointeger(L, -1) == 0, "luaL_checkoption number index");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_checkoption_arg);
+  lua_pushliteral(L, "delta");
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_checkoption rejects option");
+  check(L, strstr(lua_tostring(L, -1), "invalid option") != NULL,
+	"luaL_checkoption invalid option error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_checkoption_arg);
+  lua_newtable(L);
+  status = lua_pcall(L, 1, 1, 0);
+  check(L, status == LUA_OK, "luaL_checkoption table default status");
+  check(L, lua_tointeger(L, -1) == 1,
+	"luaL_checkoption table default index");
+  lua_pop(L, 1);
 
   lua_pushnumber(L, 3.5);
   check(L, luaL_checknumber(L, -1) == (lua_Number)3.5,
