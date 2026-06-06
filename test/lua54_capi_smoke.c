@@ -4259,6 +4259,24 @@ static int addgsub_null_replacement(lua_State *L)
   return 0;
 }
 
+static int gsub_null_subject(lua_State *L)
+{
+  (void)luaL_gsub(L, NULL, "x", "y");
+  return 0;
+}
+
+static int gsub_null_pattern(lua_State *L)
+{
+  (void)luaL_gsub(L, "x", NULL, "y");
+  return 0;
+}
+
+static int gsub_null_replacement(lua_State *L)
+{
+  (void)luaL_gsub(L, "x", "x", NULL);
+  return 0;
+}
+
 static int dump_fail_writer(lua_State *L, const void *p, size_t sz, void *ud)
 {
   int *calls = (int *)ud;
@@ -8904,6 +8922,15 @@ static void test_lauxlib_api(lua_State *L)
   check_fresh_invalid_value(L, addgsub_null_replacement,
 			    "luaL_addgsub rejects NULL replacement",
 			    "luaL_addgsub NULL replacement error");
+  check_fresh_invalid_value(L, gsub_null_subject,
+			    "luaL_gsub rejects NULL subject",
+			    "luaL_gsub NULL subject error");
+  check_fresh_invalid_value(L, gsub_null_pattern,
+			    "luaL_gsub rejects NULL pattern",
+			    "luaL_gsub NULL pattern error");
+  check_fresh_invalid_value(L, gsub_null_replacement,
+			    "luaL_gsub rejects NULL replacement",
+			    "luaL_gsub NULL replacement error");
 
   status = luaL_loadbufferx(L, "return 54", 9, "=capi-buffer", "t");
   check(L, status == LUA_OK, "luaL_loadbufferx text mode");
