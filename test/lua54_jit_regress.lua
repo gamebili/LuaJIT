@@ -3136,8 +3136,27 @@ do
       if found == nil and err:find("1099511627776.lua", 1, true) then
 	n = n + 1
       end
+      found, err = package.searchpath("x", 123)
+      if found == nil and err == "no file '123'" then n = n + 1 end
+      found, err = package.searchpath("a\0b", "?.lua")
+      if found == nil and err:find("a.lua", 1, true) and
+	 not err:find("b.lua", 1, true) then
+	n = n + 1
+      end
+      found, err = package.searchpath("a", "?.lua\0?.txt")
+      if found == nil and err:find("a.lua", 1, true) and
+	 not err:find("a.txt", 1, true) then
+	n = n + 1
+      end
+      found, err = package.searchpath("a-b", "?.lua", "-", "/")
+      if found == nil and err:find("a/b.lua", 1, true) then n = n + 1 end
+      found, err = package.searchpath("x", "?.lua;?/init.lua")
+      if found == nil and err:find("x.lua", 1, true) and
+	 err:find("x/init.lua", 1, true) then
+	n = n + 1
+      end
     end
-    assert(n == 240)
+    assert(n == 640)
   end, "Lua 5.4 package.searchpath string coercion")
 
   local function result_count(...)

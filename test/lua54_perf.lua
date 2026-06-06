@@ -1341,6 +1341,32 @@ local function package_helpers(n)
     if found == nil and searcherr:find("1099511627776.lua", 1, true) then
       sum = sum + 1
     end
+
+    found, searcherr = package.searchpath("x", 123)
+    if found == nil and searcherr == "no file '123'" then sum = sum + 1 end
+
+    found, searcherr = package.searchpath("a\0b", "?.lua")
+    if found == nil and searcherr:find("a.lua", 1, true) and
+       not searcherr:find("b.lua", 1, true) then
+      sum = sum + 1
+    end
+
+    found, searcherr = package.searchpath("a", "?.lua\0?.txt")
+    if found == nil and searcherr:find("a.lua", 1, true) and
+       not searcherr:find("a.txt", 1, true) then
+      sum = sum + 1
+    end
+
+    found, searcherr = package.searchpath("a-b", "?.lua", "-", "/")
+    if found == nil and searcherr:find("a/b.lua", 1, true) then
+      sum = sum + 1
+    end
+
+    found, searcherr = package.searchpath("x", "?.lua;?/init.lua")
+    if found == nil and searcherr:find("x.lua", 1, true) and
+       searcherr:find("x/init.lua", 1, true) then
+      sum = sum + 1
+    end
   end
 
   package.loaded.__lua54_perf_loaded = nil
@@ -2837,7 +2863,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_package = timeit(mode_name..":package_helpers",
 			      package_helpers, iter_n)
-  assert(r_package == iter_n * 6)
+  assert(r_package == iter_n * 11)
 
   local _, r_debug = timeit(mode_name..":debug_helpers",
 			    debug_helpers, iter_n)
