@@ -83,6 +83,7 @@
    - 当前进展：C API smoke 已固定调用入口的线程状态边界；默认 ABI 和 Lua 5.4 wrapper 下对 suspended coroutine 再次执行 `lua_pcall()` 会返回 `LUA_ERRRUN` 与 `invalid value`，默认 ABI 的 `lua_cpcall()` 也覆盖同类边界，避免 release 构建继续进入 VM 调用路径。
    - 当前进展：C API smoke 已固定 pseudo-index 的当前帧边界；debug hook 等非 C 当前帧下访问 `lua_upvalueindex()` 会稳定报 `invalid value`，默认 ABI 的 `LUA_ENVIRONINDEX` 也覆盖同类边界，不再只依赖 debug-only `lj_checkapi`。
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.move()` 超大元素数量错误和接近 `math.maxinteger` 的边缘复制路径，固定移动范围检查与负目标下标复制不会发生整数回绕。
+   - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.move()` 普通 table 源 `__index` 读取和目标 `__newindex` 写入路径，固定 Lua 5.4 表库移动会经由元方法读写缺失整数 key。
 
 ## P0：核心语义缺口
 
@@ -921,6 +922,7 @@
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `table.unpack()` 对 `2^40` 级别宽整数范围的标准库冷边界，确认负向代理读取保持 integer 子类型、`math.maxinteger..math.mininteger` 空范围返回 0 项且超大结果数稳定报 `too many results to unpack`、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `table.insert()` / `table.remove()` 默认长度路径下带 `__len` 表和中间 nil 洞 list 的追加/移除标准库边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `table.move()` 超大元素数量错误和接近 `math.maxinteger` 的边缘复制标准库边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
+- `.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `table.move()` 普通 table 源 `__index` 读取和目标 `__newindex` 写入的标准库边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 
 ## 已确认不列入当前 TODO 的已实现项
 
