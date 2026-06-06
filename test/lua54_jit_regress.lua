@@ -3036,6 +3036,9 @@ do
 	return math.sqrt()
       end)
       local sqrt_string = math.sqrt("4")
+      local ok_deg_noarg, err_deg_noarg = pcall(function()
+	return math.deg()
+      end)
       local ok_modf_noarg, err_modf_noarg = pcall(function()
 	return math.modf()
       end)
@@ -3124,6 +3127,11 @@ do
 	n = n + 1
       end
       if sqrt_string == 2 then n = n + 1 end
+      if not ok_deg_noarg and
+	 err_deg_noarg:find("bad argument #1 to 'deg'", 1, true) and
+	 err_deg_noarg:find("number expected, got no value", 1, true) then
+	n = n + 1
+      end
       if not ok_modf_noarg and
 	 err_modf_noarg:find("bad argument #1 to 'modf'", 1, true) and
 	 err_modf_noarg:find("number expected, got no value", 1, true) then
@@ -3209,7 +3217,7 @@ do
       if utf8_len_empty == 0 then n = n + 1 end
       if utf8_offset_neg == 3 then n = n + 1 end
     end
-    assert(n == 2800)
+    assert(n == 2880)
   end, "Lua 5.4 mixed stdlib edge errors")
 end
 

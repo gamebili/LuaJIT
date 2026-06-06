@@ -628,6 +628,15 @@ local function stdlib_edge_helpers(n)
     end
     if math.sqrt("4") == 2 then sum = sum + 1 end
 
+    local ok_deg_noarg, err_deg_noarg = pcall(function()
+      return math.deg()
+    end)
+    if not ok_deg_noarg and
+       err_deg_noarg:find("bad argument #1 to 'deg'", 1, true) and
+       err_deg_noarg:find("number expected, got no value", 1, true) then
+      sum = sum + 1
+    end
+
     local ok_modf_noarg, err_modf_noarg = pcall(function()
       return math.modf()
     end)
@@ -2271,7 +2280,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_stdlib_edge = timeit(mode_name..":stdlib_edge_helpers",
 				  stdlib_edge_helpers, iter_n)
-  assert(r_stdlib_edge == iter_n * 43)
+  assert(r_stdlib_edge == iter_n * 44)
 
   local _, r_protected = timeit(mode_name..":protected_call_helpers",
 				protected_call_helpers, iter_n)
