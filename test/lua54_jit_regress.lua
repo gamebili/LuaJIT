@@ -3030,8 +3030,34 @@ do
       local ok_resume, err_resume = pcall(function()
 	return coroutine.resume(true)
       end)
+      local ok_abs_bad, err_abs_bad = pcall(function()
+	return math.abs(true)
+      end)
+      local ok_atan_noarg, err_atan_noarg = pcall(function()
+	return math.atan()
+      end)
+      local ok_ceil_bad, err_ceil_bad = pcall(function()
+	return math.ceil(true)
+      end)
       local log_nil = math.log(8, nil)
       local log_strbase = math.log(8, "2")
+      local ok_fmod_zero, err_fmod_zero = pcall(function()
+	return math.fmod(1, 0)
+      end)
+      local ok_log_badbase, err_log_badbase = pcall(function()
+	return math.log(1, true)
+      end)
+      local max_string = math.max("b", "a")
+      local ok_max_noarg, err_max_noarg = pcall(function()
+	return math.max()
+      end)
+      local min_string = math.min("b", "a")
+      local ok_min_mixed, err_min_mixed = pcall(function()
+	return math.min(1, "a")
+      end)
+      local ok_min_noarg, err_min_noarg = pcall(function()
+	return math.min()
+      end)
       local ok_sqrt_noarg, err_sqrt_noarg = pcall(function()
 	return math.sqrt()
       end)
@@ -3126,8 +3152,50 @@ do
 	 err_resume:find("thread expected, got boolean", 1, true) then
 	n = n + 1
       end
+      if not ok_abs_bad and
+	 err_abs_bad:find("bad argument #1 to 'abs'", 1, true) and
+	 err_abs_bad:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if not ok_atan_noarg and
+	 err_atan_noarg:find("bad argument #1 to 'atan'", 1, true) and
+	 err_atan_noarg:find("number expected, got no value", 1, true) then
+	n = n + 1
+      end
+      if not ok_ceil_bad and
+	 err_ceil_bad:find("bad argument #1 to 'ceil'", 1, true) and
+	 err_ceil_bad:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
       if math.abs(log_nil - math.log(8)) < 1e-12 then n = n + 1 end
       if math.abs(log_strbase - 3) < 1e-12 then n = n + 1 end
+      if not ok_fmod_zero and
+	 err_fmod_zero:find("bad argument #2 to 'fmod'", 1, true) and
+	 err_fmod_zero:find("zero", 1, true) then
+	n = n + 1
+      end
+      if not ok_log_badbase and
+	 err_log_badbase:find("bad argument #2 to 'log'", 1, true) and
+	 err_log_badbase:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if max_string == "b" then n = n + 1 end
+      if not ok_max_noarg and
+	 err_max_noarg:find("bad argument #1 to 'max'", 1, true) and
+	 err_max_noarg:find("value expected", 1, true) then
+	n = n + 1
+      end
+      if min_string == "a" then n = n + 1 end
+      if not ok_min_mixed and
+	 err_min_mixed:find("attempt to compare string with number",
+			    1, true) then
+	n = n + 1
+      end
+      if not ok_min_noarg and
+	 err_min_noarg:find("bad argument #1 to 'min'", 1, true) and
+	 err_min_noarg:find("value expected", 1, true) then
+	n = n + 1
+      end
       if not ok_sqrt_noarg and
 	 err_sqrt_noarg:find("bad argument #1 to 'sqrt'", 1, true) and
 	 err_sqrt_noarg:find("number expected, got no value", 1, true) then
@@ -3235,7 +3303,7 @@ do
       if utf8_len_empty == 0 then n = n + 1 end
       if utf8_offset_neg == 3 then n = n + 1 end
     end
-    assert(n == 3120)
+    assert(n == 3920)
   end, "Lua 5.4 mixed stdlib edge errors")
 end
 
