@@ -3209,6 +3209,15 @@ do
       local ok_custom_missing, err_custom_missing =
 	pcall(require, "__lua54_jit_missing_custom__")
       package.searchers = old_searchers_for_error
+      local old_searchers_for_ignored = package.searchers
+      package.searchers = {
+	function() return true end,
+	function() return {} end,
+	function() return "later missing" end
+      }
+      local ok_ignored_searcher, err_ignored_searcher =
+	pcall(require, "__lua54_jit_ignored_searcher__")
+      package.searchers = old_searchers_for_ignored
       if not ok_load_noarg and
 	 err_load_noarg:find("bad argument #1 to 'package.loadlib'",
 			     1, true) and
@@ -3237,8 +3246,14 @@ do
 	 err_custom_missing:find("\n\tcustom missing", 1, true) then
 	n = n + 1
       end
+      if not ok_ignored_searcher and
+	 err_ignored_searcher:find(
+	   "module '__lua54_jit_ignored_searcher__' not found:", 1, true) and
+	 err_ignored_searcher:find("\n\tlater missing", 1, true) then
+	n = n + 1
+      end
     end
-    assert(n == 1040)
+    assert(n == 1120)
   end, "Lua 5.4 package path and loadlib edges")
 
   local function result_count(...)

@@ -1400,6 +1400,22 @@ local function package_helpers(n)
       sum = sum + 1
     end
 
+    local old_searchers_for_ignored = package.searchers
+    package.searchers = {
+      function() return true end,
+      function() return {} end,
+      function() return "later missing" end
+    }
+    local ok_ignored_searcher, err_ignored_searcher =
+      pcall(require, "__lua54_perf_ignored_searcher__")
+    package.searchers = old_searchers_for_ignored
+    if not ok_ignored_searcher and
+       err_ignored_searcher:find(
+	 "module '__lua54_perf_ignored_searcher__' not found:", 1, true) and
+       err_ignored_searcher:find("\n\tlater missing", 1, true) then
+      sum = sum + 1
+    end
+
     local nil_loaded, nil_data = require("__lua54_perf_nil")
     if nil_loaded == true and (nil_data == nil or nil_data == ":preload:") then
       sum = sum + 1
@@ -2990,7 +3006,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_package = timeit(mode_name..":package_helpers",
 			      package_helpers, iter_n)
-  assert(r_package == iter_n * 22)
+  assert(r_package == iter_n * 23)
 
   local _, r_debug = timeit(mode_name..":debug_helpers",
 			    debug_helpers, iter_n)
