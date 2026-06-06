@@ -1457,6 +1457,33 @@ int main(void)
 
   {
     luaL_Buffer b;
+    char *p;
+    luaL_buffinit(L, &b);
+    p = luaL_prepbuffer(&b);
+    memcpy(p, "abc", 3);
+    luaL_addsize(&b, 3);
+    check(L, luaL_bufflen(&b) == 3, "luaL_bufflen default macro");
+    check(L, memcmp(luaL_buffaddr(&b), "abc", 3) == 0,
+	  "luaL_buffaddr default macro");
+    luaL_buffsub(&b, 1);
+    check(L, luaL_bufflen(&b) == 2, "luaL_buffsub default macro");
+    luaL_addchar(&b, 'd');
+    luaL_addlstring(&b, "ef", 2);
+    luaL_addstring(&b, "g");
+    lua_pushinteger(L, 51);
+    luaL_addvalue(&b);
+    luaL_pushresult(&b);
+    check(L, strcmp(lua_tostring(L, -1), "abdefg51") == 0,
+	  "luaL_Buffer default compatibility macros");
+    lua_pop(L, 1);
+
+    luaL_buffinitsize(L, &b, 4);
+    memcpy(luaL_buffaddr(&b), "xy", 2);
+    luaL_pushresultsize(&b, 2);
+    check(L, strcmp(lua_tostring(L, -1), "xy") == 0,
+	  "luaL_buffinitsize/luaL_pushresultsize default macros");
+    lua_pop(L, 1);
+
     luaL_buffinit(L, &b);
     luaL_putchar(&b, '5');
     luaL_putchar(&b, '1');

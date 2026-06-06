@@ -446,6 +446,7 @@
   - 需要补测试：更完整 ABI 兼容测试，以及更多旧 LuaJIT API 在默认构建下不受影响的覆盖。
   - 当前进展：默认 LuaJIT 5.1 C API smoke 已继续补旧 ABI 覆盖：`lua_cpcall`、`lua_setfenv`、`lua_setlevel`、`lua_equal`、`lua_lessthan`、Lua 函数 environment、`luaL_ref` / `luaL_unref` 的 key 0 freelist 行为、`luaL_loadstring`、`luaL_loadfile`、`luaL_loadbuffer`、`luaL_dofile` / `luaL_dostring`、`luaL_checkint` / `luaL_checklong` / `luaL_optint` / `luaL_optlong`、`luaL_getmetafield` / `luaL_callmeta`、`luaL_newmetatable` / `luaL_checkudata`、`luaopen_string_buffer` 和 LuaJIT-only `lua_loadx` 均在默认构建下编译/运行验证，防止 Lua 5.4 外部头收紧时误伤默认 ABI。
   - 当前进展：默认 LuaJIT 5.1 C API smoke 已继续补 `luaL_gsub()` 普通替换、无匹配和非重叠替换，以及 `luaL_where()` 压栈字符串行为，固定这些旧 lauxlib 表面在默认构建下仍可编译/链接/运行。
+  - 当前进展：默认 LuaJIT 5.1 C API smoke 已继续补旧 `luaL_Buffer` 宏表面，覆盖 `luaL_prepbuffer()`、`luaL_addsize()`、`luaL_buffaddr()`、`luaL_bufflen()`、`luaL_buffsub()`、`luaL_addlstring()`、`luaL_addstring()`、`luaL_addvalue()`、`luaL_buffinitsize()` 和 `luaL_pushresultsize()` 在默认构建下仍保持可编译、可链接、可运行。
   - 当前进展：默认 LuaJIT 5.1 `lua_getfenv()` / `lua_setfenv()` 的非法目标索引已从 debug-only stack slot 检查收敛为 release 可见 `invalid value`，同时保留合法非 env 对象返回 nil/0 的旧表面。
   - 当前进展：默认 LuaJIT 5.1 `lua_upvalueid()` 已补 Lua/C closure 的合法 id 查询和非法 upvalue 编号返回 `NULL` 的 smoke，避免 release 构建下越界取 upvalue 指针或依赖 debug-only `lj_checkapi`。
 
