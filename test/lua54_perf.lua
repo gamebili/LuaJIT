@@ -1385,6 +1385,21 @@ local function package_helpers(n)
       sum = sum + 1
     end
 
+    local old_searchers_for_error = package.searchers
+    package.searchers = {
+      function() return "custom missing" end,
+      function() return nil end
+    }
+    local ok_custom_missing, err_custom_missing =
+      pcall(require, "__lua54_perf_missing_custom__")
+    package.searchers = old_searchers_for_error
+    if not ok_custom_missing and
+       err_custom_missing:find(
+	 "module '__lua54_perf_missing_custom__' not found:", 1, true) and
+       err_custom_missing:find("\n\tcustom missing", 1, true) then
+      sum = sum + 1
+    end
+
     local nil_loaded, nil_data = require("__lua54_perf_nil")
     if nil_loaded == true and (nil_data == nil or nil_data == ":preload:") then
       sum = sum + 1
@@ -2975,7 +2990,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_package = timeit(mode_name..":package_helpers",
 			      package_helpers, iter_n)
-  assert(r_package == iter_n * 21)
+  assert(r_package == iter_n * 22)
 
   local _, r_debug = timeit(mode_name..":debug_helpers",
 			    debug_helpers, iter_n)

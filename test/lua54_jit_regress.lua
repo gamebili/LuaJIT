@@ -3201,6 +3201,14 @@ do
       local ok_searchers, err_searchers =
 	pcall(require, "__lua54_jit_bad_searchers__")
       package.searchers = old_searchers
+      local old_searchers_for_error = package.searchers
+      package.searchers = {
+	function() return "custom missing" end,
+	function() return nil end
+      }
+      local ok_custom_missing, err_custom_missing =
+	pcall(require, "__lua54_jit_missing_custom__")
+      package.searchers = old_searchers_for_error
       if not ok_load_noarg and
 	 err_load_noarg:find("bad argument #1 to 'package.loadlib'",
 			     1, true) and
@@ -3223,8 +3231,14 @@ do
 	 err_searchers == "'package.searchers' must be a table" then
 	n = n + 1
       end
+      if not ok_custom_missing and
+	 err_custom_missing:find(
+	   "module '__lua54_jit_missing_custom__' not found:", 1, true) and
+	 err_custom_missing:find("\n\tcustom missing", 1, true) then
+	n = n + 1
+      end
     end
-    assert(n == 960)
+    assert(n == 1040)
   end, "Lua 5.4 package path and loadlib edges")
 
   local function result_count(...)
