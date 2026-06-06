@@ -1313,6 +1313,9 @@ local function package_helpers(n)
     return { name = modname }
   end
 
+  local custom_searcher_count = 0
+  local custom_loader_count = 0
+
   local nil_loader_count = 0
   package.loaded.__lua54_perf_nil = nil
   package.preload.__lua54_perf_nil = function()
@@ -1358,6 +1361,27 @@ local function package_helpers(n)
        value_loaded.name == "__lua54_perf_value" and
        value_data == ":preload:" and
        package.loaded.__lua54_perf_value == value_loaded then
+      sum = sum + 1
+    end
+
+    package.loaded.__lua54_perf_custom = nil
+    local old_searchers_for_custom = package.searchers
+    package.searchers = {
+      function(modname)
+	custom_searcher_count = custom_searcher_count + 1
+	return function(loader_name, loader_data)
+	  custom_loader_count = custom_loader_count + 1
+	  return { name = loader_name, data = loader_data }
+	end, "custom-data"
+      end
+    }
+    local custom_loaded, custom_data = require("__lua54_perf_custom")
+    package.searchers = old_searchers_for_custom
+    if type(custom_loaded) == "table" and
+       custom_loaded.name == "__lua54_perf_custom" and
+       custom_loaded.data == "custom-data" and
+       custom_data == "custom-data" and
+       package.loaded.__lua54_perf_custom == custom_loaded then
       sum = sum + 1
     end
 
@@ -1453,12 +1477,15 @@ local function package_helpers(n)
   package.preload.__lua54_perf_false = nil
   package.loaded.__lua54_perf_value = nil
   package.preload.__lua54_perf_value = nil
+  package.loaded.__lua54_perf_custom = nil
   package.loaded.__lua54_perf_nil = nil
   package.preload.__lua54_perf_nil = nil
   package.preload.__lua54_perf_err = nil
   assert(nil_loader_count == 1)
   assert(false_loader_count == n)
   assert(value_loader_count == n)
+  assert(custom_searcher_count == n)
+  assert(custom_loader_count == n)
   return sum
 end
 
@@ -2948,7 +2975,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_package = timeit(mode_name..":package_helpers",
 			      package_helpers, iter_n)
-  assert(r_package == iter_n * 20)
+  assert(r_package == iter_n * 21)
 
   local _, r_debug = timeit(mode_name..":debug_helpers",
 			    debug_helpers, iter_n)
