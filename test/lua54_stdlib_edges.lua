@@ -640,6 +640,7 @@ local cases = {
   { "table.sort.lenmeta", "local t = setmetatable({ 3, 2, 1 }, { __len = function() return 2 end }); table.sort(t); return t[1], t[2], t[3]", ok = { "number:2", "number:3", "number:1" } },
   { "table.sort.tablemeta", "local reads, writes, base = 0, 0, { 3, 2, 1 }; local proxy = setmetatable({}, { __len = function() return 3 end, __index = function(_, k) reads = reads + 1; return base[k] end, __newindex = function(_, k, v) writes = writes + 1; base[k] = v end }); table.sort(proxy); return base[1], base[2], base[3], reads > 0, writes > 0", ok = { "number:1", "number:2", "number:3", "boolean:true", "boolean:true" } },
   { "table.sort.arraybig", "local huge = setmetatable({}, { __len = function() return math.maxinteger end }); return table.sort(huge)", err = "bad argument #1 to 'sort' (array too big)" },
+  { "table.sort.arraybig.alias", "local huge = setmetatable({}, { __len = function() return math.maxinteger end }); local s = table.sort; return s(huge)", err = "bad argument #1 to 's' (array too big)" },
   { "table.sort.compeq", "local t = { 1, 1 }; return table.sort(t, function(a, b) return a <= b end)", ok = {} },
   { "table.sort.badorder.le", "return table.sort({ 3, 2, 1, 0 }, function(a, b) return a <= b end)", err = "invalid order function for sorting" },
   { "table.sort.badorder.ge", "return table.sort({ 1, 2, 3, 4 }, function(a, b) return a >= b end)", err = "invalid order function for sorting" },
