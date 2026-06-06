@@ -91,17 +91,37 @@ function Get-DetectedLogicalProcessorCount {
   return $threads
 }
 
+function Get-PerfMakeJobCount {
+  param([int]$LogicalProcessors)
+  $jobs = $LogicalProcessors + [int][Math]::Floor(($LogicalProcessors + 1) / 2)
+  if ($jobs -lt 1) {
+    $jobs = 1
+  }
+  return $jobs
+}
+
 function Get-MakeJobCount {
-  $jobs = Get-DetectedLogicalProcessorCount
+  $logical = Get-DetectedLogicalProcessorCount
+  $jobs = Get-PerfMakeJobCount $logical
   if ($env:BUILD_JOBS) {
-    if ($env:BUILD_JOBS -notmatch '^\d+$') {
-      throw "BUILD_JOBS must be a positive integer: $env:BUILD_JOBS"
+    if ($env:BUILD_JOBS -eq "auto" -or $env:BUILD_JOBS -eq "perf") {
+      $jobs = Get-PerfMakeJobCount $logical
+    } elseif ($env:BUILD_JOBS -eq "logical") {
+      $jobs = $logical
+    } elseif ($env:BUILD_JOBS -eq "max") {
+      $jobs = $logical * 2
+    } elseif ($env:BUILD_JOBS -match '^\d+$') {
+      $requested = [int]$env:BUILD_JOBS
+      if ($requested -lt 1) {
+        $requested = 1
+      }
+      $jobs = $requested
+    } else {
+      throw "BUILD_JOBS must be a positive integer, auto, perf, max, or logical: $env:BUILD_JOBS"
     }
-    $requested = [int]$env:BUILD_JOBS
-    if ($requested -lt 1) {
-      $requested = 1
-    }
-    $jobs = $requested
+  }
+  if ($jobs -lt 1) {
+    $jobs = 1
   }
   return $jobs
 }
