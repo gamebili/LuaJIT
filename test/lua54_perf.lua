@@ -613,12 +613,37 @@ local function stdlib_edge_helpers(n)
       sum = sum + 1
     end
 
+    local ok_abs_noarg, err_abs_noarg = pcall(function()
+      return math.abs()
+    end)
+    if not ok_abs_noarg and
+       err_abs_noarg:find("bad argument #1 to 'abs'", 1, true) and
+       err_abs_noarg:find("number expected, got no value", 1, true) then
+      sum = sum + 1
+    end
     local ok_abs_bad, err_abs_bad = pcall(function()
       return math.abs(true)
     end)
     if not ok_abs_bad and
        err_abs_bad:find("bad argument #1 to 'abs'", 1, true) and
        err_abs_bad:find("number expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+    local abs_string = math.abs("-5")
+    if abs_string == 5.0 and math.type(abs_string) == "float" then
+      sum = sum + 1
+    end
+    local abs_strfloat = math.abs("-5.0")
+    if abs_strfloat == 5.0 and math.type(abs_strfloat) == "float" then
+      sum = sum + 1
+    end
+    local abs_negzero = math.abs(-0.0)
+    if abs_negzero == 0.0 and math.type(abs_negzero) == "float" then
+      sum = sum + 1
+    end
+    local abs_mininteger = math.abs(math.mininteger)
+    if abs_mininteger == math.mininteger and
+       math.type(abs_mininteger) == "integer" then
       sum = sum + 1
     end
 
@@ -2703,7 +2728,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_stdlib_edge = timeit(mode_name..":stdlib_edge_helpers",
 				  stdlib_edge_helpers, iter_n)
-  assert(r_stdlib_edge == iter_n * 91)
+  assert(r_stdlib_edge == iter_n * 96)
 
   local _, r_protected = timeit(mode_name..":protected_call_helpers",
 				protected_call_helpers, iter_n)

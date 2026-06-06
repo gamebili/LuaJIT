@@ -3148,9 +3148,16 @@ do
       local ok_resume, err_resume = pcall(function()
 	return coroutine.resume(true)
       end)
+      local ok_abs_noarg, err_abs_noarg = pcall(function()
+	return math.abs()
+      end)
       local ok_abs_bad, err_abs_bad = pcall(function()
 	return math.abs(true)
       end)
+      local abs_string = math.abs("-5")
+      local abs_strfloat = math.abs("-5.0")
+      local abs_negzero = math.abs(-0.0)
+      local abs_mininteger = math.abs(math.mininteger)
       local ok_asin_noarg, err_asin_noarg = pcall(function()
 	return math.asin()
       end)
@@ -3340,9 +3347,27 @@ do
 	 err_resume:find("thread expected, got boolean", 1, true) then
 	n = n + 1
       end
+      if not ok_abs_noarg and
+	 err_abs_noarg:find("bad argument #1 to 'abs'", 1, true) and
+	 err_abs_noarg:find("number expected, got no value", 1, true) then
+	n = n + 1
+      end
       if not ok_abs_bad and
 	 err_abs_bad:find("bad argument #1 to 'abs'", 1, true) and
 	 err_abs_bad:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if abs_string == 5.0 and math.type(abs_string) == "float" then
+	n = n + 1
+      end
+      if abs_strfloat == 5.0 and math.type(abs_strfloat) == "float" then
+	n = n + 1
+      end
+      if abs_negzero == 0.0 and math.type(abs_negzero) == "float" then
+	n = n + 1
+      end
+      if abs_mininteger == math.mininteger and
+	 math.type(abs_mininteger) == "integer" then
 	n = n + 1
       end
       if not ok_asin_noarg and
@@ -3636,7 +3661,7 @@ do
       if utf8_len_empty == 0 then n = n + 1 end
       if utf8_offset_neg == 3 then n = n + 1 end
     end
-    assert(n == 6640)
+    assert(n == 7040)
   end, "Lua 5.4 mixed stdlib edge errors")
 end
 

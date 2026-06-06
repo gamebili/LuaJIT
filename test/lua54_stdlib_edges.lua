@@ -244,7 +244,12 @@ local cases = {
   { "io.setvbuf.dot.badsize", "local f = assert(io.tmpfile()); return f.setvbuf(f, 'full', {})", err = "bad argument #3 to 'setvbuf' (number expected, got table)" },
   { "io.setvbuf.alias.badsize", "local f = assert(io.tmpfile()); local s = f.setvbuf; return s(f, 'full', {})", err = "bad argument #3 to 's' (number expected, got table)" },
 
+  { "math.abs.noarg", "return math.abs()", err = "bad argument #1 to 'abs' (number expected, got no value)" },
   { "math.abs.bad", "return math.abs(true)", err = "bad argument #1 to 'abs' (number expected, got boolean)" },
+  { "math.abs.string", "return math.type(math.abs('-5')), math.abs('-5')", ok = { "string:float", "number:5.0" } },
+  { "math.abs.strfloat", "return math.type(math.abs('-5.0')), math.abs('-5.0')", ok = { "string:float", "number:5.0" } },
+  { "math.abs.negzero", "return math.type(math.abs(-0.0)), math.abs(-0.0)", ok = { "string:float", "number:0.0" } },
+  { "math.abs.mininteger", "return math.type(math.abs(math.mininteger)), math.abs(math.mininteger) == math.mininteger", ok = { "string:integer", "boolean:true" } },
   { "math.asin.noarg", "return math.asin()", err = "bad argument #1 to 'asin' (number expected, got no value)" },
   { "math.asin.string", "return math.asin('0')", ok = { "number:0.0" } },
   { "math.acos.bad", "return math.acos(true)", err = "bad argument #1 to 'acos' (number expected, got boolean)" },
