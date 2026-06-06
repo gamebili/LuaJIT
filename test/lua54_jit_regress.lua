@@ -782,10 +782,76 @@ do
   assert_records_trace(function()
     local n = 0
     for _ = 1, 80 do
-      local ok, err = pcall(math.random, 10, 5)
-      if not ok and err:find("interval is empty", 1, true) then n = n + 1 end
+      local ok_frac, err_frac = pcall(function()
+	return math.random(1.2)
+      end)
+      local str_one = math.random("1", "1")
+      local ok_bad3, err_bad3 = pcall(function()
+	return math.random(1, 2, 3)
+      end)
+      local zero_one = math.random(0, 0)
+      local ok_empty, err_empty = pcall(function()
+	return math.random(1, 0)
+      end)
+      local ok_badarg, err_badarg = pcall(function()
+	return math.random(true)
+      end)
+      local ok_seed_bad, err_seed_bad = pcall(function()
+	return math.randomseed(true)
+      end)
+      local ok_seed_frac1, err_seed_frac1 = pcall(function()
+	return math.randomseed(1.2)
+      end)
+      local ok_seed_frac2, err_seed_frac2 = pcall(function()
+	return math.randomseed(1, 2.2)
+      end)
+      local seed1, seed2 = math.randomseed("1", "2")
+      if not ok_frac and
+	 err_frac:find("bad argument #1 to 'random'", 1, true) and
+	 err_frac:find("integer representation", 1, true) then
+	n = n + 1
+      end
+      if str_one == 1 and math.type(str_one) == "integer" then n = n + 1 end
+      if not ok_bad3 and
+	 err_bad3:find("wrong number of arguments", 1, true) then
+	n = n + 1
+      end
+      if zero_one == 0 and math.type(zero_one) == "integer" then
+	n = n + 1
+      end
+      if not ok_empty and
+	 err_empty:find("bad argument #1 to 'random'", 1, true) and
+	 err_empty:find("interval is empty", 1, true) then
+	n = n + 1
+      end
+      if not ok_badarg and
+	 err_badarg:find("bad argument #1 to 'random'", 1, true) and
+	 err_badarg:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if not ok_seed_bad and
+	 err_seed_bad:find("bad argument #1 to 'randomseed'", 1, true) and
+	 err_seed_bad:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if not ok_seed_frac1 and
+	 err_seed_frac1:find("bad argument #1 to 'randomseed'",
+			     1, true) and
+	 err_seed_frac1:find("integer representation", 1, true) then
+	n = n + 1
+      end
+      if not ok_seed_frac2 and
+	 err_seed_frac2:find("bad argument #2 to 'randomseed'",
+			     1, true) and
+	 err_seed_frac2:find("integer representation", 1, true) then
+	n = n + 1
+      end
+      if seed1 == 1 and seed2 == 2 and math.type(seed1) == "integer" and
+	 math.type(seed2) == "integer" then
+	n = n + 1
+      end
     end
-    assert(n == 80)
+    assert(n == 800)
   end, "Lua 5.4 math.random error")
   collectgarbage("collect")
 end

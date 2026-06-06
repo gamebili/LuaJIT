@@ -1787,6 +1787,73 @@ local function random_helpers(n)
        dyn_one_s >= 1 and dyn_one_s <= _ then
       sum = sum + 1
     end
+    local ok_frac, err_frac = pcall(function()
+      return math.random(1.2)
+    end)
+    if not ok_frac and
+       err_frac:find("bad argument #1 to 'random'", 1, true) and
+       err_frac:find("integer representation", 1, true) then
+      sum = sum + 1
+    end
+    local str_one = math.random("1", "1")
+    if str_one == 1 and math.type(str_one) == "integer" then sum = sum + 1 end
+    local ok_bad3, err_bad3 = pcall(function()
+      return math.random(1, 2, 3)
+    end)
+    if not ok_bad3 and
+       err_bad3:find("wrong number of arguments", 1, true) then
+      sum = sum + 1
+    end
+    local zero_one = math.random(0, 0)
+    if zero_one == 0 and math.type(zero_one) == "integer" then
+      sum = sum + 1
+    end
+    local ok_empty, err_empty = pcall(function()
+      return math.random(1, 0)
+    end)
+    if not ok_empty and
+       err_empty:find("bad argument #1 to 'random'", 1, true) and
+       err_empty:find("interval is empty", 1, true) then
+      sum = sum + 1
+    end
+    local ok_badarg, err_badarg = pcall(function()
+      return math.random(true)
+    end)
+    if not ok_badarg and
+       err_badarg:find("bad argument #1 to 'random'", 1, true) and
+       err_badarg:find("number expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+    local ok_seed_bad, err_seed_bad = pcall(function()
+      return math.randomseed(true)
+    end)
+    if not ok_seed_bad and
+       err_seed_bad:find("bad argument #1 to 'randomseed'", 1, true) and
+       err_seed_bad:find("number expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+    local ok_seed_frac1, err_seed_frac1 = pcall(function()
+      return math.randomseed(1.2)
+    end)
+    if not ok_seed_frac1 and
+       err_seed_frac1:find("bad argument #1 to 'randomseed'", 1, true) and
+       err_seed_frac1:find("integer representation", 1, true) then
+      sum = sum + 1
+    end
+    local ok_seed_frac2, err_seed_frac2 = pcall(function()
+      return math.randomseed(1, 2.2)
+    end)
+    if not ok_seed_frac2 and
+       err_seed_frac2:find("bad argument #2 to 'randomseed'", 1, true) and
+       err_seed_frac2:find("integer representation", 1, true) then
+      sum = sum + 1
+    end
+    local seed1_loop, seed2_loop = math.randomseed("1", "2")
+    if seed1_loop == 1 and seed2_loop == 2 and
+       math.type(seed1_loop) == "integer" and
+       math.type(seed2_loop) == "integer" then
+      sum = sum + 1
+    end
   end
   return sum
 end
@@ -2418,7 +2485,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_random = timeit(mode_name..":random_helpers",
 			     random_helpers, iter_n)
-  assert(r_random == iter_n * 8 + 1)
+  assert(r_random == iter_n * 18 + 1)
 
   local _, r_string_order = timeit(mode_name..":string_order_helpers",
 				   string_order_helpers, iter_n)
