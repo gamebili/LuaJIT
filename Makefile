@@ -328,6 +328,42 @@ LUA54_CAPI_PARALLEL_TARGETS= \
 	lua54-capi-lauxlib-macroonly-reject \
 	lua54-capi-lualib-extra-reject
 
+LUA54_CAPI_INTCASTS_MACROONLY_REJECT_SYMS= \
+	PUSHUNSIGNED TOUNSIGNEDX TOUNSIGNED CHECKUNSIGNED OPTUNSIGNED \
+	CHECKINT OPTINT CHECKLONG OPTLONG
+LUA54_CAPI_CALL_MACROONLY_REJECT_SYMS= \
+	CALL PCALL YIELD
+LUA54_CAPI_MACROONLY_REJECT_SYMS= \
+	GETEXTRASPACE UPVALUEINDEX TONUMBER TOINTEGER NUMBERTOINTEGER \
+	PUSHGLOBALTABLE INSERT REMOVE REPLACE NEWUSERDATA GETUSERVALUE \
+	SETUSERVALUE POP NEWTABLE REGISTER PUSHCFUNCTION PUSHLITERAL TOSTRING \
+	ISFUNCTION ISTABLE ISLIGHTUSERDATA ISNIL ISBOOLEAN ISTHREAD ISNONE \
+	ISNONEORNIL
+LUA54_CAPI_LAUXLIB_MACROONLY_REJECT_SYMS= \
+	PREPBUFFER ADDCHAR ADDSIZE BUFFADDR BUFFLEN BUFFSUB ARGCHECK \
+	ARGEXPECTED PUSHFAIL CHECKSTRING OPTSTRING TYPENAME LOADFILE LOADBUFFER \
+	DOFILE DOSTRING GETMETATABLE OPT CHECKVERSION INTOP NEWLIBTABLE NEWLIB \
+	WRITESTRING WRITELINE WRITESTRINGERROR ASSERT
+LUA54_CAPI_LUALIB_EXTRA_REJECT_SYMS= \
+	BIT BASE54 JIT FFI STRING_BUFFER
+
+LUA54_CAPI_INTCASTS_MACROONLY_REJECT_TARGETS= \
+	$(addprefix lua54-capi-intcasts-macroonly-reject-,$(LUA54_CAPI_INTCASTS_MACROONLY_REJECT_SYMS))
+LUA54_CAPI_CALL_MACROONLY_REJECT_TARGETS= \
+	$(addprefix lua54-capi-call-macroonly-reject-,$(LUA54_CAPI_CALL_MACROONLY_REJECT_SYMS))
+LUA54_CAPI_MACROONLY_REJECT_TARGETS= \
+	$(addprefix lua54-capi-macroonly-reject-,$(LUA54_CAPI_MACROONLY_REJECT_SYMS))
+LUA54_CAPI_LAUXLIB_MACROONLY_REJECT_TARGETS= \
+	$(addprefix lua54-capi-lauxlib-macroonly-reject-,$(LUA54_CAPI_LAUXLIB_MACROONLY_REJECT_SYMS))
+LUA54_CAPI_LUALIB_EXTRA_REJECT_TARGETS= \
+	$(addprefix lua54-capi-lualib-extra-reject-,$(LUA54_CAPI_LUALIB_EXTRA_REJECT_SYMS))
+LUA54_CAPI_SYMBOL_REJECT_TARGETS= \
+	$(LUA54_CAPI_INTCASTS_MACROONLY_REJECT_TARGETS) \
+	$(LUA54_CAPI_CALL_MACROONLY_REJECT_TARGETS) \
+	$(LUA54_CAPI_MACROONLY_REJECT_TARGETS) \
+	$(LUA54_CAPI_LAUXLIB_MACROONLY_REJECT_TARGETS) \
+	$(LUA54_CAPI_LUALIB_EXTRA_REJECT_TARGETS)
+
 run-capi-lua54compat-tests: $(LUA54_CAPI_PARALLEL_TARGETS)
 
 run-lua54compat-and-capi-tests: run-lua54compat-tests run-capi-lua54compat-tests
@@ -406,8 +442,10 @@ lua54-capi-compat53-smoke:
 lua54-capi-intcasts-reject:
 	@if gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -Werror=implicit-function-declaration -I src -c test/lua54_capi_intcasts_reject.c -o src/lua54_capi_intcasts_reject.o 2>src/lua54_capi_intcasts_reject.err; then echo "deprecated intcast macros unexpectedly visible without LUA_COMPAT_APIINTCASTS"; rm -f src/lua54_capi_intcasts_reject.o src/lua54_capi_intcasts_reject.err; exit 1; else grep -E "luaL_(checkint|optint|checklong|optlong|checkunsigned|optunsigned)|lua_(pushunsigned|tounsignedx|tounsigned)" src/lua54_capi_intcasts_reject.err >/dev/null; rm -f src/lua54_capi_intcasts_reject.o src/lua54_capi_intcasts_reject.err; fi
 
-lua54-capi-intcasts-macroonly-reject:
-	@for sym in PUSHUNSIGNED TOUNSIGNEDX TOUNSIGNED CHECKUNSIGNED OPTUNSIGNED CHECKINT OPTINT CHECKLONG OPTLONG; do if gcc -DLUAJIT_ENABLE_LUA54COMPAT -DLUA_COMPAT_APIINTCASTS -DLUA54_REJECT_$$sym -std=c99 -I src -c test/lua54_capi_intcasts_macroonly_reject.c -o src/lua54_capi_intcasts_macroonly_reject.o 2>src/lua54_capi_intcasts_macroonly_reject.err; then echo "LUA_COMPAT_APIINTCASTS macro-only API $$sym unexpectedly has a function address"; rm -f src/lua54_capi_intcasts_macroonly_reject.o src/lua54_capi_intcasts_macroonly_reject.err; exit 1; else grep -E "luaL_|lua_" src/lua54_capi_intcasts_macroonly_reject.err >/dev/null; rm -f src/lua54_capi_intcasts_macroonly_reject.o src/lua54_capi_intcasts_macroonly_reject.err; fi; done
+lua54-capi-intcasts-macroonly-reject: $(LUA54_CAPI_INTCASTS_MACROONLY_REJECT_TARGETS)
+
+lua54-capi-intcasts-macroonly-reject-%:
+	@if gcc -DLUAJIT_ENABLE_LUA54COMPAT -DLUA_COMPAT_APIINTCASTS -DLUA54_REJECT_$* -std=c99 -I src -c test/lua54_capi_intcasts_macroonly_reject.c -o src/lua54_capi_intcasts_macroonly_reject_$*.o 2>src/lua54_capi_intcasts_macroonly_reject_$*.err; then echo "LUA_COMPAT_APIINTCASTS macro-only API $* unexpectedly has a function address"; rm -f src/lua54_capi_intcasts_macroonly_reject_$*.o src/lua54_capi_intcasts_macroonly_reject_$*.err; exit 1; else grep -E "luaL_|lua_" src/lua54_capi_intcasts_macroonly_reject_$*.err >/dev/null; status=$$?; rm -f src/lua54_capi_intcasts_macroonly_reject_$*.o src/lua54_capi_intcasts_macroonly_reject_$*.err; exit $$status; fi
 
 lua54-capi-legacy-reject:
 	@if gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -Werror=implicit-function-declaration -I src -c test/lua54_capi_legacy_reject.c -o src/lua54_capi_legacy_reject.o 2>src/lua54_capi_legacy_reject.err; then echo "legacy lauxlib API unexpectedly visible in Lua 5.4 headers"; rm -f src/lua54_capi_legacy_reject.o src/lua54_capi_legacy_reject.err; exit 1; else grep -E "luaL_(openlib|register|pushmodule)" src/lua54_capi_legacy_reject.err >/dev/null; rm -f src/lua54_capi_legacy_reject.o src/lua54_capi_legacy_reject.err; fi
@@ -430,17 +468,25 @@ lua54-capi-putchar-reject:
 lua54-capi-setlevel-reject:
 	@if gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -Werror=implicit-function-declaration -I src -c test/lua54_capi_setlevel_reject.c -o src/lua54_capi_setlevel_reject.o 2>src/lua54_capi_setlevel_reject.err; then echo "lua_setlevel unexpectedly visible in Lua 5.4 headers"; rm -f src/lua54_capi_setlevel_reject.o src/lua54_capi_setlevel_reject.err; exit 1; else grep "lua_setlevel" src/lua54_capi_setlevel_reject.err >/dev/null; rm -f src/lua54_capi_setlevel_reject.o src/lua54_capi_setlevel_reject.err; fi
 
-lua54-capi-call-macroonly-reject:
-	@for sym in CALL PCALL YIELD; do if gcc -DLUAJIT_ENABLE_LUA54COMPAT -DLUA54_REJECT_$$sym -std=c99 -I src -c test/lua54_capi_call_macroonly_reject.c -o src/lua54_capi_call_macroonly_reject.o 2>src/lua54_capi_call_macroonly_reject.err; then echo "Lua 5.4 macro-only call API $$sym unexpectedly has a function address"; rm -f src/lua54_capi_call_macroonly_reject.o src/lua54_capi_call_macroonly_reject.err; exit 1; else grep "lua_" src/lua54_capi_call_macroonly_reject.err >/dev/null; rm -f src/lua54_capi_call_macroonly_reject.o src/lua54_capi_call_macroonly_reject.err; fi; done
+lua54-capi-call-macroonly-reject: $(LUA54_CAPI_CALL_MACROONLY_REJECT_TARGETS)
 
-lua54-capi-macroonly-reject:
-	@for sym in GETEXTRASPACE UPVALUEINDEX TONUMBER TOINTEGER NUMBERTOINTEGER PUSHGLOBALTABLE INSERT REMOVE REPLACE NEWUSERDATA GETUSERVALUE SETUSERVALUE POP NEWTABLE REGISTER PUSHCFUNCTION PUSHLITERAL TOSTRING ISFUNCTION ISTABLE ISLIGHTUSERDATA ISNIL ISBOOLEAN ISTHREAD ISNONE ISNONEORNIL; do if gcc -DLUAJIT_ENABLE_LUA54COMPAT -DLUA54_REJECT_$$sym -std=c99 -I src -c test/lua54_capi_macroonly_reject.c -o src/lua54_capi_macroonly_reject.o 2>src/lua54_capi_macroonly_reject.err; then echo "Lua 5.4 macro-only API $$sym unexpectedly has a function address"; rm -f src/lua54_capi_macroonly_reject.o src/lua54_capi_macroonly_reject.err; exit 1; else grep "lua_" src/lua54_capi_macroonly_reject.err >/dev/null; rm -f src/lua54_capi_macroonly_reject.o src/lua54_capi_macroonly_reject.err; fi; done
+lua54-capi-call-macroonly-reject-%:
+	@if gcc -DLUAJIT_ENABLE_LUA54COMPAT -DLUA54_REJECT_$* -std=c99 -I src -c test/lua54_capi_call_macroonly_reject.c -o src/lua54_capi_call_macroonly_reject_$*.o 2>src/lua54_capi_call_macroonly_reject_$*.err; then echo "Lua 5.4 macro-only call API $* unexpectedly has a function address"; rm -f src/lua54_capi_call_macroonly_reject_$*.o src/lua54_capi_call_macroonly_reject_$*.err; exit 1; else grep "lua_" src/lua54_capi_call_macroonly_reject_$*.err >/dev/null; status=$$?; rm -f src/lua54_capi_call_macroonly_reject_$*.o src/lua54_capi_call_macroonly_reject_$*.err; exit $$status; fi
 
-lua54-capi-lauxlib-macroonly-reject:
-	@for sym in PREPBUFFER ADDCHAR ADDSIZE BUFFADDR BUFFLEN BUFFSUB ARGCHECK ARGEXPECTED PUSHFAIL CHECKSTRING OPTSTRING TYPENAME LOADFILE LOADBUFFER DOFILE DOSTRING GETMETATABLE OPT CHECKVERSION INTOP NEWLIBTABLE NEWLIB WRITESTRING WRITELINE WRITESTRINGERROR ASSERT; do if gcc -DLUAJIT_ENABLE_LUA54COMPAT -DLUA54_REJECT_$$sym -std=c99 -I src -c test/lua54_capi_lauxlib_macroonly_reject.c -o src/lua54_capi_lauxlib_macroonly_reject.o 2>src/lua54_capi_lauxlib_macroonly_reject.err; then echo "lauxlib macro-only API $$sym unexpectedly has a function address in Lua 5.4 headers"; rm -f src/lua54_capi_lauxlib_macroonly_reject.o src/lua54_capi_lauxlib_macroonly_reject.err; exit 1; else grep -E "luaL_|lua_" src/lua54_capi_lauxlib_macroonly_reject.err >/dev/null; rm -f src/lua54_capi_lauxlib_macroonly_reject.o src/lua54_capi_lauxlib_macroonly_reject.err; fi; done
+lua54-capi-macroonly-reject: $(LUA54_CAPI_MACROONLY_REJECT_TARGETS)
 
-lua54-capi-lualib-extra-reject:
-	@for sym in BIT BASE54 JIT FFI STRING_BUFFER; do if gcc -DLUAJIT_ENABLE_LUA54COMPAT -DLUA54_REJECT_$$sym -std=c99 -Werror=implicit-function-declaration -I src -c test/lua54_lualib_extra_reject.c -o src/lua54_lualib_extra_reject.o 2>src/lua54_lualib_extra_reject.err; then echo "LuaJIT lualib API $$sym unexpectedly visible in Lua 5.4 headers"; rm -f src/lua54_lualib_extra_reject.o src/lua54_lualib_extra_reject.err; exit 1; else grep "luaopen_" src/lua54_lualib_extra_reject.err >/dev/null; rm -f src/lua54_lualib_extra_reject.o src/lua54_lualib_extra_reject.err; fi; done
+lua54-capi-macroonly-reject-%:
+	@if gcc -DLUAJIT_ENABLE_LUA54COMPAT -DLUA54_REJECT_$* -std=c99 -I src -c test/lua54_capi_macroonly_reject.c -o src/lua54_capi_macroonly_reject_$*.o 2>src/lua54_capi_macroonly_reject_$*.err; then echo "Lua 5.4 macro-only API $* unexpectedly has a function address"; rm -f src/lua54_capi_macroonly_reject_$*.o src/lua54_capi_macroonly_reject_$*.err; exit 1; else grep "lua_" src/lua54_capi_macroonly_reject_$*.err >/dev/null; status=$$?; rm -f src/lua54_capi_macroonly_reject_$*.o src/lua54_capi_macroonly_reject_$*.err; exit $$status; fi
+
+lua54-capi-lauxlib-macroonly-reject: $(LUA54_CAPI_LAUXLIB_MACROONLY_REJECT_TARGETS)
+
+lua54-capi-lauxlib-macroonly-reject-%:
+	@if gcc -DLUAJIT_ENABLE_LUA54COMPAT -DLUA54_REJECT_$* -std=c99 -I src -c test/lua54_capi_lauxlib_macroonly_reject.c -o src/lua54_capi_lauxlib_macroonly_reject_$*.o 2>src/lua54_capi_lauxlib_macroonly_reject_$*.err; then echo "lauxlib macro-only API $* unexpectedly has a function address in Lua 5.4 headers"; rm -f src/lua54_capi_lauxlib_macroonly_reject_$*.o src/lua54_capi_lauxlib_macroonly_reject_$*.err; exit 1; else grep -E "luaL_|lua_" src/lua54_capi_lauxlib_macroonly_reject_$*.err >/dev/null; status=$$?; rm -f src/lua54_capi_lauxlib_macroonly_reject_$*.o src/lua54_capi_lauxlib_macroonly_reject_$*.err; exit $$status; fi
+
+lua54-capi-lualib-extra-reject: $(LUA54_CAPI_LUALIB_EXTRA_REJECT_TARGETS)
+
+lua54-capi-lualib-extra-reject-%:
+	@if gcc -DLUAJIT_ENABLE_LUA54COMPAT -DLUA54_REJECT_$* -std=c99 -Werror=implicit-function-declaration -I src -c test/lua54_lualib_extra_reject.c -o src/lua54_lualib_extra_reject_$*.o 2>src/lua54_lualib_extra_reject_$*.err; then echo "LuaJIT lualib API $* unexpectedly visible in Lua 5.4 headers"; rm -f src/lua54_lualib_extra_reject_$*.o src/lua54_lualib_extra_reject_$*.err; exit 1; else grep "luaopen_" src/lua54_lualib_extra_reject_$*.err >/dev/null; status=$$?; rm -f src/lua54_lualib_extra_reject_$*.o src/lua54_lualib_extra_reject_$*.err; exit $$status; fi
 
 LUA54_PERF_PARALLEL_TARGETS= \
 	lua54-perf-jit-on-opt1 \
@@ -479,6 +525,6 @@ test:
 	$(MAKE) smoketest-perf-lua54compat
 	$(MAKE) smoketest-lua54compat-nogc64
 
-.PHONY: all install amalg clean smoketest build-lua54compat build-lua54compat-incremental smoketest-lua54compat smoketest-lua54compat-quick run-lua54compat-tests $(LUA54_RUNTIME_PARALLEL_TARGETS) smoketest-lua54compat-nogc64 run-official-lua54compat smoketest-official-lua54compat smoketest-capi-default smoketest-capi-lua54compat smoketest-capi-lua54compat-quick run-capi-lua54compat-tests run-lua54compat-and-capi-tests $(LUA54_CAPI_PARALLEL_TARGETS) smoketest-perf-lua54compat run-perf-lua54compat-tests $(LUA54_PERF_PARALLEL_TARGETS) test
+.PHONY: all install amalg clean smoketest build-lua54compat build-lua54compat-incremental smoketest-lua54compat smoketest-lua54compat-quick run-lua54compat-tests $(LUA54_RUNTIME_PARALLEL_TARGETS) smoketest-lua54compat-nogc64 run-official-lua54compat smoketest-official-lua54compat smoketest-capi-default smoketest-capi-lua54compat smoketest-capi-lua54compat-quick run-capi-lua54compat-tests run-lua54compat-and-capi-tests $(LUA54_CAPI_PARALLEL_TARGETS) $(LUA54_CAPI_SYMBOL_REJECT_TARGETS) smoketest-perf-lua54compat run-perf-lua54compat-tests $(LUA54_PERF_PARALLEL_TARGETS) test
 
 ##############################################################################
