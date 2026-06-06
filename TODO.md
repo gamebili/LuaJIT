@@ -621,6 +621,7 @@
   - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入本机官方 Lua 5.4.8 对照过的 base/coroutine/math/os/package/string/table/utf8 边界，覆盖 `xpcall()` bad handler、`pcall(non-call)`、`coroutine.close()` bad thread、`coroutine.running()` extra arg、`math.log()` nil/string base、`math.sqrt()` / `math.modf()` 缺参和字符串数值、`os.execute()` 无参、`os.remove()` bad path、`package.searchpath()` nil separator、`string.byte()` 空结果、`string.char()` 无参、`string.find/match/gmatch()` init 参数、`string.unpack()` negative zero / 字符串整数位置 / 小数位置错误、`table.unpack()` 字符串整数下标/小数下标错误/空范围、`table.sort()` 非函数 comparator 以及 `utf8.len/offset()` 边界。
   - 剩余边界：继续用本机 `lua5.4.8` 扩展更多标准库逐字错误文本对照；标准库公开入口的 direct `pcall` fallback、普通源码字段/全局调用、局部/upvalue alias、当前解析路径可静态证明的 global alias / table-field alias 和 tail-position 调用点名已扩展覆盖 base/global、string、base loader、math、os、io、debug、utf8、package 以及 `coroutine.resume()` / `coroutine.close()` 代表路径；parser 只对真实来自 `_ENV`、标准库表或已静态证明来源的 table 字段保留调用帧，并按“字段名 + 实际库表/静态来源”组合识别，普通未标记的 `t.pack()` / `t.resume()` / `t.f()` 这类非标准库表调用仍保持 tail call。
   - 当前进展：字符串库方法语法的 tail-position 错误名/参数编号已按 Lua 5.4 收紧；`s:byte({})` / `s:find({})` / `s:format(true)` 会保留源码方法帧并按隐藏 self 之后的公开实参报 `#1`，不再被 tail call 擦成 `string.byte` / `string.find` / `string.format` 的 `#2` fallback。
+  - 当前进展：`test/lua54_stdlib_edges.lua` 已补入字符串库方法语法 cold smoke，固定 `s:byte({})` / `s:find({})` / `("%d"):format(true)` 在非热路径下同样保留短方法名和隐藏 self 后的公开参数编号；JIT/perf 热路径覆盖继续由 `test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 保护。
   - 做法：将本机 `lua5.4.8` 的边界行为固化为对照测试，先覆盖返回值和是否报错，再逐步收紧错误文本。
 
 - [x] table 库的 Lua 5.4 边界语义。
@@ -994,6 +995,7 @@
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54quick` 已通过；覆盖本轮新增默认 LuaJIT 5.1 `luaL_loadfilex()` / `luaL_loadbufferx()` mode smoke，固定 text/NULL mode 成功、text chunk 传入 binary mode 的旧 `wrong mode` 错误以及缺失文件 `LUA_ERRFILE` 路径，并确认 Lua 5.4 兼容构建、官方矩阵、runtime smoke、C API/header smoke 仍通过。
 - `cmd /c build.bat help`、`cmd /c build.bat build -n`、`cmd /c "set BUILD_JOBS=logical&& build.bat build -n"`、`cmd /c "set BUILD_JOBS=max&& build.bat build -n"`、`cmd /c build.bat build`、`cmd /c build.bat default` 和 `cmd /c build.bat lua54quick` 已通过；确认本机 32 逻辑线程默认性能模式使用 `-j48`，`BUILD_JOBS=logical` 降回 `-j32`，`BUILD_JOBS=max` 提升到 `-j64`，并确认默认构建、默认 C API smoke、Lua 5.4 compat 构建、官方矩阵、runtime smoke、C API/header smoke 均通过。
 - `powershell -NoProfile -ExecutionPolicy Bypass -File tools\lua54_platform_matrix.ps1 -Target pc`、`cmd /c "set BUILD_JOBS=max&& powershell -NoProfile -ExecutionPolicy Bypass -File tools\lua54_platform_matrix.ps1 -Target probe"` 和 `cmd /c "set BUILD_JOBS=logical&& powershell -NoProfile -ExecutionPolicy Bypass -File tools\lua54_platform_matrix.ps1 -Target probe"` 已通过；确认直接运行平台矩阵默认使用本机性能模式 `make -j48`，PC x64 default / Lua 5.4 compat artifact 均为 AMD64 PE 并通过 smoke，`BUILD_JOBS=max` / `logical` 符号值可直接用于平台脚本。
+- `.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增字符串库方法语法 cold smoke；确认 `s:byte({})`、`s:find({})` 和 `("%d"):format(true)` 在标准库逐字错误文本 harness 中保留 Lua 5.4 短方法名和公开参数 `#1`，同时 Lua 5.4 compat smoke、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 
 ## 已确认不列入当前 TODO 的已实现项
 
