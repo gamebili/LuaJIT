@@ -3174,9 +3174,20 @@ do
       local ok_atan_bad2, err_atan_bad2 = pcall(function()
 	return math.atan(1, true)
       end)
+      local ok_floor_noarg, err_floor_noarg = pcall(function()
+	return math.floor()
+      end)
+      local ok_floor_bad, err_floor_bad = pcall(function()
+	return math.floor(true)
+      end)
+      local floor_string = math.floor("4.5")
+      local ok_ceil_noarg, err_ceil_noarg = pcall(function()
+	return math.ceil()
+      end)
       local ok_ceil_bad, err_ceil_bad = pcall(function()
 	return math.ceil(true)
       end)
+      local ceil_string = math.ceil("4.5")
       local ok_exp_noarg, err_exp_noarg = pcall(function()
 	return math.exp()
       end)
@@ -3224,6 +3235,9 @@ do
       local rad_string = math.rad("180")
       local ok_modf_noarg, err_modf_noarg = pcall(function()
 	return math.modf()
+      end)
+      local ok_modf_bad, err_modf_bad = pcall(function()
+	return math.modf(true)
       end)
       local modf_int, modf_frac = math.modf("4.5")
       local execute_noarg = os.execute()
@@ -3353,9 +3367,30 @@ do
 	 err_atan_bad2:find("number expected, got boolean", 1, true) then
 	n = n + 1
       end
+      if not ok_floor_noarg and
+	 err_floor_noarg:find("bad argument #1 to 'floor'", 1, true) and
+	 err_floor_noarg:find("number expected, got no value", 1, true) then
+	n = n + 1
+      end
+      if not ok_floor_bad and
+	 err_floor_bad:find("bad argument #1 to 'floor'", 1, true) and
+	 err_floor_bad:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if floor_string == 4 and math.type(floor_string) == "integer" then
+	n = n + 1
+      end
+      if not ok_ceil_noarg and
+	 err_ceil_noarg:find("bad argument #1 to 'ceil'", 1, true) and
+	 err_ceil_noarg:find("number expected, got no value", 1, true) then
+	n = n + 1
+      end
       if not ok_ceil_bad and
 	 err_ceil_bad:find("bad argument #1 to 'ceil'", 1, true) and
 	 err_ceil_bad:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if ceil_string == 5 and math.type(ceil_string) == "integer" then
 	n = n + 1
       end
       if not ok_exp_noarg and
@@ -3438,6 +3473,11 @@ do
 	 err_modf_noarg:find("number expected, got no value", 1, true) then
 	n = n + 1
       end
+      if not ok_modf_bad and
+	 err_modf_bad:find("bad argument #1 to 'modf'", 1, true) and
+	 err_modf_bad:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
       if modf_int == 4 and modf_frac == 0.5 then n = n + 1 end
       if execute_noarg == true then n = n + 1 end
       if not ok_getenv_noarg and
@@ -3518,7 +3558,7 @@ do
       if utf8_len_empty == 0 then n = n + 1 end
       if utf8_offset_neg == 3 then n = n + 1 end
     end
-    assert(n == 5200)
+    assert(n == 5680)
   end, "Lua 5.4 mixed stdlib edge errors")
 end
 

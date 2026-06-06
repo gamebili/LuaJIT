@@ -695,12 +695,45 @@ local function stdlib_edge_helpers(n)
       sum = sum + 1
     end
 
+    local ok_floor_noarg, err_floor_noarg = pcall(function()
+      return math.floor()
+    end)
+    if not ok_floor_noarg and
+       err_floor_noarg:find("bad argument #1 to 'floor'", 1, true) and
+       err_floor_noarg:find("number expected, got no value", 1, true) then
+      sum = sum + 1
+    end
+    local ok_floor_bad, err_floor_bad = pcall(function()
+      return math.floor(true)
+    end)
+    if not ok_floor_bad and
+       err_floor_bad:find("bad argument #1 to 'floor'", 1, true) and
+       err_floor_bad:find("number expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+    local floor_string = math.floor("4.5")
+    if floor_string == 4 and math.type(floor_string) == "integer" then
+      sum = sum + 1
+    end
+
+    local ok_ceil_noarg, err_ceil_noarg = pcall(function()
+      return math.ceil()
+    end)
+    if not ok_ceil_noarg and
+       err_ceil_noarg:find("bad argument #1 to 'ceil'", 1, true) and
+       err_ceil_noarg:find("number expected, got no value", 1, true) then
+      sum = sum + 1
+    end
     local ok_ceil_bad, err_ceil_bad = pcall(function()
       return math.ceil(true)
     end)
     if not ok_ceil_bad and
        err_ceil_bad:find("bad argument #1 to 'ceil'", 1, true) and
        err_ceil_bad:find("number expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+    local ceil_string = math.ceil("4.5")
+    if ceil_string == 5 and math.type(ceil_string) == "integer" then
       sum = sum + 1
     end
 
@@ -836,6 +869,14 @@ local function stdlib_edge_helpers(n)
     if not ok_modf_noarg and
        err_modf_noarg:find("bad argument #1 to 'modf'", 1, true) and
        err_modf_noarg:find("number expected, got no value", 1, true) then
+      sum = sum + 1
+    end
+    local ok_modf_bad, err_modf_bad = pcall(function()
+      return math.modf(true)
+    end)
+    if not ok_modf_bad and
+       err_modf_bad:find("bad argument #1 to 'modf'", 1, true) and
+       err_modf_bad:find("number expected, got boolean", 1, true) then
       sum = sum + 1
     end
     local modf_int, modf_frac = math.modf("4.5")
@@ -2583,7 +2624,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_stdlib_edge = timeit(mode_name..":stdlib_edge_helpers",
 				  stdlib_edge_helpers, iter_n)
-  assert(r_stdlib_edge == iter_n * 73)
+  assert(r_stdlib_edge == iter_n * 79)
 
   local _, r_protected = timeit(mode_name..":protected_call_helpers",
 				protected_call_helpers, iter_n)
