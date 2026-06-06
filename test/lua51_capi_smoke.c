@@ -385,6 +385,14 @@ static int capi51_checktype_invalid_expected_high(lua_State *L)
   return 0;
 }
 
+static int capi51_checktype_any_arg(lua_State *L)
+{
+  luaL_checkany(L, 1);
+  luaL_checktype(L, 1, LUA_TTABLE);
+  lua_pushliteral(L, "ok");
+  return 1;
+}
+
 static int capi51_ref_missing_value(lua_State *L)
 {
   (void)luaL_ref(L, LUA_REGISTRYINDEX);
@@ -1242,6 +1250,29 @@ int main(void)
 	"luaL_checktype rejects too-large expected type");
   check(L, strstr(lua_tostring(L, -1), "invalid value") != NULL,
 	"luaL_checktype too-large expected type error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_checktype_any_arg);
+  lua_newtable(L);
+  status = lua_pcall(L, 1, 1, 0);
+  check(L, status == LUA_OK, "luaL_checkany/luaL_checktype table status");
+  check(L, strcmp(lua_tostring(L, -1), "ok") == 0,
+	"luaL_checkany/luaL_checktype table");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_checktype_any_arg);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_checkany rejects missing arg");
+  check(L, strstr(lua_tostring(L, -1), "value expected") != NULL,
+	"luaL_checkany missing arg error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_checktype_any_arg);
+  lua_pushliteral(L, "not-table");
+  status = lua_pcall(L, 1, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_checktype rejects wrong type");
+  check(L, strstr(lua_tostring(L, -1), "table expected") != NULL,
+	"luaL_checktype wrong type error");
   lua_pop(L, 1);
 
   lua_pushcfunction(L, capi51_ref_missing_value);
