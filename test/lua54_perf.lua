@@ -440,6 +440,13 @@ local function stdlib_edge_helpers(n)
     return select("#", ...), ...
   end
   local sum = 0
+  local math_cmp_mt = {
+    __lt = function(a, b)
+      return a.v < b.v
+    end
+  }
+  local math_cmp_a = setmetatable({ v = 2 }, math_cmp_mt)
+  local math_cmp_b = setmetatable({ v = 1 }, math_cmp_mt)
   for _ = 1, n do
     local ok_step, err_step = pcall(collectgarbage, "step", true)
     if not ok_step and
@@ -893,6 +900,16 @@ local function stdlib_edge_helpers(n)
     end
 
     if math.max("b", "a") == "b" then sum = sum + 1 end
+    if math.max(1, 0/0) == 1 then sum = sum + 1 end
+    local ok_max_mixed, err_max_mixed = pcall(function()
+      return math.max(1, "a")
+    end)
+    if not ok_max_mixed and
+       err_max_mixed:find("attempt to compare number with string",
+			  1, true) then
+      sum = sum + 1
+    end
+    if math.max(math_cmp_a, math_cmp_b) == math_cmp_a then sum = sum + 1 end
     local ok_max_noarg, err_max_noarg = pcall(function()
       return math.max()
     end)
@@ -902,6 +919,9 @@ local function stdlib_edge_helpers(n)
       sum = sum + 1
     end
     if math.min("b", "a") == "a" then sum = sum + 1 end
+    local min_nan_first = math.min(0/0, 1)
+    if min_nan_first ~= min_nan_first then sum = sum + 1 end
+    if math.min(1, 0/0) == 1 then sum = sum + 1 end
     local ok_min_mixed, err_min_mixed = pcall(function()
       return math.min(1, "a")
     end)
@@ -910,6 +930,7 @@ local function stdlib_edge_helpers(n)
 			  1, true) then
       sum = sum + 1
     end
+    if math.min(math_cmp_a, math_cmp_b) == math_cmp_b then sum = sum + 1 end
     local ok_min_noarg, err_min_noarg = pcall(function()
       return math.min()
     end)
@@ -2728,7 +2749,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_stdlib_edge = timeit(mode_name..":stdlib_edge_helpers",
 				  stdlib_edge_helpers, iter_n)
-  assert(r_stdlib_edge == iter_n * 96)
+  assert(r_stdlib_edge == iter_n * 102)
 
   local _, r_protected = timeit(mode_name..":protected_call_helpers",
 				protected_call_helpers, iter_n)

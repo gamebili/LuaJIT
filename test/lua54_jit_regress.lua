@@ -3133,6 +3133,13 @@ do
 
   assert_records_trace(function()
     local n = 0
+    local math_cmp_mt = {
+      __lt = function(a, b)
+	return a.v < b.v
+      end
+    }
+    local math_cmp_a = setmetatable({ v = 2 }, math_cmp_mt)
+    local math_cmp_b = setmetatable({ v = 1 }, math_cmp_mt)
     for _ = 1, 80 do
       local ok_xpcall_handler, err_xpcall_handler = pcall(function()
 	return xpcall(function() end, true)
@@ -3237,13 +3244,21 @@ do
 	return math.log(1, true)
       end)
       local max_string = math.max("b", "a")
+      local max_nan_second = math.max(1, 0/0)
+      local ok_max_mixed, err_max_mixed = pcall(function()
+	return math.max(1, "a")
+      end)
+      local max_meta = math.max(math_cmp_a, math_cmp_b)
       local ok_max_noarg, err_max_noarg = pcall(function()
 	return math.max()
       end)
       local min_string = math.min("b", "a")
+      local min_nan_first = math.min(0/0, 1)
+      local min_nan_second = math.min(1, 0/0)
       local ok_min_mixed, err_min_mixed = pcall(function()
 	return math.min(1, "a")
       end)
+      local min_meta = math.min(math_cmp_a, math_cmp_b)
       local ok_min_noarg, err_min_noarg = pcall(function()
 	return math.min()
       end)
@@ -3526,17 +3541,27 @@ do
 	n = n + 1
       end
       if max_string == "b" then n = n + 1 end
+      if max_nan_second == 1 then n = n + 1 end
+      if not ok_max_mixed and
+	 err_max_mixed:find("attempt to compare number with string",
+			    1, true) then
+	n = n + 1
+      end
+      if max_meta == math_cmp_a then n = n + 1 end
       if not ok_max_noarg and
 	 err_max_noarg:find("bad argument #1 to 'max'", 1, true) and
 	 err_max_noarg:find("value expected", 1, true) then
 	n = n + 1
       end
       if min_string == "a" then n = n + 1 end
+      if min_nan_first ~= min_nan_first then n = n + 1 end
+      if min_nan_second == 1 then n = n + 1 end
       if not ok_min_mixed and
 	 err_min_mixed:find("attempt to compare string with number",
 			    1, true) then
 	n = n + 1
       end
+      if min_meta == math_cmp_b then n = n + 1 end
       if not ok_min_noarg and
 	 err_min_noarg:find("bad argument #1 to 'min'", 1, true) and
 	 err_min_noarg:find("value expected", 1, true) then
@@ -3661,7 +3686,7 @@ do
       if utf8_len_empty == 0 then n = n + 1 end
       if utf8_offset_neg == 3 then n = n + 1 end
     end
-    assert(n == 7040)
+    assert(n == 7520)
   end, "Lua 5.4 mixed stdlib edge errors")
 end
 
