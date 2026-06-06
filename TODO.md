@@ -47,6 +47,7 @@
    - 接口要求：Emscripten 不能假设传统本机 JIT；需要单独 wasm/interpreter 后端或明确禁用 JIT 的构建路径。
    - 当前进展：新增 Lua 5.4 perf/memory smoke，默认固定三档显式 `jit.opt` profile：`3,hotloop=3,hotexit=2,instunroll=4,loopunroll=4`、`3,hotloop=56,hotexit=10` 和 `0,hotloop=3,hotexit=2`，并分别覆盖 JIT on/off 下的 `pairs` / `__pairs` / `//` / `%` / string helper / hook churn；可用 `LUA54_PERF_JIT_OPTS` 覆盖本地 profiling 矩阵，且自定义 profile 必须显式写明 opt level、`hotloop` 和 `hotexit`，避免 opt 默认值变化掩盖性能回退。
    - 当前进展：`test/lua54_perf.lua` 的 ratio guard 已新增 `LUA54_PERF_RATIO_MIN_SAMPLE`，默认把比率分母下限固定为 5ms，避免 Windows 低毫秒 `os.clock()` 量化把 `floor_divmod` 这类极短 baseline 放大成假失败；单项绝对耗时仍由 `LUA54_PERF_ABS` 约束。
+   - 当前进展：`build.bat` / `Makefile` 已新增 `lua54build`、`lua54quick` 和 `smoke54quick` 本地增量入口，Lua 5.4 compat 构建会记录 `XCFLAGS` stamp；同配置重复验证会跳过 clean 并继续按检测到的 32 个逻辑处理器运行 `make -j32`，`cmd /c build.bat lua54quick` 已通过。
    - 当前进展：PC x64、x86、ARM64、ARM、MIPS、MIPS64、PPC 的 `__call` callable-chain 已统一改为由 `lj_meta_call` 返回新增隐式参数数量，并由各 VM 后端更新 `NARGS`；PC x64 / Android ARM64 已额外覆盖 100 层 callable-chain tailcall 扩栈和 `CALLT` 保持，Android ARM64 设备 smoke 已覆盖该路径。
 
 6. **C API / lauxlib / 标准库收尾批次**

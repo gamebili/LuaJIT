@@ -34,6 +34,8 @@ export PREFIX= /usr/local
 export MULTILIB= lib
 LUA54_SRC_DIR?= D:/p4_gl2/pristine/tools/lua/lua-5.4.8-src/lua-5.4.8
 LUA54_TESTES_DIR?= $(LUA54_SRC_DIR)/testes
+LUA54COMPAT_XCFLAGS= -DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2
+LUA54COMPAT_BUILD_STAMP= src/.luajit-build-config
 CXX?= g++
 ##############################################################################
 
@@ -172,16 +174,32 @@ amalg:
 
 clean:
 	$(MAKE) -C src clean
-	$(RM) lua54_valid_open_mode.tmp lua54_invalid_open_mode.tmp lua54_loadfile_env.tmp lua54_loadfile_binary_env.tmp test/lua54_capi_hash_binary.tmp
+	$(RM) lua54_valid_open_mode.tmp lua54_invalid_open_mode.tmp lua54_loadfile_env.tmp lua54_loadfile_binary_env.tmp test/lua54_capi_hash_binary.tmp $(LUA54COMPAT_BUILD_STAMP)
 
 smoketest:
 	$(MAKE) clean
 	$(MAKE)
 	./src/luajit test/smoke.lua default
 
-smoketest-lua54compat:
+build-lua54compat:
 	$(MAKE) clean
-	$(MAKE) XCFLAGS='-DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2'
+	$(MAKE) XCFLAGS='$(LUA54COMPAT_XCFLAGS)'
+	@printf '%s\n' "$(LUA54COMPAT_XCFLAGS)" > $(LUA54COMPAT_BUILD_STAMP)
+
+build-lua54compat-incremental:
+	@cfg='$(LUA54COMPAT_XCFLAGS)'; if test -f $(LUA54COMPAT_BUILD_STAMP) && test "$$(cat $(LUA54COMPAT_BUILD_STAMP))" = "$$cfg"; then echo "==== Reusing Lua 5.4 compatibility build config ===="; else echo "==== Lua 5.4 compatibility build config changed; cleaning ===="; $(MAKE) clean; fi
+	$(MAKE) XCFLAGS='$(LUA54COMPAT_XCFLAGS)'
+	@printf '%s\n' "$(LUA54COMPAT_XCFLAGS)" > $(LUA54COMPAT_BUILD_STAMP)
+
+smoketest-lua54compat:
+	$(MAKE) build-lua54compat
+	$(MAKE) run-lua54compat-tests
+
+smoketest-lua54compat-quick:
+	$(MAKE) build-lua54compat-incremental
+	$(MAKE) run-lua54compat-tests
+
+run-lua54compat-tests:
 	MAKEFLAGS= ./src/luajit test/lua54_official_matrix.lua "$(LUA54_TESTES_DIR)"
 	./src/luajit test/lua54_cstack_regress.lua
 	./src/luajit test/lua54_gc_regress.lua
@@ -223,10 +241,16 @@ run-official-lua54compat:
 
 smoketest-official-lua54compat:
 	$(MAKE) clean
-	$(MAKE) XCFLAGS='-DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2'
+	$(MAKE) XCFLAGS='$(LUA54COMPAT_XCFLAGS)'
 	MAKEFLAGS= ./src/luajit test/lua54_official_matrix.lua "$(LUA54_TESTES_DIR)"
 
 smoketest-capi-lua54compat: smoketest-lua54compat
+	$(MAKE) run-capi-lua54compat-tests
+
+smoketest-capi-lua54compat-quick: smoketest-lua54compat-quick
+	$(MAKE) run-capi-lua54compat-tests
+
+run-capi-lua54compat-tests:
 	gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -I src -c test/lua54_luaconf_guard_smoke.c -o src/lua54_luaconf_guard_smoke.o
 	rm -f src/lua54_luaconf_guard_smoke.o
 	gcc -DLUAJIT_ENABLE_LUA54COMPAT -std=c99 -I src -c test/lua54_luaconf_extra_reject.c -o src/lua54_luaconf_extra_reject.o
@@ -280,7 +304,7 @@ smoketest-capi-lua54compat: smoketest-lua54compat
 
 smoketest-perf-lua54compat:
 	$(MAKE) clean
-	$(MAKE) XCFLAGS='-DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2'
+	$(MAKE) XCFLAGS='$(LUA54COMPAT_XCFLAGS)'
 	LUA54_PERF_JIT_OPTS='3,hotloop=3,hotexit=2,instunroll=4,loopunroll=4' ./src/luajit test/lua54_perf.lua jit_on
 	LUA54_PERF_JIT_OPTS='3,hotloop=56,hotexit=10' ./src/luajit test/lua54_perf.lua jit_on
 	LUA54_PERF_JIT_OPTS='0,hotloop=3,hotexit=2' ./src/luajit test/lua54_perf.lua jit_on
@@ -299,6 +323,6 @@ test:
 	$(MAKE) smoketest-lua54compat-nogc64
 	$(MAKE) smoketest-perf-lua54compat
 
-.PHONY: all install amalg clean smoketest smoketest-lua54compat smoketest-lua54compat-nogc64 run-official-lua54compat smoketest-official-lua54compat smoketest-capi-default smoketest-capi-lua54compat smoketest-perf-lua54compat test
+.PHONY: all install amalg clean smoketest build-lua54compat build-lua54compat-incremental smoketest-lua54compat smoketest-lua54compat-quick run-lua54compat-tests smoketest-lua54compat-nogc64 run-official-lua54compat smoketest-official-lua54compat smoketest-capi-default smoketest-capi-lua54compat smoketest-capi-lua54compat-quick run-capi-lua54compat-tests smoketest-perf-lua54compat test
 
 ##############################################################################

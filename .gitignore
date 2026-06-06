@@ -10,3 +10,4 @@
 *.dmp
 *.swp
 .tags
+src/.luajit-build-config
