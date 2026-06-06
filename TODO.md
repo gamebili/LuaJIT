@@ -668,6 +668,7 @@
   - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 `string.gsub()` limit 为 0、字符串整数、负数、超 32-bit integer 和小数错误纳入 JIT on/off 覆盖，固定热路径下 limit 仍走完整 Lua 5.4 `lua_Integer` 语义。
   - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 `pairs(nil)` 返回的 iterator 在 direct/local/upvalue/global/table-field alias 后的 tail-position 调用点名纳入 JIT on/off 覆盖，固定这类后续 `next()` 参数错误不能退回 `next` fallback 名。
   - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 table 库非 table 代理对象纳入热路径覆盖，固定 `table.concat` / `insert` / `remove` / `sort` / `unpack` 和无 `__len` 的 `table.move` 不能退回旧 raw table 假设。
+  - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 `table.concat()` / `table.insert()` / `table.move()` / `table.remove()` / `table.unpack()` 的字符串整数下标纳入 JIT on/off 覆盖，固定热路径下表库下标转换继续走 Lua 5.4 integer 语义。
   - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 `table.pack()` 的 `n` 字段和 nil 洞纳入 JIT on/off 覆盖，固定热路径不能丢失 Lua 5.4 多返回打包语义。
   - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 `debug.setcstacklimit()` 纳入 JIT on/off 覆盖，固定 Lua 5.4 debug 库公开 C stack limit shim 的热路径返回旧 limit 语义。
   - 当前进展：解析期 notail/callsite-name 传播已支持可静态归约的动态 key：常量字符串拼接生成的 table key、`TDUP` 模板表静态字符串字段取出的 key，以及这些 key 在构造器字段、后续 table 赋值和 nested table-field 赋值中的 helper alias；嵌套 table-field notail 跟踪容量同步提升，避免同一 chunk 中多个静态 nested alias 把后续字段名标记挤掉。`test/smoke.lua`、`test/lua54_jit_regress.lua` 和 `test/lua54_perf.lua` 已覆盖 `u2` / `u3` / `w2` / `x2` 调用点名不能退回 `math.abs`。
@@ -824,6 +825,7 @@
 - `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `string.gsub()` table replacement 为 `false` 以及 function replacement 返回 `nil` 时保留原匹配文本和替换计数的 JIT/perf 热路径回归、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `string.gsub()` limit 为 0、字符串整数、负数、超 32-bit integer 和小数错误的 JIT/perf 热路径回归、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `string.gsub()` number replacement 和 table replacement 值为 `0` 的 JIT/perf 热路径回归、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
+- `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `table.concat()` / `table.insert()` / `table.move()` / `table.remove()` / `table.unpack()` 字符串整数下标转换的 JIT/perf 热路径回归、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 
 ## 已确认不列入当前 TODO 的已实现项
 

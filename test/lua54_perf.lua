@@ -1970,6 +1970,25 @@ local function table_sort_helpers(n)
     if table.move(0, 1, 2, 3, 1) == 1 and number_slots[1][4] == "y" then
       sum = sum + 1
     end
+
+    if table.concat({ "a", "b", "c" }, ",", "2", "3") == "b,c" then
+      sum = sum + 1
+    end
+    local inserted = { 1 }
+    table.insert(inserted, "2", "x")
+    if table.concat(inserted, ",") == "1,x" then sum = sum + 1 end
+    local moved = { 1, 2, 3 }
+    if table.move(moved, "1", "2", "2") == moved and
+       table.concat(moved, ",") == "1,1,2" then
+      sum = sum + 1
+    end
+    local removed = { 1, 2, 3 }
+    local removed_value = table.remove(removed, "2")
+    if removed_value == 2 and table.concat(removed, ",") == "1,3" then
+      sum = sum + 1
+    end
+    local unpacked_a, unpacked_b = table.unpack({ 1, 2, 3 }, "2", "3")
+    if unpacked_a == 2 and unpacked_b == 3 then sum = sum + 1 end
   end
   debug.setmetatable(0, old_number_mt)
   return sum
@@ -2167,7 +2186,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_sort = timeit(mode_name..":table_sort_helpers",
 			   table_sort_helpers, sort_n)
-  assert(r_sort == sort_n * 440)
+  assert(r_sort == sort_n * 445)
 
   assert(timeit(mode_name..":hook_churn", hook_churn, hook_n))
 end

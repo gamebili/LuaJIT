@@ -3659,6 +3659,37 @@ do
 end
 
 do
+  assert_records_trace(function()
+    local n = 0
+    for _ = 1, 80 do
+      if table.concat({ "a", "b", "c" }, ",", "2", "3") == "b,c" then
+	n = n + 1
+      end
+
+      local inserted = { 1 }
+      table.insert(inserted, "2", "x")
+      if table.concat(inserted, ",") == "1,x" then n = n + 1 end
+
+      local moved = { 1, 2, 3 }
+      if table.move(moved, "1", "2", "2") == moved and
+	 table.concat(moved, ",") == "1,1,2" then
+	n = n + 1
+      end
+
+      local removed = { 1, 2, 3 }
+      local value = table.remove(removed, "2")
+      if value == 2 and table.concat(removed, ",") == "1,3" then
+	n = n + 1
+      end
+
+      local a, b = table.unpack({ 1, 2, 3 }, "2", "3")
+      if a == 2 and b == 3 then n = n + 1 end
+    end
+    assert(n == 80 * 5)
+  end, "Lua 5.4 table string index helpers")
+end
+
+do
   local mt = {
     __newindex = function(self, k, v)
       rawset(self, k, v * 10)
