@@ -2147,6 +2147,20 @@ static int require_open_nil(lua_State *L)
   return 1;
 }
 
+static int require_open_error(lua_State *L)
+{
+  check_string(L, 1, "capi.errmod",
+	       "luaL_requiref passes erroring module name");
+  require_open_count++;
+  return luaL_error(L, "require opener boom");
+}
+
+static int requiref_error_global(lua_State *L)
+{
+  luaL_requiref(L, "capi.errmod", require_open_error, 1);
+  return 0;
+}
+
 static int checkversion_bad_version(lua_State *L)
 {
   luaL_checkversion_(L, LUA_VERSION_NUM - 1, LUAL_NUMSIZES);
@@ -8316,6 +8330,31 @@ static void test_lauxlib_api(lua_State *L)
 	"luaL_requiref reloads nil-returning module");
   check(L, lua_isnil(L, -1), "luaL_requiref nil reload result");
   lua_pop(L, 1);
+
+  before_count = require_open_count;
+  lua_pushliteral(L, "stale-error-global");
+  lua_setglobal(L, "capi.errmod");
+  top = lua_gettop(L);
+  lua_pushcfunction(L, requiref_error_global);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_requiref opener error status");
+  check(L, require_open_count == before_count + 1,
+	"luaL_requiref calls erroring opener once");
+  check(L, lua_gettop(L) == top + 1,
+	"luaL_requiref opener error stack");
+  check(L, strstr(lua_tostring(L, -1), "require opener boom") != NULL,
+	"luaL_requiref opener error message");
+  lua_pop(L, 1);
+  luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
+  lua_getfield(L, -1, "capi.errmod");
+  check(L, lua_isnil(L, -1), "luaL_requiref opener error leaves unloaded");
+  lua_pop(L, 2);
+  lua_getglobal(L, "capi.errmod");
+  check_string(L, -1, "stale-error-global",
+	       "luaL_requiref opener error preserves global");
+  lua_pop(L, 1);
+  lua_pushnil(L);
+  lua_setglobal(L, "capi.errmod");
 
   check(L, luaL_fileresult(L, 1, NULL) == 1, "luaL_fileresult success arity");
   check(L, lua_toboolean(L, -1), "luaL_fileresult success value");
