@@ -78,6 +78,7 @@ for %%A in (%*) do (
     for /f "delims=0123456789" %%N in ("!REQ_JOBS!") do set "REQ_JOBS_NUM="
     if not "!REQ_JOBS_NUM!"=="" (
       if !REQ_JOBS! LSS 1 set "REQ_JOBS=1"
+      set "BUILD_JOBS=!REQ_JOBS!"
       set "MAKE_JOBS=-j!REQ_JOBS!"
     )
     set "EXPECT_MAKE_JOBS="
@@ -99,6 +100,7 @@ for %%A in (%*) do (
     if not "!REQ_JOBS_NUM!"=="" (
       set "SAW_MAKE_J=1"
       if !REQ_JOBS! LSS 1 set "REQ_JOBS=1"
+      set "BUILD_JOBS=!REQ_JOBS!"
       set "MAKE_JOBS=-j!REQ_JOBS!"
     )
   )
@@ -291,8 +293,34 @@ echo [build.bat] "%GNUMAKE%" %MAKE_JOBS% !RUN_ARGS!
 exit /b !ERRORLEVEL!
 
 :RUN_PLATFORM
-echo [build.bat] powershell -ExecutionPolicy Bypass -File tools\lua54_platform_matrix.ps1 -Target %*
-powershell -ExecutionPolicy Bypass -File tools\lua54_platform_matrix.ps1 -Target %*
+set "PLATFORM_ARGS="
+set "SKIP_PLATFORM_JOBS="
+for %%A in (%*) do (
+  set "ARG=%%~A"
+  set "KEEP_ARG=1"
+  if "!SKIP_PLATFORM_JOBS!"=="1" (
+    set "REQ_JOBS=!ARG!"
+    set "REQ_JOBS_NUM=1"
+    if "!REQ_JOBS!"=="" set "REQ_JOBS_NUM="
+    for /f "delims=0123456789" %%N in ("!REQ_JOBS!") do set "REQ_JOBS_NUM="
+    if not "!REQ_JOBS_NUM!"=="" set "KEEP_ARG="
+    set "SKIP_PLATFORM_JOBS="
+  )
+  if "!KEEP_ARG!"=="1" if /I "!ARG!"=="-j" (
+    set "KEEP_ARG="
+    set "SKIP_PLATFORM_JOBS=1"
+  )
+  if "!KEEP_ARG!"=="1" if /I "!ARG:~0,2!"=="-j" if /I not "!ARG!"=="-j" (
+    set "REQ_JOBS=!ARG:~2!"
+    set "REQ_JOBS_NUM=1"
+    if "!REQ_JOBS!"=="" set "REQ_JOBS_NUM="
+    for /f "delims=0123456789" %%N in ("!REQ_JOBS!") do set "REQ_JOBS_NUM="
+    if not "!REQ_JOBS_NUM!"=="" set "KEEP_ARG="
+  )
+  if "!KEEP_ARG!"=="1" set "PLATFORM_ARGS=!PLATFORM_ARGS! %%A"
+)
+echo [build.bat] powershell -ExecutionPolicy Bypass -File tools\lua54_platform_matrix.ps1 -Target !PLATFORM_ARGS! ^(BUILD_JOBS=!BUILD_JOBS!^)
+powershell -ExecutionPolicy Bypass -File tools\lua54_platform_matrix.ps1 -Target !PLATFORM_ARGS!
 exit /b !ERRORLEVEL!
 
 :SET_REST

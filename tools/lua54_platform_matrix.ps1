@@ -73,36 +73,35 @@ function Invoke-Checked {
   }
 }
 
-function Get-HalfCoreJobCap {
-  $cores = 0
+function Get-DetectedLogicalProcessorCount {
+  $threads = 0
   try {
     foreach ($cpu in (Get-CimInstance Win32_Processor)) {
-      $cores += [int]$cpu.NumberOfCores
+      $threads += [int]$cpu.NumberOfLogicalProcessors
     }
   } catch {
-    $cores = 0
+    $threads = 0
   }
-  if ($cores -le 0) {
-    $cores = [Environment]::ProcessorCount
+  if ($threads -le 0) {
+    $threads = [Environment]::ProcessorCount
   }
-  $jobs = [int][Math]::Floor($cores / 2)
-  if ($jobs -lt 1) {
-    $jobs = 1
+  if ($threads -lt 1) {
+    $threads = 1
   }
-  return $jobs
+  return $threads
 }
 
 function Get-MakeJobCount {
-  $cap = Get-HalfCoreJobCap
-  $jobs = $cap
-  if ($env:BUILD_JOBS -and $env:BUILD_JOBS -match '^\d+$') {
+  $jobs = Get-DetectedLogicalProcessorCount
+  if ($env:BUILD_JOBS) {
+    if ($env:BUILD_JOBS -notmatch '^\d+$') {
+      throw "BUILD_JOBS must be a positive integer: $env:BUILD_JOBS"
+    }
     $requested = [int]$env:BUILD_JOBS
     if ($requested -lt 1) {
       $requested = 1
     }
-    if ($requested -lt $cap) {
-      $jobs = $requested
-    }
+    $jobs = $requested
   }
   return $jobs
 }
