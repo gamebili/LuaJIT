@@ -6,6 +6,7 @@
 #include <string.h>
 #include <limits.h>
 #include <stdarg.h>
+#include <errno.h>
 
 #include "lua.h"
 #include "lauxlib.h"
@@ -1531,6 +1532,61 @@ int main(void)
   check(L, lua_rawequal(L, -1, -2),
 	"luaL_requiref default API republishes global");
   lua_pop(L, 2);
+
+  check(L, luaL_fileresult(L, 1, NULL) == 1,
+	"luaL_fileresult default success arity");
+  check(L, lua_toboolean(L, -1), "luaL_fileresult default success value");
+  lua_pop(L, 1);
+
+  errno = ENOENT;
+  check(L, luaL_fileresult(L, 0, "missing.lua") == 3,
+	"luaL_fileresult default failure arity");
+  check(L, lua_isnil(L, -3), "luaL_fileresult default failure nil");
+  check(L, strstr(lua_tostring(L, -2), "missing.lua") != NULL,
+	"luaL_fileresult default failure filename");
+  check(L, lua_tointeger(L, -1) == ENOENT,
+	"luaL_fileresult default errno");
+  lua_pop(L, 3);
+
+  errno = 0;
+  check(L, luaL_fileresult(L, 0, NULL) == 3,
+	"luaL_fileresult default errno-zero arity");
+  check(L, lua_isnil(L, -3), "luaL_fileresult default errno-zero nil");
+  check(L, lua_isstring(L, -2),
+	"luaL_fileresult default errno-zero message");
+  check(L, lua_tointeger(L, -1) == 0,
+	"luaL_fileresult default errno-zero code");
+  lua_pop(L, 3);
+
+  errno = EACCES;
+  check(L, luaL_execresult(L, 0) == 3,
+	"luaL_execresult default success arity");
+  check(L, lua_toboolean(L, -3), "luaL_execresult default success bool");
+  check(L, strcmp(lua_tostring(L, -2), "exit") == 0,
+	"luaL_execresult default success kind");
+  check(L, lua_tointeger(L, -1) == 0,
+	"luaL_execresult default success code");
+  lua_pop(L, 3);
+
+  errno = EACCES;
+  check(L, luaL_execresult(L, 7) == 3,
+	"luaL_execresult default exit arity");
+  check(L, lua_isnil(L, -3), "luaL_execresult default exit nil");
+  check(L, strcmp(lua_tostring(L, -2), "exit") == 0,
+	"luaL_execresult default ignores errno for exit kind");
+  check(L, lua_tointeger(L, -1) == 7,
+	"luaL_execresult default exit status");
+  lua_pop(L, 3);
+
+  errno = EACCES;
+  check(L, luaL_execresult(L, -1) == 3,
+	"luaL_execresult default system error arity");
+  check(L, lua_isnil(L, -3), "luaL_execresult default system error nil");
+  check(L, strstr(lua_tostring(L, -2), strerror(EACCES)) != NULL,
+	"luaL_execresult default system error message");
+  check(L, lua_tointeger(L, -1) == EACCES,
+	"luaL_execresult default system error code");
+  lua_pop(L, 3);
 
   luaL_pushfail(L);
   check(L, lua_isnil(L, -1), "luaL_pushfail default macro");
