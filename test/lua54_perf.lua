@@ -1306,6 +1306,14 @@ local function package_helpers(n)
     return "fresh"
   end
 
+  local preload_false_loader_count = 0
+  package.loaded.__lua54_perf_preload_false = nil
+  package.preload.__lua54_perf_preload_false = function()
+    preload_false_loader_count = preload_false_loader_count + 1
+    if preload_false_loader_count % 2 == 1 then return false end
+    return "fresh"
+  end
+
   local value_loader_count = 0
   package.loaded.__lua54_perf_value = nil
   package.preload.__lua54_perf_value = function(modname)
@@ -1339,6 +1347,19 @@ local function package_helpers(n)
     local false_loaded, false_data = require("__lua54_perf_false")
     if false_loaded == "fresh" and false_data == ":preload:" and
        package.loaded.__lua54_perf_false == "fresh" then
+      sum = sum + 1
+    end
+
+    package.loaded.__lua54_perf_preload_false = false
+    local preload_false_loaded, preload_false_data =
+      require("__lua54_perf_preload_false")
+    local preload_false_seen = package.loaded.__lua54_perf_preload_false
+    local preload_false_reloaded, preload_false_reloaded_data =
+      require("__lua54_perf_preload_false")
+    if preload_false_loaded == false and preload_false_data == ":preload:" and
+       preload_false_seen == false and preload_false_reloaded == "fresh" and
+       preload_false_reloaded_data == ":preload:" and
+       package.loaded.__lua54_perf_preload_false == "fresh" then
       sum = sum + 1
     end
 
@@ -1506,6 +1527,8 @@ local function package_helpers(n)
   package.loaded.__lua54_perf_zero = nil
   package.loaded.__lua54_perf_false = nil
   package.preload.__lua54_perf_false = nil
+  package.loaded.__lua54_perf_preload_false = nil
+  package.preload.__lua54_perf_preload_false = nil
   package.loaded.__lua54_perf_value = nil
   package.preload.__lua54_perf_value = nil
   package.loaded.__lua54_perf_custom = nil
@@ -1514,6 +1537,7 @@ local function package_helpers(n)
   package.preload.__lua54_perf_err = nil
   assert(nil_loader_count == 1)
   assert(false_loader_count == n)
+  assert(preload_false_loader_count == n * 2)
   assert(value_loader_count == n)
   assert(custom_searcher_count == n)
   assert(custom_loader_count == n)
@@ -3006,7 +3030,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_package = timeit(mode_name..":package_helpers",
 			      package_helpers, iter_n)
-  assert(r_package == iter_n * 23)
+  assert(r_package == iter_n * 24)
 
   local _, r_debug = timeit(mode_name..":debug_helpers",
 			    debug_helpers, iter_n)

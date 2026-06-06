@@ -3122,6 +3122,31 @@ do
 
   assert_records_trace(function()
     local count = 0
+    package.preload.__lua54_jit_preload_false = function()
+      count = count + 1
+      if count % 2 == 1 then return false end
+      return "fresh"
+    end
+    local n = 0
+    for _ = 1, 80 do
+      package.loaded.__lua54_jit_preload_false = false
+      local first, first_data = require("__lua54_jit_preload_false")
+      local loaded1 = package.loaded.__lua54_jit_preload_false
+      local second, second_data = require("__lua54_jit_preload_false")
+      local loaded2 = package.loaded.__lua54_jit_preload_false
+      if first == false and first_data == ":preload:" and
+	 loaded1 == false and second == "fresh" and
+	 second_data == ":preload:" and loaded2 == "fresh" then
+	n = n + 1
+      end
+    end
+    package.loaded.__lua54_jit_preload_false = nil
+    package.preload.__lua54_jit_preload_false = nil
+    assert(n == 80 and count == 160)
+  end, "Lua 5.4 require false loader return")
+
+  assert_records_trace(function()
+    local count = 0
     package.loaded.__lua54_jit_nil = nil
     package.preload.__lua54_jit_nil = function()
       count = count + 1

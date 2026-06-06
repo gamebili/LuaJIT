@@ -98,6 +98,7 @@
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.move(1, 1, 0, 1)` 空范围非 table 源对象诊断和显式 `nil` 目标回源表复制路径，固定空移动范围参数校验以及第 5 参数 `nil` 的默认目标语义。
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `package.searchpath()` 普通模板命中文件和自定义 separator/replacement 命中文件的成功路径，固定返回命中路径且第二返回值为 `nil`。
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `require()` preload loader 显式返回 `false` 的边界，固定 `false` 会作为 loader 返回值写入/返回，但后续 `require()` 仍会因 `package.loaded[name] == false` 重新加载。
+   - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已继续把 `require()` preload loader 显式返回 `false` 后再次重载的路径纳入 JIT on/off 热路径覆盖，固定该边界不只在冷 harness 中成立。
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `loadfile()` 缺失文件返回 tuple、source chunk `env` 初始化 `_ENV` 和 stripped binary chunk `env` 初始化首个无名 upvalue 的边界，固定 `loadfile(..., env)` 的 Lua 5.4 环境注入表面。
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `load(..., env)` source chunk table / 非 table 环境和 stripped binary chunk 非 table 环境初始化边界，固定 `env` 参数会作为 exact upvalue 值写入 `_ENV` 或首个无名 upvalue。
 
@@ -684,6 +685,7 @@
   - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 `package.searchpath()` 的 number path、NUL module name/path 截断、自定义 separator 替换和多模板错误串纳入 JIT on/off 覆盖，固定热路径下仍保持 Lua 5.4 path scanner、C 字符串边界和错误聚合表面。
   - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 `package.loadlib()` no-value / bad path / bad function 参数错误和 `package.searchers` 非 table 的 `require()` 错误纳入 JIT on/off 覆盖，固定热路径下 package loader 边界仍保持 Lua 5.4 direct `pcall` 错误名、参数编号和 searchers 类型错误表面。
   - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 `require()` no-value / boolean 参数错误、`package.loaded[name] = 0` fast path 和 `package.loaded[name] = false` 触发 preload 重载纳入 JIT on/off 覆盖，固定热路径下 loaded truthiness、false reload、loaderdata 和 direct `pcall` 参数错误仍保持 Lua 5.4 表面。
+  - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已继续补入 preload loader 显式返回 `false` 后写入/返回 false、随后因 loaded false 再次重载的热路径，固定 loader-running 路径在 JIT on/off smoke 下保持 Lua 5.4 语义。
   - 当前进展：`test/lua54_perf.lua` 已把 preload loader 返回 module value 时的 `require()` 返回值、`:preload:` loaderdata 和 `package.loaded` 写回纳入 JIT on/off 覆盖；当前不把该 loader-running 路径声明为 recorder 支持，避免把需要解释器处理的 package loader 动态路径误固定成可录 trace。
   - 当前进展：`test/lua54_stdlib_edges.lua` / `test/lua54_perf.lua` 已把自定义 `package.searchers` 返回 loaderdata 的路径纳入标准库和 JIT on/off 运行期覆盖，固定 loader 接收 `(modname, loaderdata)`、`require()` 第二返回值透传 loaderdata，以及 `package.loaded[name]` 写回 module value；该 loader-running 路径仍不声明 recorder 支持。
   - 当前进展：`test/lua54_stdlib_edges.lua` / `test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把自定义 `package.searchers` 返回错误字符串的 module-not-found 聚合纳入标准库与 JIT on/off 覆盖，固定 `require()` 只在最终错误中补 `\n\t` 前缀并保留 searcher 返回的错误片段。
@@ -953,6 +955,7 @@
 - `cmd /c build.bat lua54quick` 已通过，确认 `Makefile` 的 Lua 5.4 C API/header smoke 可在 `build.bat` 默认检测到的 32 逻辑线程 `-j32` 下并行调度 header 编译门禁、负向编译门禁和 C API 小可执行 smoke；同时覆盖 Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、标准库/JIT/GC/VM 后端静态/DynASM 门禁和 C API smoke。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `load(..., env)` source chunk table / 非 table 环境以及 stripped binary chunk 非 table 环境初始化的标准库边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `require()` preload loader 显式返回 `false` 后写入/返回 false、并在后续 `require()` 中因 loaded false 重新加载的标准库边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
+- `.\src\luajit.exe test\lua54_jit_regress.lua`、`.\src\luajit.exe test\lua54_perf.lua jit_on`、`.\src\luajit.exe test\lua54_perf.lua jit_off` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `require()` preload loader 显式返回 `false` 后写入/返回 false、并因 loaded false 再次重载的 JIT/perf 热路径边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 
 ## 已确认不列入当前 TODO 的已实现项
 
