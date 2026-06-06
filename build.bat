@@ -41,6 +41,7 @@ if exist "%UCRT_BIN%\gcc.exe" (
 
 set "CPU_THREADS="
 set "DEFAULT_BUILD_JOBS="
+set "BUILD_JOBS_SOURCE=auto"
 for /f "usebackq delims=" %%C in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$sum=0; foreach ($cpu in (Get-CimInstance Win32_Processor)) { $sum += $cpu.NumberOfLogicalProcessors }; if ($sum -gt 0) { [int]$sum }" 2^>nul`) do (
   if not "%%C"=="" set "CPU_THREADS=%%C"
 )
@@ -52,14 +53,24 @@ if not "!CPU_THREADS!"=="" (
 )
 if "!DEFAULT_BUILD_JOBS!"=="" set "DEFAULT_BUILD_JOBS=2"
 if !DEFAULT_BUILD_JOBS! LSS 1 set "DEFAULT_BUILD_JOBS=1"
+if "!CPU_THREADS!"=="" set "CPU_THREADS=!DEFAULT_BUILD_JOBS!"
 if "%BUILD_JOBS%"=="" (
   set "BUILD_JOBS=!DEFAULT_BUILD_JOBS!"
 ) else (
-  set "BUILD_JOBS_NUM=1"
-  for /f "delims=0123456789" %%N in ("!BUILD_JOBS!") do set "BUILD_JOBS_NUM="
-  if "!BUILD_JOBS_NUM!"=="" (
-    echo [build.bat] BUILD_JOBS must be a positive integer: !BUILD_JOBS!
-    exit /b 1
+  if /I "!BUILD_JOBS!"=="auto" (
+    set "BUILD_JOBS=!DEFAULT_BUILD_JOBS!"
+    set "BUILD_JOBS_SOURCE=BUILD_JOBS=auto"
+  ) else if /I "!BUILD_JOBS!"=="max" (
+    set "BUILD_JOBS=!DEFAULT_BUILD_JOBS!"
+    set "BUILD_JOBS_SOURCE=BUILD_JOBS=max"
+  ) else (
+    set "BUILD_JOBS_SOURCE=BUILD_JOBS"
+    set "BUILD_JOBS_NUM=1"
+    for /f "delims=0123456789" %%N in ("!BUILD_JOBS!") do set "BUILD_JOBS_NUM="
+    if "!BUILD_JOBS_NUM!"=="" (
+      echo [build.bat] BUILD_JOBS must be a positive integer, auto, or max: !BUILD_JOBS!
+      exit /b 1
+    )
   )
 )
 if "!BUILD_JOBS!"=="" set "BUILD_JOBS=!DEFAULT_BUILD_JOBS!"
@@ -79,6 +90,7 @@ for %%A in (%*) do (
     if not "!REQ_JOBS_NUM!"=="" (
       if !REQ_JOBS! LSS 1 set "REQ_JOBS=1"
       set "BUILD_JOBS=!REQ_JOBS!"
+      set "BUILD_JOBS_SOURCE=-j"
       set "MAKE_JOBS=-j!REQ_JOBS!"
     )
     set "EXPECT_MAKE_JOBS="
@@ -88,6 +100,7 @@ for %%A in (%*) do (
   rem "-j 4" like "-j4" so the number is not forwarded as a make target.
   if /I "!ARG!"=="-j" (
     set "SAW_MAKE_J=1"
+    set "BUILD_JOBS_SOURCE=-j"
     set "EXPECT_MAKE_JOBS=1"
   )
   rem Numeric -jN explicitly overrides the detected job count. Invalid forms are
@@ -101,6 +114,7 @@ for %%A in (%*) do (
       set "SAW_MAKE_J=1"
       if !REQ_JOBS! LSS 1 set "REQ_JOBS=1"
       set "BUILD_JOBS=!REQ_JOBS!"
+      set "BUILD_JOBS_SOURCE=-j"
       set "MAKE_JOBS=-j!REQ_JOBS!"
     )
   )
@@ -153,8 +167,8 @@ echo   rebuild     Run clean, then build.
 echo.
 echo Any other arguments are forwarded to GNU make unchanged.
 echo Perf profiles pin opt level, hotloop, and hotexit; override with LUA54_PERF_JIT_OPTS.
-echo Parallelism defaults to all detected logical processors; override with BUILD_JOBS or -jN. Bare -j is normalized to the current job count.
-echo Examples: build.bat lua54 -j32   or   set BUILD_JOBS=32
+echo Parallelism defaults to all detected logical processors; override with BUILD_JOBS=N, BUILD_JOBS=auto, BUILD_JOBS=max, or -jN. Bare -j is normalized to the current job count.
+echo Examples: build.bat lua54 -j32   or   set BUILD_JOBS=max
 exit /b 0
 
 :BUILD
@@ -255,6 +269,7 @@ call :RUN %MAKE_ARGS%
 exit /b !ERRORLEVEL!
 
 :RUN
+call :PRINT_JOBS
 if not "!SAW_MAKE_J!"=="1" (
   echo [build.bat] "%GNUMAKE%" %MAKE_JOBS% %*
   "%GNUMAKE%" %MAKE_JOBS% %*
@@ -293,6 +308,7 @@ echo [build.bat] "%GNUMAKE%" %MAKE_JOBS% !RUN_ARGS!
 exit /b !ERRORLEVEL!
 
 :RUN_PLATFORM
+call :PRINT_JOBS
 set "PLATFORM_ARGS="
 set "SKIP_PLATFORM_JOBS="
 for %%A in (%*) do (
@@ -333,3 +349,10 @@ rem "XCFLAGS=-DFOO -DBAR"; stripping quotes would split them into make options.
 set "REST_ARGS=!REST_ARGS! ^"%~1^""
 shift
 goto :SET_REST_LOOP
+
+:PRINT_JOBS
+if not "!PRINTED_BUILD_JOBS!"=="1" (
+  echo [build.bat] detected !CPU_THREADS! logical processors; using !BUILD_JOBS! make jobs ^(!BUILD_JOBS_SOURCE!^).
+  set "PRINTED_BUILD_JOBS=1"
+)
+exit /b 0
