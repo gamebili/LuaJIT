@@ -48,6 +48,7 @@
    - 当前进展：新增 Lua 5.4 perf/memory smoke，默认固定三档显式 `jit.opt` profile：`3,hotloop=3,hotexit=2,instunroll=4,loopunroll=4`、`3,hotloop=56,hotexit=10` 和 `0,hotloop=3,hotexit=2`，并分别覆盖 JIT on/off 下的 `pairs` / `__pairs` / `//` / `%` / string helper / hook churn；可用 `LUA54_PERF_JIT_OPTS` 覆盖本地 profiling 矩阵，且自定义 profile 必须显式写明 opt level、`hotloop` 和 `hotexit`，避免 opt 默认值变化掩盖性能回退。
    - 当前进展：`test/lua54_perf.lua` 的 ratio guard 已新增 `LUA54_PERF_RATIO_MIN_SAMPLE`，默认把比率分母下限固定为 5ms，避免 Windows 低毫秒 `os.clock()` 量化把 `floor_divmod` 这类极短 baseline 放大成假失败；单项绝对耗时仍由 `LUA54_PERF_ABS` 约束。
    - 当前进展：`build.bat` / `Makefile` 已新增 `lua54build`、`lua54quick` 和 `smoke54quick` 本地增量入口，Lua 5.4 compat 构建会记录 `XCFLAGS` stamp；同配置重复验证会跳过 clean 并继续按检测到的 32 个逻辑处理器运行 `make -j32`，`cmd /c build.bat lua54quick` 已通过。
+   - 当前进展：`Makefile` 的 Lua 5.4 C API/header smoke 已拆成独立并行目标，`build.bat lua54quick` 传入的 `-jN` 现在可同时调度本地 header 编译门禁、负向编译门禁和 C API 小可执行 smoke，缩短 quick 验证尾段并更充分利用本机逻辑处理器。
    - 当前进展：PC x64、x86、ARM64、ARM、MIPS、MIPS64、PPC 的 `__call` callable-chain 已统一改为由 `lj_meta_call` 返回新增隐式参数数量，并由各 VM 后端更新 `NARGS`；PC x64 / Android ARM64 已额外覆盖 100 层 callable-chain tailcall 扩栈和 `CALLT` 保持，Android ARM64 设备 smoke 已覆盖该路径。
 
 6. **C API / lauxlib / 标准库收尾批次**
@@ -947,6 +948,7 @@
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `table.move(1, 1, 0, 1)` 空范围非 table 源对象诊断和显式 `nil` 目标回源表复制的标准库边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `package.searchpath()` 普通模板命中文件和自定义 separator/replacement 命中文件成功路径的标准库边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `loadfile()` 缺失文件返回 tuple、source chunk env 初始化 `_ENV` 和 stripped binary chunk env 初始化首个无名 upvalue 的标准库边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
+- `cmd /c build.bat lua54quick` 已通过，确认 `Makefile` 的 Lua 5.4 C API/header smoke 可在 `build.bat` 默认检测到的 32 逻辑线程 `-j32` 下并行调度 header 编译门禁、负向编译门禁和 C API 小可执行 smoke；同时覆盖 Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、标准库/JIT/GC/VM 后端静态/DynASM 门禁和 C API smoke。
 
 ## 已确认不列入当前 TODO 的已实现项
 
