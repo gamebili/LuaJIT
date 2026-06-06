@@ -199,17 +199,55 @@ smoketest-lua54compat-quick:
 	$(MAKE) build-lua54compat-incremental
 	$(MAKE) run-lua54compat-tests
 
-run-lua54compat-tests:
+LUA54_RUNTIME_PARALLEL_TARGETS= \
+	lua54-runtime-official-matrix \
+	lua54-runtime-cstack-regress \
+	lua54-runtime-gc-regress \
+	lua54-runtime-jit-regress \
+	lua54-runtime-tpack-regress \
+	lua54-runtime-stdlib-edges \
+	lua54-runtime-vm-backend-static \
+	lua54-runtime-vm-backend-dynasm \
+	lua54-runtime-smoke \
+	lua54-runtime-standalone-regress \
+	lua54-runtime-warning-smoke \
+	lua54-runtime-package-path-smoke \
+	lua54-runtime-arg-smoke \
+	lua54-runtime-loadlib-smoke
+
+run-lua54compat-tests: $(LUA54_RUNTIME_PARALLEL_TARGETS)
+
+lua54-runtime-official-matrix:
 	MAKEFLAGS= ./src/luajit test/lua54_official_matrix.lua "$(LUA54_TESTES_DIR)"
+
+lua54-runtime-cstack-regress:
 	./src/luajit test/lua54_cstack_regress.lua
+
+lua54-runtime-gc-regress:
 	./src/luajit test/lua54_gc_regress.lua
+
+lua54-runtime-jit-regress:
 	LUA_PATH_5_4='./src/?.lua;./src/?/init.lua;;' ./src/luajit test/lua54_jit_regress.lua
+
+lua54-runtime-tpack-regress:
 	./src/luajit test/lua54_tpack_regress.lua
+
+lua54-runtime-stdlib-edges:
 	./src/luajit test/lua54_stdlib_edges.lua
+
+lua54-runtime-vm-backend-static:
 	./src/luajit test/lua54_vm_backend_static.lua
+
+lua54-runtime-vm-backend-dynasm:
 	./src/luajit test/lua54_vm_backend_dynasm.lua
+
+lua54-runtime-smoke:
 	LUA_PATH_5_4='./src/?.lua;./src/?/init.lua;;' ./src/luajit test/smoke.lua lua54compat
+
+lua54-runtime-standalone-regress:
 	./src/luajit test/lua54_standalone_regress.lua ./src/luajit
+
+lua54-runtime-warning-smoke:
 	out=$$(./src/luajit -e 'warn("@on"); warn("lua54 ", "warning")' 2>&1 >/dev/null) && test "$$out" = "Lua warning: lua54 warning"
 	out=$$(./src/luajit -W -e 'warn("lua54 -W warning")' 2>&1 >/dev/null) && test "$$out" = "Lua warning: lua54 -W warning"
 	out=$$(./src/luajit -e 'warn("lua54 before -W")' -W 2>&1 >/dev/null) && test "$$out" = ""
@@ -217,11 +255,17 @@ run-lua54compat-tests:
 	out=$$(./src/luajit -e 'warn("lua54 hidden")' -W -e 'warn("lua54 visible")' 2>&1 >/dev/null) && test "$$out" = "Lua warning: lua54 visible"
 	out=$$(./src/luajit -e 'warn("@on"); warn("@off", "XXX", "@off"); warn("@off")' 2>&1 >/dev/null) && test "$$out" = "Lua warning: @offXXX@off"
 	out=$$(./src/luajit -e 'warn("@on"); do local t=setmetatable({}, { __gc=function() error("lua54 gc boom", 0) end }); t=nil end; collectgarbage(); collectgarbage()' 2>&1 >/dev/null) && test "$$out" = "Lua warning: error in __gc (lua54 gc boom)"
+
+lua54-runtime-package-path-smoke:
 	./src/luajit -E -e 'local p,c,sep=package.path,package.cpath,package.config:sub(1,1); if sep=="\\" then assert(p:find("\\lua\\?.lua",1,true)); assert(p:find("\\lua\\?\\init.lua",1,true)); assert(p:find("..\\share\\lua\\5.4\\?.lua",1,true)); assert(p:find(".\\?\\init.lua",1,true)); assert(c:find("..\\lib\\lua\\5.4\\?.dll",1,true)); assert(c:find(".\\?.dll",1,true)); else assert(p:find("/share/lua/5.4/?.lua",1,true)); assert(p:find("/share/lua/5.4/?/init.lua",1,true)); assert(c:find("/lib/lua/5.4/?.so",1,true)); end'
+
+lua54-runtime-arg-smoke:
 	./src/luajit -e 'assert(arg[-1] == nil); assert(arg[0]:match("luajit")); assert(arg[1] == "-e"); assert(arg[2]:match("arg%[0%]"))'
 	tmp=test/lua54_arg_smoke.tmp; printf 'assert(arg[-1]:match("luajit")); assert(arg[0]:match("lua54_arg_smoke")); assert(arg[1] == "a"); assert(arg[2] == "b")\n' > $$tmp && ./src/luajit $$tmp a b && rm -f $$tmp
 	tmp=test/lua54_arg_smoke.tmp; printf 'assert(arg[-2]:match("luajit")); assert(arg[-1] == "--"); assert(arg[0]:match("lua54_arg_smoke")); assert(arg[1] == "a"); assert(arg[2] == "b")\n' > $$tmp && ./src/luajit -- $$tmp a b && rm -f $$tmp
 	printf 'assert(arg[-1]:match("luajit")); assert(arg[0] == "-"); assert(arg[1] == "a"); assert(arg[2] == "b")\n' | ./src/luajit - a b
+
+lua54-runtime-loadlib-smoke:
 	./src/luajit -l lua54math=math -e 'assert(lua54math.type(1) == "integer")'
 
 smoketest-lua54compat53:
@@ -415,6 +459,6 @@ test:
 	$(MAKE) smoketest-lua54compat-nogc64
 	$(MAKE) smoketest-perf-lua54compat
 
-.PHONY: all install amalg clean smoketest build-lua54compat build-lua54compat-incremental smoketest-lua54compat smoketest-lua54compat-quick run-lua54compat-tests smoketest-lua54compat-nogc64 run-official-lua54compat smoketest-official-lua54compat smoketest-capi-default smoketest-capi-lua54compat smoketest-capi-lua54compat-quick run-capi-lua54compat-tests $(LUA54_CAPI_PARALLEL_TARGETS) smoketest-perf-lua54compat test
+.PHONY: all install amalg clean smoketest build-lua54compat build-lua54compat-incremental smoketest-lua54compat smoketest-lua54compat-quick run-lua54compat-tests $(LUA54_RUNTIME_PARALLEL_TARGETS) smoketest-lua54compat-nogc64 run-official-lua54compat smoketest-official-lua54compat smoketest-capi-default smoketest-capi-lua54compat smoketest-capi-lua54compat-quick run-capi-lua54compat-tests $(LUA54_CAPI_PARALLEL_TARGETS) smoketest-perf-lua54compat test
 
 ##############################################################################
