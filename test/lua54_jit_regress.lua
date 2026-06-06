@@ -3155,9 +3155,41 @@ do
 	 err:find("x/init.lua", 1, true) then
 	n = n + 1
       end
+      local ok_load_noarg, err_load_noarg = pcall(package.loadlib)
+      local ok_load_path, err_load_path =
+	pcall(package.loadlib, true, "x")
+      local ok_load_func, err_load_func =
+	pcall(package.loadlib, "no-such-file", true)
+      local old_searchers = package.searchers
+      package.searchers = true
+      local ok_searchers, err_searchers =
+	pcall(require, "__lua54_jit_bad_searchers__")
+      package.searchers = old_searchers
+      if not ok_load_noarg and
+	 err_load_noarg:find("bad argument #1 to 'package.loadlib'",
+			     1, true) and
+	 err_load_noarg:find("got no value", 1, true) then
+	n = n + 1
+      end
+      if not ok_load_path and
+	 err_load_path:find("bad argument #1 to 'package.loadlib'",
+			    1, true) and
+	 err_load_path:find("got boolean", 1, true) then
+	n = n + 1
+      end
+      if not ok_load_func and
+	 err_load_func:find("bad argument #2 to 'package.loadlib'",
+			    1, true) and
+	 err_load_func:find("got boolean", 1, true) then
+	n = n + 1
+      end
+      if not ok_searchers and
+	 err_searchers == "'package.searchers' must be a table" then
+	n = n + 1
+      end
     end
-    assert(n == 640)
-  end, "Lua 5.4 package.searchpath string coercion")
+    assert(n == 960)
+  end, "Lua 5.4 package path and loadlib edges")
 
   local function result_count(...)
     return select("#", ...), ...
