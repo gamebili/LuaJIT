@@ -89,6 +89,7 @@
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.sort()` 有效 `__len` 缩短排序范围和普通 table proxy 的 `__index` / `__newindex` 读写路径，固定排序会按 Lua 5.4 表库元方法语义处理长度与元素交换。
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.sort()` 超大数组长度保护和 `<=` / `>=` 非严格比较器的 invalid order 边界，固定排序入口的长度上限与比较器顺序诊断。
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.sort()` 超大数组长度错误经局部 alias 调用时的函数名恢复路径，固定 `local s = table.sort; s(huge)` 报错会使用调用点名 `s`。
+   - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.unpack()` 的 `nil` / 非 table 空范围跳过读取、实际读取错误和 `math.mininteger..math.maxinteger` 全宽范围 too many 保护，固定空范围优先级与超大结果数诊断。
 
 ## P0：核心语义缺口
 
@@ -933,6 +934,7 @@
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `table.sort()` 有效 `__len` 缩短排序范围和普通 table proxy 经由 `__index` / `__newindex` 排序交换的标准库边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `table.sort()` 超大数组长度保护和 `<=` / `>=` 非严格比较器 invalid order 的标准库边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `table.sort()` 超大数组长度错误经局部 alias 调用时恢复调用点名 `s` 的标准库边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
+- `.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `table.unpack()` 的 `nil` 空范围跳过读取、`nil` 实际读取错误和 `math.mininteger..math.maxinteger` 全宽范围 too many 保护标准库边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 
 ## 已确认不列入当前 TODO 的已实现项
 

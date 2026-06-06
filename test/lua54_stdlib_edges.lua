@@ -655,9 +655,12 @@ local cases = {
   { "table.unpack.wideneg", "local proxy = setmetatable({}, { __index = function(_, k) return k end }); local a, b = table.unpack(proxy, -1099511627776, -1099511627775); return a, b, math.type(a), math.type(b)", ok = { "number:-1099511627776", "number:-1099511627775", "string:integer", "string:integer" } },
   { "table.unpack.maxempty", "return select('#', table.unpack({}, math.maxinteger, math.mininteger))", ok = { "number:0" } },
   { "table.unpack.toomany", "return table.unpack({}, 1, math.maxinteger)", err = "too many results to unpack" },
+  { "table.unpack.maxtoomany", "return table.unpack({}, math.mininteger, math.maxinteger)", err = "too many results to unpack" },
   { "table.unpack.fracidx", "return table.unpack({1,2,3}, 1.2, 3)", err = "bad argument #2 to 'unpack' (number has no integer representation)" },
   { "table.unpack.emptyrange", "return table.unpack({}, 2, 1)", ok = {} },
   { "table.unpack.limit0", "return select('#', table.unpack({ 1 }, 1, 0))", ok = { "number:0" } },
+  { "table.unpack.nil.emptyrange", "return select('#', table.unpack(nil, 1, 0))", ok = { "number:0" } },
+  { "table.unpack.nil.read", "return table.unpack(nil, 1, 1)", err = "attempt to index a nil value" },
   { "table.unpack.nontable.emptyrange", "return select('#', table.unpack(1, 2, 1))", ok = { "number:0" } },
   { "table.unpack.nontable.read", "return table.unpack(1, 1, 1)", err = "attempt to index a number value" },
 
