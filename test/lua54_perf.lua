@@ -640,6 +640,45 @@ local function stdlib_edge_helpers(n)
       sum = sum + 1
     end
 
+    local ok_exp_noarg, err_exp_noarg = pcall(function()
+      return math.exp()
+    end)
+    if not ok_exp_noarg and
+       err_exp_noarg:find("bad argument #1 to 'exp'", 1, true) and
+       err_exp_noarg:find("number expected, got no value", 1, true) then
+      sum = sum + 1
+    end
+    local exp_string = math.exp("0")
+    if exp_string == 1.0 and math.type(exp_string) == "float" then
+      sum = sum + 1
+    end
+
+    local ok_cos_bad, err_cos_bad = pcall(function()
+      return math.cos(true)
+    end)
+    if not ok_cos_bad and
+       err_cos_bad:find("bad argument #1 to 'cos'", 1, true) and
+       err_cos_bad:find("number expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+    local cos_string = math.cos("0")
+    if cos_string == 1.0 and math.type(cos_string) == "float" then
+      sum = sum + 1
+    end
+
+    local ok_tan_noarg, err_tan_noarg = pcall(function()
+      return math.tan()
+    end)
+    if not ok_tan_noarg and
+       err_tan_noarg:find("bad argument #1 to 'tan'", 1, true) and
+       err_tan_noarg:find("number expected, got no value", 1, true) then
+      sum = sum + 1
+    end
+    local tan_string = math.tan("0")
+    if tan_string == 0.0 and math.type(tan_string) == "float" then
+      sum = sum + 1
+    end
+
     if math.abs(math.log(8, nil) - math.log(8)) < 1e-12 then
       sum = sum + 1
     end
@@ -2480,7 +2519,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_stdlib_edge = timeit(mode_name..":stdlib_edge_helpers",
 				  stdlib_edge_helpers, iter_n)
-  assert(r_stdlib_edge == iter_n * 57)
+  assert(r_stdlib_edge == iter_n * 63)
 
   local _, r_protected = timeit(mode_name..":protected_call_helpers",
 				protected_call_helpers, iter_n)

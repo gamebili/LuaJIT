@@ -3157,6 +3157,18 @@ do
       local ok_ceil_bad, err_ceil_bad = pcall(function()
 	return math.ceil(true)
       end)
+      local ok_exp_noarg, err_exp_noarg = pcall(function()
+	return math.exp()
+      end)
+      local exp_string = math.exp("0")
+      local ok_cos_bad, err_cos_bad = pcall(function()
+	return math.cos(true)
+      end)
+      local cos_string = math.cos("0")
+      local ok_tan_noarg, err_tan_noarg = pcall(function()
+	return math.tan()
+      end)
+      local tan_string = math.tan("0")
       local log_nil = math.log(8, nil)
       local log_strbase = math.log(8, "2")
       local ok_fmod_zero, err_fmod_zero = pcall(function()
@@ -3283,6 +3295,30 @@ do
       if not ok_ceil_bad and
 	 err_ceil_bad:find("bad argument #1 to 'ceil'", 1, true) and
 	 err_ceil_bad:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if not ok_exp_noarg and
+	 err_exp_noarg:find("bad argument #1 to 'exp'", 1, true) and
+	 err_exp_noarg:find("number expected, got no value", 1, true) then
+	n = n + 1
+      end
+      if exp_string == 1.0 and math.type(exp_string) == "float" then
+	n = n + 1
+      end
+      if not ok_cos_bad and
+	 err_cos_bad:find("bad argument #1 to 'cos'", 1, true) and
+	 err_cos_bad:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if cos_string == 1.0 and math.type(cos_string) == "float" then
+	n = n + 1
+      end
+      if not ok_tan_noarg and
+	 err_tan_noarg:find("bad argument #1 to 'tan'", 1, true) and
+	 err_tan_noarg:find("number expected, got no value", 1, true) then
+	n = n + 1
+      end
+      if tan_string == 0.0 and math.type(tan_string) == "float" then
 	n = n + 1
       end
       if math.abs(log_nil - math.log(8)) < 1e-12 then n = n + 1 end
@@ -3421,7 +3457,7 @@ do
       if utf8_len_empty == 0 then n = n + 1 end
       if utf8_offset_neg == 3 then n = n + 1 end
     end
-    assert(n == 3920)
+    assert(n == 4400)
   end, "Lua 5.4 mixed stdlib edge errors")
 end
 
