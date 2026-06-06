@@ -570,6 +570,7 @@
   - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 table 返回/错误边界，覆盖 `table.concat()` 单元素/空表/数字元素、`table.insert()` append / nil append / 多参数 / 非 table、`table.move()` 目标表/空范围/空范围目标校验、`table.pack()` nil 洞值、`table.unpack()` 默认范围和空范围返回计数，以及 `table.sort()` 非严格 comparator 和不可比较元素错误。
   - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.concat()` / `table.insert()` / `table.remove()` / `table.sort()` 默认长度路径的 `__len` 小数返回边界，固定统一报 `object length is not an integer`。
   - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.concat()` / `table.remove()` 的 `2^40` 级别宽整数代理 key 边界，固定默认长度和显式位置不会截断到 32 位，空范围也不会触发元素读取。
+  - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.unpack()` 的 `2^40` 级别宽整数范围边界，覆盖负向代理读取、`math.maxinteger..math.mininteger` 空范围和超大结果数错误。
   - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.concat()` 显式终点等于 `math.maxinteger` 的标准库边界，固定单元素和双元素范围不会在终点自增后回绕继续读取。
   - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.concat()` / `table.insert()` / `table.remove()` / `table.sort()` / `table.unpack()` 的非 table number 代理对象边界，固定这些 helper 会通过 `__len` / `__index` / `__newindex` 使用代理对象。
   - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.move()` 非 table number 代理对象边界，固定显式目标搬移会通过 `__index` 读取源对象、通过 `__newindex` 写入目标对象，并返回目标对象。
@@ -915,6 +916,7 @@
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `table.concat()` 显式终点为 `math.maxinteger` 时单元素和双元素范围不会回绕继续读取的标准库边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `table.concat()` / `table.insert()` / `table.remove()` / `table.sort()` 默认长度路径遇到 `__len` 小数返回时统一报 `object length is not an integer` 的标准库边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `table.concat()` / `table.remove()` 对 `2^40` 级别宽整数代理 key 的标准库冷边界，确认默认长度、显式位置和空范围读取均保持 64-bit integer key 语义、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
+- `.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `table.unpack()` 对 `2^40` 级别宽整数范围的标准库冷边界，确认负向代理读取保持 integer 子类型、`math.maxinteger..math.mininteger` 空范围返回 0 项且超大结果数稳定报 `too many results to unpack`、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 
 ## 已确认不列入当前 TODO 的已实现项
 
