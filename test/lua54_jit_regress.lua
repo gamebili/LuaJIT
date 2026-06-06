@@ -3714,6 +3714,7 @@ do
   local future_ok, future_stamp = pcall(os.time, future_fields)
   local future_supported = future_ok and future_stamp > 2147483647
   local path_present = os.getenv("PATH") ~= nil
+  local windows_date_ext = package.config:sub(1, 1) == "\\"
 
   assert_records_trace(function()
     local n = 0
@@ -3725,6 +3726,13 @@ do
       if os.date("\0\0", stamp) == "\0\0" then n = n + 1 end
       if os.date("!\0\0", stamp) == "\0\0" then n = n + 1 end
       if os.date("*tx", stamp) == "*tx" then n = n + 1 end
+      if windows_date_ext then
+	if os.date("%c", 0) == os.date("%x %X", 0) then n = n + 1 end
+	if os.date("!%c", 0) == os.date("!%x %X", 0) then n = n + 1 end
+	if os.date("%#c", 0):find("1970", 1, true) then n = n + 1 end
+	if os.date("%#x", 0):find("1970", 1, true) then n = n + 1 end
+	if os.date("%#d", 0) == "1" then n = n + 1 end
+      end
       if os.date(1099511627776, stamp) == "1099511627776" then n = n + 1 end
       if os.difftime(stamp + 7, stamp) == 7 then n = n + 1 end
       if future_supported and math.type(future_stamp) == "integer" and
@@ -3750,7 +3758,8 @@ do
       if (os.getenv("PATH") ~= nil) == path_present then n = n + 1 end
       if type(os.setlocale(nil, "time")) == "string" then n = n + 1 end
     end
-    assert(n == 960 + (future_supported and 80 or 0))
+    assert(n == 960 + (future_supported and 80 or 0) +
+	   (windows_date_ext and 400 or 0))
   end, "Lua 5.4 os date/time helpers")
 
   assert_records_trace(function()
@@ -3761,6 +3770,7 @@ do
       })
       local ok_date, err_date = pcall(os.date, true)
       local ok_date_badconv, err_date_badconv = pcall(os.date, "%Q", 0)
+      local ok_date_badhash, err_date_badhash = pcall(os.date, "%#X", 0)
       local ok_date_time, err_date_time = pcall(os.date, "%Y", 1.5)
       local ok_diff1, err_diff1 = pcall(os.difftime, 2.5, 1)
       local ok_diff2, err_diff2 = pcall(os.difftime, 2, 1.5)
@@ -3786,6 +3796,10 @@ do
 	 not ok_date and err_date:find("to 'os.date'", 1, true) and
 	 not ok_date_badconv and
 	 err_date_badconv:find("invalid conversion specifier '%Q'", 1, true) and
+	 (not windows_date_ext or
+	  (not ok_date_badhash and
+	   err_date_badhash:find("invalid conversion specifier '%#X'",
+				 1, true))) and
 	 not ok_date_time and
 	 err_date_time:find("integer representation", 1, true) and
 	 not ok_diff1 and

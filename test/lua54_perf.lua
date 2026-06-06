@@ -1594,6 +1594,7 @@ local os_future_fields = {
 local os_future_ok, os_future_stamp = pcall(os.time, os_future_fields)
 local os_future_supported = os_future_ok and os_future_stamp > 2147483647
 local os_path_present = os.getenv("PATH") ~= nil
+local os_windows_date_ext = package.config:sub(1, 1) == "\\"
 
 local function os_helpers(n)
   local sum = 0
@@ -1607,6 +1608,13 @@ local function os_helpers(n)
     if os.date("\0\0", os_time_stamp) == "\0\0" then sum = sum + 1 end
     if os.date("!\0\0", os_time_stamp) == "\0\0" then sum = sum + 1 end
     if os.date("*tx", os_time_stamp) == "*tx" then sum = sum + 1 end
+    if os_windows_date_ext then
+      if os.date("%c", 0) == os.date("%x %X", 0) then sum = sum + 1 end
+      if os.date("!%c", 0) == os.date("!%x %X", 0) then sum = sum + 1 end
+      if os.date("%#c", 0):find("1970", 1, true) then sum = sum + 1 end
+      if os.date("%#x", 0):find("1970", 1, true) then sum = sum + 1 end
+      if os.date("%#d", 0) == "1" then sum = sum + 1 end
+    end
     if os.date(1099511627776, os_time_stamp) == "1099511627776" then
       sum = sum + 1
     end
@@ -1655,6 +1663,15 @@ local function os_helpers(n)
     if not ok_date_badconv and
        err_date_badconv:find("invalid conversion specifier '%Q'", 1, true) then
       sum = sum + 1
+    end
+
+    if os_windows_date_ext then
+      local ok_date_badhash, err_date_badhash = pcall(os.date, "%#X", 0)
+      if not ok_date_badhash and
+	 err_date_badhash:find("invalid conversion specifier '%#X'",
+			       1, true) then
+	sum = sum + 1
+      end
     end
 
     local ok_date_time, err_date_time = pcall(os.date, "%Y", 1.5)
@@ -2799,7 +2816,8 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   assert(r_many_upvalue == iter_n)
 
   local _, r_os = timeit(mode_name..":os_helpers", os_helpers, iter_n)
-  assert(r_os == iter_n * (18 + (os_future_supported and 1 or 0)))
+  assert(r_os == iter_n * (18 + (os_future_supported and 1 or 0) +
+			    (os_windows_date_ext and 6 or 0)))
 
   if enable_jit then jit.off(io_helpers, true) end
   local _, r_io = timeit(mode_name..":io_helpers", io_helpers, iter_n)
