@@ -445,6 +445,7 @@
   - 当前进展：已补默认构建 C API smoke，覆盖旧 LuaJIT 5.1 头文件宏和 ABI 入口仍可编译、链接、运行。
   - 需要补测试：更完整 ABI 兼容测试，以及更多旧 LuaJIT API 在默认构建下不受影响的覆盖。
   - 当前进展：默认 LuaJIT 5.1 C API smoke 已继续补旧 ABI 覆盖：`lua_cpcall`、`lua_setfenv`、`lua_setlevel`、`lua_equal`、`lua_lessthan`、Lua 函数 environment、`luaL_ref` / `luaL_unref` 的 key 0 freelist 行为、`luaL_loadstring`、`luaL_loadfile`、`luaL_loadbuffer`、`luaL_dofile` / `luaL_dostring`、`luaL_checkint` / `luaL_checklong` / `luaL_optint` / `luaL_optlong`、`luaL_getmetafield` / `luaL_callmeta`、`luaL_newmetatable` / `luaL_checkudata`、`luaopen_string_buffer` 和 LuaJIT-only `lua_loadx` 均在默认构建下编译/运行验证，防止 Lua 5.4 外部头收紧时误伤默认 ABI。
+  - 当前进展：默认 LuaJIT 5.1 C API smoke 已继续补 `luaL_gsub()` 普通替换、无匹配和非重叠替换，以及 `luaL_where()` 压栈字符串行为，固定这些旧 lauxlib 表面在默认构建下仍可编译/链接/运行。
   - 当前进展：默认 LuaJIT 5.1 `lua_getfenv()` / `lua_setfenv()` 的非法目标索引已从 debug-only stack slot 检查收敛为 release 可见 `invalid value`，同时保留合法非 env 对象返回 nil/0 的旧表面。
   - 当前进展：默认 LuaJIT 5.1 `lua_upvalueid()` 已补 Lua/C closure 的合法 id 查询和非法 upvalue 编号返回 `NULL` 的 smoke，避免 release 构建下越界取 upvalue 指针或依赖 debug-only `lj_checkapi`。
 
@@ -962,6 +963,7 @@
 - `cmd /c build.bat help`、`cmd /c build.bat lua54build -j32` 和 `cmd /c build.bat lua54quick` 已通过；`Makefile` 的 `run-lua54compat-tests` 已拆成可并行调度的 Lua 5.4 runtime smoke 子目标，确认 `build.bat` 默认检测到的 32 逻辑线程 `-j32` 能同时驱动构建、运行期 smoke 和 C API/header smoke，进一步利用本地机器性能。
 - `cmd /c build.bat lua54perf`、`.\src\luajit.exe test\lua54_perf.lua jit_on` 和 `.\src\luajit.exe test\lua54_perf.lua jit_off` 已通过；`lua54perf` 现在会并行调度三档固定 JIT profile 和 JIT off perf/memory smoke，且各进程使用独立 IO 临时文件后缀，继续覆盖 JIT on/off Lua 5.4 perf 热路径。
 - `cmd /c build.bat lua54quick` 已通过；输出确认 `run-lua54compat-and-capi-tests` 会在同一个 `-j32` make jobserver 下交错运行官方 Lua 5.4 矩阵、runtime smoke、C API/header 编译门禁和 C API 小可执行 smoke，构建后验证尾段不再串行分成 runtime 与 C API 两轮。
+- `cmd /c build.bat default` 和 `cmd /c build.bat lua54quick` 已通过；覆盖本轮新增默认 LuaJIT 5.1 `luaL_gsub()` / `luaL_where()` 旧 lauxlib ABI smoke，并确认 Lua 5.4 兼容构建、官方矩阵、runtime smoke、C API/header smoke 仍通过。
 
 ## 已确认不列入当前 TODO 的已实现项
 

@@ -1388,6 +1388,36 @@ int main(void)
 	"luaL_findtable table value");
   lua_pop(L, 2);
 
+  {
+    const char *gs;
+    gs = luaL_gsub(L, "a-b-a", "-", "_");
+    check(L, gs == lua_tostring(L, -1),
+	  "luaL_gsub default API return value");
+    check(L, strcmp(gs, "a_b_a") == 0,
+	  "luaL_gsub default API replacement");
+    lua_pop(L, 1);
+    gs = luaL_gsub(L, "plain", "z", "_");
+    check(L, gs == lua_tostring(L, -1),
+	  "luaL_gsub default API no-match return value");
+    check(L, strcmp(gs, "plain") == 0,
+	  "luaL_gsub default API no-match result");
+    lua_pop(L, 1);
+    gs = luaL_gsub(L, "aaaa", "aa", "b");
+    check(L, gs == lua_tostring(L, -1),
+	  "luaL_gsub default API non-overlap return value");
+    check(L, strcmp(gs, "bb") == 0,
+	  "luaL_gsub default API non-overlap result");
+    lua_pop(L, 1);
+  }
+
+  {
+    int top = lua_gettop(L);
+    luaL_where(L, 0);
+    check(L, lua_gettop(L) == top + 1, "luaL_where default API pushes");
+    check(L, lua_isstring(L, -1), "luaL_where default API string");
+    lua_pop(L, 1);
+  }
+
   lua_newtable(L);
   lua_newtable(L);
   lua_pushcfunction(L, capi51_answer);
