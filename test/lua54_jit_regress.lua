@@ -3217,6 +3217,9 @@ do
       local ok_find_method, err_find_method = pcall(function()
 	return ("abc"):find({})
       end)
+      local ok_format_method, err_format_method = pcall(function()
+	return ("%d"):format(true)
+      end)
       if not ok_sub and err_sub:find("integer representation", 1, true) and
 	 not ok_char and err_char:find("value out of range", 1, true) then
 	n = n + 1
@@ -3229,8 +3232,12 @@ do
 	 err_find_method:find("bad argument #1 to 'find'", 1, true) then
 	n = n + 1
       end
+      if not ok_format_method and
+	 err_format_method:find("bad argument #1 to 'format'", 1, true) then
+	n = n + 1
+      end
     end
-    assert(n == 240)
+    assert(n == 320)
   end, "Lua 5.4 string integer errors")
 end
 

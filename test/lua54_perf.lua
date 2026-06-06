@@ -1761,6 +1761,10 @@ local function string_tail_find_method_bad(s)
   return s:find({})
 end
 
+local function string_tail_format_method_bad(s)
+  return s:format(true)
+end
+
 local function string_helpers(n)
   local sum = 0
   for _ = 1, n do
@@ -1795,12 +1799,18 @@ local function string_helpers(n)
       pcall(string_tail_byte_method_bad, "abc")
     local ok_find_method, err_find_method =
       pcall(string_tail_find_method_bad, "abc")
+    local ok_format_method, err_format_method =
+      pcall(string_tail_format_method_bad, "%d")
     if not ok_byte_method and
        err_byte_method:find("bad argument #1 to 'byte'", 1, true) then
       sum = sum + 1
     end
     if not ok_find_method and
        err_find_method:find("bad argument #1 to 'find'", 1, true) then
+      sum = sum + 1
+    end
+    if not ok_format_method and
+       err_format_method:find("bad argument #1 to 'format'", 1, true) then
       sum = sum + 1
     end
     for a, b in string.gmatch("a b cd", "()%s*()", "2") do
@@ -2120,7 +2130,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   ratio_check(mode_name..":divmod_vs_floor", t_floor, t_lua54)
 
   local _, r_string = timeit(mode_name..":string_helpers", string_helpers, string_n)
-  assert(r_string == string_n * 205)
+  assert(r_string == string_n * 206)
 
   local _, r_utf8 = timeit(mode_name..":utf8_helpers", utf8_helpers, utf8_n)
   assert(r_utf8 == utf8_n * 14)
