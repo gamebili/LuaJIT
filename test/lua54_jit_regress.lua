@@ -2819,6 +2819,40 @@ do
   end, "Lua 5.4 debug local level error names")
 
   assert_records_trace(function()
+    local function result_count(...)
+      return select("#", ...), ...
+    end
+    local n = 0
+    for _ = 1, 80 do
+      local missing_n, missing_name = result_count(debug.getlocal(1, 999))
+      local set_missing_n, set_missing_name =
+	result_count(debug.setlocal(1, 999, "x"))
+      if missing_n == 1 and missing_name == nil and
+	 set_missing_n == 1 and set_missing_name == nil then
+	n = n + 1
+      end
+
+      local local_co = coroutine.create(function(a)
+	local x = a + 1
+	coroutine.yield(x)
+	return x
+      end)
+      local ok_yield, yielded = coroutine.resume(local_co, 41)
+      local n1, v1 = debug.getlocal(local_co, 1, 1)
+      local n2, v2 = debug.getlocal(local_co, 1, 2)
+      local set_name = debug.setlocal(local_co, 1, 2, 99)
+      local ok_done, done = coroutine.resume(local_co)
+      if ok_yield and yielded == 42 and
+	 n1 == "a" and v1 == 41 and
+	 n2 == "x" and v2 == 42 and
+	 set_name == "x" and ok_done and done == 99 then
+	n = n + 1
+      end
+    end
+    assert(n == 80 * 2)
+  end, "Lua 5.4 debug local access edges")
+
+  assert_records_trace(function()
     local fn = function(a, ...) return a end
     local n = 0
     for _ = 1, 80 do

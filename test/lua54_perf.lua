@@ -1118,6 +1118,35 @@ local function debug_helpers(n)
       end
     end
 
+    do
+      local missing_n, missing_name = select("#", debug.getlocal(1, 999)),
+				     debug.getlocal(1, 999)
+      local set_missing_n, set_missing_name =
+	select("#", debug.setlocal(1, 999, "x")),
+	debug.setlocal(1, 999, "x")
+      if missing_n == 1 and missing_name == nil and
+	 set_missing_n == 1 and set_missing_name == nil then
+	sum = sum + 1
+      end
+
+      local local_co = coroutine.create(function(a)
+	local x = a + 1
+	coroutine.yield(x)
+	return x
+      end)
+      local ok_yield, yielded = coroutine.resume(local_co, 41)
+      local n1, v1 = debug.getlocal(local_co, 1, 1)
+      local n2, v2 = debug.getlocal(local_co, 1, 2)
+      local set_name = debug.setlocal(local_co, 1, 2, 99)
+      local ok_done, done = coroutine.resume(local_co)
+      if ok_yield and yielded == 42 and
+	 n1 == "a" and v1 == 41 and
+	 n2 == "x" and v2 == 42 and
+	 set_name == "x" and ok_done and done == 99 then
+	sum = sum + 1
+      end
+    end
+
     local wide = debug.getinfo(1099511627776, "S")
     if wide and wide.what == "C" then sum = sum + 1 end
     if debug.getinfo(math.maxinteger) == nil then sum = sum + 1 end
@@ -2244,7 +2273,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_debug = timeit(mode_name..":debug_helpers",
 			    debug_helpers, iter_n)
-  assert(r_debug == iter_n * 33)
+  assert(r_debug == iter_n * 35)
 
   local _, r_many_upvalue = timeit(mode_name..":many_upvalue_helpers",
 				   many_upvalue_helpers, iter_n)
