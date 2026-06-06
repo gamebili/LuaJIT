@@ -1662,11 +1662,54 @@ local function number_pack_helpers(n)
 	sum = sum + 1
       end
     end
+    local ok_ti_noarg, err_ti_noarg = pcall(function()
+      return math.tointeger()
+    end)
+    if not ok_ti_noarg and
+       err_ti_noarg:find("bad argument #1 to 'tointeger'", 1, true) and
+       err_ti_noarg:find("value expected", 1, true) then
+      sum = sum + 1
+    end
+    local ti_strfloat = math.tointeger("1.0")
+    if ti_strfloat == 1 and math.type(ti_strfloat) == "integer" then
+      sum = sum + 1
+    end
+    local ti_floatint = math.tointeger(42.0)
+    if ti_floatint == 42 and math.type(ti_floatint) == "integer" then
+      sum = sum + 1
+    end
     if math.tointeger(tointeger_over) == nil then sum = sum + 1 end
     if math.tointeger(1.5) == nil then sum = sum + 1 end
+    if math.tointeger({}) == nil then sum = sum + 1 end
+    local ok_ult_noarg, err_ult_noarg = pcall(function()
+      return math.ult()
+    end)
+    if not ok_ult_noarg and
+       err_ult_noarg:find("bad argument #1 to 'ult'", 1, true) and
+       err_ult_noarg:find("number expected, got no value", 1, true) then
+      sum = sum + 1
+    end
+    if math.ult("1", "2") then sum = sum + 1 end
+    if math.ult(1.0, 2.0) then sum = sum + 1 end
     if math.ult(1, -1) and not math.ult(-1, 1) and
        math.ult(ti_wide, ti_wide + 1) and math.ult(ti_max, -1) and
        not math.ult(-1, ti_max) then
+      sum = sum + 1
+    end
+    local ok_ult_frac1, err_ult_frac1 = pcall(function()
+      return math.ult(1.2, 2)
+    end)
+    if not ok_ult_frac1 and
+       err_ult_frac1:find("bad argument #1 to 'ult'", 1, true) and
+       err_ult_frac1:find("integer representation", 1, true) then
+      sum = sum + 1
+    end
+    local ok_ult_frac2, err_ult_frac2 = pcall(function()
+      return math.ult(1, 2.2)
+    end)
+    if not ok_ult_frac2 and
+       err_ult_frac2:find("bad argument #2 to 'ult'", 1, true) and
+       err_ult_frac2:find("integer representation", 1, true) then
       sum = sum + 1
     end
     local ok_fmod_missing, err_fmod_missing = pcall(math.fmod)
@@ -2475,8 +2518,8 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   local _, r_number_pack = timeit(mode_name..":number_pack_helpers",
 				  number_pack_helpers, iter_n)
   if enable_jit then jit.on(number_pack_helpers, true) end
-  assert(r_number_pack == iter_n * 176,
-	 "number_pack_helpers expected "..(iter_n * 176)..
+  assert(r_number_pack == iter_n * 185,
+	 "number_pack_helpers expected "..(iter_n * 185)..
 	 " got "..r_number_pack)
 
   local _, r_number_string = timeit(mode_name..":number_string_helpers",

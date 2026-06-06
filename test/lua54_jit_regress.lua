@@ -1509,6 +1509,12 @@ do
     local max = "9223372036854775807"
     local over = "9223372036854775808"
     for _ = 1, 80 do
+      local ok_noarg, err_noarg = pcall(function()
+	return math.tointeger()
+      end)
+      local ti_strfloat = math.tointeger("1.0")
+      local ti_floatint = math.tointeger(42.0)
+      local ti_bad = math.tointeger({})
       n = n + assert(math.tointeger("123"))
       local w = assert(math.tointeger(wide))
       local m = assert(math.tointeger(max))
@@ -1516,10 +1522,22 @@ do
 	 math.type(w) == "integer" and math.type(m) == "integer" then
 	n = n + 1
       end
-      assert(math.tointeger(over) == nil)
-      assert(math.tointeger(1.5) == nil)
+      if not ok_noarg and
+	 err_noarg:find("bad argument #1 to 'tointeger'", 1, true) and
+	 err_noarg:find("value expected", 1, true) then
+	n = n + 1
+      end
+      if ti_strfloat == 1 and math.type(ti_strfloat) == "integer" then
+	n = n + 1
+      end
+      if ti_floatint == 42 and math.type(ti_floatint) == "integer" then
+	n = n + 1
+      end
+      if math.tointeger(over) == nil then n = n + 1 end
+      if math.tointeger(1.5) == nil then n = n + 1 end
+      if ti_bad == nil then n = n + 1 end
     end
-    assert(n == 9920)
+    assert(n == 10400)
   end, "Lua 5.4 math.tointeger")
 
   assert_records_ir_op(function()
@@ -1535,6 +1553,40 @@ do
     assert(ult_loop(1099511627776, "1099511627777",
 		    "9223372036854775807") == 80)
   end, "Lua 5.4 int64 math.ult", "ULT")
+
+  assert_records_trace(function()
+    local n = 0
+    for _ = 1, 80 do
+      local ok_noarg, err_noarg = pcall(function()
+	return math.ult()
+      end)
+      local ok_frac1, err_frac1 = pcall(function()
+	return math.ult(1.2, 2)
+      end)
+      local ok_frac2, err_frac2 = pcall(function()
+	return math.ult(1, 2.2)
+      end)
+      if not ok_noarg and
+	 err_noarg:find("bad argument #1 to 'ult'", 1, true) and
+	 err_noarg:find("number expected, got no value", 1, true) then
+	n = n + 1
+      end
+      if math.ult("1", "2") then n = n + 1 end
+      if math.ult(1.0, 2.0) then n = n + 1 end
+      if not math.ult(-1, 0) and math.ult(0, -1) then n = n + 1 end
+      if not ok_frac1 and
+	 err_frac1:find("bad argument #1 to 'ult'", 1, true) and
+	 err_frac1:find("integer representation", 1, true) then
+	n = n + 1
+      end
+      if not ok_frac2 and
+	 err_frac2:find("bad argument #2 to 'ult'", 1, true) and
+	 err_frac2:find("integer representation", 1, true) then
+	n = n + 1
+      end
+    end
+    assert(n == 480)
+  end, "Lua 5.4 math.ult edge errors")
 
   assert_records_trace(function()
     local n = 0
