@@ -1945,6 +1945,19 @@ local function table_sort_helpers(n)
     table.sort(proxy)
     sum = sum + proxy_base[1] * 100 + proxy_base[2] * 10 + proxy_base[3]
 
+    local one = { 1 }
+    if select("#", table.sort(one, true)) == 0 and one[1] == 1 then
+      sum = sum + 1
+    end
+    local ok_items, err_items = pcall(table.sort, { {}, {} })
+    if not ok_items and
+       err_items:find("attempt to compare two table values", 1, true) then
+      sum = sum + 1
+    end
+    local ok_cmp, err_cmp = pcall(table.sort, { 2, 1 },
+				  function() error("cmp boom", 0) end)
+    if not ok_cmp and err_cmp == "cmp boom" then sum = sum + 1 end
+
     number_slots[0] = { "a", "b" }
     if table.concat(0, ",") == "a,b" then sum = sum + 1 end
     number_slots[0] = { "b", "c" }
@@ -2186,7 +2199,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_sort = timeit(mode_name..":table_sort_helpers",
 			   table_sort_helpers, sort_n)
-  assert(r_sort == sort_n * 445)
+  assert(r_sort == sort_n * 448)
 
   assert(timeit(mode_name..":hook_churn", hook_churn, hook_n))
 end

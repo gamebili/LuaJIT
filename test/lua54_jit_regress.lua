@@ -3801,9 +3801,21 @@ do
       if not ok and err:find("invalid order function", 1, true) then
 	n = n + 1
       end
+      local one = { 1 }
+      if select("#", table.sort(one, true)) == 0 and one[1] == 1 then
+	n = n + 1
+      end
+      local ok_items, err_items = pcall(table.sort, { {}, {} })
+      if not ok_items and
+	 err_items:find("attempt to compare two table values", 1, true) then
+	n = n + 1
+      end
+      local ok_cmp, err_cmp = pcall(table.sort, { 2, 1 },
+				   function() error("cmp boom", 0) end)
+      if not ok_cmp and err_cmp == "cmp boom" then n = n + 1 end
     end
-    assert(n == 80)
-  end, "Lua 5.4 table.sort invalid comparator")
+    assert(n == 80 * 4)
+  end, "Lua 5.4 table.sort edge errors")
 
   assert_records_trace(function()
     local base = { 3, 2, 1 }
