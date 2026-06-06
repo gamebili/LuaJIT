@@ -11,13 +11,24 @@
 @rem   amalg         amalgamated build
 @rem   static        create static lib to statically link into your project
 @rem   mixed         create static lib to build a DLL in your project
+@rem Set LUAJIT_MSVC_JOBS=N to override automatic /MP job count.
 
 @if not defined INCLUDE goto :FAIL
 
 @setlocal
 @rem Add more debug flags here, e.g. DEBUGCFLAGS=/DLUA_USE_ASSERT
 @set DEBUGCFLAGS=
+@set LJ_MSVC_JOBS=%LUAJIT_MSVC_JOBS%
+@if not defined LJ_MSVC_JOBS set LJ_MSVC_JOBS=%NUMBER_OF_PROCESSORS%
+@if not defined LJ_MSVC_JOBS set LJ_MSVC_JOBS=1
+@set LJ_MSVC_JOBS_OK=1
+@for /f "delims=0123456789" %%N in ("%LJ_MSVC_JOBS%") do @set LJ_MSVC_JOBS_OK=
+@if not defined LJ_MSVC_JOBS_OK set LJ_MSVC_JOBS=1
+@if %LJ_MSVC_JOBS% LSS 1 set LJ_MSVC_JOBS=1
+@set LJ_MSVC_MP=
+@if %LJ_MSVC_JOBS% GTR 1 set LJ_MSVC_MP=/MP%LJ_MSVC_JOBS%
 @set LJCOMPILE=cl /nologo /c /O2 /W3 /D_CRT_SECURE_NO_DEPRECATE /D_CRT_STDIO_INLINE=__declspec(dllexport)__inline
+@if defined LJ_MSVC_MP set LJCOMPILE=cl /nologo /c /O2 /W3 %LJ_MSVC_MP% /D_CRT_SECURE_NO_DEPRECATE /D_CRT_STDIO_INLINE=__declspec(dllexport)__inline
 @set LJDYNBUILD=/DLUA_BUILD_AS_DLL /MD
 @set LJDYNBUILD_DEBUG=/DLUA_BUILD_AS_DLL /MDd
 @set LJCOMPILETARGET=/Zi

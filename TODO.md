@@ -875,6 +875,7 @@
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua`、`.\src\luajit.exe test\lua54_jit_regress.lua`、`.\src\luajit.exe test\lua54_perf.lua jit_on`、`.\src\luajit.exe test\lua54_perf.lua jit_off` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `math.abs()` 缺参、字符串整数/浮点转换、`-0.0` float 正零和 `math.mininteger` integer 回绕的 JIT/perf 热路径、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua`、`.\src\luajit.exe test\lua54_jit_regress.lua`、`.\src\luajit.exe test\lua54_perf.lua jit_on`、`.\src\luajit.exe test\lua54_perf.lua jit_off` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `math.max()` / `math.min()` 的 NaN 参数位置、混合 number/string 比较错误方向和 `__lt` 元方法比较选择边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua`、`.\src\luajit.exe test\lua54_jit_regress.lua`、`.\src\luajit.exe test\lua54_perf.lua jit_on`、`.\src\luajit.exe test\lua54_perf.lua jit_off` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `string.format()` 中 `%q` boolean 字面量和 `%s` boolean / `nil` 走 `tostring` 的标准库与 JIT/perf 热路径边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
+- `cmd /c build.bat lua54` 已通过，确认本机 GNU make 路径继续默认使用 32 逻辑线程 `-j32`；`src/msvcbuild.bat` 已补按 `NUMBER_OF_PROCESSORS` 自动启用 MSVC `cl /MPN`，并可用 `LUAJIT_MSVC_JOBS=1` 降回单线程或指定其它并行度。
 
 ## 已确认不列入当前 TODO 的已实现项
 
