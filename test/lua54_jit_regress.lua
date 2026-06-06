@@ -2562,6 +2562,40 @@ do
     assert(n == 80)
   end, "Lua 5.4 debug.gethook absent hook nil result")
 
+  assert_no_trace(function()
+    local n = 0
+    local hook = function() end
+    for _ = 1, 80 do
+      local ok_thread, err_thread = pcall(debug.sethook, true)
+      if not ok_thread and
+	 err_thread:find("bad argument #2 to 'debug.sethook'",
+			 1, true) and
+	 err_thread:find("string expected, got no value", 1, true) then
+	n = n + 1
+      end
+
+      debug.sethook(hook, "", "3")
+      local h, mask, count = debug.gethook()
+      if h == hook and mask == "" and count == 3 then n = n + 1 end
+      debug.sethook()
+
+      debug.sethook(hook, "", 1)
+      h, mask, count = debug.gethook()
+      if h == hook and mask == "" and count == 1 then n = n + 1 end
+      debug.sethook()
+
+      local ok_count, err_count = pcall(debug.sethook, hook, "", 1.2)
+      if not ok_count and
+	 err_count:find("bad argument #3 to 'debug.sethook'",
+			1, true) and
+	 err_count:find("number has no integer representation", 1, true) then
+	n = n + 1
+      end
+    end
+    debug.sethook()
+    assert(n == 80 * 4)
+  end, "Lua 5.4 debug.sethook count edges")
+
   do
     local old = debug.setcstacklimit(200)
     assert_records_trace(function()

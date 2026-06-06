@@ -975,6 +975,7 @@ local function debug_helpers(n)
   local up
   local fn_with_upvalue = function() return up end
   local info_fn = function(a, ...) return a end
+  local hook_fn = function() end
   local old_cstack = debug.setcstacklimit(200)
   for _ = 1, n do
     if select("#", debug.upvalueid(fn, 0)) == 1 and
@@ -995,6 +996,28 @@ local function debug_helpers(n)
     end
     local co = coroutine.create(function() end)
     if select("#", debug.gethook(co)) == 1 and debug.gethook(co) == nil then
+      sum = sum + 1
+    end
+    local ok_thread, err_thread = pcall(debug.sethook, true)
+    if not ok_thread and
+       err_thread:find("bad argument #2 to 'debug.sethook'",
+		       1, true) and
+       err_thread:find("string expected, got no value", 1, true) then
+      sum = sum + 1
+    end
+    debug.sethook(hook_fn, "", "3")
+    local h, mask, count = debug.gethook()
+    if h == hook_fn and mask == "" and count == 3 then sum = sum + 1 end
+    debug.sethook()
+    debug.sethook(hook_fn, "", 1)
+    h, mask, count = debug.gethook()
+    if h == hook_fn and mask == "" and count == 1 then sum = sum + 1 end
+    debug.sethook()
+    local ok_count, err_count = pcall(debug.sethook, hook_fn, "", 1.2)
+    if not ok_count and
+       err_count:find("bad argument #3 to 'debug.sethook'",
+		      1, true) and
+       err_count:find("number has no integer representation", 1, true) then
       sum = sum + 1
     end
     if select("#", debug.getupvalue(print, 1)) == 0 and
@@ -2162,7 +2185,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_debug = timeit(mode_name..":debug_helpers",
 			    debug_helpers, iter_n)
-  assert(r_debug == iter_n * 18)
+  assert(r_debug == iter_n * 22)
 
   local _, r_many_upvalue = timeit(mode_name..":many_upvalue_helpers",
 				   many_upvalue_helpers, iter_n)
