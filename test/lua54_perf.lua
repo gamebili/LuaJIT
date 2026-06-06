@@ -1298,6 +1298,13 @@ end
 local function package_helpers(n)
   local sum = 0
   package.loaded.__lua54_perf_loaded = { v = 7 }
+  package.loaded.__lua54_perf_zero = 0
+
+  local false_loader_count = 0
+  package.preload.__lua54_perf_false = function()
+    false_loader_count = false_loader_count + 1
+    return "fresh"
+  end
 
   local nil_loader_count = 0
   package.loaded.__lua54_perf_nil = nil
@@ -1314,6 +1321,29 @@ local function package_helpers(n)
   for _ = 1, n do
     local loaded, loaded_data = require("__lua54_perf_loaded")
     if loaded.v == 7 and loaded_data == nil then sum = sum + 1 end
+
+    local zero_loaded, zero_data = require("__lua54_perf_zero")
+    if zero_loaded == 0 and zero_data == nil then sum = sum + 1 end
+
+    package.loaded.__lua54_perf_false = false
+    local false_loaded, false_data = require("__lua54_perf_false")
+    if false_loaded == "fresh" and false_data == ":preload:" and
+       package.loaded.__lua54_perf_false == "fresh" then
+      sum = sum + 1
+    end
+
+    local ok_require_noarg, err_require_noarg = pcall(require)
+    local ok_require_bool, err_require_bool = pcall(require, true)
+    if not ok_require_noarg and
+       err_require_noarg:find("bad argument #1 to 'require'", 1, true) and
+       err_require_noarg:find("got no value", 1, true) then
+      sum = sum + 1
+    end
+    if not ok_require_bool and
+       err_require_bool:find("bad argument #1 to 'require'", 1, true) and
+       err_require_bool:find("got boolean", 1, true) then
+      sum = sum + 1
+    end
 
     local nil_loaded, nil_data = require("__lua54_perf_nil")
     if nil_loaded == true and (nil_data == nil or nil_data == ":preload:") then
@@ -1402,10 +1432,14 @@ local function package_helpers(n)
   end
 
   package.loaded.__lua54_perf_loaded = nil
+  package.loaded.__lua54_perf_zero = nil
+  package.loaded.__lua54_perf_false = nil
+  package.preload.__lua54_perf_false = nil
   package.loaded.__lua54_perf_nil = nil
   package.preload.__lua54_perf_nil = nil
   package.preload.__lua54_perf_err = nil
   assert(nil_loader_count == 1)
+  assert(false_loader_count == n)
   return sum
 end
 
@@ -2895,7 +2929,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_package = timeit(mode_name..":package_helpers",
 			      package_helpers, iter_n)
-  assert(r_package == iter_n * 15)
+  assert(r_package == iter_n * 19)
 
   local _, r_debug = timeit(mode_name..":debug_helpers",
 			    debug_helpers, iter_n)

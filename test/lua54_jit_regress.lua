@@ -3075,14 +3075,50 @@ end
 do
   assert_records_trace(function()
     package.loaded.__lua54_jit_loaded = { v = 7 }
+    package.loaded.__lua54_jit_zero = 0
     local n = 0
     for _ = 1, 80 do
       local mod, loaderdata = require("__lua54_jit_loaded")
       if mod.v == 7 and loaderdata == nil then n = n + 1 end
+      mod, loaderdata = require("__lua54_jit_zero")
+      if mod == 0 and loaderdata == nil then n = n + 1 end
     end
     package.loaded.__lua54_jit_loaded = nil
-    assert(n == 80)
+    package.loaded.__lua54_jit_zero = nil
+    assert(n == 160)
   end, "Lua 5.4 require loaded fast path")
+
+  assert_records_trace(function()
+    local count = 0
+    package.preload.__lua54_jit_false = function()
+      count = count + 1
+      return "fresh"
+    end
+    local n = 0
+    for _ = 1, 80 do
+      package.loaded.__lua54_jit_false = false
+      local mod, loaderdata = require("__lua54_jit_false")
+      if mod == "fresh" and loaderdata == ":preload:" and
+	 package.loaded.__lua54_jit_false == "fresh" then
+	n = n + 1
+      end
+      local ok_noarg, err_noarg = pcall(require)
+      local ok_bool, err_bool = pcall(require, true)
+      if not ok_noarg and
+	 err_noarg:find("bad argument #1 to 'require'", 1, true) and
+	 err_noarg:find("got no value", 1, true) then
+	n = n + 1
+      end
+      if not ok_bool and
+	 err_bool:find("bad argument #1 to 'require'", 1, true) and
+	 err_bool:find("got boolean", 1, true) then
+	n = n + 1
+      end
+    end
+    package.loaded.__lua54_jit_false = nil
+    package.preload.__lua54_jit_false = nil
+    assert(n == 240 and count == 80)
+  end, "Lua 5.4 require false loaded and argument errors")
 
   assert_records_trace(function()
     local count = 0
