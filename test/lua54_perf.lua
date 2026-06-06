@@ -1009,6 +1009,20 @@ local function stdlib_edge_helpers(n)
 
     if os.execute() == true then sum = sum + 1 end
 
+    local ok_exit_str, err_exit_str = pcall(os.exit, "x")
+    if not ok_exit_str and
+       err_exit_str:find("bad argument #1 to 'os.exit'", 1, true) and
+       err_exit_str:find("number expected, got string", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_exit_frac, err_exit_frac = pcall(os.exit, 1.5)
+    if not ok_exit_frac and
+       err_exit_frac:find("bad argument #1 to 'os.exit'", 1, true) and
+       err_exit_frac:find("integer representation", 1, true) then
+      sum = sum + 1
+    end
+
     local ok_remove_bad, err_remove_bad = pcall(function()
       return os.remove(true)
     end)
@@ -2807,7 +2821,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_stdlib_edge = timeit(mode_name..":stdlib_edge_helpers",
 				  stdlib_edge_helpers, iter_n)
-  assert(r_stdlib_edge == iter_n * 102)
+  assert(r_stdlib_edge == iter_n * 104)
 
   local _, r_protected = timeit(mode_name..":protected_call_helpers",
 				protected_call_helpers, iter_n)

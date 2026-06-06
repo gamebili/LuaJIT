@@ -3300,6 +3300,8 @@ do
       end)
       local modf_int, modf_frac = math.modf("4.5")
       local execute_noarg = os.execute()
+      local ok_exit_str, err_exit_str = pcall(os.exit, "x")
+      local ok_exit_frac, err_exit_frac = pcall(os.exit, 1.5)
       local ok_getenv_noarg, err_getenv_noarg = pcall(function()
 	return os.getenv()
       end)
@@ -3621,6 +3623,16 @@ do
       end
       if modf_int == 4 and modf_frac == 0.5 then n = n + 1 end
       if execute_noarg == true then n = n + 1 end
+      if not ok_exit_str and
+	 err_exit_str:find("bad argument #1 to 'os.exit'", 1, true) and
+	 err_exit_str:find("number expected, got string", 1, true) then
+	n = n + 1
+      end
+      if not ok_exit_frac and
+	 err_exit_frac:find("bad argument #1 to 'os.exit'", 1, true) and
+	 err_exit_frac:find("integer representation", 1, true) then
+	n = n + 1
+      end
       if not ok_getenv_noarg and
 	 err_getenv_noarg:find("bad argument #1 to 'getenv'", 1, true) and
 	 err_getenv_noarg:find("string expected, got no value", 1, true) then
@@ -3699,7 +3711,7 @@ do
       if utf8_len_empty == 0 then n = n + 1 end
       if utf8_offset_neg == 3 then n = n + 1 end
     end
-    assert(n == 7520)
+    assert(n == 7680)
   end, "Lua 5.4 mixed stdlib edge errors")
 end
 
