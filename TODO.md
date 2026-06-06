@@ -54,6 +54,7 @@
    - 当前进展：`smoketest-capi-lua54compat` / `smoketest-capi-lua54compat-quick` 已在 Lua 5.4 构建完成后改走统一 `run-lua54compat-and-capi-tests` 调度，让 runtime smoke 与 C API/header smoke 在同一个 make jobserver 下并行运行，避免 `lua54` / `lua54quick` 尾段先等完整 runtime、再单独启动 C API。
    - 当前进展：默认 LuaJIT 验证路径也已拆出 `build-default`、`default-runtime-smoke`、默认 `lua.hpp` header smoke 和默认 C API runtime smoke；`build.bat default` 完成一次默认构建后会用同一个 make jobserver 并行调度默认 runtime/header/C API smoke，避免默认 ABI 验证尾段完全串行。
    - 当前进展：默认 LuaJIT 构建已新增 `build-default-incremental` 配置 stamp，`build.bat build` 和 `build.bat default` 在默认配置未变化时会复用对象文件并继续用自动检测的本机 `-jN` 并行编译；从 Lua 5.4 / non-GC64 配置切回默认 ABI 时才触发 clean，避免重复默认验证每次全量重编。
+   - 当前进展：`build.bat` 的默认 make 并行策略已从精确逻辑线程数改为本机性能模式，默认约 `1.5x` 逻辑线程，`BUILD_JOBS=max` 可用 `2x` 逻辑线程填满短编译/测试任务间隙，`BUILD_JOBS=logical` 或显式 `-jN` 仍可降回固定并行度。
    - 当前进展：PC x64、x86、ARM64、ARM、MIPS、MIPS64、PPC 的 `__call` callable-chain 已统一改为由 `lj_meta_call` 返回新增隐式参数数量，并由各 VM 后端更新 `NARGS`；PC x64 / Android ARM64 已额外覆盖 100 层 callable-chain tailcall 扩栈和 `CALLT` 保持，Android ARM64 设备 smoke 已覆盖该路径。
 
 6. **C API / lauxlib / 标准库收尾批次**
@@ -990,6 +991,7 @@
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54quick` 已通过；覆盖本轮新增默认 LuaJIT 5.1 `luaL_checkversion()` / `luaL_checkversion_()` smoke，固定默认 ABI 版本/数值 ABI 检查成功路径、version mismatch 和 incompatible numeric types 错误路径，并确认 Lua 5.4 兼容构建、官方矩阵、runtime smoke、C API/header smoke 仍通过。
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54quick` 已通过；覆盖本轮新增默认 LuaJIT 5.1 `luaL_len()` smoke，固定 string/table 长度、table `__len` 元方法结果，以及 fractional number 长度结果在默认 ABI 下仍走旧数字转整数路径，并确认 Lua 5.4 兼容构建、官方矩阵、runtime smoke、C API/header smoke 仍通过。
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54quick` 已通过；覆盖本轮新增默认 LuaJIT 5.1 `luaL_loadfilex()` / `luaL_loadbufferx()` mode smoke，固定 text/NULL mode 成功、text chunk 传入 binary mode 的旧 `wrong mode` 错误以及缺失文件 `LUA_ERRFILE` 路径，并确认 Lua 5.4 兼容构建、官方矩阵、runtime smoke、C API/header smoke 仍通过。
+- `cmd /c build.bat help`、`cmd /c build.bat build -n`、`cmd /c "set BUILD_JOBS=logical&& build.bat build -n"`、`cmd /c "set BUILD_JOBS=max&& build.bat build -n"`、`cmd /c build.bat build`、`cmd /c build.bat default` 和 `cmd /c build.bat lua54quick` 已通过；确认本机 32 逻辑线程默认性能模式使用 `-j48`，`BUILD_JOBS=logical` 降回 `-j32`，`BUILD_JOBS=max` 提升到 `-j64`，并确认默认构建、默认 C API smoke、Lua 5.4 compat 构建、官方矩阵、runtime smoke、C API/header smoke 均通过。
 
 ## 已确认不列入当前 TODO 的已实现项
 
