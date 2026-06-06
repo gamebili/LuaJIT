@@ -63,6 +63,7 @@
    - 当前进展：C API smoke 已固定 `lua_len()` 无效栈索引的 release 边界；外部 C API 会稳定报 `invalid value`，同时 table 库内部保留 `table.unpack()` 缺参时对 nil 求长度的 Lua 级错误文本。
    - 当前进展：C API smoke 已固定 `luaL_checktype()` 的期望类型码边界；低于 `LUA_TNONE` 或超过 LuaJIT 扩展类型名表的值会在 release 构建下稳定报 `invalid value`，避免通过 lauxlib 错误路径越界读取类型名表。
    - 当前进展：C API smoke 已固定 `luaL_ref()` 缺少待引用值的 release 边界；空栈调用会稳定报 `invalid value`，不再通过 `lua_isnil(-1)` 读取不存在的 top slot。
+   - 当前进展：C API smoke 已固定 `luaL_ref()` / `luaL_unref()` freelist 边界；释放后的正引用会被后续 `luaL_ref()` 重用，`nil` sentinel 会弹出值但不污染 freelist，Lua 5.4 compat 下 key `0` 仍保留给用户表项。
    - 当前进展：C API smoke 已固定 `lua_pushcclosure()` 的函数指针边界；传入 `NULL` 会稳定报 `invalid value`，不再创建后续调用会跳到空函数指针的 C closure。
    - 当前进展：C API smoke 已固定 `lua_pushlstring()` 的 NULL 指针边界；`NULL` 加非零长度会稳定报 `invalid value`，`NULL` 加零长度仍生成空字符串。
    - 当前进展：C API smoke 已固定 `lua_pushfstring()` / `lua_pushvfstring()` 的格式串指针边界；传入 `NULL` 会稳定报 `invalid value`，不再让格式解析层解引用空指针。
@@ -899,6 +900,7 @@
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua`、`.\src\luajit.exe test\lua54_perf.lua jit_on`、`.\src\luajit.exe test\lua54_perf.lua jit_off` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增自定义 `package.searchers` loaderdata 传入 loader、`require()` 第二返回值和 `package.loaded` module value 写回的标准库与 JIT/perf 运行期边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua`、`.\src\luajit.exe test\lua54_jit_regress.lua`、`.\src\luajit.exe test\lua54_perf.lua jit_on`、`.\src\luajit.exe test\lua54_perf.lua jit_off` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增自定义 `package.searchers` 返回错误字符串时 `require()` module-not-found 聚合错误的标准库与 JIT/perf 热路径边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua`、`.\src\luajit.exe test\lua54_jit_regress.lua`、`.\src\luajit.exe test\lua54_perf.lua jit_on`、`.\src\luajit.exe test\lua54_perf.lua jit_off` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增自定义 `package.searchers` 返回 boolean/table 等忽略结果后继续聚合后续错误字符串的标准库与 JIT/perf 热路径边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
+- `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `luaL_ref()` / `luaL_unref()` freelist 重用、`nil` sentinel 不污染 freelist 和 key `0` 用户表项保留的 C API 边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 
 ## 已确认不列入当前 TODO 的已实现项
 

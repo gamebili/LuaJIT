@@ -7338,6 +7338,7 @@ static void test_lauxlib_api(lua_State *L)
   const char *gs;
   int status;
   int ref;
+  int ref2;
   int rtype;
   int before_count;
   int top;
@@ -8198,8 +8199,20 @@ static void test_lauxlib_api(lua_State *L)
   lua_rawgeti(L, -1, ref);
   check_integer(L, -1, 0, "luaL_unref chains ref to empty freelist");
   lua_pop(L, 1);
+  top = lua_gettop(L);
   lua_pushnil(L);
   check(L, luaL_ref(L, -2) == LUA_REFNIL, "luaL_ref nil sentinel");
+  check(L, lua_gettop(L) == top, "luaL_ref nil sentinel pops value");
+  lua_rawgeti(L, -1, ref);
+  check_integer(L, -1, 0, "luaL_ref nil sentinel preserves freelist");
+  lua_pop(L, 1);
+  lua_pushliteral(L, "ref-reused");
+  ref2 = luaL_ref(L, -2);
+  check(L, ref2 == ref, "luaL_ref reuses freed reference");
+  lua_rawgeti(L, -1, ref2);
+  check_string(L, -1, "ref-reused", "luaL_ref reused value");
+  lua_pop(L, 1);
+  luaL_unref(L, -1, ref2);
   luaL_unref(L, -1, LUA_NOREF);
   luaL_unref(L, -1, LUA_REFNIL);
   lua_pushliteral(L, "zero-key");
