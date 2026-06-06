@@ -976,6 +976,7 @@ local function debug_helpers(n)
   local fn_with_upvalue = function() return up end
   local info_fn = function(a, ...) return a end
   local hook_fn = function() end
+  local meta_mt = { tag = "debug-meta" }
   local old_cstack = debug.setcstacklimit(200)
   for _ = 1, n do
     if select("#", debug.upvalueid(fn, 0)) == 1 and
@@ -1018,6 +1019,45 @@ local function debug_helpers(n)
        err_count:find("bad argument #3 to 'debug.sethook'",
 		      1, true) and
        err_count:find("number has no integer representation", 1, true) then
+      sum = sum + 1
+    end
+    local ok_getmeta, err_getmeta = pcall(debug.getmetatable)
+    if not ok_getmeta and
+       err_getmeta:find("bad argument #1 to 'debug.getmetatable'",
+			1, true) and
+       err_getmeta:find("value expected", 1, true) then
+      sum = sum + 1
+    end
+    if debug.getmetatable({}) == nil then sum = sum + 1 end
+    if type(debug.getregistry(1)) == "table" then sum = sum + 1 end
+    local protected = setmetatable({}, {
+      __metatable = "locked",
+      tag = "real",
+    })
+    if debug.getmetatable(protected).tag == "real" then sum = sum + 1 end
+    if debug.setmetatable(protected, meta_mt) == protected and
+       getmetatable(protected) == meta_mt then
+      sum = sum + 1
+    end
+    local meta_t = {}
+    if debug.setmetatable(meta_t, meta_mt) == meta_t and
+       getmetatable(meta_t) == meta_mt then
+      sum = sum + 1
+    end
+    if debug.setmetatable(meta_t, nil) == meta_t and
+       getmetatable(meta_t) == nil then
+      sum = sum + 1
+    end
+    local ok_setmeta0, err_setmeta0 = pcall(debug.setmetatable)
+    local ok_setmeta2, err_setmeta2 = pcall(debug.setmetatable, {}, true)
+    if not ok_setmeta0 and
+       err_setmeta0:find("bad argument #2 to 'debug.setmetatable'",
+			 1, true) and
+       err_setmeta0:find("got no value", 1, true) and
+       not ok_setmeta2 and
+       err_setmeta2:find("bad argument #2 to 'debug.setmetatable'",
+			 1, true) and
+       err_setmeta2:find("got boolean", 1, true) then
       sum = sum + 1
     end
     if select("#", debug.getupvalue(print, 1)) == 0 and
@@ -2185,7 +2225,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_debug = timeit(mode_name..":debug_helpers",
 			    debug_helpers, iter_n)
-  assert(r_debug == iter_n * 22)
+  assert(r_debug == iter_n * 30)
 
   local _, r_many_upvalue = timeit(mode_name..":many_upvalue_helpers",
 				   many_upvalue_helpers, iter_n)

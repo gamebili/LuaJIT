@@ -2596,6 +2596,57 @@ do
     assert(n == 80 * 4)
   end, "Lua 5.4 debug.sethook count edges")
 
+  assert_no_trace(function()
+    local n = 0
+    local mt = { tag = "debug-meta" }
+    for _ = 1, 80 do
+      local ok_get, err_get = pcall(debug.getmetatable)
+      if not ok_get and
+	 err_get:find("bad argument #1 to 'debug.getmetatable'",
+		      1, true) and
+	 err_get:find("value expected", 1, true) then
+	n = n + 1
+      end
+
+      if debug.getmetatable({}) == nil then n = n + 1 end
+      if type(debug.getregistry(1)) == "table" then n = n + 1 end
+
+      local protected = setmetatable({}, {
+	__metatable = "locked",
+	tag = "real",
+      })
+      if debug.getmetatable(protected).tag == "real" then n = n + 1 end
+      if debug.setmetatable(protected, mt) == protected and
+	 getmetatable(protected) == mt then
+	n = n + 1
+      end
+
+      local t = {}
+      if debug.setmetatable(t, mt) == t and
+	 getmetatable(t) == mt then
+	n = n + 1
+      end
+      if debug.setmetatable(t, nil) == t and
+	 getmetatable(t) == nil then
+	n = n + 1
+      end
+
+      local ok_set0, err_set0 = pcall(debug.setmetatable)
+      local ok_set2, err_set2 = pcall(debug.setmetatable, {}, true)
+      if not ok_set0 and
+	 err_set0:find("bad argument #2 to 'debug.setmetatable'",
+		       1, true) and
+	 err_set0:find("got no value", 1, true) and
+	 not ok_set2 and
+	 err_set2:find("bad argument #2 to 'debug.setmetatable'",
+		       1, true) and
+	 err_set2:find("got boolean", 1, true) then
+	n = n + 1
+      end
+    end
+    assert(n == 80 * 8)
+  end, "Lua 5.4 debug metatable registry edges")
+
   do
     local old = debug.setcstacklimit(200)
     assert_records_trace(function()
