@@ -2703,6 +2703,35 @@ do
     end
     assert(n == 80)
   end, "Lua 5.4 debug local level error names")
+
+  assert_records_trace(function()
+    local fn = function(a, ...) return a end
+    local n = 0
+    for _ = 1, 80 do
+      local wide = debug.getinfo(1099511627776, "S")
+      if wide and wide.what == "C" then n = n + 1 end
+      if debug.getinfo(math.maxinteger) == nil then n = n + 1 end
+
+      local ok_level, err_level = pcall(debug.getinfo, 1.2)
+      local ok_what, err_what = pcall(debug.getinfo, 1, "z")
+      local ok_gt, err_gt = pcall(debug.getinfo, 1, ">")
+      if not ok_level and
+	 err_level:find("number has no integer representation", 1, true) and
+	 not ok_what and err_what:find("invalid option", 1, true) and
+	 not ok_gt and err_gt:find("invalid option '>'", 1, true) then
+	n = n + 1
+      end
+
+      local u = debug.getinfo(fn, "u")
+      if u.nparams == 1 and u.isvararg == true then n = n + 1 end
+      if debug.traceback(true) == true then n = n + 1 end
+      if debug.traceback("m", 1099511627776):
+	 find("stack traceback", 1, true) then
+	n = n + 1
+      end
+    end
+    assert(n == 80 * 6)
+  end, "Lua 5.4 debug.getinfo traceback edges")
 end
 
 do

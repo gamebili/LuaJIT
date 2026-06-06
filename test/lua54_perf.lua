@@ -974,6 +974,7 @@ local function debug_helpers(n)
   local fn = function() end
   local up
   local fn_with_upvalue = function() return up end
+  local info_fn = function(a, ...) return a end
   local old_cstack = debug.setcstacklimit(200)
   for _ = 1, n do
     if select("#", debug.upvalueid(fn, 0)) == 1 and
@@ -1033,6 +1034,26 @@ local function debug_helpers(n)
 			     1, true) then
 	sum = sum + 1
       end
+    end
+
+    local wide = debug.getinfo(1099511627776, "S")
+    if wide and wide.what == "C" then sum = sum + 1 end
+    if debug.getinfo(math.maxinteger) == nil then sum = sum + 1 end
+    local ok_level, err_level = pcall(debug.getinfo, 1.2)
+    local ok_what, err_what = pcall(debug.getinfo, 1, "z")
+    local ok_gt, err_gt = pcall(debug.getinfo, 1, ">")
+    if not ok_level and
+       err_level:find("number has no integer representation", 1, true) and
+       not ok_what and err_what:find("invalid option", 1, true) and
+       not ok_gt and err_gt:find("invalid option '>'", 1, true) then
+      sum = sum + 1
+    end
+    local info = debug.getinfo(info_fn, "u")
+    if info.nparams == 1 and info.isvararg == true then sum = sum + 1 end
+    if debug.traceback(true) == true then sum = sum + 1 end
+    if debug.traceback("m", 1099511627776):
+       find("stack traceback", 1, true) then
+      sum = sum + 1
     end
   end
   debug.setcstacklimit(old_cstack)
@@ -2114,7 +2135,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_debug = timeit(mode_name..":debug_helpers",
 			    debug_helpers, iter_n)
-  assert(r_debug == iter_n * 8)
+  assert(r_debug == iter_n * 14)
 
   local _, r_many_upvalue = timeit(mode_name..":many_upvalue_helpers",
 				   many_upvalue_helpers, iter_n)
