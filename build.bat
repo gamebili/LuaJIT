@@ -153,9 +153,9 @@ goto :FORWARD
 echo Usage: build.bat [target or make args]
 echo.
 echo Common targets:
-echo   build       Build LuaJIT only.
+echo   build       Incrementally build default LuaJIT artifacts.
 echo   test        Run default, Lua 5.4 and non-GC64 smoke tests. This is default.
-echo   default     Run the default compatibility smoke and C API smoke.
+echo   default     Run the incremental default compatibility smoke and C API smoke.
 echo   lua54build  Incrementally build Lua 5.4 compatibility artifacts.
 echo   lua54       Run the Lua 5.4 compatibility smoke and C API smoke.
 echo   lua54quick  Run incremental Lua 5.4 smoke and C API smoke.
@@ -180,7 +180,7 @@ exit /b 0
 
 :BUILD
 call :SET_REST %*
-set "MAKE_ARGS=all%REST_ARGS%"
+set "MAKE_ARGS=build-default-incremental%REST_ARGS%"
 goto :FORWARD
 
 :REBUILD

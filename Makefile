@@ -36,6 +36,7 @@ LUA54_SRC_DIR?= D:/p4_gl2/pristine/tools/lua/lua-5.4.8-src/lua-5.4.8
 LUA54_TESTES_DIR?= $(LUA54_SRC_DIR)/testes
 LUA54COMPAT_XCFLAGS= -DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2
 LUA54COMPAT_BUILD_STAMP= src/.luajit-build-config
+DEFAULT_BUILD_CONFIG= default
 CXX?= g++
 ##############################################################################
 
@@ -179,11 +180,17 @@ clean:
 build-default:
 	$(MAKE) clean
 	$(MAKE)
+	@printf '%s\n' "$(DEFAULT_BUILD_CONFIG)" > $(LUA54COMPAT_BUILD_STAMP)
+
+build-default-incremental:
+	@cfg='$(DEFAULT_BUILD_CONFIG)'; if test -f $(LUA54COMPAT_BUILD_STAMP) && test "$$(cat $(LUA54COMPAT_BUILD_STAMP))" = "$$cfg"; then echo "==== Reusing default build config ===="; else echo "==== Default build config changed; cleaning ===="; $(MAKE) clean; fi
+	$(MAKE)
+	@printf '%s\n' "$(DEFAULT_BUILD_CONFIG)" > $(LUA54COMPAT_BUILD_STAMP)
 
 default-runtime-smoke:
 	./src/luajit test/smoke.lua default
 
-smoketest: build-default
+smoketest: build-default-incremental
 	$(MAKE) default-runtime-smoke
 
 build-lua54compat:
@@ -522,7 +529,7 @@ DEFAULT_CAPI_PARALLEL_TARGETS= \
 	default-capi-lu-hpp-header-smoke \
 	default-capi-runtime-smoke
 
-smoketest-capi-default: build-default
+smoketest-capi-default: build-default-incremental
 	$(MAKE) run-capi-default-tests
 
 run-capi-default-tests: $(DEFAULT_CAPI_PARALLEL_TARGETS)
@@ -542,6 +549,6 @@ test:
 	$(MAKE) smoketest-perf-lua54compat
 	$(MAKE) smoketest-lua54compat-nogc64
 
-.PHONY: all install amalg clean build-default default-runtime-smoke smoketest smoketest-capi-default run-capi-default-tests $(DEFAULT_CAPI_PARALLEL_TARGETS) build-lua54compat build-lua54compat-incremental smoketest-lua54compat smoketest-lua54compat-quick run-lua54compat-tests $(LUA54_RUNTIME_PARALLEL_TARGETS) smoketest-lua54compat-nogc64 run-official-lua54compat smoketest-official-lua54compat smoketest-capi-lua54compat smoketest-capi-lua54compat-quick run-capi-lua54compat-tests run-lua54compat-and-capi-tests $(LUA54_CAPI_PARALLEL_TARGETS) $(LUA54_CAPI_SYMBOL_REJECT_TARGETS) smoketest-perf-lua54compat run-perf-lua54compat-tests $(LUA54_PERF_PARALLEL_TARGETS) test
+.PHONY: all install amalg clean build-default build-default-incremental default-runtime-smoke smoketest smoketest-capi-default run-capi-default-tests $(DEFAULT_CAPI_PARALLEL_TARGETS) build-lua54compat build-lua54compat-incremental smoketest-lua54compat smoketest-lua54compat-quick run-lua54compat-tests $(LUA54_RUNTIME_PARALLEL_TARGETS) smoketest-lua54compat-nogc64 run-official-lua54compat smoketest-official-lua54compat smoketest-capi-lua54compat smoketest-capi-lua54compat-quick run-capi-lua54compat-tests run-lua54compat-and-capi-tests $(LUA54_CAPI_PARALLEL_TARGETS) $(LUA54_CAPI_SYMBOL_REJECT_TARGETS) smoketest-perf-lua54compat run-perf-lua54compat-tests $(LUA54_PERF_PARALLEL_TARGETS) test
 
 ##############################################################################
