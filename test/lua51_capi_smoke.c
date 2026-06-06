@@ -643,6 +643,11 @@ static const luaL_Reg capi51_reg[] = {
   { NULL, NULL }
 };
 
+static const luaL_Reg capi51_upvalue_reg[] = {
+  { "upvalue", capi51_return_upvalue },
+  { NULL, NULL }
+};
+
 static int capi51_setfuncs_null_list(lua_State *L)
 {
   lua_newtable(L);
@@ -1370,9 +1375,53 @@ int main(void)
   check(L, lua_tointeger(L, -1) == 51, "luaL_openlib default API");
   lua_pop(L, 2);
 
-  luaL_pushmodule(L, "capi51.push", 1);
-  check(L, lua_istable(L, -1), "luaL_pushmodule default API");
+  lua_newtable(L);
+  lua_pushliteral(L, "shared-upvalue");
+  luaL_openlib(L, NULL, capi51_upvalue_reg, 1);
+  lua_getfield(L, -1, "upvalue");
+  lua_call(L, 0, 1);
+  check(L, strcmp(lua_tostring(L, -1), "shared-upvalue") == 0,
+	"luaL_openlib default API upvalue");
+  lua_pop(L, 2);
+
+  lua_pushliteral(L, "module-upvalue");
+  luaL_openlib(L, "capi51.upmodule", capi51_upvalue_reg, 1);
+  lua_getfield(L, -1, "upvalue");
+  lua_call(L, 0, 1);
+  check(L, strcmp(lua_tostring(L, -1), "module-upvalue") == 0,
+	"luaL_openlib named module upvalue");
   lua_pop(L, 1);
+  lua_getfield(L, LUA_REGISTRYINDEX, "_LOADED");
+  lua_getfield(L, -1, "capi51.upmodule");
+  check(L, lua_rawequal(L, -1, -3), "luaL_openlib publishes _LOADED");
+  lua_pop(L, 2);
+  lua_getglobal(L, "capi51");
+  lua_getfield(L, -1, "upmodule");
+  check(L, lua_rawequal(L, -1, -3), "luaL_openlib publishes global module");
+  lua_pop(L, 3);
+
+  {
+    int top = lua_gettop(L);
+    luaL_pushmodule(L, "capi51.push", 1);
+    check(L, lua_istable(L, -1), "luaL_pushmodule default API");
+    lua_pushliteral(L, "push-marker");
+    lua_setfield(L, -2, "marker");
+    lua_getfield(L, LUA_REGISTRYINDEX, "_LOADED");
+    lua_getfield(L, -1, "capi51.push");
+    check(L, lua_rawequal(L, -1, -3), "luaL_pushmodule stores _LOADED");
+    lua_pop(L, 2);
+    lua_getglobal(L, "capi51");
+    lua_getfield(L, -1, "push");
+    check(L, lua_rawequal(L, -1, -3), "luaL_pushmodule stores global table");
+    lua_pop(L, 2);
+    lua_pop(L, 1);
+    luaL_pushmodule(L, "capi51.push", 1);
+    lua_getfield(L, -1, "marker");
+    check(L, strcmp(lua_tostring(L, -1), "push-marker") == 0,
+	  "luaL_pushmodule reuses loaded table");
+    lua_pop(L, 2);
+    check(L, lua_gettop(L) == top, "luaL_pushmodule stack balanced");
+  }
 
   luaopen_string_buffer(L);
   check(L, lua_istable(L, -1), "luaopen_string_buffer default API");
@@ -1387,6 +1436,20 @@ int main(void)
   check(L, strcmp(lua_tostring(L, -1), "value") == 0,
 	"luaL_findtable table value");
   lua_pop(L, 2);
+
+  {
+    const char *part;
+    int top = lua_gettop(L);
+    lua_newtable(L);
+    lua_pushliteral(L, "not-table");
+    lua_setfield(L, -2, "conflict");
+    lua_setfield(L, LUA_REGISTRYINDEX, "__lua51_findtable_conflict");
+    part = luaL_findtable(L, LUA_REGISTRYINDEX,
+			  "__lua51_findtable_conflict.conflict.child", 1);
+    check(L, part != NULL && strcmp(part, "conflict.child") == 0,
+	  "luaL_findtable conflict part");
+    check(L, lua_gettop(L) == top, "luaL_findtable conflict stack");
+  }
 
   {
     const char *gs;
