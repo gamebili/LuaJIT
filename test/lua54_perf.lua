@@ -1055,6 +1055,33 @@ local function debug_helpers(n)
        find("stack traceback", 1, true) then
       sum = sum + 1
     end
+
+    if select("#", debug.getuservalue()) == 1 and
+       debug.getuservalue() == nil then
+      sum = sum + 1
+    end
+    if debug.getuservalue(nil) == nil and
+       debug.getuservalue(true) == nil then
+      sum = sum + 1
+    end
+    if debug.getuservalue(io.stdout, 1) == nil and
+       debug.setuservalue(io.stdout, {}, 1) == nil then
+      sum = sum + 1
+    end
+    local ok_getslot, err_getslot = pcall(debug.getuservalue, {}, true)
+    local ok_set_noarg, err_set_noarg = pcall(debug.setuservalue)
+    local ok_setslot, err_setslot = pcall(debug.setuservalue, {}, 1, true)
+    if not ok_getslot and
+       err_getslot:find("bad argument #2 to 'debug.getuservalue'",
+			1, true) and
+       not ok_set_noarg and
+       err_set_noarg:find("bad argument #1 to 'debug.setuservalue'",
+			  1, true) and
+       not ok_setslot and
+       err_setslot:find("bad argument #3 to 'debug.setuservalue'",
+			1, true) then
+      sum = sum + 1
+    end
   end
   debug.setcstacklimit(old_cstack)
   return sum
@@ -2135,7 +2162,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_debug = timeit(mode_name..":debug_helpers",
 			    debug_helpers, iter_n)
-  assert(r_debug == iter_n * 14)
+  assert(r_debug == iter_n * 18)
 
   local _, r_many_upvalue = timeit(mode_name..":many_upvalue_helpers",
 				   many_upvalue_helpers, iter_n)

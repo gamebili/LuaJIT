@@ -2732,6 +2732,40 @@ do
     end
     assert(n == 80 * 6)
   end, "Lua 5.4 debug.getinfo traceback edges")
+
+  assert_records_trace(function()
+    local n = 0
+    for _ = 1, 80 do
+      if select("#", debug.getuservalue()) == 1 and
+	 debug.getuservalue() == nil then
+	n = n + 1
+      end
+      if debug.getuservalue(nil) == nil and
+	 debug.getuservalue(true) == nil then
+	n = n + 1
+      end
+      if debug.getuservalue(io.stdout, 1) == nil and
+	 debug.setuservalue(io.stdout, {}, 1) == nil then
+	n = n + 1
+      end
+      local ok_getslot, err_getslot = pcall(debug.getuservalue, {}, true)
+      local ok_set_noarg, err_set_noarg = pcall(debug.setuservalue)
+      local ok_setslot, err_setslot = pcall(debug.setuservalue, {},
+					    1, true)
+      if not ok_getslot and
+	 err_getslot:find("bad argument #2 to 'debug.getuservalue'",
+			  1, true) and
+	 not ok_set_noarg and
+	 err_set_noarg:find("bad argument #1 to 'debug.setuservalue'",
+			    1, true) and
+	 not ok_setslot and
+	 err_setslot:find("bad argument #3 to 'debug.setuservalue'",
+			  1, true) then
+	n = n + 1
+      end
+    end
+    assert(n == 80 * 4)
+  end, "Lua 5.4 debug uservalue edges")
 end
 
 do
