@@ -533,6 +533,11 @@ do
       if string.format("%p", false) == "(null)" then n = n + 1 end
       if string.format("%q", math.huge) == "1e9999" then n = n + 1 end
       if string.format("%q", 0/0) == "(0/0)" then n = n + 1 end
+      if string.format("%q", 42) == "42" then n = n + 1 end
+      if string.format("%q", 1.5) == "0x1.8p+0" then n = n + 1 end
+      if string.format("%q", -0.0) == "-0x0p+0" then n = n + 1 end
+      if string.format("%q", -math.huge) == "-1e9999" then n = n + 1 end
+      if string.format("%q", math.mininteger) == "0x8000000000000000" then n = n + 1 end
       if string.format("%q", true) == "true" then n = n + 1 end
       if string.format("%q", false) == "false" then n = n + 1 end
       if string.format("%q", "a"..string.char(0).."b") == [["a\0b"]] then n = n + 1 end
@@ -544,7 +549,7 @@ do
       if string.format("%a", 1.5) == "0x1.8p+0" then n = n + 1 end
       if string.format("%A", 1.5) == "0X1.8P+0" then n = n + 1 end
     end
-    assert(n == 1040)
+    assert(n == 1440)
   end, "Lua 5.4 string.format %p/%q/%s/%a")
 
   assert_no_trace(function()

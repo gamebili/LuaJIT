@@ -878,6 +878,7 @@
 - `cmd /c build.bat lua54` 已通过，确认本机 GNU make 路径继续默认使用 32 逻辑线程 `-j32`；`src/msvcbuild.bat` 已补按 `NUMBER_OF_PROCESSORS` 自动启用 MSVC `cl /MPN`，并可用 `LUAJIT_MSVC_JOBS=1` 降回单线程或指定其它并行度。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua`、`.\src\luajit.exe test\lua54_jit_regress.lua`、`.\src\luajit.exe test\lua54_perf.lua jit_on`、`.\src\luajit.exe test\lua54_perf.lua jit_off` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `string.format("%q")` 对字符串 NUL 控制字节和“控制字节后跟数字”三位十进制转义的标准库与 JIT/perf 热路径边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua`、`.\src\luajit.exe test\lua54_jit_regress.lua`、`.\src\luajit.exe test\lua54_perf.lua jit_on`、`.\src\luajit.exe test\lua54_perf.lua jit_off` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `string.format("%q")` 对字符串双引号、反斜杠和换行的 Lua 5.4 literal 转义标准库与 JIT/perf 热路径边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
+- `.\src\luajit.exe test\lua54_stdlib_edges.lua`、`.\src\luajit.exe test\lua54_jit_regress.lua`、`.\src\luajit.exe test\lua54_perf.lua jit_on`、`.\src\luajit.exe test\lua54_perf.lua jit_off` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `string.format("%q")` 的 integer、hex-float、negative zero、negative infinity 和 `math.mininteger` 十六进制 literal 形态的标准库与 JIT/perf 热路径边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 
 ## 已确认不列入当前 TODO 的已实现项
 

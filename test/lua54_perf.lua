@@ -2431,6 +2431,11 @@ local function string_helpers(n)
     -- Keep Lua 5.4-only formatting in the perf window: old recorders must not
     -- trade correctness for speed on %q infinities or hex-float text.
     if string.format("%q", math.huge) == "1e9999" then sum = sum + 1 end
+    if string.format("%q", 42) == "42" then sum = sum + 1 end
+    if string.format("%q", 1.5) == "0x1.8p+0" then sum = sum + 1 end
+    if string.format("%q", -0.0) == "-0x0p+0" then sum = sum + 1 end
+    if string.format("%q", -math.huge) == "-1e9999" then sum = sum + 1 end
+    if string.format("%q", math.mininteger) == "0x8000000000000000" then sum = sum + 1 end
     if string.format("%q", true) == "true" then sum = sum + 1 end
     if string.format("%q", false) == "false" then sum = sum + 1 end
     if string.format("%q", "a"..string.char(0).."b") == [["a\0b"]] then sum = sum + 1 end
@@ -2857,7 +2862,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   ratio_check(mode_name..":divmod_vs_floor", t_floor, t_lua54)
 
   local _, r_string = timeit(mode_name..":string_helpers", string_helpers, string_n)
-  assert(r_string == string_n * 222)
+  assert(r_string == string_n * 227)
 
   local _, r_utf8 = timeit(mode_name..":utf8_helpers", utf8_helpers, utf8_n)
   assert(r_utf8 == utf8_n * 14)
