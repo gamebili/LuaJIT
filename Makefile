@@ -438,13 +438,30 @@ lua54-capi-lauxlib-macroonly-reject:
 lua54-capi-lualib-extra-reject:
 	@for sym in BIT BASE54 JIT FFI STRING_BUFFER; do if gcc -DLUAJIT_ENABLE_LUA54COMPAT -DLUA54_REJECT_$$sym -std=c99 -Werror=implicit-function-declaration -I src -c test/lua54_lualib_extra_reject.c -o src/lua54_lualib_extra_reject.o 2>src/lua54_lualib_extra_reject.err; then echo "LuaJIT lualib API $$sym unexpectedly visible in Lua 5.4 headers"; rm -f src/lua54_lualib_extra_reject.o src/lua54_lualib_extra_reject.err; exit 1; else grep "luaopen_" src/lua54_lualib_extra_reject.err >/dev/null; rm -f src/lua54_lualib_extra_reject.o src/lua54_lualib_extra_reject.err; fi; done
 
+LUA54_PERF_PARALLEL_TARGETS= \
+	lua54-perf-jit-on-opt1 \
+	lua54-perf-jit-on-opt2 \
+	lua54-perf-jit-on-opt3 \
+	lua54-perf-jit-off
+
 smoketest-perf-lua54compat:
 	$(MAKE) clean
 	$(MAKE) XCFLAGS='$(LUA54COMPAT_XCFLAGS)'
-	LUA54_PERF_JIT_OPTS='3,hotloop=3,hotexit=2,instunroll=4,loopunroll=4' ./src/luajit test/lua54_perf.lua jit_on
-	LUA54_PERF_JIT_OPTS='3,hotloop=56,hotexit=10' ./src/luajit test/lua54_perf.lua jit_on
-	LUA54_PERF_JIT_OPTS='0,hotloop=3,hotexit=2' ./src/luajit test/lua54_perf.lua jit_on
-	./src/luajit test/lua54_perf.lua jit_off
+	$(MAKE) run-perf-lua54compat-tests
+
+run-perf-lua54compat-tests: $(LUA54_PERF_PARALLEL_TARGETS)
+
+lua54-perf-jit-on-opt1:
+	LUA54_PERF_ABS=$${LUA54_PERF_ABS:-8.0} LUA54_PERF_LABEL=jit_on_opt1 LUA54_PERF_TMP_SUFFIX=jit_on_opt1 LUA54_PERF_JIT_OPTS='3,hotloop=3,hotexit=2,instunroll=4,loopunroll=4' ./src/luajit test/lua54_perf.lua jit_on
+
+lua54-perf-jit-on-opt2:
+	LUA54_PERF_ABS=$${LUA54_PERF_ABS:-8.0} LUA54_PERF_LABEL=jit_on_opt2 LUA54_PERF_TMP_SUFFIX=jit_on_opt2 LUA54_PERF_JIT_OPTS='3,hotloop=56,hotexit=10' ./src/luajit test/lua54_perf.lua jit_on
+
+lua54-perf-jit-on-opt3:
+	LUA54_PERF_ABS=$${LUA54_PERF_ABS:-8.0} LUA54_PERF_LABEL=jit_on_opt3 LUA54_PERF_TMP_SUFFIX=jit_on_opt3 LUA54_PERF_JIT_OPTS='0,hotloop=3,hotexit=2' ./src/luajit test/lua54_perf.lua jit_on
+
+lua54-perf-jit-off:
+	LUA54_PERF_ABS=$${LUA54_PERF_ABS:-8.0} LUA54_PERF_TMP_SUFFIX=jit_off ./src/luajit test/lua54_perf.lua jit_off
 
 smoketest-capi-default: smoketest
 	$(CXX) -std=c++11 -I src -c test/lua51_lu.hpp_header_smoke.cpp -o src/lua51_lu.hpp_header_smoke.o
@@ -459,6 +476,6 @@ test:
 	$(MAKE) smoketest-lua54compat-nogc64
 	$(MAKE) smoketest-perf-lua54compat
 
-.PHONY: all install amalg clean smoketest build-lua54compat build-lua54compat-incremental smoketest-lua54compat smoketest-lua54compat-quick run-lua54compat-tests $(LUA54_RUNTIME_PARALLEL_TARGETS) smoketest-lua54compat-nogc64 run-official-lua54compat smoketest-official-lua54compat smoketest-capi-default smoketest-capi-lua54compat smoketest-capi-lua54compat-quick run-capi-lua54compat-tests $(LUA54_CAPI_PARALLEL_TARGETS) smoketest-perf-lua54compat test
+.PHONY: all install amalg clean smoketest build-lua54compat build-lua54compat-incremental smoketest-lua54compat smoketest-lua54compat-quick run-lua54compat-tests $(LUA54_RUNTIME_PARALLEL_TARGETS) smoketest-lua54compat-nogc64 run-official-lua54compat smoketest-official-lua54compat smoketest-capi-default smoketest-capi-lua54compat smoketest-capi-lua54compat-quick run-capi-lua54compat-tests $(LUA54_CAPI_PARALLEL_TARGETS) smoketest-perf-lua54compat run-perf-lua54compat-tests $(LUA54_PERF_PARALLEL_TARGETS) test
 
 ##############################################################################

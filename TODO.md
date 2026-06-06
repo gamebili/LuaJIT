@@ -50,6 +50,7 @@
    - 当前进展：`build.bat` / `Makefile` 已新增 `lua54build`、`lua54quick` 和 `smoke54quick` 本地增量入口，Lua 5.4 compat 构建会记录 `XCFLAGS` stamp；同配置重复验证会跳过 clean 并继续按检测到的 32 个逻辑处理器运行 `make -j32`，`cmd /c build.bat lua54quick` 已通过。
    - 当前进展：`Makefile` 的 Lua 5.4 C API/header smoke 已拆成独立并行目标，`build.bat lua54quick` 传入的 `-jN` 现在可同时调度本地 header 编译门禁、负向编译门禁和 C API 小可执行 smoke，缩短 quick 验证尾段并更充分利用本机逻辑处理器。
    - 当前进展：`Makefile` 已把 `run-lua54compat-tests` 拆成独立 runtime smoke 子目标，`build.bat lua54quick` 传入的本机 `-jN` 现在也会并行调度官方 Lua 5.4 矩阵之外的 cstack/gc/JIT/stdlib/VM/standalone/CLI smoke，避免运行期回归阶段完全串行等待。
+   - 当前进展：`Makefile` 已把 `lua54perf` 的三档 JIT profile 和 JIT off 拆成并行子目标；`test/lua54_perf.lua` 支持 `LUA54_PERF_TMP_SUFFIX` / `LUA54_PERF_LABEL`，避免并发 IO helper 临时文件冲突并保持 profile 日志可读；并行入口默认把 `LUA54_PERF_ABS` 放宽到 8 秒以吸收同机资源竞争，仍允许用户显式覆盖。
    - 当前进展：PC x64、x86、ARM64、ARM、MIPS、MIPS64、PPC 的 `__call` callable-chain 已统一改为由 `lj_meta_call` 返回新增隐式参数数量，并由各 VM 后端更新 `NARGS`；PC x64 / Android ARM64 已额外覆盖 100 层 callable-chain tailcall 扩栈和 `CALLT` 保持，Android ARM64 设备 smoke 已覆盖该路径。
 
 6. **C API / lauxlib / 标准库收尾批次**
@@ -958,6 +959,7 @@
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `require()` preload loader 显式返回 `false` 后写入/返回 false、并在后续 `require()` 中因 loaded false 重新加载的标准库边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `.\src\luajit.exe test\lua54_jit_regress.lua`、`.\src\luajit.exe test\lua54_perf.lua jit_on`、`.\src\luajit.exe test\lua54_perf.lua jit_off` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `require()` preload loader 显式返回 `false` 后写入/返回 false、并因 loaded false 再次重载的 JIT/perf 热路径边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `cmd /c build.bat help`、`cmd /c build.bat lua54build -j32` 和 `cmd /c build.bat lua54quick` 已通过；`Makefile` 的 `run-lua54compat-tests` 已拆成可并行调度的 Lua 5.4 runtime smoke 子目标，确认 `build.bat` 默认检测到的 32 逻辑线程 `-j32` 能同时驱动构建、运行期 smoke 和 C API/header smoke，进一步利用本地机器性能。
+- `cmd /c build.bat lua54perf`、`.\src\luajit.exe test\lua54_perf.lua jit_on` 和 `.\src\luajit.exe test\lua54_perf.lua jit_off` 已通过；`lua54perf` 现在会并行调度三档固定 JIT profile 和 JIT off perf/memory smoke，且各进程使用独立 IO 临时文件后缀，继续覆盖 JIT on/off Lua 5.4 perf 热路径。
 
 ## 已确认不列入当前 TODO 的已实现项
 

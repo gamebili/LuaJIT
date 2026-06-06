@@ -20,6 +20,12 @@ local mem_limit_kb = envnum("LUA54_PERF_MEM_KB", 1024)
 local jit_opt_profiles = os.getenv("LUA54_PERF_JIT_OPTS") or
   os.getenv("LUA54_PERF_JIT_OPT") or
   "3,hotloop=3,hotexit=2,instunroll=4,loopunroll=4;3,hotloop=56,hotexit=10;0,hotloop=3,hotexit=2"
+local perf_tmp_suffix = os.getenv("LUA54_PERF_TMP_SUFFIX") or ""
+if perf_tmp_suffix ~= "" then
+  perf_tmp_suffix = "_"..perf_tmp_suffix:gsub("[^%w_.-]", "_")
+end
+local perf_profile_label = os.getenv("LUA54_PERF_LABEL")
+if perf_profile_label == "" then perf_profile_label = nil end
 
 local function split_opts(s)
   local out = {}
@@ -1938,8 +1944,8 @@ local function os_helpers(n)
 end
 
 local function io_helpers(n)
-  local fname = "lua54_perf_io.tmp"
-  local vfname = "lua54_perf_io_setvbuf.tmp"
+  local fname = "lua54_perf_io"..perf_tmp_suffix..".tmp"
+  local vfname = "lua54_perf_io_setvbuf"..perf_tmp_suffix..".tmp"
   local f = assert(io.open(fname, "w+b"))
   local vf = assert(io.open(vfname, "w"))
   f:write("123\n16\nabc\n")
@@ -3131,7 +3137,7 @@ local function main()
   if mode_arg == "jit_on" or mode_arg == "on" then
     local profiles = split_profiles(jit_opt_profiles)
     for i = 1, #profiles do
-      run_suite("jit_on_opt"..i, true, profiles[i])
+      run_suite(perf_profile_label or "jit_on_opt"..i, true, profiles[i])
     end
   elseif mode_arg == "jit_off" or mode_arg == "off" then
     run_suite("jit_off", false)
