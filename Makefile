@@ -176,10 +176,15 @@ clean:
 	$(MAKE) -C src clean
 	$(RM) lua54_valid_open_mode.tmp lua54_invalid_open_mode.tmp lua54_loadfile_env.tmp lua54_loadfile_binary_env.tmp test/lua54_capi_hash_binary.tmp $(LUA54COMPAT_BUILD_STAMP)
 
-smoketest:
+build-default:
 	$(MAKE) clean
 	$(MAKE)
+
+default-runtime-smoke:
 	./src/luajit test/smoke.lua default
+
+smoketest: build-default
+	$(MAKE) default-runtime-smoke
 
 build-lua54compat:
 	$(MAKE) clean
@@ -512,9 +517,21 @@ lua54-perf-jit-on-opt3:
 lua54-perf-jit-off:
 	LUA54_PERF_ABS=$${LUA54_PERF_ABS:-8.0} LUA54_PERF_TMP_SUFFIX=jit_off ./src/luajit test/lua54_perf.lua jit_off
 
-smoketest-capi-default: smoketest
+DEFAULT_CAPI_PARALLEL_TARGETS= \
+	default-runtime-smoke \
+	default-capi-lu-hpp-header-smoke \
+	default-capi-runtime-smoke
+
+smoketest-capi-default: build-default
+	$(MAKE) run-capi-default-tests
+
+run-capi-default-tests: $(DEFAULT_CAPI_PARALLEL_TARGETS)
+
+default-capi-lu-hpp-header-smoke:
 	$(CXX) -std=c++11 -I src -c test/lua51_lu.hpp_header_smoke.cpp -o src/lua51_lu.hpp_header_smoke.o
 	rm -f src/lua51_lu.hpp_header_smoke.o
+
+default-capi-runtime-smoke:
 	gcc -I src -x c test/lua51_capi_smoke.c -x none src/lua51.dll -o src/lua51_capi_smoke.exe
 	./src/lua51_capi_smoke.exe
 	rm -f src/lua51_capi_smoke.exe
@@ -525,6 +542,6 @@ test:
 	$(MAKE) smoketest-perf-lua54compat
 	$(MAKE) smoketest-lua54compat-nogc64
 
-.PHONY: all install amalg clean smoketest build-lua54compat build-lua54compat-incremental smoketest-lua54compat smoketest-lua54compat-quick run-lua54compat-tests $(LUA54_RUNTIME_PARALLEL_TARGETS) smoketest-lua54compat-nogc64 run-official-lua54compat smoketest-official-lua54compat smoketest-capi-default smoketest-capi-lua54compat smoketest-capi-lua54compat-quick run-capi-lua54compat-tests run-lua54compat-and-capi-tests $(LUA54_CAPI_PARALLEL_TARGETS) $(LUA54_CAPI_SYMBOL_REJECT_TARGETS) smoketest-perf-lua54compat run-perf-lua54compat-tests $(LUA54_PERF_PARALLEL_TARGETS) test
+.PHONY: all install amalg clean build-default default-runtime-smoke smoketest smoketest-capi-default run-capi-default-tests $(DEFAULT_CAPI_PARALLEL_TARGETS) build-lua54compat build-lua54compat-incremental smoketest-lua54compat smoketest-lua54compat-quick run-lua54compat-tests $(LUA54_RUNTIME_PARALLEL_TARGETS) smoketest-lua54compat-nogc64 run-official-lua54compat smoketest-official-lua54compat smoketest-capi-lua54compat smoketest-capi-lua54compat-quick run-capi-lua54compat-tests run-lua54compat-and-capi-tests $(LUA54_CAPI_PARALLEL_TARGETS) $(LUA54_CAPI_SYMBOL_REJECT_TARGETS) smoketest-perf-lua54compat run-perf-lua54compat-tests $(LUA54_PERF_PARALLEL_TARGETS) test
 
 ##############################################################################
