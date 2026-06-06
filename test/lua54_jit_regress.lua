@@ -3039,6 +3039,13 @@ do
       local ok_deg_noarg, err_deg_noarg = pcall(function()
 	return math.deg()
       end)
+      local ok_rad_noarg, err_rad_noarg = pcall(function()
+	return math.rad()
+      end)
+      local ok_rad_bad, err_rad_bad = pcall(function()
+	return math.rad({})
+      end)
+      local rad_string = math.rad("180")
       local ok_modf_noarg, err_modf_noarg = pcall(function()
 	return math.modf()
       end)
@@ -3132,6 +3139,17 @@ do
 	 err_deg_noarg:find("number expected, got no value", 1, true) then
 	n = n + 1
       end
+      if not ok_rad_noarg and
+	 err_rad_noarg:find("bad argument #1 to 'rad'", 1, true) and
+	 err_rad_noarg:find("number expected, got no value", 1, true) then
+	n = n + 1
+      end
+      if not ok_rad_bad and
+	 err_rad_bad:find("bad argument #1 to 'rad'", 1, true) and
+	 err_rad_bad:find("number expected, got table", 1, true) then
+	n = n + 1
+      end
+      if math.abs(rad_string - math.pi) < 1e-12 then n = n + 1 end
       if not ok_modf_noarg and
 	 err_modf_noarg:find("bad argument #1 to 'modf'", 1, true) and
 	 err_modf_noarg:find("number expected, got no value", 1, true) then
@@ -3217,7 +3235,7 @@ do
       if utf8_len_empty == 0 then n = n + 1 end
       if utf8_offset_neg == 3 then n = n + 1 end
     end
-    assert(n == 2880)
+    assert(n == 3120)
   end, "Lua 5.4 mixed stdlib edge errors")
 end
 

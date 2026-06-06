@@ -272,6 +272,7 @@ local cases = {
   { "math.randomseed.frac1", "return math.randomseed(1.2)", err = "bad argument #1 to 'randomseed' (number has no integer representation)" },
   { "math.randomseed.frac2", "return math.randomseed(1, 2.2)", err = "bad argument #2 to 'randomseed' (number has no integer representation)" },
   { "math.randomseed.str", "return select('#', math.randomseed('1', '2'))", ok = { "number:2" } },
+  { "math.rad.noarg", "return math.rad()", err = "bad argument #1 to 'rad' (number expected, got no value)" },
   { "math.rad.bad", "return math.rad({})", err = "bad argument #1 to 'rad' (number expected, got table)" },
   { "math.rad.string", "return math.rad('180')", ok = { "number:3.1415926535898" } },
   { "math.sqrt.noarg", "return math.sqrt()", err = "bad argument #1 to 'sqrt' (number expected, got no value)" },
