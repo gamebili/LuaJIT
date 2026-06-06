@@ -597,6 +597,7 @@ local cases = {
   { "table.move.same", "local t = {1,2,3}; return table.move(t, 1, 3, 1) == t, table.concat(t, ',')", ok = { "boolean:true", "string:1,2,3" } },
   { "table.move.overlap.right", "local t = {1,2,3,4}; return table.move(t, 1, 3, 2) == t, table.concat(t, ',')", ok = { "boolean:true", "string:1,1,2,3" } },
   { "table.move.overlap.left", "local t = {1,2,3,4}; return table.move(t, 2, 4, 1) == t, table.concat(t, ',')", ok = { "boolean:true", "string:2,3,4,4" } },
+  { "table.move.proxy", "local old = debug.getmetatable(0); local slots = {}; local reads, writes = 0, 0; debug.setmetatable(0, { __index = function(self, k) reads = reads + 1; return slots[self][k] end, __newindex = function(self, k, v) writes = writes + 1; slots[self][k] = v end }); local ok, target, a, b = pcall(function() slots[0] = { 'x', 'y' }; slots[1] = {}; local target = table.move(0, 1, 2, 3, 1); return target, slots[1][3], slots[1][4] end); debug.setmetatable(0, old); if not ok then error(target, 0) end; return target == 1, a, b, reads, writes", ok = { "boolean:true", "string:x", "string:y", "number:2", "number:2" } },
   { "table.move.badtarget", "return table.move({}, 1, 2, 1, true)", err = "bad argument #5 to 'move' (table expected, got boolean)" },
   { "table.move.emptybadtarget", "return table.move({}, 2, 1, 1, true)", err = "bad argument #5 to 'move' (table expected, got boolean)" },
   { "table.pack.empty", "local t = table.pack(); return t.n, next(t)", ok = { "number:0", "string:n", "number:0" } },
