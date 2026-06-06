@@ -1,4 +1,5 @@
 assert(_VERSION == "Lua 5.4", "lua54_stdlib_edges.lua must run in Lua 5.4 compat mode")
+if type(jit) == "table" and type(jit.off) == "function" then jit.off() end
 
 local cases = {
   { "base.assert.noargs", "return assert()", err = "bad argument #1 to 'assert' (value expected)" },
@@ -93,6 +94,10 @@ local cases = {
   { "coroutine.close.bad", "return coroutine.close(true)", err = "bad argument #1 to 'close' (thread expected, got boolean)" },
   { "coroutine.close.fresh", "local co = coroutine.create(function() return 'fresh' end); local r = table.pack(coroutine.close(co)); return r.n, r[1], coroutine.status(co)", ok = { "number:1", "boolean:true", "string:dead" } },
   { "coroutine.close.yielded", "local co = coroutine.create(function() coroutine.yield('pause') end); local ok, v = coroutine.resume(co); local r = table.pack(coroutine.close(co)); return ok, v, r.n, r[1], coroutine.status(co)", ok = { "boolean:true", "string:pause", "number:1", "boolean:true", "string:dead" } },
+  { "coroutine.close.tbc.nilerr", "local seen, same, obj; obj = setmetatable({}, { __close = function(self, err) same = self == obj; seen = err end }); local co = coroutine.create(function() local x <close> = obj; coroutine.yield('pause') end); local ok, v = coroutine.resume(co); local r = table.pack(coroutine.close(co)); return ok, v, same, seen, r.n, r[1], coroutine.status(co)", ok = { "boolean:true", "string:pause", "boolean:true", "nil:nil", "number:1", "boolean:true", "string:dead" } },
+  { "coroutine.close.tbc.error", "local co = coroutine.create(function() local x <close> = setmetatable({}, { __close = function() error('closeerr', 0) end }); coroutine.yield('pause') end); coroutine.resume(co); local ok, err = coroutine.close(co); return ok, err, coroutine.status(co)", ok = { "boolean:false", "string:closeerr", "string:dead" } },
+  { "coroutine.close.tbc.reclose", "local co = coroutine.create(function() local x <close> = setmetatable({}, { __close = function() error('closeerr', 0) end }); coroutine.yield('pause') end); coroutine.resume(co); local ok, err = coroutine.close(co); local r = table.pack(coroutine.close(co)); return ok, err, r.n, r[1], coroutine.status(co)", ok = { "boolean:false", "string:closeerr", "number:1", "boolean:true", "string:dead" } },
+  { "coroutine.close.tbc.errorobject", "local marker = {}; local co = coroutine.create(function() local x <close> = setmetatable({}, { __close = function() error(marker, 0) end }); coroutine.yield() end); coroutine.resume(co); local ok, err = coroutine.close(co); return ok, err == marker, type(err), coroutine.status(co)", ok = { "boolean:false", "boolean:true", "string:table", "string:dead" } },
   { "coroutine.close.dead", "local co = coroutine.create(function() return 'done' end); coroutine.resume(co); local r = table.pack(coroutine.close(co)); return r.n, r[1], coroutine.status(co)", ok = { "number:1", "boolean:true", "string:dead" } },
   { "coroutine.close.running", "return coroutine.close(coroutine.running())", err = "cannot close a running coroutine" },
   { "coroutine.create.noarg", "return coroutine.create()", err = "bad argument #1 to 'create' (function expected, got no value)" },
