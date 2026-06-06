@@ -97,6 +97,7 @@
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.move(nil, 1, 0, 1)` 空范围源对象校验和 direct `pcall(table.move, nil, ...)` 诊断路径，固定空移动范围也会先校验源 table，且 direct pcall 函数名保持 `table.move`。
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.move(1, 1, 0, 1)` 空范围非 table 源对象诊断和显式 `nil` 目标回源表复制路径，固定空移动范围参数校验以及第 5 参数 `nil` 的默认目标语义。
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `package.searchpath()` 普通模板命中文件和自定义 separator/replacement 命中文件的成功路径，固定返回命中路径且第二返回值为 `nil`。
+   - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `require()` preload loader 显式返回 `false` 的边界，固定 `false` 会作为 loader 返回值写入/返回，但后续 `require()` 仍会因 `package.loaded[name] == false` 重新加载。
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `loadfile()` 缺失文件返回 tuple、source chunk `env` 初始化 `_ENV` 和 stripped binary chunk `env` 初始化首个无名 upvalue 的边界，固定 `loadfile(..., env)` 的 Lua 5.4 环境注入表面。
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `load(..., env)` source chunk table / 非 table 环境和 stripped binary chunk 非 table 环境初始化边界，固定 `env` 参数会作为 exact upvalue 值写入 `_ENV` 或首个无名 upvalue。
 
@@ -951,6 +952,7 @@
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `loadfile()` 缺失文件返回 tuple、source chunk env 初始化 `_ENV` 和 stripped binary chunk env 初始化首个无名 upvalue 的标准库边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `cmd /c build.bat lua54quick` 已通过，确认 `Makefile` 的 Lua 5.4 C API/header smoke 可在 `build.bat` 默认检测到的 32 逻辑线程 `-j32` 下并行调度 header 编译门禁、负向编译门禁和 C API 小可执行 smoke；同时覆盖 Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、标准库/JIT/GC/VM 后端静态/DynASM 门禁和 C API smoke。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `load(..., env)` source chunk table / 非 table 环境以及 stripped binary chunk 非 table 环境初始化的标准库边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
+- `.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `require()` preload loader 显式返回 `false` 后写入/返回 false、并在后续 `require()` 中因 loaded false 重新加载的标准库边界、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 
 ## 已确认不列入当前 TODO 的已实现项
 
