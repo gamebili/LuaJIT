@@ -537,11 +537,14 @@ do
       if string.format("%q", false) == "false" then n = n + 1 end
       if string.format("%q", "a"..string.char(0).."b") == [["a\0b"]] then n = n + 1 end
       if string.format("%q", "a"..string.char(1).."2") == [["a\0012"]] then n = n + 1 end
+      if string.format("%q", "a\"b") == [["a\"b"]] then n = n + 1 end
+      if string.format("%q", "a\\b") == [["a\\b"]] then n = n + 1 end
+      if string.format("%q", "a\nb") == '"a\\'..string.char(10)..'b"' then n = n + 1 end
       if string.format("%s:%s", true, nil) == "true:nil" then n = n + 1 end
       if string.format("%a", 1.5) == "0x1.8p+0" then n = n + 1 end
       if string.format("%A", 1.5) == "0X1.8P+0" then n = n + 1 end
     end
-    assert(n == 800)
+    assert(n == 1040)
   end, "Lua 5.4 string.format %p/%q/%s/%a")
 
   assert_no_trace(function()
