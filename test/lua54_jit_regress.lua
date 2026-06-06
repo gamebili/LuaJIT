@@ -3791,6 +3791,15 @@ do
       local ok_time_min, err_time_min = pcall(os.time, {
 	year = 2020, month = 1, day = 1, min = true, sec = true
       })
+      local missing_remove = "__lua54_jit_remove_missing__"
+      local missing_rename = "__lua54_jit_rename_missing__"
+      local missing_target = "__lua54_jit_rename_target__"
+      os.remove(missing_remove)
+      os.remove(missing_rename)
+      os.remove(missing_target)
+      local remove_ok, remove_msg, remove_code = os.remove(missing_remove)
+      local rename_ok, rename_msg, rename_code =
+	os.rename(missing_rename, missing_target)
       if not ok_time and
 	 err_time:find("field 'hour' is not an integer", 1, true) and
 	 not ok_date and err_date:find("to 'os.date'", 1, true) and
@@ -3823,7 +3832,11 @@ do
 	 not ok_time_day and
 	 err_time_day:find("field 'day' missing", 1, true) and
 	 not ok_time_min and
-	 err_time_min:find("field 'min' is not an integer", 1, true) then
+	 err_time_min:find("field 'min' is not an integer", 1, true) and
+	 remove_ok == nil and type(remove_code) == "number" and
+	 remove_msg:find(missing_remove, 1, true) and
+	 rename_ok == nil and type(rename_code) == "number" and
+	 not rename_msg:find(missing_rename, 1, true) then
 	n = n + 1
       end
     end

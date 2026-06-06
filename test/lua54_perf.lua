@@ -1708,6 +1708,24 @@ local function os_helpers(n)
        err_time_repr:find("time result cannot be represented", 1, true) then
       sum = sum + 1
     end
+
+    local missing_remove = "__lua54_perf_remove_missing__"
+    local missing_rename = "__lua54_perf_rename_missing__"
+    local missing_target = "__lua54_perf_rename_target__"
+    os.remove(missing_remove)
+    os.remove(missing_rename)
+    os.remove(missing_target)
+    local remove_ok, remove_msg, remove_code = os.remove(missing_remove)
+    if remove_ok == nil and type(remove_code) == "number" and
+       remove_msg:find(missing_remove, 1, true) then
+      sum = sum + 1
+    end
+    local rename_ok, rename_msg, rename_code =
+      os.rename(missing_rename, missing_target)
+    if rename_ok == nil and type(rename_code) == "number" and
+       not rename_msg:find(missing_rename, 1, true) then
+      sum = sum + 1
+    end
   end
   return sum
 end
@@ -2816,7 +2834,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   assert(r_many_upvalue == iter_n)
 
   local _, r_os = timeit(mode_name..":os_helpers", os_helpers, iter_n)
-  assert(r_os == iter_n * (18 + (os_future_supported and 1 or 0) +
+  assert(r_os == iter_n * (20 + (os_future_supported and 1 or 0) +
 			    (os_windows_date_ext and 6 or 0)))
 
   if enable_jit then jit.off(io_helpers, true) end
