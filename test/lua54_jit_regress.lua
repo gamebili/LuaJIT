@@ -2698,6 +2698,35 @@ do
   end, "Lua 5.4 hides standard C closure upvalues")
 
   assert_records_trace(function()
+    local up = 3
+    local fn = function() return up end
+    local n = 0
+    for _ = 1, 80 do
+      local name, value = debug.getupvalue(fn, 1)
+      if name == "up" and value == up then n = n + 1 end
+
+      if debug.setupvalue(fn, 1, 4) == "up" and fn() == 4 then
+	n = n + 1
+      end
+      debug.setupvalue(fn, 1, 3)
+
+      local ok_getbad, err_getbad = pcall(debug.getupvalue, true, 1)
+      local ok_setbad, err_setbad = pcall(debug.setupvalue, true, 1, 2)
+      if not ok_getbad and
+	 err_getbad:find("bad argument #1 to 'debug.getupvalue'",
+			 1, true) and
+	 err_getbad:find("function expected, got boolean", 1, true) and
+	 not ok_setbad and
+	 err_setbad:find("bad argument #1 to 'debug.setupvalue'",
+			 1, true) and
+	 err_setbad:find("function expected, got boolean", 1, true) then
+	n = n + 1
+      end
+    end
+    assert(n == 80 * 3)
+  end, "Lua 5.4 debug upvalue access edges")
+
+  assert_records_trace(function()
     local up
     local fn = function() return up end
     local n = 0

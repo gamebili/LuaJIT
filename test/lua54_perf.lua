@@ -972,7 +972,7 @@ end
 local function debug_helpers(n)
   local sum = 0
   local fn = function() end
-  local up
+  local up = 3
   local fn_with_upvalue = function() return up end
   local info_fn = function(a, ...) return a end
   local hook_fn = function() end
@@ -1065,6 +1065,25 @@ local function debug_helpers(n)
        select("#", debug.getupvalue(ipairs, 1)) == 0 and
        select("#", debug.upvalueid(print, 1)) == 1 and
        debug.upvalueid(print, 1) == nil then
+      sum = sum + 1
+    end
+    local up_name, up_value = debug.getupvalue(fn_with_upvalue, 1)
+    if up_name == "up" and up_value == up then sum = sum + 1 end
+    if debug.setupvalue(fn_with_upvalue, 1, 4) == "up" and
+       fn_with_upvalue() == 4 then
+      sum = sum + 1
+    end
+    debug.setupvalue(fn_with_upvalue, 1, 3)
+    local ok_getup_bad, err_getup_bad = pcall(debug.getupvalue, true, 1)
+    local ok_setup_bad, err_setup_bad = pcall(debug.setupvalue, true, 1, 2)
+    if not ok_getup_bad and
+       err_getup_bad:find("bad argument #1 to 'debug.getupvalue'",
+			  1, true) and
+       err_getup_bad:find("function expected, got boolean", 1, true) and
+       not ok_setup_bad and
+       err_setup_bad:find("bad argument #1 to 'debug.setupvalue'",
+			  1, true) and
+       err_setup_bad:find("function expected, got boolean", 1, true) then
       sum = sum + 1
     end
     do
@@ -2225,7 +2244,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_debug = timeit(mode_name..":debug_helpers",
 			    debug_helpers, iter_n)
-  assert(r_debug == iter_n * 30)
+  assert(r_debug == iter_n * 33)
 
   local _, r_many_upvalue = timeit(mode_name..":many_upvalue_helpers",
 				   many_upvalue_helpers, iter_n)
