@@ -39,29 +39,33 @@ if exist "%UCRT_BIN%\gcc.exe" (
   set "PATH=%MSYS_BIN%;%UCRT_BIN%;%MINGW64_BIN%;%PATH%"
 )
 
-set "CPU_CORES="
+set "CPU_THREADS="
 set "DEFAULT_BUILD_JOBS="
-for /f "usebackq delims=" %%C in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$sum=0; foreach ($cpu in (Get-CimInstance Win32_Processor)) { $sum += $cpu.NumberOfCores }; if ($sum -gt 0) { [int]$sum }" 2^>nul`) do (
-  if not "%%C"=="" set "CPU_CORES=%%C"
+for /f "usebackq delims=" %%C in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$sum=0; foreach ($cpu in (Get-CimInstance Win32_Processor)) { $sum += $cpu.NumberOfLogicalProcessors }; if ($sum -gt 0) { [int]$sum }" 2^>nul`) do (
+  if not "%%C"=="" set "CPU_THREADS=%%C"
 )
-if "!CPU_CORES!"=="" if not "%NUMBER_OF_PROCESSORS%"=="" set "CPU_CORES=%NUMBER_OF_PROCESSORS%"
-if not "!CPU_CORES!"=="" (
-  rem Keep make parallelism at half of detected physical CPU cores. This cap
-  rem prevents both stale BUILD_JOBS values and command-line -jN from fanning
-  rem out too far on high-core machines.
-  set /a "DEFAULT_BUILD_JOBS=CPU_CORES / 2"
+if "!CPU_THREADS!"=="" if not "%NUMBER_OF_PROCESSORS%"=="" set "CPU_THREADS=%NUMBER_OF_PROCESSORS%"
+if not "!CPU_THREADS!"=="" (
+  rem Default to all detected logical processors so local builds use the whole
+  rem machine. BUILD_JOBS or an explicit -jN may override this value.
+  set "DEFAULT_BUILD_JOBS=!CPU_THREADS!"
 )
 if "!DEFAULT_BUILD_JOBS!"=="" set "DEFAULT_BUILD_JOBS=2"
 if !DEFAULT_BUILD_JOBS! LSS 1 set "DEFAULT_BUILD_JOBS=1"
 if "%BUILD_JOBS%"=="" (
   set "BUILD_JOBS=!DEFAULT_BUILD_JOBS!"
 ) else (
-  if !BUILD_JOBS! GTR !DEFAULT_BUILD_JOBS! set "BUILD_JOBS=!DEFAULT_BUILD_JOBS!"
+  set "BUILD_JOBS_NUM=1"
+  for /f "delims=0123456789" %%N in ("!BUILD_JOBS!") do set "BUILD_JOBS_NUM="
+  if "!BUILD_JOBS_NUM!"=="" (
+    echo [build.bat] BUILD_JOBS must be a positive integer: !BUILD_JOBS!
+    exit /b 1
+  )
 )
 if "!BUILD_JOBS!"=="" set "BUILD_JOBS=!DEFAULT_BUILD_JOBS!"
 if !BUILD_JOBS! LSS 1 set "BUILD_JOBS=1"
 
-set "MAKE_JOBS=-j%BUILD_JOBS%"
+set "MAKE_JOBS=-j!BUILD_JOBS!"
 set "MAKE_ARGS=%*"
 set "SAW_MAKE_J="
 set "EXPECT_MAKE_JOBS="
@@ -74,19 +78,19 @@ for %%A in (%*) do (
     for /f "delims=0123456789" %%N in ("!REQ_JOBS!") do set "REQ_JOBS_NUM="
     if not "!REQ_JOBS_NUM!"=="" (
       if !REQ_JOBS! LSS 1 set "REQ_JOBS=1"
-      if !REQ_JOBS! LSS !BUILD_JOBS! set "MAKE_JOBS=-j!REQ_JOBS!"
+      set "MAKE_JOBS=-j!REQ_JOBS!"
     )
     set "EXPECT_MAKE_JOBS="
   )
-  rem GNU make treats bare -j as unlimited jobs. Strip it and use the bounded
-  rem half-core MAKE_JOBS computed above. If the next token is numeric, treat
+  rem GNU make treats bare -j as unlimited jobs. Strip it and use the detected
+  rem or requested MAKE_JOBS computed above. If the next token is numeric, treat
   rem "-j 4" like "-j4" so the number is not forwarded as a make target.
   if /I "!ARG!"=="-j" (
     set "SAW_MAKE_J=1"
     set "EXPECT_MAKE_JOBS=1"
   )
-  rem Numeric -jN may lower the bounded job count, but never raise it above the
-  rem half-core cap. Invalid forms are forwarded to make so make can reject them.
+  rem Numeric -jN explicitly overrides the detected job count. Invalid forms are
+  rem forwarded to make so make can reject them.
   if /I "!ARG:~0,2!"=="-j" if /I not "!ARG!"=="-j" (
     set "REQ_JOBS=!ARG:~2!"
     set "REQ_JOBS_NUM=1"
@@ -95,7 +99,7 @@ for %%A in (%*) do (
     if not "!REQ_JOBS_NUM!"=="" (
       set "SAW_MAKE_J=1"
       if !REQ_JOBS! LSS 1 set "REQ_JOBS=1"
-      if !REQ_JOBS! LSS !BUILD_JOBS! set "MAKE_JOBS=-j!REQ_JOBS!"
+      set "MAKE_JOBS=-j!REQ_JOBS!"
     )
   )
 )
@@ -147,8 +151,8 @@ echo   rebuild     Run clean, then build.
 echo.
 echo Any other arguments are forwarded to GNU make unchanged.
 echo Perf profiles pin opt level, hotloop, and hotexit; override with LUA54_PERF_JIT_OPTS.
-echo Parallelism is capped to half of detected physical CPU cores; BUILD_JOBS and -jN can only lower that cap, and bare -j is normalized to it.
-echo Examples: build.bat lua54 -j8   or   set BUILD_JOBS=8
+echo Parallelism defaults to all detected logical processors; override with BUILD_JOBS or -jN. Bare -j is normalized to the current job count.
+echo Examples: build.bat lua54 -j32   or   set BUILD_JOBS=32
 exit /b 0
 
 :BUILD
