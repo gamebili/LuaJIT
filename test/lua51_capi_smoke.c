@@ -209,6 +209,24 @@ static int capi51_checkversion_bad_numsizes(lua_State *L)
   return 0;
 }
 
+static int capi51_len_arg(lua_State *L)
+{
+  lua_pushinteger(L, luaL_len(L, 1));
+  return 1;
+}
+
+static int capi51_len_meta(lua_State *L)
+{
+  lua_pushinteger(L, 77);
+  return 1;
+}
+
+static int capi51_len_bad_meta(lua_State *L)
+{
+  lua_pushnumber(L, (lua_Number)3.5);
+  return 1;
+}
+
 static int capi51_typerror_null_name(lua_State *L)
 {
   lua_pushnil(L);
@@ -2119,6 +2137,49 @@ int main(void)
 	"luaL_checkversion_ default numeric mismatch status");
   check(L, strstr(lua_tostring(L, -1), "incompatible numeric types") != NULL,
 	"luaL_checkversion_ default numeric mismatch message");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_len_arg);
+  lua_pushliteral(L, "abcd");
+  status = lua_pcall(L, 1, 1, 0);
+  check(L, status == LUA_OK, "luaL_len default string status");
+  check(L, lua_tointeger(L, -1) == 4, "luaL_len default string");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_len_arg);
+  lua_newtable(L);
+  lua_pushinteger(L, 10);
+  lua_rawseti(L, -2, 1);
+  lua_pushinteger(L, 20);
+  lua_rawseti(L, -2, 2);
+  lua_pushinteger(L, 30);
+  lua_rawseti(L, -2, 3);
+  status = lua_pcall(L, 1, 1, 0);
+  check(L, status == LUA_OK, "luaL_len default table status");
+  check(L, lua_tointeger(L, -1) == 3, "luaL_len default table");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_len_arg);
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushcfunction(L, capi51_len_meta);
+  lua_setfield(L, -2, "__len");
+  lua_setmetatable(L, -2);
+  status = lua_pcall(L, 1, 1, 0);
+  check(L, status == LUA_OK, "luaL_len default __len status");
+  check(L, lua_tointeger(L, -1) == 77, "luaL_len default __len");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_len_arg);
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushcfunction(L, capi51_len_bad_meta);
+  lua_setfield(L, -2, "__len");
+  lua_setmetatable(L, -2);
+  status = lua_pcall(L, 1, 1, 0);
+  check(L, status == LUA_OK, "luaL_len default fractional __len status");
+  check(L, lua_tointeger(L, -1) == 3,
+	"luaL_len default fractional __len");
   lua_pop(L, 1);
 
   lua_close(L);
