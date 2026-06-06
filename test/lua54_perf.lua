@@ -2433,6 +2433,8 @@ local function string_helpers(n)
     if string.format("%q", math.huge) == "1e9999" then sum = sum + 1 end
     if string.format("%q", true) == "true" then sum = sum + 1 end
     if string.format("%q", false) == "false" then sum = sum + 1 end
+    if string.format("%q", "a"..string.char(0).."b") == [["a\0b"]] then sum = sum + 1 end
+    if string.format("%q", "a"..string.char(1).."2") == [["a\0012"]] then sum = sum + 1 end
     if string.format("%a", 1.5) == "0x1.8p+0" then sum = sum + 1 end
     if string.format("%s", 1.0) == "1.0" then sum = sum + 1 end
     if string.format("%s:%s", true, nil) == "true:nil" then sum = sum + 1 end
@@ -2852,7 +2854,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   ratio_check(mode_name..":divmod_vs_floor", t_floor, t_lua54)
 
   local _, r_string = timeit(mode_name..":string_helpers", string_helpers, string_n)
-  assert(r_string == string_n * 217)
+  assert(r_string == string_n * 219)
 
   local _, r_utf8 = timeit(mode_name..":utf8_helpers", utf8_helpers, utf8_n)
   assert(r_utf8 == utf8_n * 14)
