@@ -51,6 +51,30 @@
 #error "default header must keep exposing lua_Chunkwriter"
 #endif
 
+#ifndef luaL_checkstring
+#error "default lauxlib header must keep exposing luaL_checkstring"
+#endif
+
+#ifndef luaL_optstring
+#error "default lauxlib header must keep exposing luaL_optstring"
+#endif
+
+#ifndef luaL_typename
+#error "default lauxlib header must keep exposing luaL_typename"
+#endif
+
+#ifndef luaL_getmetatable
+#error "default lauxlib header must keep exposing luaL_getmetatable"
+#endif
+
+#ifndef luaL_newlibtable
+#error "default lauxlib header must keep exposing luaL_newlibtable"
+#endif
+
+#ifndef luaL_newlib
+#error "default lauxlib header must keep exposing luaL_newlib"
+#endif
+
 static void check(lua_State *L, int cond, const char *msg)
 {
   if (!cond) {
@@ -73,6 +97,19 @@ static int capi51_yield_once(lua_State *L)
 static int capi51_return_upvalue(lua_State *L)
 {
   lua_pushvalue(L, lua_upvalueindex(1));
+  return 1;
+}
+
+static int capi51_require_open_count;
+
+static int capi51_require_open(lua_State *L)
+{
+  check(L, strcmp(lua_tostring(L, 1), "capi51.req") == 0,
+	"luaL_requiref passes module name");
+  capi51_require_open_count++;
+  lua_newtable(L);
+  lua_pushliteral(L, "ready");
+  lua_setfield(L, -2, "status");
   return 1;
 }
 
@@ -1334,8 +1371,33 @@ int main(void)
   lua_pushinteger(L, 42);
   check(L, luaL_checkint(L, -1) == 42, "luaL_checkint default macro");
   check(L, luaL_checklong(L, -1) == 42L, "luaL_checklong default macro");
+  check(L, luaL_checkinteger(L, -1) == 42,
+	"luaL_checkinteger default API");
+  check(L, luaL_opt(L, luaL_checkinteger, -1, 77) == 42,
+	"luaL_opt explicit default macro");
   check(L, luaL_optint(L, 2, 77) == 77, "luaL_optint default macro");
   check(L, luaL_optlong(L, 2, 78L) == 78L, "luaL_optlong default macro");
+  check(L, luaL_optinteger(L, 2, 79) == 79,
+	"luaL_optinteger default API");
+  check(L, luaL_opt(L, luaL_checkinteger, 2, 80) == 80,
+	"luaL_opt fallback default macro");
+  lua_pop(L, 1);
+
+  lua_pushliteral(L, "checked-string");
+  check(L, strcmp(luaL_checkstring(L, -1), "checked-string") == 0,
+	"luaL_checkstring default macro");
+  check(L, strcmp(luaL_optstring(L, 2, "fallback-string"),
+		  "fallback-string") == 0,
+	"luaL_optstring default macro");
+  check(L, strcmp(luaL_typename(L, -1), "string") == 0,
+	"luaL_typename default macro");
+  lua_pop(L, 1);
+
+  lua_pushnumber(L, 3.5);
+  check(L, luaL_checknumber(L, -1) == (lua_Number)3.5,
+	"luaL_checknumber default API");
+  check(L, luaL_optnumber(L, 2, (lua_Number)4.5) == (lua_Number)4.5,
+	"luaL_optnumber default API");
   lua_pop(L, 1);
 
   lua_newtable(L);
@@ -1373,6 +1435,18 @@ int main(void)
   lua_getfield(L, -1, "answer");
   lua_call(L, 0, 1);
   check(L, lua_tointeger(L, -1) == 51, "luaL_openlib default API");
+  lua_pop(L, 2);
+
+  luaL_newlibtable(L, capi51_reg);
+  check(L, lua_istable(L, -1), "luaL_newlibtable default macro");
+  lua_getfield(L, -1, "answer");
+  check(L, lua_isnil(L, -1), "luaL_newlibtable leaves fields unset");
+  lua_pop(L, 2);
+
+  luaL_newlib(L, capi51_reg);
+  lua_getfield(L, -1, "answer");
+  lua_call(L, 0, 1);
+  check(L, lua_tointeger(L, -1) == 51, "luaL_newlib default macro");
   lua_pop(L, 2);
 
   lua_newtable(L);
@@ -1422,6 +1496,45 @@ int main(void)
     lua_pop(L, 2);
     check(L, lua_gettop(L) == top, "luaL_pushmodule stack balanced");
   }
+
+  {
+    int top = lua_gettop(L);
+    lua_newtable(L);
+    check(L, luaL_getsubtable(L, -1, "child") == 0,
+	  "luaL_getsubtable creates default table");
+    lua_pushliteral(L, "sub-marker");
+    lua_setfield(L, -2, "marker");
+    lua_pop(L, 1);
+    check(L, luaL_getsubtable(L, -1, "child") == 1,
+	  "luaL_getsubtable reuses default table");
+    lua_getfield(L, -1, "marker");
+    check(L, strcmp(lua_tostring(L, -1), "sub-marker") == 0,
+	  "luaL_getsubtable default table value");
+    lua_pop(L, 3);
+    check(L, lua_gettop(L) == top, "luaL_getsubtable stack balanced");
+  }
+
+  capi51_require_open_count = 0;
+  luaL_requiref(L, "capi51.req", capi51_require_open, 1);
+  check(L, capi51_require_open_count == 1,
+	"luaL_requiref default API calls opener");
+  lua_getfield(L, -1, "status");
+  check(L, strcmp(lua_tostring(L, -1), "ready") == 0,
+	"luaL_requiref default API result");
+  lua_pop(L, 2);
+  lua_pushnil(L);
+  lua_setglobal(L, "capi51.req");
+  luaL_requiref(L, "capi51.req", capi51_require_open, 1);
+  check(L, capi51_require_open_count == 1,
+	"luaL_requiref default API reuses loaded module");
+  lua_getglobal(L, "capi51.req");
+  check(L, lua_rawequal(L, -1, -2),
+	"luaL_requiref default API republishes global");
+  lua_pop(L, 2);
+
+  luaL_pushfail(L);
+  check(L, lua_isnil(L, -1), "luaL_pushfail default macro");
+  lua_pop(L, 1);
 
   luaopen_string_buffer(L);
   check(L, lua_istable(L, -1), "luaopen_string_buffer default API");
@@ -1513,8 +1626,27 @@ int main(void)
     check(L, strcmp(lua_tostring(L, -1), "ud-meta") == 0,
 	  "luaL_newmetatable default API value");
     lua_pop(L, 2);
+    luaL_getmetatable(L, "capi51.ud");
+    lua_getfield(L, -1, "marker");
+    check(L, strcmp(lua_tostring(L, -1), "ud-meta") == 0,
+	  "luaL_getmetatable default macro");
+    lua_pop(L, 2);
+    luaL_getmetatable(L, "capi51.missing");
+    check(L, lua_isnil(L, -1), "luaL_getmetatable missing default macro");
+    lua_pop(L, 1);
     check(L, luaL_checkudata(L, -1, "capi51.ud") == ud,
 	  "luaL_checkudata default API");
+    lua_pop(L, 1);
+
+    ud = lua_newuserdata(L, sizeof(int));
+    luaL_setmetatable(L, "capi51.ud");
+    check(L, luaL_testudata(L, -1, "capi51.ud") == ud,
+	  "luaL_testudata default API match");
+    check(L, luaL_testudata(L, -1, "capi51.missing") == NULL,
+	  "luaL_testudata default API mismatch");
+    luaL_setmetatable(L, "capi51.missing");
+    check(L, luaL_testudata(L, -1, "capi51.ud") == NULL,
+	  "luaL_setmetatable missing clears default metatable");
     lua_pop(L, 1);
   }
 

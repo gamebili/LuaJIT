@@ -448,6 +448,7 @@
   - 当前进展：默认 LuaJIT 5.1 C API smoke 已继续补 `luaL_gsub()` 普通替换、无匹配和非重叠替换，以及 `luaL_where()` 压栈字符串行为，固定这些旧 lauxlib 表面在默认构建下仍可编译/链接/运行。
   - 当前进展：默认 LuaJIT 5.1 C API smoke 已继续补旧 `luaL_Buffer` 宏表面，覆盖 `luaL_prepbuffer()`、`luaL_addsize()`、`luaL_buffaddr()`、`luaL_bufflen()`、`luaL_buffsub()`、`luaL_addlstring()`、`luaL_addstring()`、`luaL_addvalue()`、`luaL_buffinitsize()` 和 `luaL_pushresultsize()` 在默认构建下仍保持可编译、可链接、可运行。
   - 当前进展：默认 LuaJIT 5.1 C API smoke 已继续补旧模块注册辅助入口，覆盖 `luaL_openlib()` 带共享 upvalue 的匿名/具名模块注册、`luaL_pushmodule()` 同步 `_LOADED` 与全局嵌套表并复用已 loaded 模块，以及 `luaL_findtable()` 遇到非 table 中间字段时返回冲突字段后缀且保持栈平衡。
+  - 当前进展：默认 LuaJIT 5.1 C API smoke 已继续补默认 lauxlib 便捷宏和 5.2 辅助入口覆盖：`luaL_checkstring()` / `luaL_optstring()` / `luaL_checknumber()` / `luaL_optnumber()` / `luaL_checkinteger()` / `luaL_optinteger()` / `luaL_opt()` / `luaL_typename()`、`luaL_newlibtable()` / `luaL_newlib()`、`luaL_getsubtable()`、`luaL_requiref()`、`luaL_pushfail()`、`luaL_getmetatable()`、`luaL_setmetatable()` 和 `luaL_testudata()` 均在默认构建下编译/运行验证，防止 Lua 5.4 外部头和 lauxlib wrapper 收紧时误伤默认 ABI。
   - 当前进展：默认 LuaJIT 5.1 `lua_getfenv()` / `lua_setfenv()` 的非法目标索引已从 debug-only stack slot 检查收敛为 release 可见 `invalid value`，同时保留合法非 env 对象返回 nil/0 的旧表面。
   - 当前进展：默认 LuaJIT 5.1 `lua_upvalueid()` 已补 Lua/C closure 的合法 id 查询和非法 upvalue 编号返回 `NULL` 的 smoke，避免 release 构建下越界取 upvalue 指针或依赖 debug-only `lj_checkapi`。
 
@@ -967,6 +968,7 @@
 - `cmd /c build.bat lua54perf`、`.\src\luajit.exe test\lua54_perf.lua jit_on` 和 `.\src\luajit.exe test\lua54_perf.lua jit_off` 已通过；`lua54perf` 现在会并行调度三档固定 JIT profile 和 JIT off perf/memory smoke，且各进程使用独立 IO 临时文件后缀，继续覆盖 JIT on/off Lua 5.4 perf 热路径。
 - `cmd /c build.bat lua54quick` 已通过；输出确认 `run-lua54compat-and-capi-tests` 会在同一个 `-j32` make jobserver 下交错运行官方 Lua 5.4 矩阵、runtime smoke、C API/header 编译门禁和 C API 小可执行 smoke，构建后验证尾段不再串行分成 runtime 与 C API 两轮。
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54quick` 已通过；覆盖本轮新增默认 LuaJIT 5.1 `luaL_gsub()` / `luaL_where()` 旧 lauxlib ABI smoke，并确认 Lua 5.4 兼容构建、官方矩阵、runtime smoke、C API/header smoke 仍通过。
+- `cmd /c build.bat default` 和 `cmd /c build.bat lua54quick` 已通过；覆盖本轮新增默认 LuaJIT 5.1 lauxlib 便捷宏和 5.2 辅助入口 smoke，包括 `luaL_checkstring()` / `luaL_optstring()`、`luaL_checknumber()` / `luaL_optnumber()`、`luaL_checkinteger()` / `luaL_optinteger()` / `luaL_opt()`、`luaL_newlib*()`、`luaL_getsubtable()`、`luaL_requiref()`、`luaL_pushfail()`、`luaL_getmetatable()`、`luaL_setmetatable()` 和 `luaL_testudata()`，并确认 Lua 5.4 兼容构建、官方矩阵、runtime smoke、C API/header smoke 仍通过。
 
 ## 已确认不列入当前 TODO 的已实现项
 
