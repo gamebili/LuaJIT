@@ -1306,6 +1306,13 @@ local function package_helpers(n)
     return "fresh"
   end
 
+  local value_loader_count = 0
+  package.loaded.__lua54_perf_value = nil
+  package.preload.__lua54_perf_value = function(modname)
+    value_loader_count = value_loader_count + 1
+    return { name = modname }
+  end
+
   local nil_loader_count = 0
   package.loaded.__lua54_perf_nil = nil
   package.preload.__lua54_perf_nil = function()
@@ -1342,6 +1349,15 @@ local function package_helpers(n)
     if not ok_require_bool and
        err_require_bool:find("bad argument #1 to 'require'", 1, true) and
        err_require_bool:find("got boolean", 1, true) then
+      sum = sum + 1
+    end
+
+    package.loaded.__lua54_perf_value = nil
+    local value_loaded, value_data = require("__lua54_perf_value")
+    if type(value_loaded) == "table" and
+       value_loaded.name == "__lua54_perf_value" and
+       value_data == ":preload:" and
+       package.loaded.__lua54_perf_value == value_loaded then
       sum = sum + 1
     end
 
@@ -1435,11 +1451,14 @@ local function package_helpers(n)
   package.loaded.__lua54_perf_zero = nil
   package.loaded.__lua54_perf_false = nil
   package.preload.__lua54_perf_false = nil
+  package.loaded.__lua54_perf_value = nil
+  package.preload.__lua54_perf_value = nil
   package.loaded.__lua54_perf_nil = nil
   package.preload.__lua54_perf_nil = nil
   package.preload.__lua54_perf_err = nil
   assert(nil_loader_count == 1)
   assert(false_loader_count == n)
+  assert(value_loader_count == n)
   return sum
 end
 
@@ -2929,7 +2948,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_package = timeit(mode_name..":package_helpers",
 			      package_helpers, iter_n)
-  assert(r_package == iter_n * 19)
+  assert(r_package == iter_n * 20)
 
   local _, r_debug = timeit(mode_name..":debug_helpers",
 			    debug_helpers, iter_n)
