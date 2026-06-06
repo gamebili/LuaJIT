@@ -3304,6 +3304,15 @@ do
 	return "y"
       end)
       if fn_out == "ay" and fn_count == 2 then n = n + 1 end
+      local limit0_out, limit0_count = string.gsub("aaa", "a", "x", 0)
+      if limit0_out == "aaa" and limit0_count == 0 then n = n + 1 end
+      local limitstr_out, limitstr_count = string.gsub("aaa", "a", "x", "2")
+      if limitstr_out == "xxa" and limitstr_count == 2 then n = n + 1 end
+      local limitneg_out, limitneg_count = string.gsub("aaa", "a", "x", -1)
+      if limitneg_out == "aaa" and limitneg_count == 0 then n = n + 1 end
+      local limitwide_out, limitwide_count =
+	string.gsub("aaa", "a", "x", 1099511627776)
+      if limitwide_out == "xxx" and limitwide_count == 3 then n = n + 1 end
       local ok_missing, err_missing = pcall(string.gsub, "abc", "a")
       local ok_nil, err_nil = pcall(function()
 	return string.gsub("abc", "a", nil)
@@ -3313,15 +3322,19 @@ do
 	return f("abc", "a", true)
       end)
       local ok_pct, err_pct = pcall(string.gsub, "abc", "a", "%")
+      local ok_limitfrac, err_limitfrac =
+	pcall(string.gsub, "aaa", "a", "x", 1.2)
       if not ok_missing and
 	 err_missing:find("got no value", 1, true) and
 	 not ok_nil and err_nil:find("got nil", 1, true) and
 	 not ok_bool and err_bool:find("got boolean", 1, true) and
-	 not ok_pct and err_pct:find("invalid use of '%'", 1, true) then
-	n = n + 4
+	 not ok_pct and err_pct:find("invalid use of '%'", 1, true) and
+	 not ok_limitfrac and
+	 err_limitfrac:find("integer representation", 1, true) then
+	n = n + 5
       end
     end
-    assert(n == 880)
+    assert(n == 1280)
   end, "Lua 5.4 string.gsub empty match")
 end
 

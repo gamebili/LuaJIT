@@ -1790,6 +1790,15 @@ local function string_helpers(n)
       return "y"
     end)
     if fn_out == "ay" and fn_count == 2 then sum = sum + 1 end
+    local limit0_out, limit0_count = string.gsub("aaa", "a", "x", 0)
+    if limit0_out == "aaa" and limit0_count == 0 then sum = sum + 1 end
+    local limitstr_out, limitstr_count = string.gsub("aaa", "a", "x", "2")
+    if limitstr_out == "xxa" and limitstr_count == 2 then sum = sum + 1 end
+    local limitneg_out, limitneg_count = string.gsub("aaa", "a", "x", -1)
+    if limitneg_out == "aaa" and limitneg_count == 0 then sum = sum + 1 end
+    local limitwide_out, limitwide_count =
+      string.gsub("aaa", "a", "x", 1099511627776)
+    if limitwide_out == "xxx" and limitwide_count == 3 then sum = sum + 1 end
     local ok_missing, err_missing = pcall(string.gsub, "abc", "a")
     local ok_nil, err_nil = pcall(function()
       return string.gsub("abc", "a", nil)
@@ -1798,9 +1807,13 @@ local function string_helpers(n)
       local f = string.gsub
       return f("abc", "a", true)
     end)
+    local ok_limitfrac, err_limitfrac =
+      pcall(string.gsub, "aaa", "a", "x", 1.2)
     if not ok_missing and err_missing:find("got no value", 1, true) and
        not ok_nil and err_nil:find("got nil", 1, true) and
-       not ok_bool and err_bool:find("got boolean", 1, true) then
+       not ok_bool and err_bool:find("got boolean", 1, true) and
+       not ok_limitfrac and
+       err_limitfrac:find("integer representation", 1, true) then
       sum = sum + 1
     end
     -- String method calls must keep Lua 5.4 public argument numbering under
@@ -2140,7 +2153,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   ratio_check(mode_name..":divmod_vs_floor", t_floor, t_lua54)
 
   local _, r_string = timeit(mode_name..":string_helpers", string_helpers, string_n)
-  assert(r_string == string_n * 208)
+  assert(r_string == string_n * 212)
 
   local _, r_utf8 = timeit(mode_name..":utf8_helpers", utf8_helpers, utf8_n)
   assert(r_utf8 == utf8_n * 14)
