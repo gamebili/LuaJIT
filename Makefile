@@ -449,8 +449,7 @@ LUA54_PERF_PARALLEL_TARGETS= \
 	lua54-perf-jit-off
 
 smoketest-perf-lua54compat:
-	$(MAKE) clean
-	$(MAKE) XCFLAGS='$(LUA54COMPAT_XCFLAGS)'
+	$(MAKE) build-lua54compat-incremental
 	$(MAKE) run-perf-lua54compat-tests
 
 run-perf-lua54compat-tests: $(LUA54_PERF_PARALLEL_TARGETS)
@@ -477,8 +476,8 @@ smoketest-capi-default: smoketest
 test:
 	$(MAKE) smoketest-capi-default
 	$(MAKE) smoketest-capi-lua54compat
-	$(MAKE) smoketest-lua54compat-nogc64
 	$(MAKE) smoketest-perf-lua54compat
+	$(MAKE) smoketest-lua54compat-nogc64
 
 .PHONY: all install amalg clean smoketest build-lua54compat build-lua54compat-incremental smoketest-lua54compat smoketest-lua54compat-quick run-lua54compat-tests $(LUA54_RUNTIME_PARALLEL_TARGETS) smoketest-lua54compat-nogc64 run-official-lua54compat smoketest-official-lua54compat smoketest-capi-default smoketest-capi-lua54compat smoketest-capi-lua54compat-quick run-capi-lua54compat-tests run-lua54compat-and-capi-tests $(LUA54_CAPI_PARALLEL_TARGETS) smoketest-perf-lua54compat run-perf-lua54compat-tests $(LUA54_PERF_PARALLEL_TARGETS) test
 

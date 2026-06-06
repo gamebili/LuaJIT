@@ -281,9 +281,9 @@ call :RUN smoketest-capi-default%REST_ARGS%
 if errorlevel 1 exit /b !ERRORLEVEL!
 call :RUN smoketest-capi-lua54compat%REST_ARGS%
 if errorlevel 1 exit /b !ERRORLEVEL!
-call :RUN smoketest-lua54compat-nogc64%REST_ARGS%
-if errorlevel 1 exit /b !ERRORLEVEL!
 call :RUN smoketest-perf-lua54compat%REST_ARGS%
+if errorlevel 1 exit /b !ERRORLEVEL!
+call :RUN smoketest-lua54compat-nogc64%REST_ARGS%
 exit /b !ERRORLEVEL!
 
 :FORWARD
