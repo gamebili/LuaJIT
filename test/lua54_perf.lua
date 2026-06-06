@@ -807,12 +807,54 @@ local function stdlib_edge_helpers(n)
       sum = sum + 1
     end
 
+    local ok_fmod_noarg, err_fmod_noarg = pcall(function()
+      return math.fmod()
+    end)
+    if not ok_fmod_noarg and
+       err_fmod_noarg:find("bad argument #2 to 'fmod'", 1, true) and
+       err_fmod_noarg:find("number expected, got no value", 1, true) then
+      sum = sum + 1
+    end
+    local ok_fmod_nil1, err_fmod_nil1 = pcall(function()
+      return math.fmod(nil)
+    end)
+    if not ok_fmod_nil1 and
+       err_fmod_nil1:find("bad argument #2 to 'fmod'", 1, true) and
+       err_fmod_nil1:find("number expected, got no value", 1, true) then
+      sum = sum + 1
+    end
+    local ok_fmod_nil2, err_fmod_nil2 = pcall(function()
+      return math.fmod(nil, 1)
+    end)
+    if not ok_fmod_nil2 and
+       err_fmod_nil2:find("bad argument #1 to 'fmod'", 1, true) and
+       err_fmod_nil2:find("number expected, got nil", 1, true) then
+      sum = sum + 1
+    end
     local ok_fmod_zero, err_fmod_zero = pcall(function()
       return math.fmod(1, 0)
     end)
     if not ok_fmod_zero and
        err_fmod_zero:find("bad argument #2 to 'fmod'", 1, true) and
        err_fmod_zero:find("zero", 1, true) then
+      sum = sum + 1
+    end
+    local fmod_string = math.fmod("5", "2")
+    if fmod_string == 1.0 and math.type(fmod_string) == "float" then
+      sum = sum + 1
+    end
+    local fmod_floatzero = math.fmod(1, 0.0)
+    if fmod_floatzero ~= fmod_floatzero and
+       math.type(fmod_floatzero) == "float" then
+      sum = sum + 1
+    end
+    local fmod_floatlhszero = math.fmod(1.0, 0)
+    if fmod_floatlhszero ~= fmod_floatlhszero and
+       math.type(fmod_floatlhszero) == "float" then
+      sum = sum + 1
+    end
+    local fmod_floatarg = math.fmod(5.5, 2)
+    if fmod_floatarg == 1.5 and math.type(fmod_floatarg) == "float" then
       sum = sum + 1
     end
 
@@ -2661,7 +2703,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_stdlib_edge = timeit(mode_name..":stdlib_edge_helpers",
 				  stdlib_edge_helpers, iter_n)
-  assert(r_stdlib_edge == iter_n * 84)
+  assert(r_stdlib_edge == iter_n * 91)
 
   local _, r_protected = timeit(mode_name..":protected_call_helpers",
 				protected_call_helpers, iter_n)

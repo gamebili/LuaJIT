@@ -3210,9 +3210,22 @@ do
       local log_nil = math.log(8, nil)
       local log_strbase = math.log(8, "2")
       local log_strpair = math.log("8", "2")
+      local ok_fmod_noarg, err_fmod_noarg = pcall(function()
+	return math.fmod()
+      end)
+      local ok_fmod_nil1, err_fmod_nil1 = pcall(function()
+	return math.fmod(nil)
+      end)
+      local ok_fmod_nil2, err_fmod_nil2 = pcall(function()
+	return math.fmod(nil, 1)
+      end)
       local ok_fmod_zero, err_fmod_zero = pcall(function()
 	return math.fmod(1, 0)
       end)
+      local fmod_string = math.fmod("5", "2")
+      local fmod_floatzero = math.fmod(1, 0.0)
+      local fmod_floatlhszero = math.fmod(1.0, 0)
+      local fmod_floatarg = math.fmod(5.5, 2)
       local ok_log_badbase, err_log_badbase = pcall(function()
 	return math.log(1, true)
       end)
@@ -3448,9 +3461,38 @@ do
 	 math.type(log_strpair) == "float" then
 	n = n + 1
       end
+      if not ok_fmod_noarg and
+	 err_fmod_noarg:find("bad argument #2 to 'fmod'", 1, true) and
+	 err_fmod_noarg:find("number expected, got no value", 1, true) then
+	n = n + 1
+      end
+      if not ok_fmod_nil1 and
+	 err_fmod_nil1:find("bad argument #2 to 'fmod'", 1, true) and
+	 err_fmod_nil1:find("number expected, got no value", 1, true) then
+	n = n + 1
+      end
+      if not ok_fmod_nil2 and
+	 err_fmod_nil2:find("bad argument #1 to 'fmod'", 1, true) and
+	 err_fmod_nil2:find("number expected, got nil", 1, true) then
+	n = n + 1
+      end
       if not ok_fmod_zero and
 	 err_fmod_zero:find("bad argument #2 to 'fmod'", 1, true) and
 	 err_fmod_zero:find("zero", 1, true) then
+	n = n + 1
+      end
+      if fmod_string == 1.0 and math.type(fmod_string) == "float" then
+	n = n + 1
+      end
+      if fmod_floatzero ~= fmod_floatzero and
+	 math.type(fmod_floatzero) == "float" then
+	n = n + 1
+      end
+      if fmod_floatlhszero ~= fmod_floatlhszero and
+	 math.type(fmod_floatlhszero) == "float" then
+	n = n + 1
+      end
+      if fmod_floatarg == 1.5 and math.type(fmod_floatarg) == "float" then
 	n = n + 1
       end
       if not ok_log_badbase and
@@ -3594,7 +3636,7 @@ do
       if utf8_len_empty == 0 then n = n + 1 end
       if utf8_offset_neg == 3 then n = n + 1 end
     end
-    assert(n == 6080)
+    assert(n == 6640)
   end, "Lua 5.4 mixed stdlib edge errors")
 end
 
