@@ -1087,6 +1087,20 @@ local function debug_helpers(n)
       sum = sum + 1
     end
     do
+      local x, y = 1, 2
+      local f = function() return x end
+      local g = function(v)
+	if v ~= nil then y = v end
+	return y
+      end
+      local join_n = select("#", debug.upvaluejoin(f, 1, g, 1))
+      g(3)
+      if join_n == 0 and f() == 3 and
+	 debug.upvalueid(f, 1) == debug.upvalueid(g, 1) then
+	sum = sum + 1
+      end
+    end
+    do
       local ok_id_noarg, err_id_noarg = pcall(debug.upvalueid)
       local ok_id_badfunc, err_id_badfunc = pcall(debug.upvalueid, true)
       local ok_join_noarg, err_join_noarg = pcall(debug.upvaluejoin)
@@ -1466,7 +1480,8 @@ local function number_pack_helpers(n)
 	sum = sum + 1
       end
     end
-    sum = sum + assert(math.tointeger("123"))
+    local ti_small = assert(math.tointeger("123"))
+    sum = sum + ti_small
     local ti_wide = assert(math.tointeger(tointeger_wide))
     local ti_max = assert(math.tointeger(tointeger_max))
     if ti_wide == 1099511627776 and ti_max == math.maxinteger and
@@ -2273,7 +2288,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_debug = timeit(mode_name..":debug_helpers",
 			    debug_helpers, iter_n)
-  assert(r_debug == iter_n * 35)
+  assert(r_debug == iter_n * 36)
 
   local _, r_many_upvalue = timeit(mode_name..":many_upvalue_helpers",
 				   many_upvalue_helpers, iter_n)

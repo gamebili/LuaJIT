@@ -2727,6 +2727,28 @@ do
   end, "Lua 5.4 debug upvalue access edges")
 
   assert_records_trace(function()
+    local function result_count(...)
+      return select("#", ...), ...
+    end
+    local n = 0
+    for _ = 1, 80 do
+      local x, y = 1, 2
+      local f = function() return x end
+      local g = function(v)
+	if v ~= nil then y = v end
+	return y
+      end
+      local join_n = result_count(debug.upvaluejoin(f, 1, g, 1))
+      g(3)
+      if join_n == 0 and f() == 3 and
+	 debug.upvalueid(f, 1) == debug.upvalueid(g, 1) then
+	n = n + 1
+      end
+    end
+    assert(n == 80)
+  end, "Lua 5.4 debug.upvaluejoin shared upvalue")
+
+  assert_records_trace(function()
     local up
     local fn = function() return up end
     local n = 0
