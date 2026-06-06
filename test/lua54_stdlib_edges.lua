@@ -562,6 +562,9 @@ local cases = {
   { "string.unpack.wideneg", "return string.unpack('b', 'abc', -1099511627776)", ok = { "number:97", "number:2" } },
 
   { "table.concat.noarg", "return table.concat()", err = "bad argument #1 to 'concat' (table expected, got no value)" },
+  { "table.concat.nil", "return table.concat(nil)", err = "bad argument #1 to 'concat' (table expected, got nil)" },
+  { "table.concat.nil.alias", "local f = table.concat; return f(nil)", err = "bad argument #1 to 'f' (table expected, got nil)" },
+  { "table.concat.nil.pcall", "local ok, err = pcall(table.concat, nil); return ok, err", ok = { "boolean:false", "string:bad argument #1 to 'table.concat' (table expected, got nil)" } },
   { "table.concat.badsep", "return table.concat({}, true)", err = "bad argument #2 to 'concat' (string expected, got boolean)" },
   { "table.concat.emptyrange", "return table.concat({'a'}, ',', 2, 1)", ok = { "string:" } },
   { "table.concat.stridx", "return table.concat({'a','b','c'}, ',', '2', '3')", ok = { "string:b,c" } },
