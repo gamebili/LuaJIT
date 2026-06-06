@@ -3151,6 +3151,14 @@ do
       local ok_abs_bad, err_abs_bad = pcall(function()
 	return math.abs(true)
       end)
+      local ok_asin_noarg, err_asin_noarg = pcall(function()
+	return math.asin()
+      end)
+      local asin_string = math.asin("0")
+      local ok_acos_bad, err_acos_bad = pcall(function()
+	return math.acos(true)
+      end)
+      local acos_string = math.acos("1")
       local ok_atan_noarg, err_atan_noarg = pcall(function()
 	return math.atan()
       end)
@@ -3285,6 +3293,22 @@ do
       if not ok_abs_bad and
 	 err_abs_bad:find("bad argument #1 to 'abs'", 1, true) and
 	 err_abs_bad:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if not ok_asin_noarg and
+	 err_asin_noarg:find("bad argument #1 to 'asin'", 1, true) and
+	 err_asin_noarg:find("number expected, got no value", 1, true) then
+	n = n + 1
+      end
+      if asin_string == 0.0 and math.type(asin_string) == "float" then
+	n = n + 1
+      end
+      if not ok_acos_bad and
+	 err_acos_bad:find("bad argument #1 to 'acos'", 1, true) and
+	 err_acos_bad:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if acos_string == 0.0 and math.type(acos_string) == "float" then
 	n = n + 1
       end
       if not ok_atan_noarg and
@@ -3457,7 +3481,7 @@ do
       if utf8_len_empty == 0 then n = n + 1 end
       if utf8_offset_neg == 3 then n = n + 1 end
     end
-    assert(n == 4400)
+    assert(n == 4720)
   end, "Lua 5.4 mixed stdlib edge errors")
 end
 

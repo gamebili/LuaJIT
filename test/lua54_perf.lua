@@ -622,6 +622,32 @@ local function stdlib_edge_helpers(n)
       sum = sum + 1
     end
 
+    local ok_asin_noarg, err_asin_noarg = pcall(function()
+      return math.asin()
+    end)
+    if not ok_asin_noarg and
+       err_asin_noarg:find("bad argument #1 to 'asin'", 1, true) and
+       err_asin_noarg:find("number expected, got no value", 1, true) then
+      sum = sum + 1
+    end
+    local asin_string = math.asin("0")
+    if asin_string == 0.0 and math.type(asin_string) == "float" then
+      sum = sum + 1
+    end
+
+    local ok_acos_bad, err_acos_bad = pcall(function()
+      return math.acos(true)
+    end)
+    if not ok_acos_bad and
+       err_acos_bad:find("bad argument #1 to 'acos'", 1, true) and
+       err_acos_bad:find("number expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+    local acos_string = math.acos("1")
+    if acos_string == 0.0 and math.type(acos_string) == "float" then
+      sum = sum + 1
+    end
+
     local ok_atan_noarg, err_atan_noarg = pcall(function()
       return math.atan()
     end)
@@ -2519,7 +2545,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_stdlib_edge = timeit(mode_name..":stdlib_edge_helpers",
 				  stdlib_edge_helpers, iter_n)
-  assert(r_stdlib_edge == iter_n * 63)
+  assert(r_stdlib_edge == iter_n * 67)
 
   local _, r_protected = timeit(mode_name..":protected_call_helpers",
 				protected_call_helpers, iter_n)

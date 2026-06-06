@@ -245,6 +245,10 @@ local cases = {
   { "io.setvbuf.alias.badsize", "local f = assert(io.tmpfile()); local s = f.setvbuf; return s(f, 'full', {})", err = "bad argument #3 to 's' (number expected, got table)" },
 
   { "math.abs.bad", "return math.abs(true)", err = "bad argument #1 to 'abs' (number expected, got boolean)" },
+  { "math.asin.noarg", "return math.asin()", err = "bad argument #1 to 'asin' (number expected, got no value)" },
+  { "math.asin.string", "return math.asin('0')", ok = { "number:0.0" } },
+  { "math.acos.bad", "return math.acos(true)", err = "bad argument #1 to 'acos' (number expected, got boolean)" },
+  { "math.acos.string", "return math.acos('1')", ok = { "number:0.0" } },
   { "math.atan.noarg", "return math.atan()", err = "bad argument #1 to 'atan' (number expected, got no value)" },
   { "math.ceil.bad", "return math.ceil(true)", err = "bad argument #1 to 'ceil' (number expected, got boolean)" },
   { "math.exp.noarg", "return math.exp()", err = "bad argument #1 to 'exp' (number expected, got no value)" },

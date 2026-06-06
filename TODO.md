@@ -682,6 +682,7 @@
   - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 `debug.getlocal()` / `debug.setlocal()` missing local 单 `nil`、suspended coroutine 的参数/local 读取、local 写回和 resume 返回纳入 JIT on/off 覆盖，固定热路径下 local debug API 仍保留 Lua 5.4 返回数量、名称和值更新语义。
   - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 `debug.traceback()` 无参调用纳入 JIT on/off 覆盖，固定热路径下 traceback 默认 message/level 入口仍返回包含 `stack traceback` 的字符串。
   - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 `math.deg()` 缺参错误纳入 JIT on/off 覆盖，固定热路径下 math 库一元数值函数仍保留 Lua 5.4 的 no-value 参数错误表面。
+  - 当前进展：`test/lua54_stdlib_edges.lua`、`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 `math.asin()` / `math.acos()` 的缺参或坏类型错误、字符串数值转换和 float 子类型结果纳入标准库及 JIT on/off 覆盖，固定反三角一元 number helper 的 Lua 5.4 参数检查和 number coercion 表面。
   - 当前进展：`test/lua54_stdlib_edges.lua` 已补齐 `math.rad()` 缺参标准库边界；`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 `math.rad()` 缺参、坏类型和字符串数值转换纳入 JIT on/off 覆盖，固定热路径下角度转换 helper 仍保留 Lua 5.4 参数错误和 number coercion 表面。
   - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 `math.abs()` / `math.atan()` / `math.ceil()` / `math.fmod()` / `math.log()` 的参数错误，以及 `math.min()` / `math.max()` 的缺参、混合类型比较和字符串比较纳入 JIT on/off 覆盖，固定热路径下基础 math helper 仍保留 Lua 5.4 错误文本和字符串排序表面。
   - 当前进展：`test/lua54_stdlib_edges.lua`、`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把 `math.exp()` / `math.cos()` / `math.tan()` 的缺参或坏类型错误、字符串数值转换和 float 子类型结果纳入标准库及 JIT on/off 覆盖，固定一元 transcendent math helper 的 Lua 5.4 参数检查和 number coercion 表面。
@@ -859,6 +860,7 @@
 - `.\src\luajit.exe test\lua54_jit_regress.lua`、`.\src\luajit.exe test\lua54_perf.lua jit_on`、`.\src\luajit.exe test\lua54_perf.lua jit_off` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `math.random()` / `math.randomseed()` 参数错误、字符串整数区间和 seed 返回 JIT/perf 热路径、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `.\src\luajit.exe test\lua54_jit_regress.lua`、`.\src\luajit.exe test\lua54_perf.lua jit_on`、`.\src\luajit.exe test\lua54_perf.lua jit_off` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `math.tointeger()` / `math.ult()` 参数错误、转换返回和 unsigned comparison JIT/perf 热路径、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua`、`.\src\luajit.exe test\lua54_jit_regress.lua`、`.\src\luajit.exe test\lua54_perf.lua jit_on`、`.\src\luajit.exe test\lua54_perf.lua jit_off` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `math.exp()` / `math.cos()` / `math.tan()` 参数错误、字符串数值转换和 float 子类型 JIT/perf 热路径、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
+- `.\src\luajit.exe test\lua54_stdlib_edges.lua`、`.\src\luajit.exe test\lua54_jit_regress.lua`、`.\src\luajit.exe test\lua54_perf.lua jit_on`、`.\src\luajit.exe test\lua54_perf.lua jit_off` 和 `cmd /c build.bat lua54` 已通过，覆盖本轮新增 `math.asin()` / `math.acos()` 参数错误、字符串数值转换和 float 子类型 JIT/perf 热路径、Lua 5.4 compat smoke、官方 Lua 5.4.8 可执行矩阵、header/macro gates、C API smoke、compat53/intcasts smoke 和 VM 后端静态/DynASM 门禁。
 
 ## 已确认不列入当前 TODO 的已实现项
 
