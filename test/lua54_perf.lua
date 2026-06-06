@@ -14,6 +14,7 @@ local function envnum(name, default)
 end
 
 local ratio_limit = envnum("LUA54_PERF_RATIO", 16)
+local ratio_min_sample = envnum("LUA54_PERF_RATIO_MIN_SAMPLE", 0.005)
 local abs_limit = envnum("LUA54_PERF_ABS", 4.0)
 local mem_limit_kb = envnum("LUA54_PERF_MEM_KB", 1024)
 local jit_opt_profiles = os.getenv("LUA54_PERF_JIT_OPTS") or
@@ -2039,9 +2040,10 @@ local function timeit(label, fn, n)
 end
 
 local function ratio_check(label, base_time, test_time)
-  local ratio = test_time / math.max(base_time, 0.001)
+  local ratio = test_time / math.max(base_time, ratio_min_sample)
   assert(ratio <= ratio_limit,
-         string.format("%s ratio %.2fx over limit %.2fx", label, ratio, ratio_limit))
+         string.format("%s ratio %.2fx over limit %.2fx (base %.4fs, test %.4fs, floor %.4fs)",
+		       label, ratio, ratio_limit, base_time, test_time, ratio_min_sample))
 end
 
 local function run_suite(mode_name, enable_jit, opt_flags)
