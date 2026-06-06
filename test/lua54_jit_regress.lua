@@ -3200,8 +3200,16 @@ do
 	return math.tan()
       end)
       local tan_string = math.tan("0")
+      local ok_log_noarg, err_log_noarg = pcall(function()
+	return math.log()
+      end)
+      local ok_log_badarg, err_log_badarg = pcall(function()
+	return math.log(true)
+      end)
+      local log_string = math.log("8")
       local log_nil = math.log(8, nil)
       local log_strbase = math.log(8, "2")
+      local log_strpair = math.log("8", "2")
       local ok_fmod_zero, err_fmod_zero = pcall(function()
 	return math.fmod(1, 0)
       end)
@@ -3221,6 +3229,9 @@ do
       end)
       local ok_sqrt_noarg, err_sqrt_noarg = pcall(function()
 	return math.sqrt()
+      end)
+      local ok_sqrt_bad, err_sqrt_bad = pcall(function()
+	return math.sqrt(true)
       end)
       local sqrt_string = math.sqrt("4")
       local ok_deg_noarg, err_deg_noarg = pcall(function()
@@ -3417,8 +3428,26 @@ do
       if tan_string == 0.0 and math.type(tan_string) == "float" then
 	n = n + 1
       end
+      if not ok_log_noarg and
+	 err_log_noarg:find("bad argument #1 to 'log'", 1, true) and
+	 err_log_noarg:find("number expected, got no value", 1, true) then
+	n = n + 1
+      end
+      if not ok_log_badarg and
+	 err_log_badarg:find("bad argument #1 to 'log'", 1, true) and
+	 err_log_badarg:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if math.abs(log_string - math.log(8)) < 1e-12 and
+	 math.type(log_string) == "float" then
+	n = n + 1
+      end
       if math.abs(log_nil - math.log(8)) < 1e-12 then n = n + 1 end
       if math.abs(log_strbase - 3) < 1e-12 then n = n + 1 end
+      if math.abs(log_strpair - 3.0) < 1e-12 and
+	 math.type(log_strpair) == "float" then
+	n = n + 1
+      end
       if not ok_fmod_zero and
 	 err_fmod_zero:find("bad argument #2 to 'fmod'", 1, true) and
 	 err_fmod_zero:find("zero", 1, true) then
@@ -3451,7 +3480,14 @@ do
 	 err_sqrt_noarg:find("number expected, got no value", 1, true) then
 	n = n + 1
       end
-      if sqrt_string == 2 then n = n + 1 end
+      if not ok_sqrt_bad and
+	 err_sqrt_bad:find("bad argument #1 to 'sqrt'", 1, true) and
+	 err_sqrt_bad:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if sqrt_string == 2.0 and math.type(sqrt_string) == "float" then
+	n = n + 1
+      end
       if not ok_deg_noarg and
 	 err_deg_noarg:find("bad argument #1 to 'deg'", 1, true) and
 	 err_deg_noarg:find("number expected, got no value", 1, true) then
@@ -3558,7 +3594,7 @@ do
       if utf8_len_empty == 0 then n = n + 1 end
       if utf8_offset_neg == 3 then n = n + 1 end
     end
-    assert(n == 5680)
+    assert(n == 6080)
   end, "Lua 5.4 mixed stdlib edge errors")
 end
 
