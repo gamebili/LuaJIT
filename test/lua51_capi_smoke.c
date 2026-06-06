@@ -80,6 +80,10 @@
 #error "default lauxlib header must keep exposing luaL_argcheck"
 #endif
 
+#ifndef luaL_checkversion
+#error "default lauxlib header must keep exposing luaL_checkversion"
+#endif
+
 static void check(lua_State *L, int cond, const char *msg)
 {
   if (!cond) {
@@ -183,6 +187,25 @@ static int capi51_argexpected_pass(lua_State *L)
 static int capi51_argexpected_fail(lua_State *L)
 {
   luaL_argexpected(L, 0, 1, "table");
+  return 0;
+}
+
+static int capi51_checkversion_ok(lua_State *L)
+{
+  luaL_checkversion(L);
+  lua_pushliteral(L, "ok");
+  return 1;
+}
+
+static int capi51_checkversion_bad_version(lua_State *L)
+{
+  luaL_checkversion_(L, (lua_Number)(LUA_VERSION_NUM + 1), LUAL_NUMSIZES);
+  return 0;
+}
+
+static int capi51_checkversion_bad_numsizes(lua_State *L)
+{
+  luaL_checkversion_(L, (lua_Number)LUA_VERSION_NUM, LUAL_NUMSIZES + 1);
   return 0;
 }
 
@@ -2075,6 +2098,27 @@ int main(void)
 	"luaL_argexpected default fail status");
   check(L, strstr(lua_tostring(L, -1), "table expected") != NULL,
 	"luaL_argexpected default fail message");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_checkversion_ok);
+  check(L, lua_pcall(L, 0, 1, 0) == LUA_OK,
+	"luaL_checkversion default status");
+  check(L, strcmp(lua_tostring(L, -1), "ok") == 0,
+	"luaL_checkversion default result");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_checkversion_bad_version);
+  check(L, lua_pcall(L, 0, 0, 0) == LUA_ERRRUN,
+	"luaL_checkversion_ default version mismatch status");
+  check(L, strstr(lua_tostring(L, -1), "version mismatch") != NULL,
+	"luaL_checkversion_ default version mismatch message");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, capi51_checkversion_bad_numsizes);
+  check(L, lua_pcall(L, 0, 0, 0) == LUA_ERRRUN,
+	"luaL_checkversion_ default numeric mismatch status");
+  check(L, strstr(lua_tostring(L, -1), "incompatible numeric types") != NULL,
+	"luaL_checkversion_ default numeric mismatch message");
   lua_pop(L, 1);
 
   lua_close(L);
