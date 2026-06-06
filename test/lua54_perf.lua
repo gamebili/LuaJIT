@@ -648,12 +648,50 @@ local function stdlib_edge_helpers(n)
       sum = sum + 1
     end
 
+    local ok_sin_noarg, err_sin_noarg = pcall(function()
+      return math.sin()
+    end)
+    if not ok_sin_noarg and
+       err_sin_noarg:find("bad argument #1 to 'sin'", 1, true) and
+       err_sin_noarg:find("number expected, got no value", 1, true) then
+      sum = sum + 1
+    end
+    local ok_sin_bad, err_sin_bad = pcall(function()
+      return math.sin(true)
+    end)
+    if not ok_sin_bad and
+       err_sin_bad:find("bad argument #1 to 'sin'", 1, true) and
+       err_sin_bad:find("number expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+    local sin_string = math.sin("0")
+    if sin_string == 0.0 and math.type(sin_string) == "float" then
+      sum = sum + 1
+    end
+
     local ok_atan_noarg, err_atan_noarg = pcall(function()
       return math.atan()
     end)
     if not ok_atan_noarg and
        err_atan_noarg:find("bad argument #1 to 'atan'", 1, true) and
        err_atan_noarg:find("number expected, got no value", 1, true) then
+      sum = sum + 1
+    end
+    local atan_string = math.atan("0")
+    if atan_string == 0.0 and math.type(atan_string) == "float" then
+      sum = sum + 1
+    end
+    local atan_strpair = math.atan("1", "1")
+    if math.abs(atan_strpair - math.atan(1, 1)) < 1e-12 and
+       math.type(atan_strpair) == "float" then
+      sum = sum + 1
+    end
+    local ok_atan_bad2, err_atan_bad2 = pcall(function()
+      return math.atan(1, true)
+    end)
+    if not ok_atan_bad2 and
+       err_atan_bad2:find("bad argument #2 to 'atan'", 1, true) and
+       err_atan_bad2:find("number expected, got boolean", 1, true) then
       sum = sum + 1
     end
 
@@ -2545,7 +2583,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_stdlib_edge = timeit(mode_name..":stdlib_edge_helpers",
 				  stdlib_edge_helpers, iter_n)
-  assert(r_stdlib_edge == iter_n * 67)
+  assert(r_stdlib_edge == iter_n * 73)
 
   local _, r_protected = timeit(mode_name..":protected_call_helpers",
 				protected_call_helpers, iter_n)

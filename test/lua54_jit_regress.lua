@@ -3159,8 +3159,20 @@ do
 	return math.acos(true)
       end)
       local acos_string = math.acos("1")
+      local ok_sin_noarg, err_sin_noarg = pcall(function()
+	return math.sin()
+      end)
+      local ok_sin_bad, err_sin_bad = pcall(function()
+	return math.sin(true)
+      end)
+      local sin_string = math.sin("0")
       local ok_atan_noarg, err_atan_noarg = pcall(function()
 	return math.atan()
+      end)
+      local atan_string = math.atan("0")
+      local atan_strpair = math.atan("1", "1")
+      local ok_atan_bad2, err_atan_bad2 = pcall(function()
+	return math.atan(1, true)
       end)
       local ok_ceil_bad, err_ceil_bad = pcall(function()
 	return math.ceil(true)
@@ -3311,9 +3323,34 @@ do
       if acos_string == 0.0 and math.type(acos_string) == "float" then
 	n = n + 1
       end
+      if not ok_sin_noarg and
+	 err_sin_noarg:find("bad argument #1 to 'sin'", 1, true) and
+	 err_sin_noarg:find("number expected, got no value", 1, true) then
+	n = n + 1
+      end
+      if not ok_sin_bad and
+	 err_sin_bad:find("bad argument #1 to 'sin'", 1, true) and
+	 err_sin_bad:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if sin_string == 0.0 and math.type(sin_string) == "float" then
+	n = n + 1
+      end
       if not ok_atan_noarg and
 	 err_atan_noarg:find("bad argument #1 to 'atan'", 1, true) and
 	 err_atan_noarg:find("number expected, got no value", 1, true) then
+	n = n + 1
+      end
+      if atan_string == 0.0 and math.type(atan_string) == "float" then
+	n = n + 1
+      end
+      if math.abs(atan_strpair - math.atan(1, 1)) < 1e-12 and
+	 math.type(atan_strpair) == "float" then
+	n = n + 1
+      end
+      if not ok_atan_bad2 and
+	 err_atan_bad2:find("bad argument #2 to 'atan'", 1, true) and
+	 err_atan_bad2:find("number expected, got boolean", 1, true) then
 	n = n + 1
       end
       if not ok_ceil_bad and
@@ -3481,7 +3518,7 @@ do
       if utf8_len_empty == 0 then n = n + 1 end
       if utf8_offset_neg == 3 then n = n + 1 end
     end
-    assert(n == 4720)
+    assert(n == 5200)
   end, "Lua 5.4 mixed stdlib edge errors")
 end
 
