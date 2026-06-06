@@ -1602,7 +1602,11 @@ local function os_helpers(n)
     if os.date("%Y-%m-%d", os_time_stamp) == "2020-05-07" then
       sum = sum + 1
     end
+    if os.date("", os_time_stamp) == "" then sum = sum + 1 end
+    if os.date("!", os_time_stamp) == "" then sum = sum + 1 end
+    if os.date("\0\0", os_time_stamp) == "\0\0" then sum = sum + 1 end
     if os.date("!\0\0", os_time_stamp) == "\0\0" then sum = sum + 1 end
+    if os.date("*tx", os_time_stamp) == "*tx" then sum = sum + 1 end
     if os.date(1099511627776, os_time_stamp) == "1099511627776" then
       sum = sum + 1
     end
@@ -1644,6 +1648,12 @@ local function os_helpers(n)
 
     local ok_date, err_date = pcall(os.date, true)
     if not ok_date and err_date:find("to 'os.date'", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_date_badconv, err_date_badconv = pcall(os.date, "%Q", 0)
+    if not ok_date_badconv and
+       err_date_badconv:find("invalid conversion specifier '%Q'", 1, true) then
       sum = sum + 1
     end
 
@@ -2789,7 +2799,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   assert(r_many_upvalue == iter_n)
 
   local _, r_os = timeit(mode_name..":os_helpers", os_helpers, iter_n)
-  assert(r_os == iter_n * (13 + (os_future_supported and 1 or 0)))
+  assert(r_os == iter_n * (18 + (os_future_supported and 1 or 0)))
 
   if enable_jit then jit.off(io_helpers, true) end
   local _, r_io = timeit(mode_name..":io_helpers", io_helpers, iter_n)
