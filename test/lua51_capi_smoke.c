@@ -101,6 +101,38 @@ static int capi51_return_upvalue(lua_State *L)
   return 1;
 }
 
+static int capi51_tostring_number_meta(lua_State *L)
+{
+  (void)L;
+  lua_pushinteger(L, 123);
+  return 1;
+}
+
+static int capi51_tostring_binary_meta(lua_State *L)
+{
+  (void)L;
+  lua_pushlstring(L, "a\0b", 3);
+  return 1;
+}
+
+static int capi51_tostring_bool_meta(lua_State *L)
+{
+  (void)L;
+  lua_pushboolean(L, 1);
+  return 1;
+}
+
+static int capi51_tolstring_bool_meta_arg(lua_State *L)
+{
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushcfunction(L, capi51_tostring_bool_meta);
+  lua_setfield(L, -2, "__tostring");
+  lua_setmetatable(L, -2);
+  luaL_tolstring(L, -1, NULL);
+  return 1;
+}
+
 static int capi51_require_open_count;
 
 static int capi51_require_open(lua_State *L)
@@ -1591,6 +1623,94 @@ int main(void)
   luaL_pushfail(L);
   check(L, lua_isnil(L, -1), "luaL_pushfail default macro");
   lua_pop(L, 1);
+
+  lua_pushboolean(L, 1);
+  luaL_tolstring(L, -1, NULL);
+  check(L, strcmp(lua_tostring(L, -1), "true") == 0,
+	"luaL_tolstring default boolean");
+  lua_pop(L, 2);
+
+  lua_pushnil(L);
+  luaL_tolstring(L, -1, NULL);
+  check(L, strcmp(lua_tostring(L, -1), "nil") == 0,
+	"luaL_tolstring default nil");
+  lua_pop(L, 2);
+
+  lua_pushinteger(L, 51);
+  {
+    size_t len = 0;
+    const char *s = luaL_tolstring(L, -1, &len);
+    check(L, len == 2 && strcmp(s, "51") == 0,
+	  "luaL_tolstring default number length");
+    check(L, strcmp(lua_tostring(L, -1), "51") == 0,
+	  "luaL_tolstring default number stack");
+    lua_pop(L, 2);
+  }
+
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushcfunction(L, capi51_tostring_number_meta);
+  lua_setfield(L, -2, "__tostring");
+  lua_setmetatable(L, -2);
+  {
+    size_t len = 0;
+    const char *s = luaL_tolstring(L, -1, &len);
+    check(L, len == 3 && strcmp(s, "123") == 0,
+	  "luaL_tolstring default numeric __tostring");
+    check(L, strcmp(lua_tostring(L, -1), "123") == 0,
+	  "luaL_tolstring default numeric __tostring stack");
+    lua_pop(L, 2);
+  }
+
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushcfunction(L, capi51_tostring_binary_meta);
+  lua_setfield(L, -2, "__tostring");
+  lua_setmetatable(L, -2);
+  {
+    size_t len = 0;
+    const char *s = luaL_tolstring(L, -1, &len);
+    check(L, len == 3 && memcmp(s, "a\0b", 3) == 0,
+	  "luaL_tolstring default binary __tostring");
+    check(L, lua_objlen(L, -1) == 3,
+	  "luaL_tolstring default binary __tostring stack length");
+    lua_pop(L, 2);
+  }
+
+  lua_pushcfunction(L, capi51_tolstring_bool_meta_arg);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN,
+	"luaL_tolstring default boolean __tostring status");
+  check(L, strstr(lua_tostring(L, -1),
+		  "'__tostring' must return a string") != NULL,
+	"luaL_tolstring default boolean __tostring error");
+  lua_pop(L, 1);
+
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushliteral(L, "Capi51Name");
+  lua_setfield(L, -2, "__name");
+  lua_setmetatable(L, -2);
+  {
+    lua_pushfstring(L, "Capi51Name: %p", lua_topointer(L, -1));
+    luaL_tolstring(L, -2, NULL);
+    check(L, strcmp(lua_tostring(L, -1), lua_tostring(L, -2)) == 0,
+	  "luaL_tolstring default string __name");
+    lua_pop(L, 3);
+  }
+
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushinteger(L, 123);
+  lua_setfield(L, -2, "__name");
+  lua_setmetatable(L, -2);
+  {
+    lua_pushfstring(L, "123: %p", lua_topointer(L, -1));
+    luaL_tolstring(L, -2, NULL);
+    check(L, strcmp(lua_tostring(L, -1), lua_tostring(L, -2)) == 0,
+	  "luaL_tolstring default converts numeric __name");
+    lua_pop(L, 3);
+  }
 
   luaopen_string_buffer(L);
   check(L, lua_istable(L, -1), "luaopen_string_buffer default API");

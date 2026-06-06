@@ -451,6 +451,7 @@
   - 当前进展：默认 LuaJIT 5.1 C API smoke 已继续补旧模块注册辅助入口，覆盖 `luaL_openlib()` 带共享 upvalue 的匿名/具名模块注册、`luaL_pushmodule()` 同步 `_LOADED` 与全局嵌套表并复用已 loaded 模块，以及 `luaL_findtable()` 遇到非 table 中间字段时返回冲突字段后缀且保持栈平衡。
   - 当前进展：默认 LuaJIT 5.1 C API smoke 已继续补默认 lauxlib 便捷宏和 5.2 辅助入口覆盖：`luaL_checkstring()` / `luaL_optstring()` / `luaL_checknumber()` / `luaL_optnumber()` / `luaL_checkinteger()` / `luaL_optinteger()` / `luaL_opt()` / `luaL_typename()`、`luaL_newlibtable()` / `luaL_newlib()`、`luaL_getsubtable()`、`luaL_requiref()`、`luaL_pushfail()`、`luaL_getmetatable()`、`luaL_setmetatable()` 和 `luaL_testudata()` 均在默认构建下编译/运行验证，防止 Lua 5.4 外部头和 lauxlib wrapper 收紧时误伤默认 ABI。
   - 当前进展：默认 LuaJIT 5.1 C API smoke 已继续补 `luaL_fileresult()` / `luaL_execresult()` 旧 lauxlib result helper 覆盖，固定成功返回、带文件名 errno 失败、errno 为 0 的普通失败、普通 exit tuple 以及 `stat == -1` 系统错误 tuple；默认 ABI 下 `luaL_execresult(nonzero)` 仍保持旧 exit tuple，不按 Lua 5.4 兼容构建的 errno 优先规则分流。
+  - 当前进展：默认 LuaJIT 5.1 C API smoke 已继续补 `luaL_tolstring()` 覆盖，固定 boolean / nil / number 普通转换、`__tostring` 返回 number 或含 NUL string 的转换、`__tostring` 返回 boolean 的错误路径、字符串 `__name` 前缀，以及默认 ABI 专属的 numeric `__name` 经 `lua_tostring()` 转换后作为对象前缀。
   - 当前进展：默认 LuaJIT 5.1 `lua_getfenv()` / `lua_setfenv()` 的非法目标索引已从 debug-only stack slot 检查收敛为 release 可见 `invalid value`，同时保留合法非 env 对象返回 nil/0 的旧表面。
   - 当前进展：默认 LuaJIT 5.1 `lua_upvalueid()` 已补 Lua/C closure 的合法 id 查询和非法 upvalue 编号返回 `NULL` 的 smoke，避免 release 构建下越界取 upvalue 指针或依赖 debug-only `lj_checkapi`。
 
@@ -973,6 +974,7 @@
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54quick` 已通过；覆盖本轮新增默认 LuaJIT 5.1 lauxlib 便捷宏和 5.2 辅助入口 smoke，包括 `luaL_checkstring()` / `luaL_optstring()`、`luaL_checknumber()` / `luaL_optnumber()`、`luaL_checkinteger()` / `luaL_optinteger()` / `luaL_opt()`、`luaL_newlib*()`、`luaL_getsubtable()`、`luaL_requiref()`、`luaL_pushfail()`、`luaL_getmetatable()`、`luaL_setmetatable()` 和 `luaL_testudata()`，并确认 Lua 5.4 兼容构建、官方矩阵、runtime smoke、C API/header smoke 仍通过。
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54quick` 已通过；覆盖本轮新增默认 LuaJIT 5.1 `luaL_fileresult()` / `luaL_execresult()` 旧 lauxlib result helper smoke，固定默认 ABI 的成功、errno 失败、普通 exit tuple 和 `stat == -1` 系统错误 tuple，并确认 Lua 5.4 兼容构建、官方矩阵、runtime smoke、C API/header smoke 仍通过。
 - `cmd /c build.bat default` 和 `cmd /c build.bat lua54quick` 已通过；确认默认 LuaJIT 验证路径在一次默认构建后会并行调度 runtime smoke、默认 `lua.hpp` header smoke 和默认 C API runtime smoke，同时 Lua 5.4 quick 的 runtime/C API/header 并行调度仍保持通过。
+- `cmd /c build.bat default` 和 `cmd /c build.bat lua54quick` 已通过；覆盖本轮新增默认 LuaJIT 5.1 `luaL_tolstring()` smoke，固定 boolean / nil / number、`__tostring` number / binary string / bad boolean、字符串 `__name` 和默认 ABI numeric `__name` 转换路径，并确认 Lua 5.4 兼容构建、官方矩阵、runtime smoke、C API/header smoke 仍通过。
 
 ## 已确认不列入当前 TODO 的已实现项
 
