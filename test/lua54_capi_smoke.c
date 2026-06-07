@@ -2113,6 +2113,10 @@ static int getsubtable_index_meta(lua_State *L)
     lua_setfield(L, -2, "origin");
     return 1;
   }
+  if (strcmp(key, "virtual-scalar") == 0) {
+    lua_pushliteral(L, "from-index-scalar");
+    return 1;
+  }
   return 0;
 }
 
@@ -8435,6 +8439,21 @@ static void test_lauxlib_api(lua_State *L)
   lua_pushliteral(L, "virtual");
   lua_rawget(L, -3);
   check(L, lua_isnil(L, -1), "luaL_getsubtable __index does not raw set");
+  lua_pop(L, 3);
+
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushcfunction(L, getsubtable_index_meta);
+  lua_setfield(L, -2, "__index");
+  lua_setmetatable(L, -2);
+  check(L, luaL_getsubtable(L, -1, "virtual-scalar") == 0,
+	"luaL_getsubtable replaces non-table __index result");
+  check(L, lua_istable(L, -1),
+	"luaL_getsubtable __index scalar replacement table");
+  lua_pushliteral(L, "virtual-scalar");
+  lua_rawget(L, -3);
+  check(L, lua_rawequal(L, -1, -2),
+	"luaL_getsubtable stores __index scalar replacement");
   lua_pop(L, 3);
 
   lua_newtable(L);
