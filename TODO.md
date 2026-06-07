@@ -93,6 +93,7 @@
    - 当前进展：C API smoke 已固定 `lua_newuserdatauv()` 声明的多 uservalue 槽位更新语义；`lua_setiuservalue()` 可设置第 2 个已声明槽位、不会覆盖第 1 个槽位，并且显式写回 `nil` 后 `lua_getiuservalue()` 会按 Lua 5.4 继续返回 `LUA_TNIL`。
    - 当前进展：C API smoke 已固定 Lua 5.4 外部 get-wrapper 缺失键返回类型；`lua_getfield()` / `lua_geti()` / `lua_gettable()` / `lua_rawget()` / `lua_rawgeti()` / `lua_rawgetp()` / `lua_getglobal()` 在查不到值时都会返回 `LUA_TNIL` 并在栈顶留下 `nil`。
    - 当前进展：C API smoke 已固定 Lua 5.4 外部 `lua_getfield()` / `lua_geti()` / `lua_gettable()` wrapper 经由 `__index` 表命中时返回最终值类型；这些入口不会只按原对象缺失键返回 nil，而是会按元方法结果返回 `LUA_TSTRING` 并把值留在栈顶。
+   - 当前进展：C API smoke 已固定 Lua 5.4 外部 `lua_getfield()` / `lua_geti()` / `lua_gettable()` wrapper 经由 `__index` 函数命中时同样返回最终值类型；字符串 key 和整数 key 都会按函数元方法结果返回 `LUA_TSTRING`。
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.move()` 超大元素数量错误和接近 `math.maxinteger` 的边缘复制路径，固定移动范围检查与负目标下标复制不会发生整数回绕。
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.move()` 普通 table 源 `__index` 读取和目标 `__newindex` 写入路径，固定 Lua 5.4 表库移动会经由元方法读写缺失整数 key。
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.insert()` / `table.remove()` 普通 table 缺失整数 key 的 `__newindex` / `__index` 路径，固定插入和移除都会按 Lua 5.4 表库元方法语义读写。
@@ -1004,6 +1005,7 @@
 - `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `lua_newuserdatauv()` declared uservalue #2 set/get/clear-nil 和 #1/#2 槽位隔离的 C API smoke；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 Lua 5.4 外部 get-wrapper 缺失键 `LUA_TNIL` 返回类型和栈顶 `nil` C API smoke；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 Lua 5.4 外部 `lua_getfield()` / `lua_geti()` / `lua_gettable()` wrapper 经由 `__index` 表命中时的 `LUA_TSTRING` 返回类型和栈顶结果 C API smoke；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
+- `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 Lua 5.4 外部 `lua_getfield()` / `lua_geti()` / `lua_gettable()` wrapper 经由 `__index` 函数命中时的 `LUA_TSTRING` 返回类型，包含字符串 key 与整数 key；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 
 ## 已确认不列入当前 TODO 的已实现项
 

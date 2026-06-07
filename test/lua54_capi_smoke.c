@@ -2062,6 +2062,26 @@ static int len_fraction_meta(lua_State *L)
   return 1;
 }
 
+static int getwrapper_index_func(lua_State *L)
+{
+  if (lua_type(L, 2) == LUA_TSTRING) {
+    const char *key = lua_tostring(L, 2);
+    if (strcmp(key, "virtual-func") == 0) {
+      lua_pushliteral(L, "func-field");
+      return 1;
+    }
+    if (strcmp(key, "by-func-key") == 0) {
+      lua_pushliteral(L, "func-table");
+      return 1;
+    }
+  } else if (lua_isinteger(L, 2) && lua_tointeger(L, 2) == 18) {
+    lua_pushliteral(L, "func-index");
+    return 1;
+  }
+  lua_pushnil(L);
+  return 1;
+}
+
 static int push_fraction_len_userdata(lua_State *L)
 {
   (void)lua_newuserdatauv(L, 1, 0);
@@ -6897,6 +6917,29 @@ static void test_compare_len_arith(lua_State *L)
   rtype = lua_gettable_sig(L, -2);
   check(L, rtype == LUA_TSTRING, "lua_gettable __index return type");
   check_string(L, -1, "meta-table", "lua_gettable __index value");
+  lua_pop(L, 2);
+
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushcfunction(L, getwrapper_index_func);
+  lua_setfield(L, -2, "__index");
+  check(L, lua_setmetatable(L, -2) == 1,
+	"lua_get wrappers set function __index metatable");
+
+  rtype = lua_getfield_sig(L, -1, "virtual-func");
+  check(L, rtype == LUA_TSTRING, "lua_getfield function __index return type");
+  check_string(L, -1, "func-field", "lua_getfield function __index value");
+  lua_pop(L, 1);
+
+  rtype = lua_geti_sig(L, -1, 18);
+  check(L, rtype == LUA_TSTRING, "lua_geti function __index return type");
+  check_string(L, -1, "func-index", "lua_geti function __index value");
+  lua_pop(L, 1);
+
+  lua_pushliteral(L, "by-func-key");
+  rtype = lua_gettable_sig(L, -2);
+  check(L, rtype == LUA_TSTRING, "lua_gettable function __index return type");
+  check_string(L, -1, "func-table", "lua_gettable function __index value");
   lua_pop(L, 2);
 
   if (sizeof(lua_Integer) > sizeof(int)) {
