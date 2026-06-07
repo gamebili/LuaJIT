@@ -157,11 +157,13 @@ if /I "%~1"=="test" goto :TEST
 if /I "%~1"=="default" goto :DEFAULT
 if /I "%~1"=="lua54build" goto :LUA54_BUILD
 if /I "%~1"=="lua54" goto :LUA54
+if /I "%~1"=="lua54full" goto :LUA54_FULL
 if /I "%~1"=="lua54quick" goto :LUA54_QUICK
 if /I "%~1"=="lua54nogc64" goto :LUA54_NOGC64
 if /I "%~1"=="lua54compat53" goto :LUA54COMPAT53
 if /I "%~1"=="lua54perf" goto :LUA54PERF
 if /I "%~1"=="official54" goto :OFFICIAL54
+if /I "%~1"=="official54full" goto :OFFICIAL54_FULL
 if /I "%~1"=="lua54official" goto :OFFICIAL54
 if /I "%~1"=="platform" goto :PLATFORM
 if /I "%~1"=="platformprobe" goto :PLATFORM_PROBE
@@ -171,6 +173,7 @@ if /I "%~1"=="platformios" goto :PLATFORM_IOS
 if /I "%~1"=="platformemscripten" goto :PLATFORM_EMSCRIPTEN
 if /I "%~1"=="smoke" goto :SMOKE
 if /I "%~1"=="smoke54" goto :SMOKE54
+if /I "%~1"=="smoke54full" goto :SMOKE54_FULL
 if /I "%~1"=="smoke54quick" goto :SMOKE54_QUICK
 if /I "%~1"=="rebuild" goto :REBUILD
 goto :FORWARD
@@ -183,16 +186,19 @@ echo   build       Incrementally build default LuaJIT artifacts.
 echo   test        Run default, Lua 5.4 and non-GC64 smoke tests. This is default.
 echo   default     Run the incremental default compatibility smoke and C API smoke.
 echo   lua54build  Incrementally build Lua 5.4 compatibility artifacts.
-echo   lua54       Run the Lua 5.4 compatibility smoke and C API smoke.
+echo   lua54       Run incremental Lua 5.4 compatibility smoke and C API smoke.
+echo   lua54full   Clean rebuild, then run Lua 5.4 compatibility smoke and C API smoke.
 echo   lua54quick  Run incremental Lua 5.4 smoke and C API smoke.
 echo   lua54nogc64 Run the Lua 5.4 x64 non-GC64 full smoke and JIT smoke.
 echo   lua54compat53 Run the Lua 5.4 LUA_COMPAT_5_3 runtime smoke.
 echo   lua54perf   Run Lua 5.4 perf/memory smoke with fixed jit.opt profiles and JIT off.
-echo   official54  Run the current official Lua 5.4.8 compatibility matrix.
+echo   official54  Incrementally build, then run the current official Lua 5.4.8 compatibility matrix.
+echo   official54full Clean rebuild, then run the current official Lua 5.4.8 compatibility matrix.
 echo   platform    Run the PC/Android/iOS/Emscripten Lua 5.4 platform matrix.
 echo   platformprobe Probe iOS/Emscripten toolchain availability without building PC/Android.
 echo   smoke       Run the default Lua smoke test only.
-echo   smoke54     Run the Lua 5.4 compatibility Lua smoke test only.
+echo   smoke54     Run incremental Lua 5.4 compatibility Lua smoke test only.
+echo   smoke54full Clean rebuild, then run the Lua 5.4 compatibility Lua smoke test only.
 echo   smoke54quick Run incremental Lua 5.4 compatibility Lua smoke test only.
 echo   clean       Forward to make clean.
 echo   rebuild     Run clean, then build.
@@ -202,7 +208,7 @@ echo Any other arguments are forwarded to GNU make unchanged.
 echo Perf profiles pin opt level, hotloop, and hotexit; override with LUA54_PERF_JIT_OPTS.
 echo Parallelism defaults to turbo mode, about 3x detected logical processors; override with BUILD_JOBS=N, BUILD_JOBS=auto, BUILD_JOBS=turbo, BUILD_JOBS=perf, BUILD_JOBS=max, BUILD_JOBS=logical, or -jN.
 echo BUILD_JOBS=max uses about 2x detected logical processors; BUILD_JOBS=perf uses about 1.5x; BUILD_JOBS=logical uses exactly the detected processor count. Bare -j is normalized to the current job count.
-echo Quick Lua 5.4 targets clean only when the saved build flags change.
+echo Common local Lua 5.4 targets clean only when the saved build flags change; use the *full variants for a clean rebuild.
 echo Examples: build.bat lua54quick -j96   or   set BUILD_JOBS=max
 exit /b 0
 
@@ -230,6 +236,11 @@ exit /b !ERRORLEVEL!
 
 :SMOKE54
 call :SET_REST %*
+call :RUN smoketest-lua54compat-quick%REST_ARGS%
+exit /b !ERRORLEVEL!
+
+:SMOKE54_FULL
+call :SET_REST %*
 call :RUN smoketest-lua54compat%REST_ARGS%
 exit /b !ERRORLEVEL!
 
@@ -249,6 +260,11 @@ call :RUN build-lua54compat-incremental%REST_ARGS%
 exit /b !ERRORLEVEL!
 
 :LUA54
+call :SET_REST %*
+call :RUN smoketest-capi-lua54compat-quick%REST_ARGS%
+exit /b !ERRORLEVEL!
+
+:LUA54_FULL
 call :SET_REST %*
 call :RUN smoketest-capi-lua54compat%REST_ARGS%
 exit /b !ERRORLEVEL!
@@ -274,6 +290,13 @@ call :RUN smoketest-perf-lua54compat%REST_ARGS%
 exit /b !ERRORLEVEL!
 
 :OFFICIAL54
+call :SET_REST %*
+call :RUN build-lua54compat-incremental%REST_ARGS%
+if errorlevel 1 exit /b !ERRORLEVEL!
+call :RUN run-official-lua54compat%REST_ARGS%
+exit /b !ERRORLEVEL!
+
+:OFFICIAL54_FULL
 call :SET_REST %*
 call :RUN smoketest-official-lua54compat%REST_ARGS%
 exit /b !ERRORLEVEL!
