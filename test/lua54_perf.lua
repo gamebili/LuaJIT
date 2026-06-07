@@ -2825,6 +2825,26 @@ local function string_tail_format_method_bad(s)
   return s:format(true)
 end
 
+local function string_tail_gsub_missing_method_bad(s)
+  return s:gsub("a")
+end
+
+local function string_tail_gsub_limit_method_bad(s)
+  return s:gsub("a", "x", {})
+end
+
+local function string_tail_match_method_bad(s)
+  return s:match({})
+end
+
+local function string_tail_gmatch_method_bad(s)
+  return s:gmatch("a", true)
+end
+
+local function string_tail_sub_method_bad(s)
+  return s:sub({})
+end
+
 local function string_helpers(n)
   local sum = 0
   for _ = 1, n do
@@ -2904,6 +2924,16 @@ local function string_helpers(n)
       pcall(string_tail_find_method_bad, "abc")
     local ok_format_method, err_format_method =
       pcall(string_tail_format_method_bad, "%d")
+    local ok_gsub_missing_method, err_gsub_missing_method =
+      pcall(string_tail_gsub_missing_method_bad, "abc")
+    local ok_gsub_limit_method, err_gsub_limit_method =
+      pcall(string_tail_gsub_limit_method_bad, "abc")
+    local ok_match_method, err_match_method =
+      pcall(string_tail_match_method_bad, "abc")
+    local ok_gmatch_method, err_gmatch_method =
+      pcall(string_tail_gmatch_method_bad, "abc")
+    local ok_sub_method, err_sub_method =
+      pcall(string_tail_sub_method_bad, "abc")
     if not ok_byte_method and
        err_byte_method:find("bad argument #1 to 'byte'", 1, true) then
       sum = sum + 1
@@ -2914,6 +2944,26 @@ local function string_helpers(n)
     end
     if not ok_format_method and
        err_format_method:find("bad argument #1 to 'format'", 1, true) then
+      sum = sum + 1
+    end
+    if not ok_gsub_missing_method and
+       err_gsub_missing_method:find("bad argument #2 to 'gsub'", 1, true) then
+      sum = sum + 1
+    end
+    if not ok_gsub_limit_method and
+       err_gsub_limit_method:find("bad argument #3 to 'gsub'", 1, true) then
+      sum = sum + 1
+    end
+    if not ok_match_method and
+       err_match_method:find("bad argument #1 to 'match'", 1, true) then
+      sum = sum + 1
+    end
+    if not ok_gmatch_method and
+       err_gmatch_method:find("bad argument #2 to 'gmatch'", 1, true) then
+      sum = sum + 1
+    end
+    if not ok_sub_method and
+       err_sub_method:find("bad argument #1 to 'sub'", 1, true) then
       sum = sum + 1
     end
     for a, b in string.gmatch("a b cd", "()%s*()", "2") do
@@ -3271,7 +3321,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   ratio_check(mode_name..":divmod_vs_floor", t_floor, t_lua54)
 
   local _, r_string = timeit(mode_name..":string_helpers", string_helpers, string_n)
-  assert(r_string == string_n * 227)
+  assert(r_string == string_n * 232)
 
   local _, r_utf8 = timeit(mode_name..":utf8_helpers", utf8_helpers, utf8_n)
   assert(r_utf8 == utf8_n * 14)

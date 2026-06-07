@@ -4268,6 +4268,21 @@ do
       local ok_format_method, err_format_method = pcall(function()
 	return ("%d"):format(true)
       end)
+      local ok_gsub_missing_method, err_gsub_missing_method = pcall(function()
+	return ("abc"):gsub("a")
+      end)
+      local ok_gsub_limit_method, err_gsub_limit_method = pcall(function()
+	return ("abc"):gsub("a", "x", {})
+      end)
+      local ok_match_method, err_match_method = pcall(function()
+	return ("abc"):match({})
+      end)
+      local ok_gmatch_method, err_gmatch_method = pcall(function()
+	return ("abc"):gmatch("a", true)
+      end)
+      local ok_sub_method, err_sub_method = pcall(function()
+	return ("abc"):sub({})
+      end)
       if not ok_sub and err_sub:find("integer representation", 1, true) and
 	 not ok_char and err_char:find("value out of range", 1, true) then
 	n = n + 1
@@ -4284,8 +4299,30 @@ do
 	 err_format_method:find("bad argument #1 to 'format'", 1, true) then
 	n = n + 1
       end
+      if not ok_gsub_missing_method and
+	 err_gsub_missing_method:find("bad argument #2 to 'gsub'",
+				      1, true) then
+	n = n + 1
+      end
+      if not ok_gsub_limit_method and
+	 err_gsub_limit_method:find("bad argument #3 to 'gsub'",
+				    1, true) then
+	n = n + 1
+      end
+      if not ok_match_method and
+	 err_match_method:find("bad argument #1 to 'match'", 1, true) then
+	n = n + 1
+      end
+      if not ok_gmatch_method and
+	 err_gmatch_method:find("bad argument #2 to 'gmatch'", 1, true) then
+	n = n + 1
+      end
+      if not ok_sub_method and
+	 err_sub_method:find("bad argument #1 to 'sub'", 1, true) then
+	n = n + 1
+      end
     end
-    assert(n == 320)
+    assert(n == 720)
   end, "Lua 5.4 string integer errors")
 end
 
