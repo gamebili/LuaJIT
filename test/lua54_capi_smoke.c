@@ -3446,6 +3446,12 @@ static int capi_tostring_none_meta(lua_State *L)
   return 0;
 }
 
+static int capi_tostring_nil_meta(lua_State *L)
+{
+  lua_pushnil(L);
+  return 1;
+}
+
 static int capi_tostring_number_meta(lua_State *L)
 {
   (void)L;
@@ -3483,6 +3489,17 @@ static int laux_tolstring_none_meta_arg(lua_State *L)
   lua_newtable(L);
   lua_newtable(L);
   lua_pushcfunction(L, capi_tostring_none_meta);
+  lua_setfield(L, -2, "__tostring");
+  lua_setmetatable(L, -2);
+  luaL_tolstring(L, -1, NULL);
+  return 1;
+}
+
+static int laux_tolstring_nil_meta_arg(lua_State *L)
+{
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushcfunction(L, capi_tostring_nil_meta);
   lua_setfield(L, -2, "__tostring");
   lua_setmetatable(L, -2);
   luaL_tolstring(L, -1, NULL);
@@ -9145,6 +9162,20 @@ static void test_lauxlib_api(lua_State *L)
     check(L, lua_isnil(L, -1), "luaL_callmeta no-result value");
     lua_pop(L, 2);
   }
+  {
+    int top = lua_gettop(L);
+    lua_newtable(L);
+    lua_newtable(L);
+    lua_pushcfunction(L, capi_tostring_nil_meta);
+    lua_setfield(L, -2, "__tostring");
+    lua_setmetatable(L, -2);
+    check(L, luaL_callmeta(L, -1, "__tostring") == 1,
+	  "luaL_callmeta calls nil-result metamethod");
+    check(L, lua_gettop(L) == top + 2,
+	  "luaL_callmeta keeps explicit nil result");
+    check(L, lua_isnil(L, -1), "luaL_callmeta nil-result value");
+    lua_pop(L, 2);
+  }
 
   luaL_where(L, 0);
   check(L, lua_isstring(L, -1), "luaL_where pushes string");
@@ -9308,6 +9339,13 @@ static void test_lauxlib_api(lua_State *L)
   check(L, status == LUA_ERRRUN, "luaL_tolstring no-result __tostring status");
   check(L, strstr(lua_tostring(L, -1), "'__tostring' must return a string") != NULL,
 	"luaL_tolstring no-result __tostring error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_tolstring_nil_meta_arg);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_tolstring nil __tostring status");
+  check(L, strstr(lua_tostring(L, -1), "'__tostring' must return a string") != NULL,
+	"luaL_tolstring nil __tostring error");
   lua_pop(L, 1);
 
   lua_newtable(L);
