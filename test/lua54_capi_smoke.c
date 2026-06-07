@@ -7036,6 +7036,22 @@ static void test_uservalue_api(lua_State *L)
   check(L, lua_getiuservalue(L, -1, 2) == LUA_TNIL,
 	"lua_getiuservalue declared nil");
   lua_pop(L, 1);
+  lua_pushliteral(L, "uv2");
+  check(L, lua_setiuservalue(L, -2, 2) == 1, "lua_setiuservalue #2");
+  check(L, lua_getiuservalue(L, -1, 2) == LUA_TSTRING,
+	"lua_getiuservalue #2 type");
+  check_string(L, -1, "uv2", "lua_getiuservalue #2 value");
+  lua_pop(L, 1);
+  check(L, lua_getiuservalue(L, -1, 1) == LUA_TSTRING,
+	"lua_getiuservalue #1 after #2 set type");
+  check_string(L, -1, "uv1", "lua_getiuservalue #1 after #2 set value");
+  lua_pop(L, 1);
+  lua_pushnil(L);
+  check(L, lua_setiuservalue(L, -2, 2) == 1,
+	"lua_setiuservalue #2 nil");
+  check(L, lua_getiuservalue(L, -1, 2) == LUA_TNIL,
+	"lua_getiuservalue #2 nil type");
+  lua_pop(L, 1);
   top = lua_gettop(L);
   check(L, lua_getiuservalue(L, -1, 3) == LUA_TNONE,
 	"lua_getiuservalue out of range");
