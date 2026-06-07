@@ -459,6 +459,8 @@ local cases = {
   { "package.searchpath.nilrep", "local p, e = package.searchpath('a.b', '?.lua', '.', nil); return p, e:find('a' .. package.config:sub(1, 1) .. 'b.lua', 1, true) ~= nil", ok = { "nil:nil", "boolean:true" } },
   { "package.searchpath.emptyrep", "return package.searchpath('a.b', '?.lua', '.', '')", ok = { "nil:nil", "string:no file 'ab.lua'" } },
   { "package.searchpath.emptysep", "return package.searchpath('a.b', '?.lua', '', '/')", ok = { "nil:nil", "string:no file 'a.b.lua'" } },
+  { "package.searchpath.multiq", "return package.searchpath('x', '??.lua')", ok = { "nil:nil", "string:no file 'xx.lua'" } },
+  { "package.searchpath.multiq.hit", "local name = '__lua54_sp_multi__'; local file = name .. name .. '.lua'; os.remove(file); local f = assert(io.open(file, 'w')); f:write('return true\\n'); f:close(); local p, err = package.searchpath(name, '??.lua'); os.remove(file); return p, err", ok = { "string:__lua54_sp_multi____lua54_sp_multi__.lua", "nil:nil" } },
   { "package.searchpath.customsep.hit", "local file = '__lua54_searchpath_a-b.lua'; os.remove(file); local f = assert(io.open(file, 'w')); f:write('return true\\n'); f:close(); local p, err = package.searchpath('a.b', '__lua54_searchpath_?.lua', '.', '-'); os.remove(file); return p, err", ok = { "string:__lua54_searchpath_a-b.lua", "nil:nil" } },
   { "package.searchpath.dashsep", "return package.searchpath('a-b', '?.lua', '-', '/')", ok = { "nil:nil", "string:no file 'a/b.lua'" } },
   { "package.searchpath.emptyname", "return package.searchpath('', '?.lua')", ok = { "nil:nil", "string:no file '.lua'" } },

@@ -3266,6 +3266,8 @@ do
       if found == nil and err == "no file 'ab.lua'" then n = n + 1 end
       found, err = package.searchpath("a.b", "?.lua", "", "/")
       if found == nil and err == "no file 'a.b.lua'" then n = n + 1 end
+      found, err = package.searchpath("x", "??.lua")
+      if found == nil and err == "no file 'xx.lua'" then n = n + 1 end
       found, err = package.searchpath("x", "?.lua;?/init.lua")
       if found == nil and err:find("x.lua", 1, true) and
 	 err:find("x/init.lua", 1, true) then
@@ -3333,7 +3335,7 @@ do
 	n = n + 1
       end
     end
-    assert(n == 1360)
+    assert(n == 1440)
   end, "Lua 5.4 package path and loadlib edges")
 
   local function result_count(...)
