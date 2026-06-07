@@ -44,8 +44,9 @@ set "PERF_BUILD_JOBS="
 set "DEFAULT_BUILD_JOBS="
 set "MAX_BUILD_JOBS="
 set "TURBO_BUILD_JOBS="
+set "SATURATE_BUILD_JOBS="
 set "MIN_FAST_CPU_THREADS=8"
-set "BUILD_JOBS_SOURCE=auto-turbo"
+set "BUILD_JOBS_SOURCE=auto-saturate"
 set "MAKE_OUTPUT_SYNC_SOURCE=auto"
 set "MAKE_NO_PRINT_DIRECTORY=--no-print-directory"
 set "BUILD_PIPE_FLAG="
@@ -85,29 +86,34 @@ if "!CPU_THREADS!"=="" (
 )
 if not "!CPU_THREADS!"=="" (
   rem Default to an aggressive local job count. Short compile/test gates often
-  rem leave CPU time idle at exactly one job per logical processor, while
-  rem BUILD_JOBS=max/perf/logical or an explicit -jN can lower this for
-  rem interactive use.
+  rem leave CPU time idle even above turbo mode, while BUILD_JOBS=turbo/max/
+  rem perf/logical or an explicit -jN can lower this for interactive use.
   set /a "PERF_BUILD_JOBS=!CPU_THREADS! + (!CPU_THREADS! + 1) / 2"
   set /a "MAX_BUILD_JOBS=!CPU_THREADS! * 2"
   set /a "TURBO_BUILD_JOBS=!CPU_THREADS! * 3"
-  set "DEFAULT_BUILD_JOBS=!TURBO_BUILD_JOBS!"
+  set /a "SATURATE_BUILD_JOBS=!CPU_THREADS! * 4"
+  set "DEFAULT_BUILD_JOBS=!SATURATE_BUILD_JOBS!"
 )
 if "!PERF_BUILD_JOBS!"=="" set "PERF_BUILD_JOBS=3"
 if "!MAX_BUILD_JOBS!"=="" set "MAX_BUILD_JOBS=4"
 if "!TURBO_BUILD_JOBS!"=="" set "TURBO_BUILD_JOBS=6"
-if "!DEFAULT_BUILD_JOBS!"=="" set "DEFAULT_BUILD_JOBS=!TURBO_BUILD_JOBS!"
+if "!SATURATE_BUILD_JOBS!"=="" set "SATURATE_BUILD_JOBS=8"
+if "!DEFAULT_BUILD_JOBS!"=="" set "DEFAULT_BUILD_JOBS=!SATURATE_BUILD_JOBS!"
 if !PERF_BUILD_JOBS! LSS 1 set "PERF_BUILD_JOBS=1"
 if !DEFAULT_BUILD_JOBS! LSS 1 set "DEFAULT_BUILD_JOBS=1"
 if !MAX_BUILD_JOBS! LSS 1 set "MAX_BUILD_JOBS=1"
 if !TURBO_BUILD_JOBS! LSS 1 set "TURBO_BUILD_JOBS=1"
+if !SATURATE_BUILD_JOBS! LSS 1 set "SATURATE_BUILD_JOBS=1"
 if "!CPU_THREADS!"=="" set "CPU_THREADS=!DEFAULT_BUILD_JOBS!"
 if "%BUILD_JOBS%"=="" (
   set "BUILD_JOBS=!DEFAULT_BUILD_JOBS!"
 ) else (
   if /I "!BUILD_JOBS!"=="auto" (
     set "BUILD_JOBS=!DEFAULT_BUILD_JOBS!"
-    set "BUILD_JOBS_SOURCE=BUILD_JOBS=auto-turbo"
+    set "BUILD_JOBS_SOURCE=BUILD_JOBS=auto-saturate"
+  ) else if /I "!BUILD_JOBS!"=="saturate" (
+    set "BUILD_JOBS=!SATURATE_BUILD_JOBS!"
+    set "BUILD_JOBS_SOURCE=BUILD_JOBS=saturate"
   ) else if /I "!BUILD_JOBS!"=="turbo" (
     set "BUILD_JOBS=!TURBO_BUILD_JOBS!"
     set "BUILD_JOBS_SOURCE=BUILD_JOBS=turbo"
@@ -125,7 +131,7 @@ if "%BUILD_JOBS%"=="" (
     set "BUILD_JOBS_NUM=1"
     for /f "delims=0123456789" %%N in ("!BUILD_JOBS!") do set "BUILD_JOBS_NUM="
     if "!BUILD_JOBS_NUM!"=="" (
-      echo [build.bat] BUILD_JOBS must be a positive integer, auto, turbo, perf, max, or logical: !BUILD_JOBS!
+      echo [build.bat] BUILD_JOBS must be a positive integer, auto, saturate, turbo, perf, max, or logical: !BUILD_JOBS!
       exit /b 1
     )
   )
@@ -294,13 +300,13 @@ echo   jobs        Print the detected local make job count.
 echo.
 echo Any other arguments are forwarded to GNU make unchanged.
 echo Perf profiles pin opt level, hotloop, and hotexit; override with LUA54_PERF_JIT_OPTS.
-echo Parallelism defaults to turbo mode, about 3x the detected logical processors; override with BUILD_JOBS=N, BUILD_JOBS=auto, BUILD_JOBS=turbo, BUILD_JOBS=perf, BUILD_JOBS=max, BUILD_JOBS=logical, or -jN.
-echo BUILD_JOBS=max uses about 2x detected logical processors; BUILD_JOBS=perf uses about 1.5x; BUILD_JOBS=logical uses exactly the detected processor count. Bare -j is normalized to the current job count.
+echo Parallelism defaults to saturate mode, about 4x the detected logical processors; override with BUILD_JOBS=N, BUILD_JOBS=auto, BUILD_JOBS=saturate, BUILD_JOBS=turbo, BUILD_JOBS=perf, BUILD_JOBS=max, BUILD_JOBS=logical, or -jN.
+echo BUILD_JOBS=turbo uses about 3x detected logical processors; BUILD_JOBS=max uses about 2x; BUILD_JOBS=perf uses about 1.5x; BUILD_JOBS=logical uses exactly the detected processor count. Bare -j is normalized to the current job count.
 echo Processor detection uses the fast environment count by default; missing or very low counts fall back to the slower PowerShell/CIM full-machine scan. Set BUILD_CPU_SCAN=full to force it.
 echo GNU make output sync defaults to target mode to reduce parallel console overhead; override with MAKE_OUTPUT_SYNC=none, line, recurse, or target.
 echo Local GNU builds default to CFLAGS=-pipe and --no-print-directory to reduce compiler temp-file and console overhead; override with BUILD_PIPE=off or explicit CFLAGS=...
 echo Common local Lua 5.4 targets clean only when the saved build flags change; use the *full variants for a clean rebuild.
-echo Examples: build.bat lua54quick -j96   or   set BUILD_JOBS=max
+echo Examples: build.bat lua54quick -j128   or   set BUILD_JOBS=turbo
 exit /b 0
 
 :JOBS

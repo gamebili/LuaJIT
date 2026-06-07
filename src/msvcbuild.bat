@@ -12,8 +12,8 @@
 @rem   static        create static lib to statically link into your project
 @rem   mixed         create static lib to build a DLL in your project
 @rem   jobs          print the detected MSVC /MP job count and exit
-@rem Set LUAJIT_MSVC_JOBS=auto/turbo/max/perf/logical/N to override the /MP
-@rem job count. The default is turbo, about 3x the detected logical processors.
+@rem Set LUAJIT_MSVC_JOBS=auto/saturate/turbo/max/perf/logical/N to override
+@rem the /MP job count. The default is saturate, about 4x the detected logical processors.
 @rem Missing or very low CPU counts fall back to PowerShell/CIM. Set
 @rem BUILD_CPU_SCAN=full to force the slower full-machine scan.
 
@@ -206,9 +206,11 @@ if exist luajit.exe.manifest^
 @set /a LJ_MSVC_PERF_JOBS=%LJ_MSVC_THREADS% + (%LJ_MSVC_THREADS% + 1) / 2
 @set /a LJ_MSVC_MAX_JOBS=%LJ_MSVC_THREADS% * 2
 @set /a LJ_MSVC_TURBO_JOBS=%LJ_MSVC_THREADS% * 3
+@set /a LJ_MSVC_SATURATE_JOBS=%LJ_MSVC_THREADS% * 4
 @set LJ_MSVC_JOBS=%LUAJIT_MSVC_JOBS%
-@if not defined LJ_MSVC_JOBS set LJ_MSVC_JOBS=turbo
-@if /I "%LJ_MSVC_JOBS%"=="auto" set LJ_MSVC_JOBS=%LJ_MSVC_TURBO_JOBS%
+@if not defined LJ_MSVC_JOBS set LJ_MSVC_JOBS=saturate
+@if /I "%LJ_MSVC_JOBS%"=="auto" set LJ_MSVC_JOBS=%LJ_MSVC_SATURATE_JOBS%
+@if /I "%LJ_MSVC_JOBS%"=="saturate" set LJ_MSVC_JOBS=%LJ_MSVC_SATURATE_JOBS%
 @if /I "%LJ_MSVC_JOBS%"=="turbo" set LJ_MSVC_JOBS=%LJ_MSVC_TURBO_JOBS%
 @if /I "%LJ_MSVC_JOBS%"=="max" set LJ_MSVC_JOBS=%LJ_MSVC_MAX_JOBS%
 @if /I "%LJ_MSVC_JOBS%"=="perf" set LJ_MSVC_JOBS=%LJ_MSVC_PERF_JOBS%
@@ -225,7 +227,7 @@ if exist luajit.exe.manifest^
 @if not defined LJ_MSVC_MP @echo MSVC parallel jobs: %LJ_MSVC_JOBS%; detected %LJ_MSVC_THREADS% logical processors
 @goto :eof
 :BADJOBS
-@echo LUAJIT_MSVC_JOBS must be a positive integer, auto, turbo, max, perf, or logical: %LUAJIT_MSVC_JOBS%
+@echo LUAJIT_MSVC_JOBS must be a positive integer, auto, saturate, turbo, max, perf, or logical: %LUAJIT_MSVC_JOBS%
 @exit /b 1
 :BADCPUSCAN
 @echo BUILD_CPU_SCAN must be auto or full: %BUILD_CPU_SCAN%
