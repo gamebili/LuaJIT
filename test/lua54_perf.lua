@@ -2845,6 +2845,14 @@ local function string_tail_sub_method_bad(s)
   return s:sub({})
 end
 
+local function string_tail_rep_nocount_method_bad(s)
+  return s:rep()
+end
+
+local function string_tail_rep_badsep_method_bad(s)
+  return s:rep(2, true)
+end
+
 local function string_helpers(n)
   local sum = 0
   for _ = 1, n do
@@ -2934,6 +2942,10 @@ local function string_helpers(n)
       pcall(string_tail_gmatch_method_bad, "abc")
     local ok_sub_method, err_sub_method =
       pcall(string_tail_sub_method_bad, "abc")
+    local ok_rep_nocount_method, err_rep_nocount_method =
+      pcall(string_tail_rep_nocount_method_bad, "abc")
+    local ok_rep_badsep_method, err_rep_badsep_method =
+      pcall(string_tail_rep_badsep_method_bad, "abc")
     if not ok_byte_method and
        err_byte_method:find("bad argument #1 to 'byte'", 1, true) then
       sum = sum + 1
@@ -2964,6 +2976,14 @@ local function string_helpers(n)
     end
     if not ok_sub_method and
        err_sub_method:find("bad argument #1 to 'sub'", 1, true) then
+      sum = sum + 1
+    end
+    if not ok_rep_nocount_method and
+       err_rep_nocount_method:find("bad argument #1 to 'rep'", 1, true) then
+      sum = sum + 1
+    end
+    if not ok_rep_badsep_method and
+       err_rep_badsep_method:find("bad argument #2 to 'rep'", 1, true) then
       sum = sum + 1
     end
     for a, b in string.gmatch("a b cd", "()%s*()", "2") do
@@ -3321,7 +3341,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   ratio_check(mode_name..":divmod_vs_floor", t_floor, t_lua54)
 
   local _, r_string = timeit(mode_name..":string_helpers", string_helpers, string_n)
-  assert(r_string == string_n * 232)
+  assert(r_string == string_n * 234)
 
   local _, r_utf8 = timeit(mode_name..":utf8_helpers", utf8_helpers, utf8_n)
   assert(r_utf8 == utf8_n * 14)

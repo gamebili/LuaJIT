@@ -512,6 +512,8 @@ local cases = {
   { "string.method.match.badpat", "return ('abc'):match({})", err = "bad argument #1 to 'match' (string expected, got table)" },
   { "string.method.gmatch.badinit", "return ('abc'):gmatch('a', true)", err = "bad argument #2 to 'gmatch' (number expected, got boolean)" },
   { "string.method.sub.badstart", "return ('abc'):sub({})", err = "bad argument #1 to 'sub' (number expected, got table)" },
+  { "string.method.rep.nocount", "return ('abc'):rep()", err = "bad argument #1 to 'rep' (number expected, got no value)" },
+  { "string.method.rep.badsep", "return ('abc'):rep(2, true)", err = "bad argument #2 to 'rep' (string expected, got boolean)" },
   { "string.gmatch.noarg", "return string.gmatch()", err = "bad argument #1 to 'gmatch' (string expected, got no value)" },
   { "string.gmatch.capture", "local it = string.gmatch('ab cd', '(%a)(%a)'); local a, b = it(); local c, d = it(); return a, b, c, d", ok = { "string:a", "string:b", "string:c", "string:d" } },
   { "string.gmatch.empty", "local it = string.gmatch('ab', ''); return it(), it(), it()", ok = { "string:", "string:", "string:" } },

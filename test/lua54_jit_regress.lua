@@ -4283,6 +4283,12 @@ do
       local ok_sub_method, err_sub_method = pcall(function()
 	return ("abc"):sub({})
       end)
+      local ok_rep_nocount_method, err_rep_nocount_method = pcall(function()
+	return ("abc"):rep()
+      end)
+      local ok_rep_badsep_method, err_rep_badsep_method = pcall(function()
+	return ("abc"):rep(2, true)
+      end)
       if not ok_sub and err_sub:find("integer representation", 1, true) and
 	 not ok_char and err_char:find("value out of range", 1, true) then
 	n = n + 1
@@ -4321,8 +4327,16 @@ do
 	 err_sub_method:find("bad argument #1 to 'sub'", 1, true) then
 	n = n + 1
       end
+      if not ok_rep_nocount_method and
+	 err_rep_nocount_method:find("bad argument #1 to 'rep'", 1, true) then
+	n = n + 1
+      end
+      if not ok_rep_badsep_method and
+	 err_rep_badsep_method:find("bad argument #2 to 'rep'", 1, true) then
+	n = n + 1
+      end
     end
-    assert(n == 720)
+    assert(n == 880)
   end, "Lua 5.4 string integer errors")
 end
 
