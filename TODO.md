@@ -119,6 +119,7 @@
    - 当前进展：C API smoke 已继续补入 `luaL_requiref()` opener 显式返回 `false` 的 lauxlib 边界，固定 false 会写入 `_LOADED[modname]` 并按 `glb=true` 发布全局，但后续 `luaL_requiref()` 仍会因 loaded false 重新调用 opener。
    - 当前进展：C API smoke 已继续补入 `luaL_requiref()` 成功 opener 搭配 `glb=false` 的 lauxlib 边界，固定模块只写入 `_LOADED[modname]` 而不改写已有全局；后续 `glb=true` 调用会复用 loaded 模块并发布全局，且不会重新调用 opener。
    - 当前进展：C API smoke 已继续补入 `luaL_getsubtable()` 遇到 `__index` 返回非 table 值的 lauxlib 边界，固定 helper 会丢弃该值、创建新 table 并写回目标字段。
+   - 当前进展：C API smoke 已继续补入 `luaL_getmetafield()` 返回 table/function 字段的 lauxlib 边界，固定 helper 会返回被压入 metafield 的实际 `LUA_TTABLE` / `LUA_TFUNCTION` 类型并保留原值。
    - 当前进展：C API smoke 已继续补入 `luaL_callmeta()` metamethod 返回多个值的 lauxlib 边界，固定 helper 只在栈上保留第一个 metamethod 结果。
    - 当前进展：C API smoke 已继续补入 `luaL_callmeta()` metamethod 返回 0 个结果的 lauxlib 边界，固定 helper 会按 `lua_call(..., 1)` 补一个 `nil` 结果并返回成功。
    - 当前进展：C API smoke 已继续补入 `luaL_callmeta()` 的 callable table metamethod 边界，固定 helper 会按普通调用语义触发 metafield 的 `__call` 并把原对象作为参数传入。
@@ -497,7 +498,7 @@
 - 当前进展：`luaL_pushresultsize()` / `luaL_buffinitsize()` 已按官方 Lua 5.4 暴露为可取函数指针的真实 lauxlib 函数；默认构建仍保留 LuaJIT 旧宏表面。
 - 当前进展：`luaL_setfuncs()` 已补官方 Lua 5.4 `{name, NULL}` 占位项语义，会把目标字段设为 `false`，且不会为 placeholder 复制或消耗共享 upvalue。
 - 当前进展：`luaL_setfuncs()` 已补 `NULL` 函数列表、负 upvalue 数、缺目标对象和缺共享 upvalue 的 release 边界；默认 ABI 的旧 `luaL_openlib()` 也会拒绝负 upvalue 数和缺共享 upvalue，且失败前不会发布半初始化模块表，避免非法 `nup` 走到错误栈调整路径。
-- 当前进展：Lua 5.4 兼容构建下 `luaL_getmetafield()` 已按官方返回被压入 metafield 的实际类型码，例如 `__name` 字符串返回 `LUA_TSTRING`、数值字段返回 `LUA_TNUMBER`、`false` 字段返回 `LUA_TBOOLEAN`；同时确认该 helper 对 metatable 字段使用 raw lookup，metatable 自己的 `__index` 不会参与缺失字段查找；默认 LuaJIT 构建继续保留旧 1/0 表面。
+- 当前进展：Lua 5.4 兼容构建下 `luaL_getmetafield()` 已按官方返回被压入 metafield 的实际类型码，例如 `__name` 字符串返回 `LUA_TSTRING`、数值字段返回 `LUA_TNUMBER`、`false` 字段返回 `LUA_TBOOLEAN`、table 字段返回 `LUA_TTABLE`、C 函数字段返回 `LUA_TFUNCTION`；同时确认该 helper 对 metatable 字段使用 raw lookup，metatable 自己的 `__index` 不会参与缺失字段查找；默认 LuaJIT 构建继续保留旧 1/0 表面。
 - 当前进展：C API smoke 已固定 `luaL_getmetafield()` 无效对象索引和无 metatable 对象的查询语义；无效索引会返回 `LUA_TNIL` 且不改变栈，无 metatable 对象不会压入临时值，而不是走 release `invalid value` 错误或留下查询残留。
 - 当前进展：Lua 5.4 兼容构建下 `luaL_ref()` / `luaL_unref()` 的 freelist 已从旧 Lua 5.1 key `0` 移到 `LUA_RIDX_LAST + 1`，并在首次使用时初始化为 `0`；这保留官方 freed ref slot 链到整数 `0` 的行为，同时允许用户 ref table 自己安全使用 key `0`。
 - 当前进展：Lua 5.4 兼容构建下 `luaL_unref(t, 0)` 已不再按旧 freelist 入口改写用户 ref table 的 key `0`；默认 LuaJIT 5.1 ABI 仍保留 key `0` freelist 行为。
@@ -1039,6 +1040,7 @@
 - `git diff --check`、`cmd /c build.bat jobs`、`powershell -NoProfile -ExecutionPolicy Bypass -File tools\lua54_platform_matrix.ps1 -Target probe` 和 `cmd /c build.bat lua54build` 已通过；确认本机 32 逻辑线程仍默认使用 `-j96` turbo 并行，平台 probe 同步使用 96 jobs，Lua 5.4 增量构建会复用 compat 配置 stamp 并完成编译，同时常用入口的处理器探测优先走环境变量 / .NET 快路径。
 - `git diff --check`、`cmd /c build.bat lua54-capi-runtime-smoke` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `luaL_callmeta()` metamethod 返回 0 个结果时补 `nil` 并返回成功的 lauxlib 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `git diff --check`、`cmd /c build.bat lua54-capi-runtime-smoke` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `luaL_callmeta()` 对 callable table metamethod 触发 `__call` 且传入原对象的 lauxlib 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
+- `git diff --check`、`cmd /c build.bat lua54-capi-runtime-smoke` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `luaL_getmetafield()` 返回 table/function 字段实际类型并保留压栈值的 lauxlib 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 
 ## 已确认不列入当前 TODO 的已实现项
 

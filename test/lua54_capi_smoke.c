@@ -8992,6 +8992,10 @@ static void test_lauxlib_api(lua_State *L)
   lua_setfield(L, -2, "__rank");
   lua_pushboolean(L, 0);
   lua_setfield(L, -2, "__disabled");
+  lua_newtable(L);
+  lua_pushliteral(L, "metafield table value");
+  lua_setfield(L, -2, "marker");
+  lua_setfield(L, -2, "__tablefield");
   lua_pushcfunction(L, capi_tostring_meta);
   lua_setfield(L, -2, "__tostring");
   lua_setmetatable(L, -2);
@@ -9006,6 +9010,17 @@ static void test_lauxlib_api(lua_State *L)
   check(L, luaL_getmetafield(L, -1, "__disabled") == LUA_TBOOLEAN,
 	"luaL_getmetafield returns false field type");
   check(L, lua_toboolean(L, -1) == 0, "luaL_getmetafield false value");
+  lua_pop(L, 1);
+  check(L, luaL_getmetafield(L, -1, "__tablefield") == LUA_TTABLE,
+	"luaL_getmetafield returns table field type");
+  check(L, lua_getfield(L, -1, "marker") == LUA_TSTRING,
+	"luaL_getmetafield table marker type");
+  check_string(L, -1, "metafield table value",
+	       "luaL_getmetafield table marker value");
+  lua_pop(L, 2);
+  check(L, luaL_getmetafield(L, -1, "__tostring") == LUA_TFUNCTION,
+	"luaL_getmetafield returns function field type");
+  check(L, lua_iscfunction(L, -1), "luaL_getmetafield function value");
   lua_pop(L, 1);
   {
     int top = lua_gettop(L);
