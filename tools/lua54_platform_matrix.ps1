@@ -151,9 +151,26 @@ function Get-MakeJobCount {
   return $jobs
 }
 
+function Get-MakeOutputSyncArgs {
+  $mode = $env:MAKE_OUTPUT_SYNC
+  if (-not $mode) {
+    $mode = "target"
+  }
+  if ($mode -eq "off") {
+    $mode = "none"
+  }
+  if ($mode -eq "none") {
+    return @()
+  }
+  if ($mode -notin @("target", "line", "recurse")) {
+    throw "MAKE_OUTPUT_SYNC must be target, line, recurse, none, or off: $mode"
+  }
+  return @("--output-sync=$mode")
+}
+
 $script:MakeJobCount = Get-MakeJobCount
-$script:MakeJobArgs = @("-j$script:MakeJobCount")
-Write-Host ("[platform] using {0} make jobs." -f $script:MakeJobCount)
+$script:MakeJobArgs = @("-j$script:MakeJobCount") + (Get-MakeOutputSyncArgs)
+Write-Host ("[platform] using make arguments: {0}." -f ($script:MakeJobArgs -join " "))
 
 function Invoke-MakeChecked {
   param([string[]]$Arguments = @())

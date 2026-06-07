@@ -45,6 +45,7 @@ set "DEFAULT_BUILD_JOBS="
 set "MAX_BUILD_JOBS="
 set "TURBO_BUILD_JOBS="
 set "BUILD_JOBS_SOURCE=auto-turbo"
+set "MAKE_OUTPUT_SYNC_SOURCE=auto"
 if not "%NUMBER_OF_PROCESSORS%"=="" set "CPU_THREADS=%NUMBER_OF_PROCESSORS%"
 if "!CPU_THREADS!"=="" (
   for /f "usebackq delims=" %%C in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$sum=0; foreach ($cpu in (Get-CimInstance Win32_Processor)) { $sum += $cpu.NumberOfLogicalProcessors }; if ($sum -gt 0) { [int]$sum }" 2^>nul`) do (
@@ -102,6 +103,25 @@ if "!BUILD_JOBS!"=="" set "BUILD_JOBS=!DEFAULT_BUILD_JOBS!"
 if !BUILD_JOBS! LSS 1 set "BUILD_JOBS=1"
 
 set "MAKE_JOBS=-j!BUILD_JOBS!"
+if "%MAKE_OUTPUT_SYNC%"=="" (
+  set "MAKE_OUTPUT_SYNC=target"
+) else (
+  set "MAKE_OUTPUT_SYNC_SOURCE=MAKE_OUTPUT_SYNC"
+)
+if /I "!MAKE_OUTPUT_SYNC!"=="off" set "MAKE_OUTPUT_SYNC=none"
+set "MAKE_OUTPUT_SYNC_FLAG="
+if /I not "!MAKE_OUTPUT_SYNC!"=="none" (
+  if /I "!MAKE_OUTPUT_SYNC!"=="target" (
+    set "MAKE_OUTPUT_SYNC_FLAG=--output-sync=target"
+  ) else if /I "!MAKE_OUTPUT_SYNC!"=="line" (
+    set "MAKE_OUTPUT_SYNC_FLAG=--output-sync=line"
+  ) else if /I "!MAKE_OUTPUT_SYNC!"=="recurse" (
+    set "MAKE_OUTPUT_SYNC_FLAG=--output-sync=recurse"
+  ) else (
+    echo [build.bat] MAKE_OUTPUT_SYNC must be target, line, recurse, none, or off: !MAKE_OUTPUT_SYNC!
+    exit /b 1
+  )
+)
 set "MAKE_ARGS=%*"
 set "SAW_MAKE_J="
 set "EXPECT_MAKE_JOBS="
@@ -144,6 +164,8 @@ for %%A in (%*) do (
     )
   )
 )
+set "MAKE_PARALLEL_ARGS=!MAKE_JOBS!"
+if not "!MAKE_OUTPUT_SYNC_FLAG!"=="" set "MAKE_PARALLEL_ARGS=!MAKE_PARALLEL_ARGS! !MAKE_OUTPUT_SYNC_FLAG!"
 
 if "%~1"=="" goto :TEST
 if /I "%~1"=="help" goto :HELP
@@ -220,6 +242,7 @@ echo Any other arguments are forwarded to GNU make unchanged.
 echo Perf profiles pin opt level, hotloop, and hotexit; override with LUA54_PERF_JIT_OPTS.
 echo Parallelism defaults to turbo mode, about 3x detected logical processors; override with BUILD_JOBS=N, BUILD_JOBS=auto, BUILD_JOBS=turbo, BUILD_JOBS=perf, BUILD_JOBS=max, BUILD_JOBS=logical, or -jN.
 echo BUILD_JOBS=max uses about 2x detected logical processors; BUILD_JOBS=perf uses about 1.5x; BUILD_JOBS=logical uses exactly the detected processor count. Bare -j is normalized to the current job count.
+echo GNU make output sync defaults to target mode to reduce parallel console overhead; override with MAKE_OUTPUT_SYNC=none, line, recurse, or target.
 echo Common local Lua 5.4 targets clean only when the saved build flags change; use the *full variants for a clean rebuild.
 echo Examples: build.bat lua54quick -j96   or   set BUILD_JOBS=max
 exit /b 0
@@ -227,6 +250,7 @@ exit /b 0
 :JOBS
 call :PRINT_JOBS
 echo [build.bat] make job argument: %MAKE_JOBS%
+echo [build.bat] make parallel arguments: !MAKE_PARALLEL_ARGS!
 exit /b 0
 
 :BUILD
@@ -361,8 +385,8 @@ exit /b !ERRORLEVEL!
 :RUN
 call :PRINT_JOBS
 if not "!SAW_MAKE_J!"=="1" (
-  echo [build.bat] "%GNUMAKE%" %MAKE_JOBS% %*
-  "%GNUMAKE%" %MAKE_JOBS% %*
+  echo [build.bat] "%GNUMAKE%" !MAKE_PARALLEL_ARGS! %*
+  "%GNUMAKE%" !MAKE_PARALLEL_ARGS! %*
   exit /b !ERRORLEVEL!
 )
 set "RUN_ARGS="
@@ -393,8 +417,8 @@ for %%A in (%*) do (
   if "!STRIP_MAKE_J!"=="1" set "KEEP_ARG="
   if "!KEEP_ARG!"=="1" set "RUN_ARGS=!RUN_ARGS! %%A"
 )
-echo [build.bat] "%GNUMAKE%" %MAKE_JOBS% !RUN_ARGS!
-"%GNUMAKE%" %MAKE_JOBS% !RUN_ARGS!
+echo [build.bat] "%GNUMAKE%" !MAKE_PARALLEL_ARGS! !RUN_ARGS!
+"%GNUMAKE%" !MAKE_PARALLEL_ARGS! !RUN_ARGS!
 exit /b !ERRORLEVEL!
 
 :RUN_PLATFORM
@@ -443,6 +467,7 @@ goto :SET_REST_LOOP
 :PRINT_JOBS
 if not "!PRINTED_BUILD_JOBS!"=="1" (
   echo [build.bat] detected !CPU_THREADS! logical processors; using !BUILD_JOBS! make jobs ^(!BUILD_JOBS_SOURCE!^).
+  if not "!MAKE_OUTPUT_SYNC_FLAG!"=="" echo [build.bat] make output sync !MAKE_OUTPUT_SYNC! ^(!MAKE_OUTPUT_SYNC_SOURCE!^).
   set "PRINTED_BUILD_JOBS=1"
 )
 exit /b 0
