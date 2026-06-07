@@ -57,6 +57,7 @@
    - 当前进展：`build.bat` 和 `tools/lua54_platform_matrix.ps1` 的默认 make 并行策略已提升到本机 turbo 模式，默认约 `3x` 逻辑线程以填满短编译/测试任务间隙；`BUILD_JOBS=max` 保留原 `2x` 逻辑线程档，`BUILD_JOBS=perf` 保留原 `1.5x` 逻辑线程档，`BUILD_JOBS=logical` 或显式 `-jN` 仍可降回固定并行度；`build.bat jobs` 可快速查看当前检测到的本机 make job 参数。
    - 当前进展：`build.bat` 的处理器数量探测已优先使用 `%NUMBER_OF_PROCESSORS%`，`tools/lua54_platform_matrix.ps1` 也优先使用环境变量 / .NET `ProcessorCount`，只有取不到时才回退 CIM；常用本地入口继续默认 `-j96` turbo 并行，但避免每次启动时先走 PowerShell/WMI 探测。
    - 当前进展：`build.bat lua54` / `smoke54` / `official54` 已改为常用本地增量入口，配置 stamp 未变化时会直接复用对象文件并继续使用本机 turbo `-j96`；需要强制 clean rebuild 时改用新增的 `lua54full` / `smoke54full` / `official54full` 显式入口。
+   - 当前进展：`build.bat lua54compat53` / `lua54nogc64` 也已改为配置 stamp 增量入口，同配置重复验证会复用对象文件并继续使用本机 turbo `-j96`；需要强制 clean rebuild 时改用新增的 `lua54compat53full` / `lua54nogc64full` 显式入口，避免默认 `build.bat test` 尾段对 non-GC64 配置每次无条件全量重编。
    - 当前进展：PC x64、x86、ARM64、ARM、MIPS、MIPS64、PPC 的 `__call` callable-chain 已统一改为由 `lj_meta_call` 返回新增隐式参数数量，并由各 VM 后端更新 `NARGS`；PC x64 / Android ARM64 已额外覆盖 100 层 callable-chain tailcall 扩栈和 `CALLT` 保持，Android ARM64 设备 smoke 已覆盖该路径。
 
 6. **C API / lauxlib / 标准库收尾批次**
@@ -1053,6 +1054,7 @@
 - `git diff --check`、`cmd /c build.bat lua54-capi-runtime-smoke` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `luaL_tolstring()` 遇到 `__tostring` 返回 0 个结果时经补齐 `nil` 后报 `'__tostring' must return a string` 的 lauxlib 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `git diff --check`、`cmd /c build.bat lua54-capi-runtime-smoke` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `luaL_callmeta()` 显式 `nil` metamethod 结果和 `luaL_tolstring()` 显式 `nil` `__tostring` 错误路径的 lauxlib 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `git diff --check`、`cmd /c build.bat lua54-capi-runtime-smoke` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `luaL_callmeta()` table metamethod 结果和 `luaL_tolstring()` table `__tostring` 错误路径的 lauxlib 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
+- `git diff --check`、`cmd /c build.bat help`、`cmd /c build.bat jobs`、`cmd /c build.bat lua54compat53 -n`、`cmd /c build.bat lua54compat53`（首次切配置和二次复用）、`cmd /c build.bat lua54nogc64`（首次切配置和二次复用）、`cmd /c build.bat lua54compat53full -n`、`cmd /c build.bat lua54nogc64full -n` 已通过；确认 compat53 / non-GC64 常用入口已改走配置 stamp 增量构建，同配置重复验证不再 clean，full 入口仍保留强制 clean rebuild。
 
 ## 已确认不列入当前 TODO 的已实现项
 

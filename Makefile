@@ -35,6 +35,8 @@ export MULTILIB= lib
 LUA54_SRC_DIR?= D:/p4_gl2/pristine/tools/lua/lua-5.4.8-src/lua-5.4.8
 LUA54_TESTES_DIR?= $(LUA54_SRC_DIR)/testes
 LUA54COMPAT_XCFLAGS= -DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2
+LUA54COMPAT53_XCFLAGS= $(LUA54COMPAT_XCFLAGS) -DLUA_COMPAT_5_3
+LUA54_NOGC64_XCFLAGS= $(LUA54COMPAT_XCFLAGS) -DLUAJIT_DISABLE_GC64
 LUA54COMPAT_BUILD_STAMP= src/.luajit-build-config
 DEFAULT_BUILD_CONFIG= default
 CXX?= g++
@@ -203,6 +205,26 @@ build-lua54compat-incremental:
 	$(MAKE) XCFLAGS='$(LUA54COMPAT_XCFLAGS)'
 	@printf '%s\n' "$(LUA54COMPAT_XCFLAGS)" > $(LUA54COMPAT_BUILD_STAMP)
 
+build-lua54compat53:
+	$(MAKE) clean
+	$(MAKE) XCFLAGS='$(LUA54COMPAT53_XCFLAGS)'
+	@printf '%s\n' "$(LUA54COMPAT53_XCFLAGS)" > $(LUA54COMPAT_BUILD_STAMP)
+
+build-lua54compat53-incremental:
+	@cfg='$(LUA54COMPAT53_XCFLAGS)'; if test -f $(LUA54COMPAT_BUILD_STAMP) && test "$$(cat $(LUA54COMPAT_BUILD_STAMP))" = "$$cfg"; then echo "==== Reusing Lua 5.4 compatibility + LUA_COMPAT_5_3 build config ===="; else echo "==== Lua 5.4 compatibility + LUA_COMPAT_5_3 build config changed; cleaning ===="; $(MAKE) clean; fi
+	$(MAKE) XCFLAGS='$(LUA54COMPAT53_XCFLAGS)'
+	@printf '%s\n' "$(LUA54COMPAT53_XCFLAGS)" > $(LUA54COMPAT_BUILD_STAMP)
+
+build-lua54compat-nogc64:
+	$(MAKE) clean
+	$(MAKE) XCFLAGS='$(LUA54_NOGC64_XCFLAGS)'
+	@printf '%s\n' "$(LUA54_NOGC64_XCFLAGS)" > $(LUA54COMPAT_BUILD_STAMP)
+
+build-lua54compat-nogc64-incremental:
+	@cfg='$(LUA54_NOGC64_XCFLAGS)'; if test -f $(LUA54COMPAT_BUILD_STAMP) && test "$$(cat $(LUA54COMPAT_BUILD_STAMP))" = "$$cfg"; then echo "==== Reusing Lua 5.4 compatibility non-GC64 build config ===="; else echo "==== Lua 5.4 compatibility non-GC64 build config changed; cleaning ===="; $(MAKE) clean; fi
+	$(MAKE) XCFLAGS='$(LUA54_NOGC64_XCFLAGS)'
+	@printf '%s\n' "$(LUA54_NOGC64_XCFLAGS)" > $(LUA54COMPAT_BUILD_STAMP)
+
 smoketest-lua54compat:
 	$(MAKE) build-lua54compat
 	$(MAKE) run-lua54compat-tests
@@ -281,13 +303,21 @@ lua54-runtime-loadlib-smoke:
 	./src/luajit -l lua54math=math -e 'assert(lua54math.type(1) == "integer")'
 
 smoketest-lua54compat53:
-	$(MAKE) clean
-	$(MAKE) XCFLAGS='-DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2 -DLUA_COMPAT_5_3'
+	$(MAKE) build-lua54compat53-incremental
+	./src/luajit test/lua54_compat53_runtime.lua
+
+smoketest-lua54compat53-full:
+	$(MAKE) build-lua54compat53
 	./src/luajit test/lua54_compat53_runtime.lua
 
 smoketest-lua54compat-nogc64:
-	$(MAKE) clean
-	$(MAKE) XCFLAGS='-DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2 -DLUAJIT_DISABLE_GC64'
+	$(MAKE) build-lua54compat-nogc64-incremental
+	./src/luajit -e 'assert(_VERSION == "Lua 5.4"); assert(require("jit").lua54compat == true)'
+	LUA_PATH_5_4='./src/?.lua;./src/?/init.lua;;' ./src/luajit test/smoke.lua lua54compat
+	LUA_PATH_5_4='./src/?.lua;./src/?/init.lua;;' ./src/luajit test/lua54_jit_regress.lua
+
+smoketest-lua54compat-nogc64-full:
+	$(MAKE) build-lua54compat-nogc64
 	./src/luajit -e 'assert(_VERSION == "Lua 5.4"); assert(require("jit").lua54compat == true)'
 	LUA_PATH_5_4='./src/?.lua;./src/?/init.lua;;' ./src/luajit test/smoke.lua lua54compat
 	LUA_PATH_5_4='./src/?.lua;./src/?/init.lua;;' ./src/luajit test/lua54_jit_regress.lua
@@ -549,6 +579,6 @@ test:
 	$(MAKE) smoketest-perf-lua54compat
 	$(MAKE) smoketest-lua54compat-nogc64
 
-.PHONY: all install amalg clean build-default build-default-incremental default-runtime-smoke smoketest smoketest-capi-default run-capi-default-tests $(DEFAULT_CAPI_PARALLEL_TARGETS) build-lua54compat build-lua54compat-incremental smoketest-lua54compat smoketest-lua54compat-quick run-lua54compat-tests $(LUA54_RUNTIME_PARALLEL_TARGETS) smoketest-lua54compat-nogc64 run-official-lua54compat smoketest-official-lua54compat smoketest-capi-lua54compat smoketest-capi-lua54compat-quick run-capi-lua54compat-tests run-lua54compat-and-capi-tests $(LUA54_CAPI_PARALLEL_TARGETS) $(LUA54_CAPI_SYMBOL_REJECT_TARGETS) smoketest-perf-lua54compat run-perf-lua54compat-tests $(LUA54_PERF_PARALLEL_TARGETS) test
+.PHONY: all install amalg clean build-default build-default-incremental default-runtime-smoke smoketest smoketest-capi-default run-capi-default-tests $(DEFAULT_CAPI_PARALLEL_TARGETS) build-lua54compat build-lua54compat-incremental build-lua54compat53 build-lua54compat53-incremental build-lua54compat-nogc64 build-lua54compat-nogc64-incremental smoketest-lua54compat smoketest-lua54compat-quick run-lua54compat-tests $(LUA54_RUNTIME_PARALLEL_TARGETS) smoketest-lua54compat53 smoketest-lua54compat53-full smoketest-lua54compat-nogc64 smoketest-lua54compat-nogc64-full run-official-lua54compat smoketest-official-lua54compat smoketest-capi-lua54compat smoketest-capi-lua54compat-quick run-capi-lua54compat-tests run-lua54compat-and-capi-tests $(LUA54_CAPI_PARALLEL_TARGETS) $(LUA54_CAPI_SYMBOL_REJECT_TARGETS) smoketest-perf-lua54compat run-perf-lua54compat-tests $(LUA54_PERF_PARALLEL_TARGETS) test
 
 ##############################################################################

@@ -160,7 +160,17 @@ if /I "%~1"=="lua54" goto :LUA54
 if /I "%~1"=="lua54full" goto :LUA54_FULL
 if /I "%~1"=="lua54quick" goto :LUA54_QUICK
 if /I "%~1"=="lua54nogc64" goto :LUA54_NOGC64
-if /I "%~1"=="lua54compat53" goto :LUA54COMPAT53
+if /I "%~1"=="lua54nogc64full" goto :LUA54_NOGC64_FULL
+if /I "%~1"=="lua54compat53" (
+  call :SET_REST %*
+  set "MAKE_ARGS=smoketest-lua54compat53!REST_ARGS!"
+  goto :FORWARD
+)
+if /I "%~1"=="lua54compat53full" (
+  call :SET_REST %*
+  set "MAKE_ARGS=smoketest-lua54compat53-full!REST_ARGS!"
+  goto :FORWARD
+)
 if /I "%~1"=="lua54perf" goto :LUA54PERF
 if /I "%~1"=="official54" goto :OFFICIAL54
 if /I "%~1"=="official54full" goto :OFFICIAL54_FULL
@@ -189,8 +199,10 @@ echo   lua54build  Incrementally build Lua 5.4 compatibility artifacts.
 echo   lua54       Run incremental Lua 5.4 compatibility smoke and C API smoke.
 echo   lua54full   Clean rebuild, then run Lua 5.4 compatibility smoke and C API smoke.
 echo   lua54quick  Run incremental Lua 5.4 smoke and C API smoke.
-echo   lua54nogc64 Run the Lua 5.4 x64 non-GC64 full smoke and JIT smoke.
-echo   lua54compat53 Run the Lua 5.4 LUA_COMPAT_5_3 runtime smoke.
+echo   lua54nogc64 Run the incremental Lua 5.4 x64 non-GC64 smoke and JIT smoke.
+echo   lua54nogc64full Clean rebuild, then run the Lua 5.4 x64 non-GC64 smoke and JIT smoke.
+echo   lua54compat53 Run the incremental Lua 5.4 LUA_COMPAT_5_3 runtime smoke.
+echo   lua54compat53full Clean rebuild, then run the Lua 5.4 LUA_COMPAT_5_3 runtime smoke.
 echo   lua54perf   Run Lua 5.4 perf/memory smoke with fixed jit.opt profiles and JIT off.
 echo   official54  Incrementally build, then run the current official Lua 5.4.8 compatibility matrix.
 echo   official54full Clean rebuild, then run the current official Lua 5.4.8 compatibility matrix.
@@ -279,9 +291,9 @@ call :SET_REST %*
 call :RUN smoketest-lua54compat-nogc64%REST_ARGS%
 exit /b !ERRORLEVEL!
 
-:LUA54COMPAT53
+:LUA54_NOGC64_FULL
 call :SET_REST %*
-call :RUN smoketest-lua54compat53%REST_ARGS%
+call :RUN smoketest-lua54compat-nogc64-full%REST_ARGS%
 exit /b !ERRORLEVEL!
 
 :LUA54PERF
