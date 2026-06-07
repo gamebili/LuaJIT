@@ -2146,6 +2146,15 @@ static int require_open_false(lua_State *L)
   return 1;
 }
 
+static int require_open_false_result(lua_State *L)
+{
+  check_string(L, 1, "capi.falsevaluemod",
+	       "luaL_requiref passes false-result module name");
+  require_open_count++;
+  lua_pushboolean(L, 0);
+  return 1;
+}
+
 static int require_open_multi(lua_State *L)
 {
   check_string(L, 1, "capi.multimod",
@@ -8632,6 +8641,35 @@ static void test_lauxlib_api(lua_State *L)
   lua_getfield(L, -1, "state");
   check_string(L, -1, "false-ready", "luaL_requiref false loaded result");
   lua_pop(L, 2);
+
+  before_count = require_open_count;
+  luaL_requiref(L, "capi.falsevaluemod", require_open_false_result, 1);
+  check(L, require_open_count == before_count + 1,
+	"luaL_requiref calls false-result opener");
+  check(L, lua_isboolean(L, -1) && !lua_toboolean(L, -1),
+	"luaL_requiref keeps false opener result");
+  lua_pop(L, 1);
+  luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
+  lua_getfield(L, -1, "capi.falsevaluemod");
+  check(L, lua_isboolean(L, -1) && !lua_toboolean(L, -1),
+	"luaL_requiref stores false opener result");
+  lua_pop(L, 2);
+  lua_getglobal(L, "capi.falsevaluemod");
+  check(L, lua_isboolean(L, -1) && !lua_toboolean(L, -1),
+	"luaL_requiref publishes false opener result");
+  lua_pop(L, 1);
+  luaL_requiref(L, "capi.falsevaluemod", require_open_false_result, 0);
+  check(L, require_open_count == before_count + 2,
+	"luaL_requiref reloads false opener result");
+  check(L, lua_isboolean(L, -1) && !lua_toboolean(L, -1),
+	"luaL_requiref false reload result");
+  lua_pop(L, 1);
+  luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
+  lua_pushnil(L);
+  lua_setfield(L, -2, "capi.falsevaluemod");
+  lua_pop(L, 1);
+  lua_pushnil(L);
+  lua_setglobal(L, "capi.falsevaluemod");
 
   before_count = require_open_count;
   lua_pushliteral(L, "stale-global");
