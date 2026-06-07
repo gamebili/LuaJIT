@@ -1573,6 +1573,15 @@ do
       local ok_noarg, err_noarg = pcall(function()
 	return math.ult()
       end)
+      local ok_missing2, err_missing2 = pcall(function()
+	return math.ult(1)
+      end)
+      local ok_bad2, err_bad2 = pcall(function()
+	return math.ult(1, true)
+      end)
+      local ok_nil2, err_nil2 = pcall(function()
+	return math.ult(1, nil)
+      end)
       local ok_frac1, err_frac1 = pcall(function()
 	return math.ult(1.2, 2)
       end)
@@ -1582,6 +1591,21 @@ do
       if not ok_noarg and
 	 err_noarg:find("bad argument #1 to 'ult'", 1, true) and
 	 err_noarg:find("number expected, got no value", 1, true) then
+	n = n + 1
+      end
+      if not ok_missing2 and
+	 err_missing2:find("bad argument #2 to 'ult'", 1, true) and
+	 err_missing2:find("number expected, got no value", 1, true) then
+	n = n + 1
+      end
+      if not ok_bad2 and
+	 err_bad2:find("bad argument #2 to 'ult'", 1, true) and
+	 err_bad2:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if not ok_nil2 and
+	 err_nil2:find("bad argument #2 to 'ult'", 1, true) and
+	 err_nil2:find("number expected, got nil", 1, true) then
 	n = n + 1
       end
       if math.ult("1", "2") then n = n + 1 end
@@ -1598,7 +1622,7 @@ do
 	n = n + 1
       end
     end
-    assert(n == 480)
+    assert(n == 720)
   end, "Lua 5.4 math.ult edge errors")
 
   assert_records_trace(function()

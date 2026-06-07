@@ -2227,6 +2227,30 @@ local function number_pack_helpers(n)
        err_ult_noarg:find("number expected, got no value", 1, true) then
       sum = sum + 1
     end
+    local ok_ult_missing2, err_ult_missing2 = pcall(function()
+      return math.ult(1)
+    end)
+    if not ok_ult_missing2 and
+       err_ult_missing2:find("bad argument #2 to 'ult'", 1, true) and
+       err_ult_missing2:find("number expected, got no value", 1, true) then
+      sum = sum + 1
+    end
+    local ok_ult_bad2, err_ult_bad2 = pcall(function()
+      return math.ult(1, true)
+    end)
+    if not ok_ult_bad2 and
+       err_ult_bad2:find("bad argument #2 to 'ult'", 1, true) and
+       err_ult_bad2:find("number expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+    local ok_ult_nil2, err_ult_nil2 = pcall(function()
+      return math.ult(1, nil)
+    end)
+    if not ok_ult_nil2 and
+       err_ult_nil2:find("bad argument #2 to 'ult'", 1, true) and
+       err_ult_nil2:find("number expected, got nil", 1, true) then
+      sum = sum + 1
+    end
     if math.ult("1", "2") then sum = sum + 1 end
     if math.ult(1.0, 2.0) then sum = sum + 1 end
     if math.ult(1, -1) and not math.ult(-1, 1) and
@@ -3330,8 +3354,8 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   local _, r_number_pack = timeit(mode_name..":number_pack_helpers",
 				  number_pack_helpers, iter_n)
   if enable_jit then jit.on(number_pack_helpers, true) end
-  assert(r_number_pack == iter_n * 188,
-	 "number_pack_helpers expected "..(iter_n * 188)..
+  assert(r_number_pack == iter_n * 191,
+	 "number_pack_helpers expected "..(iter_n * 191)..
 	 " got "..r_number_pack)
 
   local _, r_number_string = timeit(mode_name..":number_string_helpers",
