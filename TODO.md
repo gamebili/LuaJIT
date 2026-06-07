@@ -91,6 +91,7 @@
    - 当前进展：C API smoke 已固定调用入口的线程状态边界；默认 ABI 和 Lua 5.4 wrapper 下对 suspended coroutine 再次执行 `lua_pcall()` 会返回 `LUA_ERRRUN` 与 `invalid value`，默认 ABI 的 `lua_cpcall()` 也覆盖同类边界，避免 release 构建继续进入 VM 调用路径。
    - 当前进展：C API smoke 已固定 pseudo-index 的当前帧边界；debug hook 等非 C 当前帧下访问 `lua_upvalueindex()` 会稳定报 `invalid value`，默认 ABI 的 `LUA_ENVIRONINDEX` 也覆盖同类边界，不再只依赖 debug-only `lj_checkapi`。
    - 当前进展：C API smoke 已固定 `lua_newuserdatauv()` 声明的多 uservalue 槽位更新语义；`lua_setiuservalue()` 可设置第 2 个已声明槽位、不会覆盖第 1 个槽位，并且显式写回 `nil` 后 `lua_getiuservalue()` 会按 Lua 5.4 继续返回 `LUA_TNIL`。
+   - 当前进展：C API smoke 已固定 Lua 5.4 外部 get-wrapper 缺失键返回类型；`lua_getfield()` / `lua_geti()` / `lua_gettable()` / `lua_rawget()` / `lua_rawgeti()` / `lua_rawgetp()` / `lua_getglobal()` 在查不到值时都会返回 `LUA_TNIL` 并在栈顶留下 `nil`。
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.move()` 超大元素数量错误和接近 `math.maxinteger` 的边缘复制路径，固定移动范围检查与负目标下标复制不会发生整数回绕。
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.move()` 普通 table 源 `__index` 读取和目标 `__newindex` 写入路径，固定 Lua 5.4 表库移动会经由元方法读写缺失整数 key。
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `table.insert()` / `table.remove()` 普通 table 缺失整数 key 的 `__newindex` / `__index` 路径，固定插入和移除都会按 Lua 5.4 表库元方法语义读写。
@@ -1000,6 +1001,7 @@
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `s:gsub("a")`、`s:gsub("a", "x", {})`、`s:match({})`、`s:gmatch("a", true)` 和 `s:sub({})` 的字符串库方法语法 cold smoke；确认隐藏 self 后的公开参数 `#1/#2/#3` 诊断在非热路径、Lua 5.4 compat smoke、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁下仍保持通过。
 - `cmd /c build.bat help`、`cmd /c build.bat build -n`、`cmd /c "set BUILD_JOBS=perf&& build.bat build -n"`、`cmd /c "set BUILD_JOBS=logical&& build.bat build -n"`、`cmd /c build.bat platformprobe`、`powershell -NoProfile -ExecutionPolicy Bypass -File tools\lua54_platform_matrix.ps1 -Target probe`、`cmd /c "set BUILD_JOBS=perf&& powershell -NoProfile -ExecutionPolicy Bypass -File tools\lua54_platform_matrix.ps1 -Target probe"` 和 `cmd /c build.bat lua54quick` 已通过；确认本机 32 逻辑线程默认自动并发提升为 `-j64`，`BUILD_JOBS=perf` 降回 `-j48`，`BUILD_JOBS=logical` 降回 `-j32`，平台矩阵直接入口也会打印并使用同一 max/perf 策略，Lua 5.4 compat 构建、官方矩阵、runtime/C API/header smoke 仍通过。
 - `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `lua_newuserdatauv()` declared uservalue #2 set/get/clear-nil 和 #1/#2 槽位隔离的 C API smoke；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
+- `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 Lua 5.4 外部 get-wrapper 缺失键 `LUA_TNIL` 返回类型和栈顶 `nil` C API smoke；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 
 ## 已确认不列入当前 TODO 的已实现项
 

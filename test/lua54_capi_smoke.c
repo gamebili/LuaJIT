@@ -6465,6 +6465,7 @@ static void test_stack_and_number_api(lua_State *L)
 static void test_compare_len_arith(lua_State *L)
 {
   static const char pointer_key;
+  static const char missing_pointer_key;
   int rtype;
   int status;
   const char *errmsg;
@@ -6828,6 +6829,43 @@ static void test_compare_len_arith(lua_State *L)
   rtype = lua_rawgeti_sig(L, -1, 8);
   check(L, rtype == LUA_TSTRING, "lua_rawgeti function pointer return type");
   check_string(L, -1, "raw-value", "lua_rawgeti return value");
+  lua_pop(L, 1);
+
+  rtype = lua_getfield_sig(L, -1, "missing");
+  check(L, rtype == LUA_TNIL, "lua_getfield missing return type");
+  check(L, lua_isnil(L, -1), "lua_getfield missing pushes nil");
+  lua_pop(L, 1);
+
+  rtype = lua_geti_sig(L, -1, 99);
+  check(L, rtype == LUA_TNIL, "lua_geti missing return type");
+  check(L, lua_isnil(L, -1), "lua_geti missing pushes nil");
+  lua_pop(L, 1);
+
+  lua_pushliteral(L, "missing");
+  rtype = lua_gettable_sig(L, -2);
+  check(L, rtype == LUA_TNIL, "lua_gettable missing return type");
+  check(L, lua_isnil(L, -1), "lua_gettable missing pushes nil");
+  lua_pop(L, 1);
+
+  lua_pushliteral(L, "missing");
+  rtype = lua_rawget_sig(L, -2);
+  check(L, rtype == LUA_TNIL, "lua_rawget missing return type");
+  check(L, lua_isnil(L, -1), "lua_rawget missing pushes nil");
+  lua_pop(L, 1);
+
+  rtype = lua_rawgeti_sig(L, -1, 99);
+  check(L, rtype == LUA_TNIL, "lua_rawgeti missing return type");
+  check(L, lua_isnil(L, -1), "lua_rawgeti missing pushes nil");
+  lua_pop(L, 1);
+
+  rtype = lua_rawgetp_sig(L, -1, &missing_pointer_key);
+  check(L, rtype == LUA_TNIL, "lua_rawgetp missing return type");
+  check(L, lua_isnil(L, -1), "lua_rawgetp missing pushes nil");
+  lua_pop(L, 1);
+
+  rtype = lua_getglobal_sig(L, "__capi_missing_global_return_type");
+  check(L, rtype == LUA_TNIL, "lua_getglobal missing return type");
+  check(L, lua_isnil(L, -1), "lua_getglobal missing pushes nil");
   lua_pop(L, 1);
 
   if (sizeof(lua_Integer) > sizeof(int)) {
