@@ -4489,9 +4489,13 @@ do
       local packed = string.pack(">i2", i)
       local value, pos = string.unpack(">i2", packed)
       local first, first_pos = string.unpack("b", "abc", 0)
+      local method_packed = (">i2"):pack(i)
+      local method_value, method_pos = (">i2"):unpack(method_packed)
       n = n + value + pos + first + first_pos
+      if method_value == i and method_pos == 3 then n = n + 1 end
+      if ("b"):pack("65"):byte(1) == 65 then n = n + 1 end
     end
-    assert(n == 11400)
+    assert(n == 11560)
   end, "Lua 5.4 string.pack/unpack integer")
 
   assert_records_trace(function()
@@ -4502,6 +4506,12 @@ do
       local ok_num, err_num = pcall(string.pack, "i1")
       local ok_str, err_str = pcall(string.pack, "c1")
       local ok_cfmt, err_cfmt = pcall(string.pack, "c", "x")
+      local ok_method_missing, err_method_missing = pcall(function()
+	return ("b"):pack()
+      end)
+      local ok_method_bad, err_method_bad = pcall(function()
+	return ("b"):pack(true)
+      end)
       if not ok_num and err_num:find("number expected, got nil", 1, true) and
 	 not ok_str and err_str:find("string expected, got nil", 1, true) and
 	 not ok_cfmt and
@@ -4509,8 +4519,14 @@ do
 	 not err_cfmt:find("bad argument", 1, true) then
 	n = n + 1
       end
+      if not ok_method_missing and
+	 err_method_missing:find("bad argument #1 to 'pack'", 1, true) and
+	 not ok_method_bad and
+	 err_method_bad:find("bad argument #1 to 'pack'", 1, true) then
+	n = n + 1
+      end
     end
-    assert(n == 160)
+    assert(n == 240)
   end, "Lua 5.4 string.pack error text")
 
   assert_records_trace(function()
@@ -4523,8 +4539,20 @@ do
 	 err_pos0:find("data string too short", 1, true) then
 	n = n + 1
       end
+      local ok_method_missing, err_method_missing = pcall(function()
+	return ("b"):unpack()
+      end)
+      local ok_method_pos, err_method_pos = pcall(function()
+	return ("b"):unpack("abc", true)
+      end)
+      if not ok_method_missing and
+	 err_method_missing:find("bad argument #1 to 'unpack'", 1, true) and
+	 not ok_method_pos and
+	 err_method_pos:find("bad argument #2 to 'unpack'", 1, true) then
+	n = n + 1
+      end
     end
-    assert(n == 160)
+    assert(n == 240)
   end, "Lua 5.4 string.unpack short data")
 
   assert_records_trace(function()
@@ -4532,8 +4560,9 @@ do
     for _ = 1, 80 do
       n = n + string.packsize("!8bi8")
       if string.packsize("bBhH<i2I2<i4I4fdc4x") == 35 then n = n + 1 end
+      if ("i2"):packsize() == 2 then n = n + 1 end
     end
-    assert(n == 1360)
+    assert(n == 1440)
   end, "Lua 5.4 string.packsize fixed formats")
 
   assert_records_trace(function()
@@ -4541,14 +4570,25 @@ do
     for _ = 1, 80 do
       local ok_var, err_var = pcall(string.packsize, "z")
       local ok_c, err_c = pcall(string.packsize, "c")
+      local ok_method_var, err_method_var = pcall(function()
+	return ("z"):packsize()
+      end)
+      local ok_method_c, err_method_c = pcall(function()
+	return ("c"):packsize()
+      end)
       if not ok_var and err_var:find("variable%-length format") and
 	 not ok_c and
 	 err_c:find("missing size for format option 'c'", 1, true) and
 	 not err_c:find("bad argument", 1, true) then
 	n = n + 1
       end
+      if not ok_method_var and err_method_var:find("bad self", 1, true) and
+	 not ok_method_c and
+	 err_method_c:find("missing size for format option 'c'", 1, true) then
+	n = n + 1
+      end
     end
-    assert(n == 80)
+    assert(n == 160)
   end, "Lua 5.4 string.packsize errors")
 end
 

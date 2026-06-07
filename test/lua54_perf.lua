@@ -2279,6 +2279,13 @@ local function number_pack_helpers(n)
     if not ok and err:find("variable%-length format") then sum = sum + 1 end
     local unpacked, unpack_pos = string.unpack("b", "abc", 0)
     if unpacked == 97 and unpack_pos == 2 then sum = sum + 1 end
+    local method_packed = ("b"):pack("65")
+    local method_unpacked, method_unpack_pos = ("b"):unpack(method_packed)
+    if method_packed:byte(1) == 65 and method_unpacked == 65 and
+       method_unpack_pos == 2 then
+      sum = sum + 1
+    end
+    if ("i2"):packsize() == 2 then sum = sum + 1 end
     local ok_unpack, err_unpack = pcall(string.unpack, "b", "", 0)
     if not ok_unpack and
        err_unpack:find("data string too short", 1, true) then
@@ -2290,6 +2297,23 @@ local function number_pack_helpers(n)
        err_pack_num:find("number expected, got nil", 1, true) and
        not ok_pack_str and
        err_pack_str:find("string expected, got nil", 1, true) then
+      sum = sum + 1
+    end
+    local ok_method_pack, err_method_pack = pcall(function()
+      return ("b"):pack(true)
+    end)
+    local ok_method_unpack, err_method_unpack = pcall(function()
+      return ("b"):unpack("abc", true)
+    end)
+    local ok_method_packsize, err_method_packsize = pcall(function()
+      return ("z"):packsize()
+    end)
+    if not ok_method_pack and
+       err_method_pack:find("bad argument #1 to 'pack'", 1, true) and
+       not ok_method_unpack and
+       err_method_unpack:find("bad argument #2 to 'unpack'", 1, true) and
+       not ok_method_packsize and
+       err_method_packsize:find("bad self", 1, true) then
       sum = sum + 1
     end
   end
@@ -3275,8 +3299,8 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   local _, r_number_pack = timeit(mode_name..":number_pack_helpers",
 				  number_pack_helpers, iter_n)
   if enable_jit then jit.on(number_pack_helpers, true) end
-  assert(r_number_pack == iter_n * 185,
-	 "number_pack_helpers expected "..(iter_n * 185)..
+  assert(r_number_pack == iter_n * 188,
+	 "number_pack_helpers expected "..(iter_n * 188)..
 	 " got "..r_number_pack)
 
   local _, r_number_string = timeit(mode_name..":number_string_helpers",
