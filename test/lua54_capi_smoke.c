@@ -3425,6 +3425,13 @@ static int capi_tostring_meta(lua_State *L)
   return 1;
 }
 
+static int capi_tostring_callable_meta(lua_State *L)
+{
+  check(L, lua_istable(L, 1), "luaL_callmeta callable receives object");
+  lua_pushliteral(L, "callable meta tostring");
+  return 1;
+}
+
 static int capi_tostring_multi_meta(lua_State *L)
 {
   (void)L;
@@ -9031,6 +9038,25 @@ static void test_lauxlib_api(lua_State *L)
 	"luaL_callmeta calls metamethod");
   check_string(L, -1, "meta tostring", "luaL_callmeta result");
   lua_pop(L, 1);
+  {
+    int top = lua_gettop(L);
+    lua_newtable(L);
+    lua_newtable(L);
+    lua_newtable(L);
+    lua_newtable(L);
+    lua_pushcfunction(L, capi_tostring_callable_meta);
+    lua_setfield(L, -2, "__call");
+    lua_setmetatable(L, -2);
+    lua_setfield(L, -2, "__tostring");
+    lua_setmetatable(L, -2);
+    check(L, luaL_callmeta(L, -1, "__tostring") == 1,
+	  "luaL_callmeta calls callable metamethod");
+    check(L, lua_gettop(L) == top + 2,
+	  "luaL_callmeta callable metamethod result count");
+    check_string(L, -1, "callable meta tostring",
+		 "luaL_callmeta callable metamethod value");
+    lua_pop(L, 2);
+  }
   {
     int top = lua_gettop(L);
     check(L, luaL_callmeta(L, -1, "__missing") == 0,
