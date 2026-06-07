@@ -9249,6 +9249,23 @@ static void test_lauxlib_api(lua_State *L)
 
   lua_newtable(L);
   lua_newtable(L);
+  lua_pushcfunction(L, capi_tostring_multi_meta);
+  lua_setfield(L, -2, "__tostring");
+  lua_setmetatable(L, -2);
+  {
+    size_t len = 0;
+    const char *s = luaL_tolstring(L, -1, &len);
+    check(L, len == strlen("first meta tostring"),
+	  "luaL_tolstring multi-result __tostring length");
+    check(L, strcmp(s, "first meta tostring") == 0,
+	  "luaL_tolstring multi-result __tostring");
+    check_string(L, -1, "first meta tostring",
+		 "luaL_tolstring multi-result __tostring stack");
+    lua_pop(L, 2);
+  }
+
+  lua_newtable(L);
+  lua_newtable(L);
   lua_newtable(L);
   lua_newtable(L);
   lua_pushcfunction(L, capi_tostring_callable_meta);
