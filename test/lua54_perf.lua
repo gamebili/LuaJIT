@@ -2218,6 +2218,7 @@ local function number_pack_helpers(n)
     end
     if math.tointeger(tointeger_over) == nil then sum = sum + 1 end
     if math.tointeger(1.5) == nil then sum = sum + 1 end
+    if math.tointeger(nil) == nil then sum = sum + 1 end
     if math.tointeger({}) == nil then sum = sum + 1 end
     local ok_ult_noarg, err_ult_noarg = pcall(function()
       return math.ult()
@@ -3354,8 +3355,8 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   local _, r_number_pack = timeit(mode_name..":number_pack_helpers",
 				  number_pack_helpers, iter_n)
   if enable_jit then jit.on(number_pack_helpers, true) end
-  assert(r_number_pack == iter_n * 191,
-	 "number_pack_helpers expected "..(iter_n * 191)..
+  assert(r_number_pack == iter_n * 192,
+	 "number_pack_helpers expected "..(iter_n * 192)..
 	 " got "..r_number_pack)
 
   local _, r_number_string = timeit(mode_name..":number_string_helpers",

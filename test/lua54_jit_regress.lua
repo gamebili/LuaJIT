@@ -1527,6 +1527,7 @@ do
       end)
       local ti_strfloat = math.tointeger("1.0")
       local ti_floatint = math.tointeger(42.0)
+      local ti_nil = math.tointeger(nil)
       local ti_bad = math.tointeger({})
       n = n + assert(math.tointeger("123"))
       local w = assert(math.tointeger(wide))
@@ -1548,9 +1549,10 @@ do
       end
       if math.tointeger(over) == nil then n = n + 1 end
       if math.tointeger(1.5) == nil then n = n + 1 end
+      if ti_nil == nil then n = n + 1 end
       if ti_bad == nil then n = n + 1 end
     end
-    assert(n == 10400)
+    assert(n == 10480)
   end, "Lua 5.4 math.tointeger")
 
   assert_records_ir_op(function()

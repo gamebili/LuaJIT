@@ -345,6 +345,7 @@ local cases = {
   { "math.tointeger.strfloat", "return math.tointeger('1.0')", ok = { "number:1" } },
   { "math.tointeger.floatint", "return math.tointeger(42.0)", ok = { "number:42" } },
   { "math.tointeger.maxstr", "return math.type(math.tointeger(tostring(math.maxinteger))), math.tointeger(tostring(math.maxinteger)) == math.maxinteger", ok = { "string:integer", "boolean:true" } },
+  { "math.tointeger.nil", "return math.tointeger(nil)", ok = { "nil:nil" } },
   { "math.tointeger.frac", "return math.tointeger(1.2)", ok = { "nil:nil" } },
   { "math.tointeger.bad", "return math.tointeger({})", ok = { "nil:nil" } },
   { "math.ult.noarg", "return math.ult()", err = "bad argument #1 to 'ult' (number expected, got no value)" },
