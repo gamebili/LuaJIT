@@ -122,7 +122,7 @@
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `require()` preload loader 显式返回 `false` 的边界，固定 `false` 会作为 loader 返回值写入/返回，但后续 `require()` 仍会因 `package.loaded[name] == false` 重新加载。
    - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已继续把 `require()` preload loader 显式返回 `false` 后再次重载的路径纳入 JIT on/off 热路径覆盖，固定该边界不只在冷 harness 中成立。
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `loadfile()` 缺失文件返回 tuple、source chunk table/false/nil/number `env` 初始化 `_ENV` 和 stripped binary chunk table/false/nil/number `env` 初始化首个无名 upvalue 的边界，固定 `loadfile(..., env)` 的 Lua 5.4 环境注入表面。
-   - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `load(..., env)` source chunk table / false / nil / number 环境和 stripped binary chunk false / nil / number 环境初始化边界，固定 `env` 参数会作为 exact upvalue 值写入 `_ENV` 或首个无名 upvalue。
+   - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `load(..., env)` source chunk table / false / nil / number 环境和 stripped binary chunk table / false / nil / number 环境初始化边界，固定 `env` 参数会作为 exact upvalue 值写入 `_ENV` 或首个无名 upvalue。
    - 当前进展：C API smoke 已继续补入 `luaL_requiref()` opener 返回 0 个 C 结果的 lauxlib 边界，固定 `lua_call(..., 1)` 会补 `nil`、模块保持 unloaded 并可重载，且 `glb=false` 不会改写已有全局。
    - 当前进展：C API smoke 已继续补入 `luaL_requiref()` opener 显式返回 `false` 的 lauxlib 边界，固定 false 会写入 `_LOADED[modname]` 并按 `glb=true` 发布全局，但后续 `luaL_requiref()` 仍会因 loaded false 重新调用 opener。
    - 当前进展：C API smoke 已继续补入 `luaL_requiref()` 成功 opener 搭配 `glb=false` 的 lauxlib 边界，固定模块只写入 `_LOADED[modname]` 而不改写已有全局；后续 `glb=true` 调用会复用 loaded 模块并发布全局，且不会重新调用 opener。
@@ -1103,6 +1103,7 @@
 - 本机官方 `H:\p4\gl_home_u4\pristine\tools\lua\lua5.4.8\lua54.exe` 与 `.\src\luajit.exe` 直接探针已确认 `load(..., nil)` / `loadfile(..., nil)` 会把 source chunk 的 `_ENV` 和 stripped binary chunk 的首个无名 upvalue 初始化为 exact `nil`，而不是省略 env 的默认全局环境；`git diff --check`、`.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增显式 nil env 注入边界；确认 Lua 5.4 compat 构建、官方矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - 本机官方 `H:\p4\gl_home_u4\pristine\tools\lua\lua5.4.8\lua54.exe` 与 `.\src\luajit.exe` 直接探针已确认 `load(..., 123)` / `loadfile(..., 123)` 会把 source chunk 的 `_ENV` 和 stripped binary chunk 的首个无名 upvalue 初始化为 exact number `123`；`git diff --check`、`.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 number env 注入边界；确认 Lua 5.4 compat 构建、官方矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `git diff --check`、`cmd /c build.bat help`、`cmd /c build.bat test -n` 和 `cmd /c build.bat lua54quick` 已通过；确认默认 `build.bat test` 入口现在只启动一次顶层 GNU make 并转发完整 `-j96 --no-print-directory --output-sync=target CFLAGS=-pipe` 参数，dry-run 中 perf 阶段已直接走 `run-perf-lua54compat-tests`，不再重复进入同配置 Lua 5.4 增量构建检查，同时 Lua 5.4 quick 构建、官方矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
+- 本机官方 `H:\p4\gl_home_u4\pristine\tools\lua\lua5.4.8\lua54.exe` 与 `.\src\luajit.exe` 直接探针已确认 `load(string.dump(...), ..., env_table)` 会把 stripped binary chunk 的首个无名 upvalue 初始化为 exact env table，并通过全局名读取 table 字段；补入 `test/lua54_stdlib_edges.lua` 覆盖该 `load()` binary table env 边界。
 
 ## 已确认不列入当前 TODO 的已实现项
 
