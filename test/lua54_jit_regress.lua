@@ -2304,6 +2304,7 @@ do
 
   assert_records_trace(function()
     local n = 0
+    warn("@off")
     for _ = 1, 80 do
       local ok_step, err_step = pcall(collectgarbage, "step", true)
       local error_n, ok_error, err_error = result_count(pcall(error))
@@ -2313,7 +2314,10 @@ do
       local ok_tonumber, err_tonumber = pcall(function()
 	return tonumber()
       end)
+      local warn_number_n = result_count(warn(1))
+      local warn_multi_n = result_count(warn("lua54", 1, "warning"))
       local ok_warn, err_warn = pcall(warn, {})
+      local ok_warn_bad2, err_warn_bad2 = pcall(warn, "lua54", {})
       if not ok_step and
 	 err_step:find("bad argument #2 to 'collectgarbage'", 1, true) and
 	 err_step:find("number expected, got boolean", 1, true) then
@@ -2348,8 +2352,16 @@ do
 	 err_warn:find("string expected, got table", 1, true) then
 	n = n + 1
       end
+      if warn_number_n == 0 then n = n + 1 end
+      if warn_multi_n == 0 then n = n + 1 end
+      if not ok_warn_bad2 and
+	 err_warn_bad2:find("bad argument #2 to 'warn'", 1, true) and
+	 err_warn_bad2:find("string expected, got table", 1, true) then
+	n = n + 1
+      end
     end
-    assert(n == 640)
+    warn("@off")
+    assert(n == 880)
   end, "Lua 5.4 base stdlib edge errors")
 end
 

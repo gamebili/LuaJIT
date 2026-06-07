@@ -453,6 +453,7 @@ local function stdlib_edge_helpers(n)
   }
   local math_cmp_a = setmetatable({ v = 2 }, math_cmp_mt)
   local math_cmp_b = setmetatable({ v = 1 }, math_cmp_mt)
+  warn("@off")
   for _ = 1, n do
     local ok_step, err_step = pcall(collectgarbage, "step", true)
     if not ok_step and
@@ -497,10 +498,20 @@ local function stdlib_edge_helpers(n)
     end
     if tonumber({}) == nil then sum = sum + 1 end
 
+    local warn_number_n = result_count(warn(1))
+    local warn_multi_n = result_count(warn("lua54", 1, "warning"))
     local ok_warn, err_warn = pcall(warn, {})
+    local ok_warn_bad2, err_warn_bad2 = pcall(warn, "lua54", {})
     if not ok_warn and
        err_warn:find("bad argument #1 to 'warn'", 1, true) and
        err_warn:find("string expected, got table", 1, true) then
+      sum = sum + 1
+    end
+    if warn_number_n == 0 then sum = sum + 1 end
+    if warn_multi_n == 0 then sum = sum + 1 end
+    if not ok_warn_bad2 and
+       err_warn_bad2:find("bad argument #2 to 'warn'", 1, true) and
+       err_warn_bad2:find("string expected, got table", 1, true) then
       sum = sum + 1
     end
 
@@ -3280,7 +3291,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_stdlib_edge = timeit(mode_name..":stdlib_edge_helpers",
 				  stdlib_edge_helpers, iter_n)
-  assert(r_stdlib_edge == iter_n * 104)
+  assert(r_stdlib_edge == iter_n * 107)
 
   local _, r_protected = timeit(mode_name..":protected_call_helpers",
 				protected_call_helpers, iter_n)

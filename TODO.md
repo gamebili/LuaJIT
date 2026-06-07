@@ -332,6 +332,7 @@
   - 当前状态：`warn()` 已按 Lua 5.4 兼容转换 string / number；`nil`、boolean、table 以及带 `__tostring` 的 table 仍按官方行为报 `string expected`，不会走 `__tostring`。
   - 当前进展：默认 warning 输出已补 `Lua warning: ` 前缀，`warn("@on")` 和 standalone `-W` 路径共用 `lua_warning()` 输出逻辑；`warn()` 的所有参数都会进入 `lua_warning()`，因此多段 warning 中的 `@on` / `@off` 会按普通文本输出，只有非 continuation 的新消息头才按控制消息处理。
   - 当前进展：`warn()` 的参数错误已复用 Lua 5.4 base 库调用点名规则，direct `pcall(warn, ...)` 会报 `bad argument #1 to 'warn'`，普通源码调用和局部别名仍按调用点报 `warn` / `f`。
+  - 当前进展：`test/lua54_stdlib_edges.lua`、`test/lua54_jit_regress.lua` 和 `test/lua54_perf.lua` 已继续补入 `warn(1)`、`warn("lua54", 1, "warning")` 和 `warn("lua54", {})` 的 cold / JIT on/off 热路径覆盖，固定 number 参数转换、多段 warning 参数拼接以及第 2 参数坏类型诊断。
   - 已覆盖：number 转换、boolean/nil/table/带 `__tostring` table 的类型错误、direct `pcall(warn)` / `pcall(warn, nil)` / `pcall(warn, true)` / `pcall(warn, table)` 的函数名、`@on`/`@off` 控制消息、未知 `@xxx` 控制消息、默认 warning 前缀、多段 warning 中的 `@off` 文本拼接。
 
 - [x] `math.randomseed()` 无参和 PRNG 细节。
@@ -1082,6 +1083,7 @@
 - `git diff --check`、`cmd /c build.bat jobs`、`cmd /c build.bat jobs -j4`、`cmd /c "set MAKE_OUTPUT_SYNC=none&& build.bat jobs"`、`cmd /c build.bat lua54build --dry-run`、`powershell -NoProfile -ExecutionPolicy Bypass -File tools\lua54_platform_matrix.ps1 -Target probe` 和 `cmd /c build.bat lua54quick` 已通过；确认本机 32 逻辑线程默认使用完整 GNU make 参数 `-j96 --output-sync=target`，显式 `-jN` 覆盖和 `MAKE_OUTPUT_SYNC=none` 仍按预期生效，平台矩阵直接入口同步使用 output sync，Lua 5.4 compat 构建、官方矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `git diff --check`、`.\src\luajit.exe test\lua54_stdlib_edges.lua`、`.\src\luajit.exe test\lua54_jit_regress.lua`、`.\src\luajit.exe test\lua54_perf.lua jit_on`、`.\src\luajit.exe test\lua54_perf.lua jit_off` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `s:char()` / `s:dump()` 方法语法在冷路径与 JIT on/off 热路径下保留短方法名 `char` / `dump` 和 `calling ... on bad self` 诊断边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `git diff --check`、`cmd /c build.bat jobs`、`cmd /c "set BUILD_PIPE=off&& build.bat jobs"`、`cmd /c build.bat jobs CFLAGS=-O2`、`powershell -NoProfile -ExecutionPolicy Bypass -File tools\lua54_platform_matrix.ps1 -Target probe`、`cmd /c build.bat lua54build` 和 `cmd /c build.bat lua54quick` 已通过；确认本地 GNU make wrapper 默认使用 `-j96 --no-print-directory --output-sync=target CFLAGS=-pipe`，同时 `BUILD_PIPE=off` 与显式 `CFLAGS=...` 覆盖会关闭自动 `-pipe`，Lua 5.4 compat 构建、官方矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
+- `git diff --check`、`.\src\luajit.exe test\lua54_stdlib_edges.lua`、`.\src\luajit.exe test\lua54_jit_regress.lua`、`.\src\luajit.exe test\lua54_perf.lua jit_on`、`.\src\luajit.exe test\lua54_perf.lua jit_off` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `warn()` number 参数转换、多段参数拼接和第 2 参数坏类型在 cold / JIT on/off 热路径下的标准库边界；确认 Lua 5.4 compat 构建、官方矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 
 ## 已确认不列入当前 TODO 的已实现项
 
