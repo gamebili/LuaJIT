@@ -50,10 +50,14 @@ set "MAKE_NO_PRINT_DIRECTORY=--no-print-directory"
 set "BUILD_PIPE_FLAG="
 set "BUILD_PIPE_SOURCE=auto"
 if not "%NUMBER_OF_PROCESSORS%"=="" set "CPU_THREADS=%NUMBER_OF_PROCESSORS%"
+set "DETECTED_CPU_THREADS="
+for /f "usebackq delims=" %%C in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$counts=@(); if ($env:NUMBER_OF_PROCESSORS -match '^\d+$') { $counts += [int]$env:NUMBER_OF_PROCESSORS }; $counts += [Environment]::ProcessorCount; try { $sum=0; foreach ($cpu in (Get-CimInstance Win32_Processor)) { $sum += [int]$cpu.NumberOfLogicalProcessors }; if ($sum -gt 0) { $counts += $sum } } catch {}; if ($counts.Count -gt 0) { ($counts | Measure-Object -Maximum).Maximum }" 2^>nul`) do (
+  if not "%%C"=="" set "DETECTED_CPU_THREADS=%%C"
+)
 if "!CPU_THREADS!"=="" (
-  for /f "usebackq delims=" %%C in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$sum=0; foreach ($cpu in (Get-CimInstance Win32_Processor)) { $sum += $cpu.NumberOfLogicalProcessors }; if ($sum -gt 0) { [int]$sum }" 2^>nul`) do (
-    if not "%%C"=="" set "CPU_THREADS=%%C"
-  )
+  set "CPU_THREADS=!DETECTED_CPU_THREADS!"
+) else if not "!DETECTED_CPU_THREADS!"=="" (
+  if !DETECTED_CPU_THREADS! GTR !CPU_THREADS! set "CPU_THREADS=!DETECTED_CPU_THREADS!"
 )
 if not "!CPU_THREADS!"=="" (
   rem Default to an aggressive local job count. Short compile/test gates often
@@ -266,7 +270,7 @@ echo   jobs        Print the detected local make job count.
 echo.
 echo Any other arguments are forwarded to GNU make unchanged.
 echo Perf profiles pin opt level, hotloop, and hotexit; override with LUA54_PERF_JIT_OPTS.
-echo Parallelism defaults to turbo mode, about 3x detected logical processors; override with BUILD_JOBS=N, BUILD_JOBS=auto, BUILD_JOBS=turbo, BUILD_JOBS=perf, BUILD_JOBS=max, BUILD_JOBS=logical, or -jN.
+echo Parallelism defaults to turbo mode, about 3x the full-machine logical processor scan; override with BUILD_JOBS=N, BUILD_JOBS=auto, BUILD_JOBS=turbo, BUILD_JOBS=perf, BUILD_JOBS=max, BUILD_JOBS=logical, or -jN.
 echo BUILD_JOBS=max uses about 2x detected logical processors; BUILD_JOBS=perf uses about 1.5x; BUILD_JOBS=logical uses exactly the detected processor count. Bare -j is normalized to the current job count.
 echo GNU make output sync defaults to target mode to reduce parallel console overhead; override with MAKE_OUTPUT_SYNC=none, line, recurse, or target.
 echo Local GNU builds default to CFLAGS=-pipe and --no-print-directory to reduce compiler temp-file and console overhead; override with BUILD_PIPE=off or explicit CFLAGS=...

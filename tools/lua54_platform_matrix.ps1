@@ -74,21 +74,28 @@ function Invoke-Checked {
 }
 
 function Get-DetectedLogicalProcessorCount {
-  $threads = 0
+  $counts = New-Object System.Collections.Generic.List[int]
   if ($env:NUMBER_OF_PROCESSORS -and $env:NUMBER_OF_PROCESSORS -match '^\d+$') {
-    $threads = [int]$env:NUMBER_OF_PROCESSORS
+    $counts.Add([int]$env:NUMBER_OF_PROCESSORS)
   }
-  if ($threads -le 0) {
-    $threads = [Environment]::ProcessorCount
+  if ([Environment]::ProcessorCount -gt 0) {
+    $counts.Add([Environment]::ProcessorCount)
   }
-  if ($threads -le 0) {
-    try {
-      foreach ($cpu in (Get-CimInstance Win32_Processor)) {
-        $threads += [int]$cpu.NumberOfLogicalProcessors
-      }
-    } catch {
-      $threads = 0
+  try {
+    $cimThreads = 0
+    foreach ($cpu in (Get-CimInstance Win32_Processor)) {
+      $cimThreads += [int]$cpu.NumberOfLogicalProcessors
     }
+    if ($cimThreads -gt 0) {
+      $counts.Add($cimThreads)
+    }
+  } catch {
+    # Some stripped-down PowerShell hosts do not expose CIM. Keep the cheaper
+    # env/.NET counts instead of failing the build wrapper.
+  }
+  $threads = 0
+  if ($counts.Count -gt 0) {
+    $threads = [int](($counts | Measure-Object -Maximum).Maximum)
   }
   if ($threads -lt 1) {
     $threads = 1

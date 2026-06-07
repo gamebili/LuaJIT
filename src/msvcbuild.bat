@@ -176,6 +176,12 @@ if exist luajit.exe.manifest^
 @for /f "delims=0123456789" %%N in ("%LJ_MSVC_THREADS%") do @set LJ_MSVC_THREADS_OK=
 @if not defined LJ_MSVC_THREADS_OK set LJ_MSVC_THREADS=1
 @if %LJ_MSVC_THREADS% LSS 1 set LJ_MSVC_THREADS=1
+@set LJ_MSVC_DETECTED_THREADS=
+@for /f "usebackq delims=" %%C in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$counts=@(); if ($env:NUMBER_OF_PROCESSORS -match '^\d+$') { $counts += [int]$env:NUMBER_OF_PROCESSORS }; $counts += [Environment]::ProcessorCount; try { $sum=0; foreach ($cpu in (Get-CimInstance Win32_Processor)) { $sum += [int]$cpu.NumberOfLogicalProcessors }; if ($sum -gt 0) { $counts += $sum } } catch {}; if ($counts.Count -gt 0) { ($counts | Measure-Object -Maximum).Maximum }" 2^>nul`) do @set LJ_MSVC_DETECTED_THREADS=%%C
+@if defined LJ_MSVC_DETECTED_THREADS @for /f "delims=0123456789" %%N in ("%LJ_MSVC_DETECTED_THREADS%") do @set LJ_MSVC_DETECTED_THREADS=
+@if not defined LJ_MSVC_DETECTED_THREADS goto :MSVC_DETECT_DONE
+@if %LJ_MSVC_DETECTED_THREADS% GTR %LJ_MSVC_THREADS% set LJ_MSVC_THREADS=%LJ_MSVC_DETECTED_THREADS%
+:MSVC_DETECT_DONE
 @set /a LJ_MSVC_PERF_JOBS=%LJ_MSVC_THREADS% + (%LJ_MSVC_THREADS% + 1) / 2
 @set /a LJ_MSVC_MAX_JOBS=%LJ_MSVC_THREADS% * 2
 @set /a LJ_MSVC_TURBO_JOBS=%LJ_MSVC_THREADS% * 3
