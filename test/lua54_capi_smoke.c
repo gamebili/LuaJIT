@@ -3191,11 +3191,35 @@ static int mark_nonclosable_slot(lua_State *L)
   return 0;
 }
 
+static int toclose_zero_index(lua_State *L)
+{
+  lua_toclose(L, 0);
+  return 0;
+}
+
+static int toclose_missing_index(lua_State *L)
+{
+  lua_toclose(L, 1);
+  return 0;
+}
+
 static int mark_false_then_closeslot(lua_State *L)
 {
   lua_pushboolean(L, 0);
   lua_toclose(L, -1);
   lua_closeslot(L, -1);
+  return 0;
+}
+
+static int closeslot_zero_index(lua_State *L)
+{
+  lua_closeslot(L, 0);
+  return 0;
+}
+
+static int closeslot_missing_index(lua_State *L)
+{
+  lua_closeslot(L, 1);
   return 0;
 }
 
@@ -5598,6 +5622,19 @@ static void test_stack_and_number_api(lua_State *L)
   check(L, strstr(lua_tostring(L, -1), "non-closable") != NULL,
 	"lua_toclose non-closable error text");
   lua_pop(L, 1);
+
+  check_fresh_invalid_value(L, toclose_zero_index,
+			    "lua_toclose rejects zero index",
+			    "lua_toclose zero index error");
+  check_fresh_invalid_value(L, toclose_missing_index,
+			    "lua_toclose rejects missing index",
+			    "lua_toclose missing index error");
+  check_fresh_invalid_value(L, closeslot_zero_index,
+			    "lua_closeslot rejects zero index",
+			    "lua_closeslot zero index error");
+  check_fresh_invalid_value(L, closeslot_missing_index,
+			    "lua_closeslot rejects missing index",
+			    "lua_closeslot missing index error");
 
   lua_pushcfunction(L, mark_close_twice_same_slot);
   check(L, lua_pcall(L, 0, 0, 0) == LUA_ERRRUN,

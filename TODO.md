@@ -81,6 +81,7 @@
    - 当前进展：C API smoke 已固定默认 ABI `lua_cpcall()` 的 NULL C 函数指针边界，以及 `lua_getinfo()` / `lua_getstack()` / `lua_setlocal()` 的 NULL debug 参数边界；`lua_setlocal()` 找不到目标 local 时不再错误弹出栈顶待写入值，`lua_getlocal(NULL, n)` 在栈顶没有函数时稳定返回 `NULL`。
    - 当前进展：C API smoke 已固定 `luaL_checkoption()` 的 NULL option list、`luaL_traceback()` 的 NULL 目标线程和 `luaL_checkstack()` 负 size 边界；这些外部 lauxlib 非法参数会稳定报 `invalid value`，不再走空指针解引用或把负栈请求误报成普通 stack overflow。
    - 当前进展：Lua 5.4 C continuation smoke 已固定 `lua_yieldk()` continuation 返回负数或超过当前栈结果数量时，在 release 构建下统一报 `invalid value`，不再依赖 debug-only `api_check`。
+   - 当前进展：C API smoke 已固定 `lua_toclose()` / `lua_closeslot()` 的非法栈索引 release 边界；`0` 和缺失正向索引都会先稳定报 `invalid value`，不会继续进入 close-list 顺序或 closability 检查。
    - 当前进展：C API smoke 已固定默认 ABI `lua_resume()` 和 Lua 5.4 wrapper `lua_resume()` / `lua_resume54()` 的参数数量边界；负 `nargs`、初始调用缺少函数/参数槽位或挂起 coroutine 缺少 resume 参数槽位时会稳定返回 `LUA_ERRRUN` 与 `invalid value`，Lua 5.4 wrapper 同步回填单个错误结果。
    - 当前进展：C API smoke 已固定 `lua_setmetatable()` 非 table metatable、默认 ABI `lua_setfenv()` 非 table env，以及 `lua_replace(LUA_GLOBALSINDEX/LUA_ENVIRONINDEX)` 非 table value 在 release 构建下统一报 `invalid value`。
    - 当前进展：C API smoke 已固定 `lua_dump()` 空栈调用在 Lua 5.4 wrapper 和默认 LuaJIT 5.1 ABI 下都会稳定报 `invalid value`，不再只依赖 debug-only `lj_checkapi` 避免读取空 top slot。
@@ -1008,6 +1009,7 @@
 - `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 Lua 5.4 外部 `lua_getfield()` / `lua_geti()` / `lua_gettable()` wrapper 经由 `__index` 表命中时的 `LUA_TSTRING` 返回类型和栈顶结果 C API smoke；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 Lua 5.4 外部 `lua_getfield()` / `lua_geti()` / `lua_gettable()` wrapper 经由 `__index` 函数命中时的 `LUA_TSTRING` 返回类型，包含字符串 key 与整数 key；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 Lua 5.4 外部 `lua_getglobal()` wrapper 经由全局表 `__index` 表或函数命中时的 `LUA_TSTRING` 返回类型；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
+- `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `lua_toclose()` / `lua_closeslot()` 对 `0` 和缺失正向栈索引的 release `invalid value` 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 
 ## 已确认不列入当前 TODO 的已实现项
 
