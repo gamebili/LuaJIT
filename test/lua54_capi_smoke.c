@@ -3203,6 +3203,19 @@ static int toclose_missing_index(lua_State *L)
   return 0;
 }
 
+static int toclose_too_negative_index(lua_State *L)
+{
+  lua_pushnil(L);
+  lua_toclose(L, -2);
+  return 0;
+}
+
+static int toclose_registry_index(lua_State *L)
+{
+  lua_toclose(L, LUA_REGISTRYINDEX);
+  return 0;
+}
+
 static int mark_false_then_closeslot(lua_State *L)
 {
   lua_pushboolean(L, 0);
@@ -3220,6 +3233,19 @@ static int closeslot_zero_index(lua_State *L)
 static int closeslot_missing_index(lua_State *L)
 {
   lua_closeslot(L, 1);
+  return 0;
+}
+
+static int closeslot_too_negative_index(lua_State *L)
+{
+  lua_pushnil(L);
+  lua_closeslot(L, -2);
+  return 0;
+}
+
+static int closeslot_registry_index(lua_State *L)
+{
+  lua_closeslot(L, LUA_REGISTRYINDEX);
   return 0;
 }
 
@@ -5629,12 +5655,24 @@ static void test_stack_and_number_api(lua_State *L)
   check_fresh_invalid_value(L, toclose_missing_index,
 			    "lua_toclose rejects missing index",
 			    "lua_toclose missing index error");
+  check_fresh_invalid_value(L, toclose_too_negative_index,
+			    "lua_toclose rejects too-negative index",
+			    "lua_toclose too-negative index error");
+  check_fresh_invalid_value(L, toclose_registry_index,
+			    "lua_toclose rejects registry pseudo-index",
+			    "lua_toclose registry pseudo-index error");
   check_fresh_invalid_value(L, closeslot_zero_index,
 			    "lua_closeslot rejects zero index",
 			    "lua_closeslot zero index error");
   check_fresh_invalid_value(L, closeslot_missing_index,
 			    "lua_closeslot rejects missing index",
 			    "lua_closeslot missing index error");
+  check_fresh_invalid_value(L, closeslot_too_negative_index,
+			    "lua_closeslot rejects too-negative index",
+			    "lua_closeslot too-negative index error");
+  check_fresh_invalid_value(L, closeslot_registry_index,
+			    "lua_closeslot rejects registry pseudo-index",
+			    "lua_closeslot registry pseudo-index error");
 
   lua_pushcfunction(L, mark_close_twice_same_slot);
   check(L, lua_pcall(L, 0, 0, 0) == LUA_ERRRUN,
