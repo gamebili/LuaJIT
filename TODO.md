@@ -114,6 +114,7 @@
    - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已继续把 `require()` preload loader 显式返回 `false` 后再次重载的路径纳入 JIT on/off 热路径覆盖，固定该边界不只在冷 harness 中成立。
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `loadfile()` 缺失文件返回 tuple、source chunk `env` 初始化 `_ENV` 和 stripped binary chunk `env` 初始化首个无名 upvalue 的边界，固定 `loadfile(..., env)` 的 Lua 5.4 环境注入表面。
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `load(..., env)` source chunk table / 非 table 环境和 stripped binary chunk 非 table 环境初始化边界，固定 `env` 参数会作为 exact upvalue 值写入 `_ENV` 或首个无名 upvalue。
+   - 当前进展：C API smoke 已继续补入 `luaL_requiref()` opener 返回 0 个 C 结果的 lauxlib 边界，固定 `lua_call(..., 1)` 会补 `nil`、模块保持 unloaded 并可重载，且 `glb=false` 不会改写已有全局。
 
 ## P0：核心语义缺口
 
@@ -1017,6 +1018,7 @@
 - `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE)` 遇到被污染为非 table 的 `_LOADED` 时创建并写回新 table 的 lauxlib 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `luaL_requiref()` 遇到 registry `_LOADED` 被污染为非 table 时重建 loaded table、写入模块并发布全局的 lauxlib 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `git diff --check`、`cmd /c build.bat help`、`cmd /c build.bat jobs`、`cmd /c "set BUILD_JOBS=max&& build.bat jobs"`、`cmd /c "set BUILD_JOBS=perf&& build.bat jobs"`、`cmd /c "set BUILD_JOBS=logical&& build.bat jobs"`、`powershell -NoProfile -ExecutionPolicy Bypass -File tools\lua54_platform_matrix.ps1 -Target probe` 及其 `BUILD_JOBS=max/perf/logical` 变体、`cmd /c build.bat lua54quick` 已通过；确认本机 32 逻辑线程默认 turbo 并发使用 `-j96`，`max/perf/logical` 仍分别降回 `-j64/-j48/-j32`，平台矩阵脚本同步使用同一并发策略，Lua 5.4 compat 构建、官方矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
+- `cmd /c build.bat lua54-capi-runtime-smoke` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `luaL_requiref()` opener 返回 0 个 C 结果时补 `nil`、保持 `_LOADED[mod]` unloaded、后续重载，以及 `glb=false` 不改写既有全局的 lauxlib 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 
 ## 已确认不列入当前 TODO 的已实现项
 

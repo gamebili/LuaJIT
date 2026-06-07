@@ -2167,6 +2167,14 @@ static int require_open_nil(lua_State *L)
   return 1;
 }
 
+static int require_open_none(lua_State *L)
+{
+  check_string(L, 1, "capi.nonemod",
+	       "luaL_requiref passes no-result module name");
+  require_open_count++;
+  return 0;
+}
+
 static int require_open_error(lua_State *L)
 {
   check_string(L, 1, "capi.errmod",
@@ -8645,6 +8653,30 @@ static void test_lauxlib_api(lua_State *L)
 	"luaL_requiref reloads nil-returning module");
   check(L, lua_isnil(L, -1), "luaL_requiref nil reload result");
   lua_pop(L, 1);
+
+  before_count = require_open_count;
+  lua_pushliteral(L, "stale-none-global");
+  lua_setglobal(L, "capi.nonemod");
+  luaL_requiref(L, "capi.nonemod", require_open_none, 0);
+  check(L, require_open_count == before_count + 1,
+	"luaL_requiref calls no-result opener");
+  check(L, lua_isnil(L, -1), "luaL_requiref no-result pads nil");
+  lua_pop(L, 1);
+  lua_getglobal(L, "capi.nonemod");
+  check_string(L, -1, "stale-none-global",
+	       "luaL_requiref no-result glb false preserves global");
+  lua_pop(L, 1);
+  luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
+  lua_getfield(L, -1, "capi.nonemod");
+  check(L, lua_isnil(L, -1), "luaL_requiref no-result stays unloaded");
+  lua_pop(L, 2);
+  luaL_requiref(L, "capi.nonemod", require_open_none, 0);
+  check(L, require_open_count == before_count + 2,
+	"luaL_requiref reloads no-result module");
+  check(L, lua_isnil(L, -1), "luaL_requiref no-result reload result");
+  lua_pop(L, 1);
+  lua_pushnil(L);
+  lua_setglobal(L, "capi.nonemod");
 
   before_count = require_open_count;
   lua_pushliteral(L, "stale-error-global");
