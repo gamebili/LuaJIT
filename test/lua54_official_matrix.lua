@@ -1,5 +1,18 @@
-local dir = arg[1] or os.getenv("LUA54_TESTES_DIR") or
+local default_dir = os.getenv("LUA54_TESTES_DIR") or
   "D:/p4_gl2/pristine/tools/lua/lua-5.4.8-src/lua-5.4.8/testes"
+local dir = arg[1] or default_dir
+local case_arg = 2
+
+if dir == "--case" then
+  dir = default_dir
+  case_arg = 1
+end
+
+local requested_case
+if arg[case_arg] == "--case" then
+  requested_case = assert(arg[case_arg + 1],
+    "missing official Lua 5.4 matrix case name after --case")
+end
 
 dir = dir:gsub("\\", "/"):gsub("/$", "")
 
@@ -142,27 +155,61 @@ local direct_opts = {
   ["constructs.lua"] = { patch_constructs_load_gc = true, soft = true },
 }
 
-for _, name in ipairs(direct) do
-  runfile(name, nil, direct_opts[name])
+local case_order = {}
+local case_fns = {}
+
+local function add_case(name, fn)
+  assert(case_fns[name] == nil, "duplicate official Lua 5.4 matrix case: " .. name)
+  case_order[#case_order + 1] = name
+  case_fns[name] = fn
 end
 
-run_calls_prebinary()
+for _, name in ipairs(direct) do
+  add_case(name, function()
+    runfile(name, nil, direct_opts[name])
+  end)
+end
+
+add_case("calls-prebinary", run_calls_prebinary)
 
 -- Windows stdin seek behavior differs from the Unix-like assumption guarded by
 -- _port in the official file; keep the rest of files.lua active.
-runfile("files.lua", nil, { port = true })
-runfile("attrib.lua", 27, { port = true })
-runfile("locals.lua", 5)
-runfile("events.lua", 12)
-runfile("verybig.lua", 10)
+add_case("files.lua", function()
+  runfile("files.lua", nil, { port = true })
+end)
+add_case("attrib.lua", function()
+  runfile("attrib.lua", 27, { port = true })
+end)
+add_case("locals.lua", function()
+  runfile("locals.lua", 5)
+end)
+add_case("events.lua", function()
+  runfile("events.lua", 12)
+end)
+add_case("verybig.lua", function()
+  runfile("verybig.lua", 10)
+end)
 
 -- big.lua intentionally yields in the main chunk; official all.lua drives it
 -- through coroutine.wrap, so the matrix mirrors that harness instead of direct
 -- dofile execution.
-run("big.lua", function()
-  return "local f=coroutine.wrap(assert(loadfile(" .. longstr(dir .. "/big.lua") ..
-    ")))\nassert(f()==\"b\")\nassert(f()==\"a\")\n"
+add_case("big.lua", function()
+  run("big.lua", function()
+    return "local f=coroutine.wrap(assert(loadfile(" .. longstr(dir .. "/big.lua") ..
+      ")))\nassert(f()==\"b\")\nassert(f()==\"a\")\n"
+  end)
 end)
+
+if requested_case then
+  local fn = case_fns[requested_case]
+  assert(fn, "unknown official Lua 5.4 matrix case: " .. requested_case)
+  fn()
+  return
+end
+
+for _, name in ipairs(case_order) do
+  case_fns[name]()
+end
 
 -- main.lua assumes a Unix-like shell and calls out through platform-specific
 -- pipes/redirection. calls.lua is covered up to the documented LuaJIT bytecode

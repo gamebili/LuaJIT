@@ -249,10 +249,47 @@ LUA54_RUNTIME_PARALLEL_TARGETS= \
 	lua54-runtime-arg-smoke \
 	lua54-runtime-loadlib-smoke
 
+LUA54_OFFICIAL_PARALLEL_TARGETS= \
+	lua54-official-literals.lua \
+	lua54-official-strings.lua \
+	lua54-official-pm.lua \
+	lua54-official-math.lua \
+	lua54-official-bitwise.lua \
+	lua54-official-bwcoercion.lua \
+	lua54-official-gc.lua \
+	lua54-official-gengc.lua \
+	lua54-official-tracegc.lua \
+	lua54-official-tpack.lua \
+	lua54-official-closure.lua \
+	lua54-official-cstack.lua \
+	lua54-official-constructs.lua \
+	lua54-official-goto.lua \
+	lua54-official-db.lua \
+	lua54-official-nextvar.lua \
+	lua54-official-utf8.lua \
+	lua54-official-vararg.lua \
+	lua54-official-sort.lua \
+	lua54-official-errors.lua \
+	lua54-official-coroutine.lua \
+	lua54-official-code.lua \
+	lua54-official-api.lua \
+	lua54-official-calls-prebinary \
+	lua54-official-files.lua \
+	lua54-official-attrib.lua \
+	lua54-official-locals.lua \
+	lua54-official-events.lua \
+	lua54-official-verybig.lua \
+	lua54-official-big.lua
+
 run-lua54compat-tests: $(LUA54_RUNTIME_PARALLEL_TARGETS)
 
-lua54-runtime-official-matrix:
-	MAKEFLAGS= ./src/luajit test/lua54_official_matrix.lua "$(LUA54_TESTES_DIR)"
+lua54-runtime-official-matrix: $(LUA54_OFFICIAL_PARALLEL_TARGETS)
+	@echo "official54: skipped main.lua on Windows shell portability boundary"
+	@echo "official54: skipped calls.lua binary chunk header block on documented boundary"
+	@echo "official54: OK"
+
+$(LUA54_OFFICIAL_PARALLEL_TARGETS): lua54-official-%:
+	MAKEFLAGS= ./src/luajit test/lua54_official_matrix.lua "$(LUA54_TESTES_DIR)" --case "$*"
 
 lua54-runtime-cstack-regress:
 	./src/luajit test/lua54_cstack_regress.lua
@@ -323,12 +360,12 @@ smoketest-lua54compat-nogc64-full:
 	LUA_PATH_5_4='./src/?.lua;./src/?/init.lua;;' ./src/luajit test/lua54_jit_regress.lua
 
 run-official-lua54compat:
-	MAKEFLAGS= ./src/luajit test/lua54_official_matrix.lua "$(LUA54_TESTES_DIR)"
+	$(MAKE) lua54-runtime-official-matrix
 
 smoketest-official-lua54compat:
 	$(MAKE) clean
 	$(MAKE) XCFLAGS='$(LUA54COMPAT_XCFLAGS)'
-	MAKEFLAGS= ./src/luajit test/lua54_official_matrix.lua "$(LUA54_TESTES_DIR)"
+	$(MAKE) lua54-runtime-official-matrix
 
 smoketest-capi-lua54compat:
 	$(MAKE) build-lua54compat
@@ -579,6 +616,6 @@ test:
 	$(MAKE) smoketest-perf-lua54compat
 	$(MAKE) smoketest-lua54compat-nogc64
 
-.PHONY: all install amalg clean build-default build-default-incremental default-runtime-smoke smoketest smoketest-capi-default run-capi-default-tests $(DEFAULT_CAPI_PARALLEL_TARGETS) build-lua54compat build-lua54compat-incremental build-lua54compat53 build-lua54compat53-incremental build-lua54compat-nogc64 build-lua54compat-nogc64-incremental smoketest-lua54compat smoketest-lua54compat-quick run-lua54compat-tests $(LUA54_RUNTIME_PARALLEL_TARGETS) smoketest-lua54compat53 smoketest-lua54compat53-full smoketest-lua54compat-nogc64 smoketest-lua54compat-nogc64-full run-official-lua54compat smoketest-official-lua54compat smoketest-capi-lua54compat smoketest-capi-lua54compat-quick run-capi-lua54compat-tests run-lua54compat-and-capi-tests $(LUA54_CAPI_PARALLEL_TARGETS) $(LUA54_CAPI_SYMBOL_REJECT_TARGETS) smoketest-perf-lua54compat run-perf-lua54compat-tests $(LUA54_PERF_PARALLEL_TARGETS) test
+.PHONY: all install amalg clean build-default build-default-incremental default-runtime-smoke smoketest smoketest-capi-default run-capi-default-tests $(DEFAULT_CAPI_PARALLEL_TARGETS) build-lua54compat build-lua54compat-incremental build-lua54compat53 build-lua54compat53-incremental build-lua54compat-nogc64 build-lua54compat-nogc64-incremental smoketest-lua54compat smoketest-lua54compat-quick run-lua54compat-tests $(LUA54_RUNTIME_PARALLEL_TARGETS) $(LUA54_OFFICIAL_PARALLEL_TARGETS) smoketest-lua54compat53 smoketest-lua54compat53-full smoketest-lua54compat-nogc64 smoketest-lua54compat-nogc64-full run-official-lua54compat smoketest-official-lua54compat smoketest-capi-lua54compat smoketest-capi-lua54compat-quick run-capi-lua54compat-tests run-lua54compat-and-capi-tests $(LUA54_CAPI_PARALLEL_TARGETS) $(LUA54_CAPI_SYMBOL_REJECT_TARGETS) smoketest-perf-lua54compat run-perf-lua54compat-tests $(LUA54_PERF_PARALLEL_TARGETS) test
 
 ##############################################################################

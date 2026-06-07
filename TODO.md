@@ -58,6 +58,7 @@
    - 当前进展：`build.bat` 的处理器数量探测已优先使用 `%NUMBER_OF_PROCESSORS%`，`tools/lua54_platform_matrix.ps1` 也优先使用环境变量 / .NET `ProcessorCount`，只有取不到时才回退 CIM；常用本地入口继续默认 `-j96` turbo 并行，但避免每次启动时先走 PowerShell/WMI 探测。
    - 当前进展：`build.bat lua54` / `smoke54` / `official54` 已改为常用本地增量入口，配置 stamp 未变化时会直接复用对象文件并继续使用本机 turbo `-j96`；需要强制 clean rebuild 时改用新增的 `lua54full` / `smoke54full` / `official54full` 显式入口。
    - 当前进展：`build.bat lua54compat53` / `lua54nogc64` 也已改为配置 stamp 增量入口，同配置重复验证会复用对象文件并继续使用本机 turbo `-j96`；需要强制 clean rebuild 时改用新增的 `lua54compat53full` / `lua54nogc64full` 显式入口，避免默认 `build.bat test` 尾段对 non-GC64 配置每次无条件全量重编。
+   - 当前进展：官方 Lua 5.4 matrix 已拆成 `lua54-official-*` Makefile 子目标，`run-lua54compat-tests` 会把每个官方测试文件交给同一个 make jobserver 并行调度；`test/lua54_official_matrix.lua --case <name>` 保留单 case 入口，方便失败时单独复现，同时直接运行脚本仍保持旧的顺序 matrix 行为。
    - 当前进展：PC x64、x86、ARM64、ARM、MIPS、MIPS64、PPC 的 `__call` callable-chain 已统一改为由 `lj_meta_call` 返回新增隐式参数数量，并由各 VM 后端更新 `NARGS`；PC x64 / Android ARM64 已额外覆盖 100 层 callable-chain tailcall 扩栈和 `CALLT` 保持，Android ARM64 设备 smoke 已覆盖该路径。
 
 6. **C API / lauxlib / 标准库收尾批次**
@@ -1061,6 +1062,7 @@
 - `git diff --check`、`cmd /c build.bat lua54-capi-runtime-smoke` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `luaL_callmeta()` 遇到 `__tostring` 返回 lightuserdata 时保留 lightuserdata 栈顶结果、而 `luaL_tolstring()` 遇到 lightuserdata `__tostring` 返回值时报 `'__tostring' must return a string` 的 lauxlib 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `git diff --check`、`cmd /c build.bat lua54-capi-runtime-smoke` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `luaL_callmeta()` 遇到 `__tostring` 返回 thread 时保留 thread 栈顶结果、而 `luaL_tolstring()` 遇到 thread `__tostring` 返回值时报 `'__tostring' must return a string` 的 lauxlib 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `git diff --check`、`cmd /c build.bat lua54-capi-runtime-smoke` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `luaL_callmeta()` 遇到 `__tostring` 返回 userdata 时保留 userdata 栈顶结果、而 `luaL_tolstring()` 遇到 userdata `__tostring` 返回值时报 `'__tostring' must return a string` 的 lauxlib 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
+- `git diff --check`、`cmd /c build.bat lua54-official-literals.lua`、`cmd /c build.bat official54` 和 `cmd /c build.bat lua54quick` 已通过；确认官方 Lua 5.4 matrix 已拆成可由 make jobserver 并行调度的 `lua54-official-*` 子目标，单 case 入口可独立复现，直接运行 matrix 脚本仍保持顺序行为；本机 `lua54quick` 本轮从修改前约 202 秒降到约 145 秒，同时 Lua 5.4 compat 构建、官方矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 
 ## 已确认不列入当前 TODO 的已实现项
 
