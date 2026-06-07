@@ -8528,6 +8528,36 @@ static void test_lauxlib_api(lua_State *L)
   lua_pop(L, 1);
   lua_pop(L, 1);
 
+  {
+    int loaded_ref;
+    before_count = require_open_count;
+    luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
+    loaded_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    lua_pushliteral(L, "polluted-loaded-for-requiref");
+    lua_setfield(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
+    luaL_requiref(L, "capi.mod", require_open, 1);
+    check(L, require_open_count == before_count + 1,
+	  "luaL_requiref rebuilds polluted _LOADED");
+    lua_getfield(L, -1, "state");
+    check_string(L, -1, "ready", "luaL_requiref polluted result");
+    lua_pop(L, 1);
+    luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
+    lua_getfield(L, -1, "capi.mod");
+    check(L, lua_rawequal(L, -1, -3),
+	  "luaL_requiref writes rebuilt _LOADED module");
+    lua_pop(L, 2);
+    lua_getglobal(L, "capi.mod");
+    check(L, lua_rawequal(L, -1, -2),
+	  "luaL_requiref publishes polluted global");
+    lua_pop(L, 2);
+    lua_rawgeti(L, LUA_REGISTRYINDEX, loaded_ref);
+    lua_setfield(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
+    luaL_unref(L, LUA_REGISTRYINDEX, loaded_ref);
+    lua_pushnil(L);
+    lua_setglobal(L, "capi.mod");
+    require_open_count = before_count;
+  }
+
   luaL_requiref(L, "capi.mod", require_open, 1);
   check(L, require_open_count == 1, "luaL_requiref calls opener once");
   lua_getfield(L, -1, "state");
