@@ -11,22 +11,25 @@
 @rem   amalg         amalgamated build
 @rem   static        create static lib to statically link into your project
 @rem   mixed         create static lib to build a DLL in your project
-@rem Set LUAJIT_MSVC_JOBS=N to override automatic /MP job count.
+@rem   jobs          print the detected MSVC /MP job count and exit
+@rem Set LUAJIT_MSVC_JOBS=auto/turbo/max/perf/logical/N to override the /MP
+@rem job count. The default is turbo, about 3x the detected logical processors.
 
+@if /I "%1"=="jobs" (
+  @setlocal
+  @call :SETJOBS
+  @if errorlevel 1 exit /b 1
+  @call :PRINTJOBS
+  @goto :END
+)
 @if not defined INCLUDE goto :FAIL
 
 @setlocal
 @rem Add more debug flags here, e.g. DEBUGCFLAGS=/DLUA_USE_ASSERT
 @set DEBUGCFLAGS=
-@set LJ_MSVC_JOBS=%LUAJIT_MSVC_JOBS%
-@if not defined LJ_MSVC_JOBS set LJ_MSVC_JOBS=%NUMBER_OF_PROCESSORS%
-@if not defined LJ_MSVC_JOBS set LJ_MSVC_JOBS=1
-@set LJ_MSVC_JOBS_OK=1
-@for /f "delims=0123456789" %%N in ("%LJ_MSVC_JOBS%") do @set LJ_MSVC_JOBS_OK=
-@if not defined LJ_MSVC_JOBS_OK set LJ_MSVC_JOBS=1
-@if %LJ_MSVC_JOBS% LSS 1 set LJ_MSVC_JOBS=1
-@set LJ_MSVC_MP=
-@if %LJ_MSVC_JOBS% GTR 1 set LJ_MSVC_MP=/MP%LJ_MSVC_JOBS%
+@call :SETJOBS
+@if errorlevel 1 exit /b 1
+@call :PRINTJOBS
 @set LJCOMPILE=cl /nologo /c /O2 /W3 /D_CRT_SECURE_NO_DEPRECATE /D_CRT_STDIO_INLINE=__declspec(dllexport)__inline
 @if defined LJ_MSVC_MP set LJCOMPILE=cl /nologo /c /O2 /W3 %LJ_MSVC_MP% /D_CRT_SECURE_NO_DEPRECATE /D_CRT_STDIO_INLINE=__declspec(dllexport)__inline
 @set LJDYNBUILD=/DLUA_BUILD_AS_DLL /MD
@@ -166,6 +169,37 @@ if exist luajit.exe.manifest^
 @echo === Successfully built LuaJIT for Windows/%LJARCH% ===
 
 @goto :END
+:SETJOBS
+@set LJ_MSVC_THREADS=%NUMBER_OF_PROCESSORS%
+@if not defined LJ_MSVC_THREADS set LJ_MSVC_THREADS=1
+@set LJ_MSVC_THREADS_OK=1
+@for /f "delims=0123456789" %%N in ("%LJ_MSVC_THREADS%") do @set LJ_MSVC_THREADS_OK=
+@if not defined LJ_MSVC_THREADS_OK set LJ_MSVC_THREADS=1
+@if %LJ_MSVC_THREADS% LSS 1 set LJ_MSVC_THREADS=1
+@set /a LJ_MSVC_PERF_JOBS=%LJ_MSVC_THREADS% + (%LJ_MSVC_THREADS% + 1) / 2
+@set /a LJ_MSVC_MAX_JOBS=%LJ_MSVC_THREADS% * 2
+@set /a LJ_MSVC_TURBO_JOBS=%LJ_MSVC_THREADS% * 3
+@set LJ_MSVC_JOBS=%LUAJIT_MSVC_JOBS%
+@if not defined LJ_MSVC_JOBS set LJ_MSVC_JOBS=turbo
+@if /I "%LJ_MSVC_JOBS%"=="auto" set LJ_MSVC_JOBS=%LJ_MSVC_TURBO_JOBS%
+@if /I "%LJ_MSVC_JOBS%"=="turbo" set LJ_MSVC_JOBS=%LJ_MSVC_TURBO_JOBS%
+@if /I "%LJ_MSVC_JOBS%"=="max" set LJ_MSVC_JOBS=%LJ_MSVC_MAX_JOBS%
+@if /I "%LJ_MSVC_JOBS%"=="perf" set LJ_MSVC_JOBS=%LJ_MSVC_PERF_JOBS%
+@if /I "%LJ_MSVC_JOBS%"=="logical" set LJ_MSVC_JOBS=%LJ_MSVC_THREADS%
+@set LJ_MSVC_JOBS_OK=1
+@for /f "delims=0123456789" %%N in ("%LJ_MSVC_JOBS%") do @set LJ_MSVC_JOBS_OK=
+@if not defined LJ_MSVC_JOBS_OK goto :BADJOBS
+@if %LJ_MSVC_JOBS% LSS 1 set LJ_MSVC_JOBS=1
+@set LJ_MSVC_MP=
+@if %LJ_MSVC_JOBS% GTR 1 set LJ_MSVC_MP=/MP%LJ_MSVC_JOBS%
+@goto :eof
+:PRINTJOBS
+@if defined LJ_MSVC_MP @echo MSVC parallel jobs: %LJ_MSVC_JOBS% %LJ_MSVC_MP%; detected %LJ_MSVC_THREADS% logical processors
+@if not defined LJ_MSVC_MP @echo MSVC parallel jobs: %LJ_MSVC_JOBS%; detected %LJ_MSVC_THREADS% logical processors
+@goto :eof
+:BADJOBS
+@echo LUAJIT_MSVC_JOBS must be a positive integer, auto, turbo, max, perf, or logical: %LUAJIT_MSVC_JOBS%
+@exit /b 1
 :SETHOSTVARS
 @if "%VSCMD_ARG_HOST_ARCH%_%VSCMD_ARG_TGT_ARCH%" equ "x64_arm64" (
   call "%VSINSTALLDIR%Common7\Tools\VsDevCmd.bat" -arch=%VSCMD_ARG_HOST_ARCH% -no_logo
