@@ -437,6 +437,12 @@ local function base_value_helpers(n)
       if reader_i == 1 then return "return " end
       if reader_i == 2 then return true end
     end)
+    local reader_num_i = 0
+    local late_num_fn, late_num_err = load(function()
+      reader_num_i = reader_num_i + 1
+      if reader_num_i == 1 then return "return " end
+      if reader_num_i == 2 then return 123 end
+    end)
     if text_fn == nil and
        text_err:find("attempt to load a text chunk (mode is 'b')", 1, true) and
        bin_fn == nil and
@@ -445,6 +451,9 @@ local function base_value_helpers(n)
     end
     if late_fn == nil and
        late_err:find("reader function must return a string", 1, true) then
+      sum = sum + 1
+    end
+    if late_num_err == nil and late_num_fn and late_num_fn() == 123 then
       sum = sum + 1
     end
   end
@@ -3351,7 +3360,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_value = timeit(mode_name..":base_value_helpers",
 			    base_value_helpers, iter_n)
-  assert(r_value == iter_n * 31)
+  assert(r_value == iter_n * 32)
 
   local _, r_stdlib_edge = timeit(mode_name..":stdlib_edge_helpers",
 				  stdlib_edge_helpers, iter_n)

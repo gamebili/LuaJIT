@@ -34,6 +34,7 @@ local cases = {
   { "base.load.reader.bool", "local done = false; return load(function() if not done then done = true; return true end end)", ok = { "nil:nil", "string:base.load.reader.bool:1: reader function must return a string" } },
   { "base.load.reader.latebool", "local i = 0; return load(function() i = i + 1; if i == 1 then return 'return ' end; if i == 2 then return true end end)", ok = { "nil:nil", "string:base.load.reader.latebool:1: reader function must return a string" } },
   { "base.load.reader.number", "local done = false; return load(function() if not done then done = true; return 123 end end)", ok = { "nil:nil", "string:(load):1: unexpected symbol near '123'" } },
+  { "base.load.reader.latenumber", "local i = 0; local f = assert(load(function() i = i + 1; if i == 1 then return 'return ' end; if i == 2 then return 123 end end)); return f()", ok = { "number:123" } },
   { "base.load.reader.empty", "local done = false; return load(function() if not done then done = true; return '' end end)", ok = { "function" } },
   { "base.load.reader.nilfirst", "return load(function() return nil end)", ok = { "function" } },
   { "base.load.mode.bintext", "return load('return 1', 'chunk', 'b')", ok = { "nil:nil", "string:attempt to load a text chunk (mode is 'b')" } },

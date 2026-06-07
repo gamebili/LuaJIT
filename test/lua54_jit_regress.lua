@@ -2326,6 +2326,12 @@ do
 	if i == 1 then return "return " end
 	if i == 2 then return true end
       end)
+      local j = 0
+      local late_num_fn, late_num_err = load(function()
+	j = j + 1
+	if j == 1 then return "return " end
+	if j == 2 then return 123 end
+      end)
       if text_fn == nil and
 	 text_err:find("attempt to load a text chunk (mode is 'b')",
 		       1, true) and
@@ -2338,8 +2344,11 @@ do
 	 late_err:find("reader function must return a string", 1, true) then
 	n = n + 1
       end
+      if late_num_err == nil and late_num_fn and late_num_fn() == 123 then
+	n = n + 1
+      end
     end
-    assert(n == 160)
+    assert(n == 240)
   end, "Lua 5.4 load mode errors")
 
   local function result_count(...)
