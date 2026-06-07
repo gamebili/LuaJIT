@@ -3433,6 +3433,12 @@ static int capi_tostring_multi_meta(lua_State *L)
   return 2;
 }
 
+static int capi_tostring_none_meta(lua_State *L)
+{
+  (void)L;
+  return 0;
+}
+
 static int capi_tostring_number_meta(lua_State *L)
 {
   (void)L;
@@ -9071,6 +9077,20 @@ static void test_lauxlib_api(lua_State *L)
 	  "luaL_callmeta keeps one multi-result");
     check_string(L, -1, "first meta tostring",
 		 "luaL_callmeta multi-result value");
+    lua_pop(L, 2);
+  }
+  {
+    int top = lua_gettop(L);
+    lua_newtable(L);
+    lua_newtable(L);
+    lua_pushcfunction(L, capi_tostring_none_meta);
+    lua_setfield(L, -2, "__tostring");
+    lua_setmetatable(L, -2);
+    check(L, luaL_callmeta(L, -1, "__tostring") == 1,
+	  "luaL_callmeta calls no-result metamethod");
+    check(L, lua_gettop(L) == top + 2,
+	  "luaL_callmeta pads no-result metamethod");
+    check(L, lua_isnil(L, -1), "luaL_callmeta no-result value");
     lua_pop(L, 2);
   }
 

@@ -120,6 +120,7 @@
    - 当前进展：C API smoke 已继续补入 `luaL_requiref()` 成功 opener 搭配 `glb=false` 的 lauxlib 边界，固定模块只写入 `_LOADED[modname]` 而不改写已有全局；后续 `glb=true` 调用会复用 loaded 模块并发布全局，且不会重新调用 opener。
    - 当前进展：C API smoke 已继续补入 `luaL_getsubtable()` 遇到 `__index` 返回非 table 值的 lauxlib 边界，固定 helper 会丢弃该值、创建新 table 并写回目标字段。
    - 当前进展：C API smoke 已继续补入 `luaL_callmeta()` metamethod 返回多个值的 lauxlib 边界，固定 helper 只在栈上保留第一个 metamethod 结果。
+   - 当前进展：C API smoke 已继续补入 `luaL_callmeta()` metamethod 返回 0 个结果的 lauxlib 边界，固定 helper 会按 `lua_call(..., 1)` 补一个 `nil` 结果并返回成功。
 
 ## P0：核心语义缺口
 
@@ -503,6 +504,7 @@
 - 当前进展：C API smoke 已固定 `luaL_getsubtable()` 的目标索引 release 边界；无效 table index 会稳定报 `invalid value`，不再只依赖内部 `lua_getfield()` / `lua_setfield()` 路径间接覆盖。
 - 当前进展：C API smoke 已固定 `luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE)` 在 `_LOADED` 被污染为非 table 时会创建并写回新的 table；测试会恢复原 `_LOADED`，避免影响后续 `luaL_requiref()` / `require()` 路径。
 - 当前进展：C API smoke 已固定 `luaL_getsubtable()` 遇到 `__index` 返回非 table 值时会按官方 helper 语义创建新 table 并写回目标字段，不会把 `__index` 返回的标量当作有效 subtable。
+- 当前进展：C API smoke 已固定 `luaL_callmeta()` 的 no-result metamethod 边界；helper 仍会返回 1，并在栈上留下 `nil` 作为补齐的单个结果。
 - 当前进展：C API smoke 已固定 `luaL_requiref()` 遇到 registry `_LOADED` 被污染为非 table 时会先重建 `_LOADED` table，再正常调用 opener、写入 `_LOADED[modname]` 并按 `glb=true` 发布全局；测试结束会恢复原 `_LOADED`。
 - 当前进展：`luaL_checkversion_()` 的 version mismatch 错误已按 Lua 5.4 把版本号格式化为 Lua number 文本，例如 `503.0` / `504.0`，不再用旧整数 `%d` 文本。
 - 当前进展：`luaL_typeerror()` 已按 Lua 5.4 在没有字符串 `__name` 覆盖时把 light userdata 报为 `light userdata`；C API smoke 同时覆盖直接 `luaL_checktype()` 路径和 `luaL_argexpected()` 宏路径。
@@ -1033,6 +1035,7 @@
 - `git diff --check`、`cmd /c build.bat lua54-capi-runtime-smoke` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `luaL_getsubtable()` 遇到 `__index` 返回非 table 值时丢弃该值、创建新 table 并写回目标字段的 lauxlib 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `git diff --check`、`cmd /c build.bat lua54-capi-runtime-smoke` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `luaL_callmeta()` metamethod 返回多个值时只保留第一个结果、额外返回值不留在栈上的 lauxlib 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `git diff --check`、`cmd /c build.bat jobs`、`powershell -NoProfile -ExecutionPolicy Bypass -File tools\lua54_platform_matrix.ps1 -Target probe` 和 `cmd /c build.bat lua54build` 已通过；确认本机 32 逻辑线程仍默认使用 `-j96` turbo 并行，平台 probe 同步使用 96 jobs，Lua 5.4 增量构建会复用 compat 配置 stamp 并完成编译，同时常用入口的处理器探测优先走环境变量 / .NET 快路径。
+- `git diff --check`、`cmd /c build.bat lua54-capi-runtime-smoke` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `luaL_callmeta()` metamethod 返回 0 个结果时补 `nil` 并返回成功的 lauxlib 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 
 ## 已确认不列入当前 TODO 的已实现项
 
