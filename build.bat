@@ -46,6 +46,9 @@ set "MAX_BUILD_JOBS="
 set "TURBO_BUILD_JOBS="
 set "BUILD_JOBS_SOURCE=auto-turbo"
 set "MAKE_OUTPUT_SYNC_SOURCE=auto"
+set "MAKE_NO_PRINT_DIRECTORY=--no-print-directory"
+set "BUILD_PIPE_FLAG="
+set "BUILD_PIPE_SOURCE=auto"
 if not "%NUMBER_OF_PROCESSORS%"=="" set "CPU_THREADS=%NUMBER_OF_PROCESSORS%"
 if "!CPU_THREADS!"=="" (
   for /f "usebackq delims=" %%C in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$sum=0; foreach ($cpu in (Get-CimInstance Win32_Processor)) { $sum += $cpu.NumberOfLogicalProcessors }; if ($sum -gt 0) { [int]$sum }" 2^>nul`) do (
@@ -124,6 +127,8 @@ if /I not "!MAKE_OUTPUT_SYNC!"=="none" (
 )
 set "MAKE_ARGS=%*"
 set "SAW_MAKE_J="
+set "SAW_CFLAGS_ARG="
+echo(!MAKE_ARGS! | findstr /I /C:"CFLAGS=" >nul && set "SAW_CFLAGS_ARG=1"
 set "EXPECT_MAKE_JOBS="
 for %%A in (%*) do (
   set "ARG=%%~A"
@@ -164,8 +169,29 @@ for %%A in (%*) do (
     )
   )
 )
-set "MAKE_PARALLEL_ARGS=!MAKE_JOBS!"
+if "!BUILD_PIPE!"=="" set "BUILD_PIPE=auto"
+if /I "!BUILD_PIPE!"=="1" set "BUILD_PIPE=on"
+if /I "!BUILD_PIPE!"=="yes" set "BUILD_PIPE=on"
+if /I "!BUILD_PIPE!"=="true" set "BUILD_PIPE=on"
+if /I "!BUILD_PIPE!"=="0" set "BUILD_PIPE=off"
+if /I "!BUILD_PIPE!"=="no" set "BUILD_PIPE=off"
+if /I "!BUILD_PIPE!"=="false" set "BUILD_PIPE=off"
+if /I "!BUILD_PIPE!"=="auto" (
+  if "!CFLAGS!"=="" if not "!SAW_CFLAGS_ARG!"=="1" set "BUILD_PIPE_FLAG=CFLAGS=-pipe"
+) else if /I "!BUILD_PIPE!"=="on" (
+  if "!CFLAGS!"=="" if not "!SAW_CFLAGS_ARG!"=="1" (
+    set "BUILD_PIPE_FLAG=CFLAGS=-pipe"
+    set "BUILD_PIPE_SOURCE=BUILD_PIPE=on"
+  )
+) else if /I "!BUILD_PIPE!"=="off" (
+  set "BUILD_PIPE_SOURCE=BUILD_PIPE=off"
+) else (
+  echo [build.bat] BUILD_PIPE must be auto, on, off, 1, or 0: !BUILD_PIPE!
+  exit /b 1
+)
+set "MAKE_PARALLEL_ARGS=!MAKE_JOBS! !MAKE_NO_PRINT_DIRECTORY!"
 if not "!MAKE_OUTPUT_SYNC_FLAG!"=="" set "MAKE_PARALLEL_ARGS=!MAKE_PARALLEL_ARGS! !MAKE_OUTPUT_SYNC_FLAG!"
+if not "!BUILD_PIPE_FLAG!"=="" set "MAKE_PARALLEL_ARGS=!MAKE_PARALLEL_ARGS! !BUILD_PIPE_FLAG!"
 
 if "%~1"=="" goto :TEST
 if /I "%~1"=="help" goto :HELP
@@ -243,6 +269,7 @@ echo Perf profiles pin opt level, hotloop, and hotexit; override with LUA54_PERF
 echo Parallelism defaults to turbo mode, about 3x detected logical processors; override with BUILD_JOBS=N, BUILD_JOBS=auto, BUILD_JOBS=turbo, BUILD_JOBS=perf, BUILD_JOBS=max, BUILD_JOBS=logical, or -jN.
 echo BUILD_JOBS=max uses about 2x detected logical processors; BUILD_JOBS=perf uses about 1.5x; BUILD_JOBS=logical uses exactly the detected processor count. Bare -j is normalized to the current job count.
 echo GNU make output sync defaults to target mode to reduce parallel console overhead; override with MAKE_OUTPUT_SYNC=none, line, recurse, or target.
+echo Local GNU builds default to CFLAGS=-pipe and --no-print-directory to reduce compiler temp-file and console overhead; override with BUILD_PIPE=off or explicit CFLAGS=...
 echo Common local Lua 5.4 targets clean only when the saved build flags change; use the *full variants for a clean rebuild.
 echo Examples: build.bat lua54quick -j96   or   set BUILD_JOBS=max
 exit /b 0
@@ -468,6 +495,8 @@ goto :SET_REST_LOOP
 if not "!PRINTED_BUILD_JOBS!"=="1" (
   echo [build.bat] detected !CPU_THREADS! logical processors; using !BUILD_JOBS! make jobs ^(!BUILD_JOBS_SOURCE!^).
   if not "!MAKE_OUTPUT_SYNC_FLAG!"=="" echo [build.bat] make output sync !MAKE_OUTPUT_SYNC! ^(!MAKE_OUTPUT_SYNC_SOURCE!^).
+  if not "!BUILD_PIPE_FLAG!"=="" echo [build.bat] compiler pipe flag !BUILD_PIPE_FLAG! ^(!BUILD_PIPE_SOURCE!^).
+  if not "!MAKE_NO_PRINT_DIRECTORY!"=="" echo [build.bat] make directory messages disabled.
   set "PRINTED_BUILD_JOBS=1"
 )
 exit /b 0

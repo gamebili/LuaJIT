@@ -168,13 +168,41 @@ function Get-MakeOutputSyncArgs {
   return @("--output-sync=$mode")
 }
 
+function Get-MakePipeArgs {
+  param([string[]]$Arguments = @())
+
+  $mode = if ($env:BUILD_PIPE) {
+    $env:BUILD_PIPE.ToLowerInvariant()
+  } else {
+    "auto"
+  }
+  if ($mode -in @("0", "no", "false")) {
+    $mode = "off"
+  } elseif ($mode -in @("1", "yes", "true")) {
+    $mode = "on"
+  }
+  if ($mode -notin @("auto", "on", "off")) {
+    throw "BUILD_PIPE must be auto, on, off, 1, or 0: $env:BUILD_PIPE"
+  }
+  if ($mode -eq "off" -or $env:CFLAGS) {
+    return @()
+  }
+  foreach ($arg in $Arguments) {
+    if ($arg -imatch '^CFLAGS=') {
+      return @()
+    }
+  }
+  return @("CFLAGS=-pipe")
+}
+
 $script:MakeJobCount = Get-MakeJobCount
-$script:MakeJobArgs = @("-j$script:MakeJobCount") + (Get-MakeOutputSyncArgs)
-Write-Host ("[platform] using make arguments: {0}." -f ($script:MakeJobArgs -join " "))
+$script:MakeJobArgs = @("-j$script:MakeJobCount", "--no-print-directory") + (Get-MakeOutputSyncArgs)
+$script:DefaultMakeArgs = $script:MakeJobArgs + (Get-MakePipeArgs)
+Write-Host ("[platform] using make arguments: {0}." -f ($script:DefaultMakeArgs -join " "))
 
 function Invoke-MakeChecked {
   param([string[]]$Arguments = @())
-  Invoke-Checked $Make ($script:MakeJobArgs + $Arguments)
+  Invoke-Checked $Make ($script:MakeJobArgs + (Get-MakePipeArgs $Arguments) + $Arguments)
 }
 
 function Assert-PeAmd64Artifact {
