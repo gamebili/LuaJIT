@@ -3867,6 +3867,11 @@ do
     local df = os.difftime
     local tm = os.time
     local sp = package.searchpath
+    local gm = string.gmatch
+    local ins = table.insert
+    local m = table.move
+    local rem = table.remove
+    local off = utf8.offset
     local n = 0
     for _ = 1, 80 do
       local ok_a, err_a = pcall(function()
@@ -3895,6 +3900,21 @@ do
       end)
       local ok_sp, err_sp = pcall(function()
 	return sp("a", "?.lua", ".", true)
+      end)
+      local ok_gm, err_gm = pcall(function()
+	return gm("abc", ".", true)
+      end)
+      local ok_ins, err_ins = pcall(function()
+	return ins(nil, 1)
+      end)
+      local ok_m, err_m = pcall(function()
+	return m(nil, 1, 0, 1)
+      end)
+      local ok_rem, err_rem = pcall(function()
+	return rem(nil)
+      end)
+      local ok_off, err_off = pcall(function()
+	return off("abc", true)
       end)
       if not ok_a and
 	 err_a:find("bad argument #2 to 'a'", 1, true) and
@@ -3941,8 +3961,33 @@ do
 	 err_sp:find("string expected, got boolean", 1, true) then
 	n = n + 1
       end
+      if not ok_gm and
+	 err_gm:find("bad argument #3 to 'gm'", 1, true) and
+	 err_gm:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if not ok_ins and
+	 err_ins:find("bad argument #1 to 'ins'", 1, true) and
+	 err_ins:find("table expected, got nil", 1, true) then
+	n = n + 1
+      end
+      if not ok_m and
+	 err_m:find("bad argument #1 to 'm'", 1, true) and
+	 err_m:find("table expected, got nil", 1, true) then
+	n = n + 1
+      end
+      if not ok_rem and
+	 err_rem:find("bad argument #1 to 'rem'", 1, true) and
+	 err_rem:find("table expected, got nil", 1, true) then
+	n = n + 1
+      end
+      if not ok_off and
+	 err_off:find("bad argument #2 to 'off'", 1, true) and
+	 err_off:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
     end
-    assert(n == 720)
+    assert(n == 1120)
   end, "Lua 5.4 stdlib local alias error names")
 end
 

@@ -2438,6 +2438,11 @@ local function stdlib_alias_error_helpers(n)
   local df = os.difftime
   local tm = os.time
   local sp = package.searchpath
+  local gm = string.gmatch
+  local ins = table.insert
+  local m = table.move
+  local rem = table.remove
+  local off = utf8.offset
   local sum = 0
   for _ = 1, n do
     local ok_a, err_a = pcall(function()
@@ -2518,6 +2523,51 @@ local function stdlib_alias_error_helpers(n)
     if not ok_sp and
        err_sp:find("bad argument #4 to 'sp'", 1, true) and
        err_sp:find("string expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_gm, err_gm = pcall(function()
+      return gm("abc", ".", true)
+    end)
+    if not ok_gm and
+       err_gm:find("bad argument #3 to 'gm'", 1, true) and
+       err_gm:find("number expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_ins, err_ins = pcall(function()
+      return ins(nil, 1)
+    end)
+    if not ok_ins and
+       err_ins:find("bad argument #1 to 'ins'", 1, true) and
+       err_ins:find("table expected, got nil", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_m, err_m = pcall(function()
+      return m(nil, 1, 0, 1)
+    end)
+    if not ok_m and
+       err_m:find("bad argument #1 to 'm'", 1, true) and
+       err_m:find("table expected, got nil", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_rem, err_rem = pcall(function()
+      return rem(nil)
+    end)
+    if not ok_rem and
+       err_rem:find("bad argument #1 to 'rem'", 1, true) and
+       err_rem:find("table expected, got nil", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_off, err_off = pcall(function()
+      return off("abc", true)
+    end)
+    if not ok_off and
+       err_off:find("bad argument #2 to 'off'", 1, true) and
+       err_off:find("number expected, got boolean", 1, true) then
       sum = sum + 1
     end
   end
@@ -3169,7 +3219,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_alias_errors = timeit(mode_name..":stdlib_alias_error_helpers",
 				   stdlib_alias_error_helpers, iter_n)
-  assert(r_alias_errors == iter_n * 9)
+  assert(r_alias_errors == iter_n * 14)
 
   local _, r_string_order = timeit(mode_name..":string_order_helpers",
 				   string_order_helpers, iter_n)
