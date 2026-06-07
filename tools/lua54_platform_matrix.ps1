@@ -74,6 +74,7 @@ function Invoke-Checked {
 }
 
 function Get-DetectedLogicalProcessorCount {
+  $minFastThreads = 8
   $counts = New-Object System.Collections.Generic.List[int]
   if ($env:NUMBER_OF_PROCESSORS -and $env:NUMBER_OF_PROCESSORS -match '^\d+$') {
     $counts.Add([int]$env:NUMBER_OF_PROCESSORS)
@@ -81,17 +82,34 @@ function Get-DetectedLogicalProcessorCount {
   if ([Environment]::ProcessorCount -gt 0) {
     $counts.Add([Environment]::ProcessorCount)
   }
-  try {
-    $cimThreads = 0
-    foreach ($cpu in (Get-CimInstance Win32_Processor)) {
-      $cimThreads += [int]$cpu.NumberOfLogicalProcessors
+  $cpuScanMode = if ($env:BUILD_CPU_SCAN) {
+    $env:BUILD_CPU_SCAN.ToLowerInvariant()
+  } else {
+    "auto"
+  }
+  if ($cpuScanMode -in @("1", "yes", "true")) {
+    $cpuScanMode = "full"
+  }
+  if ($cpuScanMode -notin @("auto", "full")) {
+    throw "BUILD_CPU_SCAN must be auto or full: $env:BUILD_CPU_SCAN"
+  }
+  $fastThreads = 0
+  if ($counts.Count -gt 0) {
+    $fastThreads = [int](($counts | Measure-Object -Maximum).Maximum)
+  }
+  if ($cpuScanMode -eq "full" -or $counts.Count -eq 0 -or $fastThreads -lt $minFastThreads) {
+    try {
+      $cimThreads = 0
+      foreach ($cpu in (Get-CimInstance Win32_Processor)) {
+        $cimThreads += [int]$cpu.NumberOfLogicalProcessors
+      }
+      if ($cimThreads -gt 0) {
+        $counts.Add($cimThreads)
+      }
+    } catch {
+      # Some stripped-down PowerShell hosts do not expose CIM. Keep the cheaper
+      # env/.NET counts instead of failing the build wrapper.
     }
-    if ($cimThreads -gt 0) {
-      $counts.Add($cimThreads)
-    }
-  } catch {
-    # Some stripped-down PowerShell hosts do not expose CIM. Keep the cheaper
-    # env/.NET counts instead of failing the build wrapper.
   }
   $threads = 0
   if ($counts.Count -gt 0) {

@@ -44,16 +44,40 @@ set "PERF_BUILD_JOBS="
 set "DEFAULT_BUILD_JOBS="
 set "MAX_BUILD_JOBS="
 set "TURBO_BUILD_JOBS="
+set "MIN_FAST_CPU_THREADS=8"
 set "BUILD_JOBS_SOURCE=auto-turbo"
 set "MAKE_OUTPUT_SYNC_SOURCE=auto"
 set "MAKE_NO_PRINT_DIRECTORY=--no-print-directory"
 set "BUILD_PIPE_FLAG="
 set "BUILD_PIPE_SOURCE=auto"
-if not "%NUMBER_OF_PROCESSORS%"=="" set "CPU_THREADS=%NUMBER_OF_PROCESSORS%"
+set "BUILD_CPU_SCAN_MODE=%BUILD_CPU_SCAN%"
+if "!BUILD_CPU_SCAN_MODE!"=="" set "BUILD_CPU_SCAN_MODE=auto"
+if /I "!BUILD_CPU_SCAN_MODE!"=="1" set "BUILD_CPU_SCAN_MODE=full"
+if /I "!BUILD_CPU_SCAN_MODE!"=="yes" set "BUILD_CPU_SCAN_MODE=full"
+if /I "!BUILD_CPU_SCAN_MODE!"=="true" set "BUILD_CPU_SCAN_MODE=full"
+set "BUILD_CPU_SCAN_MODE_OK="
+if /I "!BUILD_CPU_SCAN_MODE!"=="auto" set "BUILD_CPU_SCAN_MODE_OK=1"
+if /I "!BUILD_CPU_SCAN_MODE!"=="full" set "BUILD_CPU_SCAN_MODE_OK=1"
+if not "!BUILD_CPU_SCAN_MODE_OK!"=="1" (
+  echo [build.bat] BUILD_CPU_SCAN must be auto or full: !BUILD_CPU_SCAN_MODE!
+  exit /b 1
+)
+if not "%NUMBER_OF_PROCESSORS%"=="" (
+  set "CPU_THREADS=%NUMBER_OF_PROCESSORS%"
+  set "CPU_THREADS_NUM=1"
+  for /f "delims=0123456789" %%N in ("!CPU_THREADS!") do set "CPU_THREADS_NUM="
+  if "!CPU_THREADS_NUM!"=="" set "CPU_THREADS="
+)
 set "DETECTED_CPU_THREADS="
+if /I "!BUILD_CPU_SCAN_MODE!"=="full" goto :RUN_CPU_SCAN
+if "!CPU_THREADS!"=="" goto :RUN_CPU_SCAN
+if !CPU_THREADS! LSS !MIN_FAST_CPU_THREADS! goto :RUN_CPU_SCAN
+goto :SKIP_CPU_SCAN
+:RUN_CPU_SCAN
 for /f "usebackq delims=" %%C in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$counts=@(); if ($env:NUMBER_OF_PROCESSORS -match '^\d+$') { $counts += [int]$env:NUMBER_OF_PROCESSORS }; $counts += [Environment]::ProcessorCount; try { $sum=0; foreach ($cpu in (Get-CimInstance Win32_Processor)) { $sum += [int]$cpu.NumberOfLogicalProcessors }; if ($sum -gt 0) { $counts += $sum } } catch {}; if ($counts.Count -gt 0) { ($counts | Measure-Object -Maximum).Maximum }" 2^>nul`) do (
   if not "%%C"=="" set "DETECTED_CPU_THREADS=%%C"
 )
+:SKIP_CPU_SCAN
 if "!CPU_THREADS!"=="" (
   set "CPU_THREADS=!DETECTED_CPU_THREADS!"
 ) else if not "!DETECTED_CPU_THREADS!"=="" (
@@ -270,8 +294,9 @@ echo   jobs        Print the detected local make job count.
 echo.
 echo Any other arguments are forwarded to GNU make unchanged.
 echo Perf profiles pin opt level, hotloop, and hotexit; override with LUA54_PERF_JIT_OPTS.
-echo Parallelism defaults to turbo mode, about 3x the full-machine logical processor scan; override with BUILD_JOBS=N, BUILD_JOBS=auto, BUILD_JOBS=turbo, BUILD_JOBS=perf, BUILD_JOBS=max, BUILD_JOBS=logical, or -jN.
+echo Parallelism defaults to turbo mode, about 3x the detected logical processors; override with BUILD_JOBS=N, BUILD_JOBS=auto, BUILD_JOBS=turbo, BUILD_JOBS=perf, BUILD_JOBS=max, BUILD_JOBS=logical, or -jN.
 echo BUILD_JOBS=max uses about 2x detected logical processors; BUILD_JOBS=perf uses about 1.5x; BUILD_JOBS=logical uses exactly the detected processor count. Bare -j is normalized to the current job count.
+echo Processor detection uses the fast environment count by default; missing or very low counts fall back to the slower PowerShell/CIM full-machine scan. Set BUILD_CPU_SCAN=full to force it.
 echo GNU make output sync defaults to target mode to reduce parallel console overhead; override with MAKE_OUTPUT_SYNC=none, line, recurse, or target.
 echo Local GNU builds default to CFLAGS=-pipe and --no-print-directory to reduce compiler temp-file and console overhead; override with BUILD_PIPE=off or explicit CFLAGS=...
 echo Common local Lua 5.4 targets clean only when the saved build flags change; use the *full variants for a clean rebuild.

@@ -14,6 +14,8 @@
 @rem   jobs          print the detected MSVC /MP job count and exit
 @rem Set LUAJIT_MSVC_JOBS=auto/turbo/max/perf/logical/N to override the /MP
 @rem job count. The default is turbo, about 3x the detected logical processors.
+@rem Missing or very low CPU counts fall back to PowerShell/CIM. Set
+@rem BUILD_CPU_SCAN=full to force the slower full-machine scan.
 
 @if /I "%1"=="jobs" (
   @setlocal
@@ -170,13 +172,32 @@ if exist luajit.exe.manifest^
 
 @goto :END
 :SETJOBS
-@set LJ_MSVC_THREADS=%NUMBER_OF_PROCESSORS%
-@if not defined LJ_MSVC_THREADS set LJ_MSVC_THREADS=1
-@set LJ_MSVC_THREADS_OK=1
+@set LJ_MSVC_THREADS=
+@set LJ_MSVC_FAST_THREADS=
+@if defined NUMBER_OF_PROCESSORS set LJ_MSVC_THREADS=%NUMBER_OF_PROCESSORS%
+@set LJ_MSVC_THREADS_OK=
+@if defined LJ_MSVC_THREADS set LJ_MSVC_THREADS_OK=1
 @for /f "delims=0123456789" %%N in ("%LJ_MSVC_THREADS%") do @set LJ_MSVC_THREADS_OK=
-@if not defined LJ_MSVC_THREADS_OK set LJ_MSVC_THREADS=1
+@if not defined LJ_MSVC_THREADS_OK set LJ_MSVC_THREADS=
+@if defined LJ_MSVC_THREADS set LJ_MSVC_FAST_THREADS=1
+@if not defined LJ_MSVC_THREADS set LJ_MSVC_THREADS=1
+@set LJ_MSVC_CPU_SCAN=%BUILD_CPU_SCAN%
+@if not defined LJ_MSVC_CPU_SCAN set LJ_MSVC_CPU_SCAN=auto
+@if /I "%LJ_MSVC_CPU_SCAN%"=="1" set LJ_MSVC_CPU_SCAN=full
+@if /I "%LJ_MSVC_CPU_SCAN%"=="yes" set LJ_MSVC_CPU_SCAN=full
+@if /I "%LJ_MSVC_CPU_SCAN%"=="true" set LJ_MSVC_CPU_SCAN=full
+@set LJ_MSVC_CPU_SCAN_OK=
+@if /I "%LJ_MSVC_CPU_SCAN%"=="auto" set LJ_MSVC_CPU_SCAN_OK=1
+@if /I "%LJ_MSVC_CPU_SCAN%"=="full" set LJ_MSVC_CPU_SCAN_OK=1
+@if not defined LJ_MSVC_CPU_SCAN_OK goto :BADCPUSCAN
 @if %LJ_MSVC_THREADS% LSS 1 set LJ_MSVC_THREADS=1
+@set LJ_MSVC_MIN_FAST_THREADS=8
 @set LJ_MSVC_DETECTED_THREADS=
+@if /I "%LJ_MSVC_CPU_SCAN%"=="full" goto :MSVC_RUN_CPU_SCAN
+@if not defined LJ_MSVC_FAST_THREADS goto :MSVC_RUN_CPU_SCAN
+@if %LJ_MSVC_THREADS% LSS %LJ_MSVC_MIN_FAST_THREADS% goto :MSVC_RUN_CPU_SCAN
+@goto :MSVC_DETECT_DONE
+:MSVC_RUN_CPU_SCAN
 @for /f "usebackq delims=" %%C in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$counts=@(); if ($env:NUMBER_OF_PROCESSORS -match '^\d+$') { $counts += [int]$env:NUMBER_OF_PROCESSORS }; $counts += [Environment]::ProcessorCount; try { $sum=0; foreach ($cpu in (Get-CimInstance Win32_Processor)) { $sum += [int]$cpu.NumberOfLogicalProcessors }; if ($sum -gt 0) { $counts += $sum } } catch {}; if ($counts.Count -gt 0) { ($counts | Measure-Object -Maximum).Maximum }" 2^>nul`) do @set LJ_MSVC_DETECTED_THREADS=%%C
 @if defined LJ_MSVC_DETECTED_THREADS @for /f "delims=0123456789" %%N in ("%LJ_MSVC_DETECTED_THREADS%") do @set LJ_MSVC_DETECTED_THREADS=
 @if not defined LJ_MSVC_DETECTED_THREADS goto :MSVC_DETECT_DONE
@@ -205,6 +226,9 @@ if exist luajit.exe.manifest^
 @goto :eof
 :BADJOBS
 @echo LUAJIT_MSVC_JOBS must be a positive integer, auto, turbo, max, perf, or logical: %LUAJIT_MSVC_JOBS%
+@exit /b 1
+:BADCPUSCAN
+@echo BUILD_CPU_SCAN must be auto or full: %BUILD_CPU_SCAN%
 @exit /b 1
 :SETHOSTVARS
 @if "%VSCMD_ARG_HOST_ARCH%_%VSCMD_ARG_TGT_ARCH%" equ "x64_arm64" (
