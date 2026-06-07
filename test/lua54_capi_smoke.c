@@ -9247,6 +9247,27 @@ static void test_lauxlib_api(lua_State *L)
     lua_pop(L, 2);
   }
 
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushcfunction(L, capi_tostring_callable_meta);
+  lua_setfield(L, -2, "__call");
+  lua_setmetatable(L, -2);
+  lua_setfield(L, -2, "__tostring");
+  lua_setmetatable(L, -2);
+  {
+    size_t len = 0;
+    const char *s = luaL_tolstring(L, -1, &len);
+    check(L, len == strlen("callable meta tostring"),
+	  "luaL_tolstring callable __tostring length");
+    check(L, strcmp(s, "callable meta tostring") == 0,
+	  "luaL_tolstring callable __tostring");
+    check_string(L, -1, "callable meta tostring",
+		 "luaL_tolstring callable __tostring stack");
+    lua_pop(L, 2);
+  }
+
   lua_pushcfunction(L, laux_tolstring_bool_meta_arg);
   status = lua_pcall(L, 0, 0, 0);
   check(L, status == LUA_ERRRUN, "luaL_tolstring boolean __tostring status");
