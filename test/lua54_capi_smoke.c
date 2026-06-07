@@ -6488,6 +6488,8 @@ static void test_compare_len_arith(lua_State *L)
   static const char missing_pointer_key;
   int rtype;
   int status;
+  int gidx;
+  int old_gmt_ref;
   const char *errmsg;
   RawGetI54Sig rawgeti_compat_sig = lua_rawgeti54;
   RawSetI54Sig rawseti_compat_sig = lua_rawseti54;
@@ -6886,6 +6888,49 @@ static void test_compare_len_arith(lua_State *L)
   rtype = lua_getglobal_sig(L, "__capi_missing_global_return_type");
   check(L, rtype == LUA_TNIL, "lua_getglobal missing return type");
   check(L, lua_isnil(L, -1), "lua_getglobal missing pushes nil");
+  lua_pop(L, 1);
+
+  lua_pushglobaltable(L);
+  gidx = lua_gettop(L);
+  if (lua_getmetatable(L, gidx))
+    old_gmt_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+  else
+    old_gmt_ref = LUA_NOREF;
+
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushliteral(L, "global-meta-table");
+  lua_setfield(L, -2, "__capi_global_virtual");
+  lua_setfield(L, -2, "__index");
+  check(L, lua_setmetatable(L, gidx) == 1,
+	"lua_getglobal set table __index metatable");
+  rtype = lua_getglobal_sig(L, "__capi_global_virtual");
+  check(L, rtype == LUA_TSTRING, "lua_getglobal table __index return type");
+  check_string(L, -1, "global-meta-table",
+	       "lua_getglobal table __index value");
+  lua_pop(L, 1);
+
+  lua_newtable(L);
+  lua_pushcfunction(L, getwrapper_index_func);
+  lua_setfield(L, -2, "__index");
+  check(L, lua_setmetatable(L, gidx) == 1,
+	"lua_getglobal set function __index metatable");
+  rtype = lua_getglobal_sig(L, "virtual-func");
+  check(L, rtype == LUA_TSTRING,
+	"lua_getglobal function __index return type");
+  check_string(L, -1, "func-field", "lua_getglobal function __index value");
+  lua_pop(L, 1);
+
+  if (old_gmt_ref != LUA_NOREF) {
+    lua_rawgeti(L, LUA_REGISTRYINDEX, old_gmt_ref);
+    check(L, lua_setmetatable(L, gidx) == 1,
+	  "lua_getglobal restore original metatable");
+    luaL_unref(L, LUA_REGISTRYINDEX, old_gmt_ref);
+  } else {
+    lua_pushnil(L);
+    check(L, lua_setmetatable(L, gidx) == 1,
+	  "lua_getglobal clear temporary metatable");
+  }
   lua_pop(L, 1);
 
   lua_newtable(L);
