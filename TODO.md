@@ -63,6 +63,7 @@
    - 当前进展：`build.bat lua54compat53` / `lua54nogc64` 也已改为配置 stamp 增量入口，同配置重复验证会复用对象文件并继续使用本机 turbo `-j96`；需要强制 clean rebuild 时改用新增的 `lua54compat53full` / `lua54nogc64full` 显式入口，避免默认 `build.bat test` 尾段对 non-GC64 配置每次无条件全量重编。
    - 当前进展：`Makefile` 已把 non-GC64 Lua 5.4 构建后的版本探针、runtime smoke 和 JIT regression smoke 拆成 `lua54-nogc64-*` 并行子目标；`build.bat lua54nogc64` / `lua54nogc64full` 完成对应配置构建后会用同一个 make jobserver 并行调度尾段验证，避免 `build.bat test` 最后阶段串行等待。
    - 当前进展：官方 Lua 5.4 matrix 已拆成 `lua54-official-*` Makefile 子目标，`run-lua54compat-tests` 会把每个官方测试文件交给同一个 make jobserver 并行调度；`test/lua54_official_matrix.lua --case <name>` 保留单 case 入口，方便失败时单独复现，同时直接运行脚本仍保持旧的顺序 matrix 行为。
+   - 当前进展：`build.bat test` 默认入口已改为一次性转发到顶层 `make test`，避免 batch 层重复启动四次 GNU make；顶层 `Makefile test` 在 Lua 5.4 full build 和 C API/runtime smoke 后直接运行 perf 子目标，少一次同配置 `build-lua54compat-incremental` 检查，同时仍保持 default / Lua 5.4 / non-GC64 三种会互相覆盖对象文件的构建配置串行切换。
    - 当前进展：PC x64、x86、ARM64、ARM、MIPS、MIPS64、PPC 的 `__call` callable-chain 已统一改为由 `lj_meta_call` 返回新增隐式参数数量，并由各 VM 后端更新 `NARGS`；PC x64 / Android ARM64 已额外覆盖 100 层 callable-chain tailcall 扩栈和 `CALLT` 保持，Android ARM64 设备 smoke 已覆盖该路径。
 
 6. **C API / lauxlib / 标准库收尾批次**
@@ -1101,6 +1102,7 @@
 - 本机官方 `H:\p4\gl_home_u4\pristine\tools\lua\lua5.4.8\lua54.exe` 与 `.\src\luajit.exe` 直接探针已确认 `dofile(path, true, false)` 会忽略额外参数，并保留 loaded chunk 的 `63, nil, "x"` 三个返回值；`git diff --check`、`.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `dofile()` 额外参数与返回 nil 洞边界；确认 Lua 5.4 compat 构建、官方矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - 本机官方 `H:\p4\gl_home_u4\pristine\tools\lua\lua5.4.8\lua54.exe` 与 `.\src\luajit.exe` 直接探针已确认 `load(..., nil)` / `loadfile(..., nil)` 会把 source chunk 的 `_ENV` 和 stripped binary chunk 的首个无名 upvalue 初始化为 exact `nil`，而不是省略 env 的默认全局环境；`git diff --check`、`.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增显式 nil env 注入边界；确认 Lua 5.4 compat 构建、官方矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - 本机官方 `H:\p4\gl_home_u4\pristine\tools\lua\lua5.4.8\lua54.exe` 与 `.\src\luajit.exe` 直接探针已确认 `load(..., 123)` / `loadfile(..., 123)` 会把 source chunk 的 `_ENV` 和 stripped binary chunk 的首个无名 upvalue 初始化为 exact number `123`；`git diff --check`、`.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 number env 注入边界；确认 Lua 5.4 compat 构建、官方矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
+- `git diff --check`、`cmd /c build.bat help`、`cmd /c build.bat test -n` 和 `cmd /c build.bat lua54quick` 已通过；确认默认 `build.bat test` 入口现在只启动一次顶层 GNU make 并转发完整 `-j96 --no-print-directory --output-sync=target CFLAGS=-pipe` 参数，dry-run 中 perf 阶段已直接走 `run-perf-lua54compat-tests`，不再重复进入同配置 Lua 5.4 增量构建检查，同时 Lua 5.4 quick 构建、官方矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 
 ## 已确认不列入当前 TODO 的已实现项
 

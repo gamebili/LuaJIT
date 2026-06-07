@@ -269,7 +269,7 @@ echo Usage: build.bat [target or make args]
 echo.
 echo Common targets:
 echo   build       Incrementally build default LuaJIT artifacts.
-echo   test        Run default, Lua 5.4 and non-GC64 smoke tests. This is default.
+echo   test        Run default, Lua 5.4/perf and non-GC64 smoke tests through one make jobserver. This is default.
 echo   default     Run the incremental default compatibility smoke and C API smoke.
 echo   lua54build  Incrementally build Lua 5.4 compatibility artifacts.
 echo   lua54       Run incremental Lua 5.4 compatibility smoke and C API smoke.
@@ -425,13 +425,7 @@ exit /b !ERRORLEVEL!
 
 :TEST
 call :SET_REST %*
-call :RUN smoketest-capi-default%REST_ARGS%
-if errorlevel 1 exit /b !ERRORLEVEL!
-call :RUN smoketest-capi-lua54compat%REST_ARGS%
-if errorlevel 1 exit /b !ERRORLEVEL!
-call :RUN smoketest-perf-lua54compat%REST_ARGS%
-if errorlevel 1 exit /b !ERRORLEVEL!
-call :RUN smoketest-lua54compat-nogc64%REST_ARGS%
+call :RUN test%REST_ARGS%
 exit /b !ERRORLEVEL!
 
 :FORWARD
