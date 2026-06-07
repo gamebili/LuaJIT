@@ -43,32 +43,40 @@ set "CPU_THREADS="
 set "PERF_BUILD_JOBS="
 set "DEFAULT_BUILD_JOBS="
 set "MAX_BUILD_JOBS="
-set "BUILD_JOBS_SOURCE=auto-max"
+set "TURBO_BUILD_JOBS="
+set "BUILD_JOBS_SOURCE=auto-turbo"
 for /f "usebackq delims=" %%C in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$sum=0; foreach ($cpu in (Get-CimInstance Win32_Processor)) { $sum += $cpu.NumberOfLogicalProcessors }; if ($sum -gt 0) { [int]$sum }" 2^>nul`) do (
   if not "%%C"=="" set "CPU_THREADS=%%C"
 )
 if "!CPU_THREADS!"=="" if not "%NUMBER_OF_PROCESSORS%"=="" set "CPU_THREADS=%NUMBER_OF_PROCESSORS%"
 if not "!CPU_THREADS!"=="" (
-  rem Default to the most aggressive local job count. Short compile/test gates
-  rem often leave CPU time idle at exactly one job per logical processor, while
-  rem BUILD_JOBS=perf/logical or an explicit -jN can lower this for interactive use.
+  rem Default to an aggressive local job count. Short compile/test gates often
+  rem leave CPU time idle at exactly one job per logical processor, while
+  rem BUILD_JOBS=max/perf/logical or an explicit -jN can lower this for
+  rem interactive use.
   set /a "PERF_BUILD_JOBS=!CPU_THREADS! + (!CPU_THREADS! + 1) / 2"
   set /a "MAX_BUILD_JOBS=!CPU_THREADS! * 2"
-  set "DEFAULT_BUILD_JOBS=!MAX_BUILD_JOBS!"
+  set /a "TURBO_BUILD_JOBS=!CPU_THREADS! * 3"
+  set "DEFAULT_BUILD_JOBS=!TURBO_BUILD_JOBS!"
 )
 if "!PERF_BUILD_JOBS!"=="" set "PERF_BUILD_JOBS=3"
 if "!MAX_BUILD_JOBS!"=="" set "MAX_BUILD_JOBS=4"
-if "!DEFAULT_BUILD_JOBS!"=="" set "DEFAULT_BUILD_JOBS=!MAX_BUILD_JOBS!"
+if "!TURBO_BUILD_JOBS!"=="" set "TURBO_BUILD_JOBS=6"
+if "!DEFAULT_BUILD_JOBS!"=="" set "DEFAULT_BUILD_JOBS=!TURBO_BUILD_JOBS!"
 if !PERF_BUILD_JOBS! LSS 1 set "PERF_BUILD_JOBS=1"
 if !DEFAULT_BUILD_JOBS! LSS 1 set "DEFAULT_BUILD_JOBS=1"
 if !MAX_BUILD_JOBS! LSS 1 set "MAX_BUILD_JOBS=1"
+if !TURBO_BUILD_JOBS! LSS 1 set "TURBO_BUILD_JOBS=1"
 if "!CPU_THREADS!"=="" set "CPU_THREADS=!DEFAULT_BUILD_JOBS!"
 if "%BUILD_JOBS%"=="" (
   set "BUILD_JOBS=!DEFAULT_BUILD_JOBS!"
 ) else (
   if /I "!BUILD_JOBS!"=="auto" (
     set "BUILD_JOBS=!DEFAULT_BUILD_JOBS!"
-    set "BUILD_JOBS_SOURCE=BUILD_JOBS=auto-max"
+    set "BUILD_JOBS_SOURCE=BUILD_JOBS=auto-turbo"
+  ) else if /I "!BUILD_JOBS!"=="turbo" (
+    set "BUILD_JOBS=!TURBO_BUILD_JOBS!"
+    set "BUILD_JOBS_SOURCE=BUILD_JOBS=turbo"
   ) else if /I "!BUILD_JOBS!"=="perf" (
     set "BUILD_JOBS=!PERF_BUILD_JOBS!"
     set "BUILD_JOBS_SOURCE=BUILD_JOBS=perf"
@@ -83,7 +91,7 @@ if "%BUILD_JOBS%"=="" (
     set "BUILD_JOBS_NUM=1"
     for /f "delims=0123456789" %%N in ("!BUILD_JOBS!") do set "BUILD_JOBS_NUM="
     if "!BUILD_JOBS_NUM!"=="" (
-      echo [build.bat] BUILD_JOBS must be a positive integer, auto, perf, max, or logical: !BUILD_JOBS!
+      echo [build.bat] BUILD_JOBS must be a positive integer, auto, turbo, perf, max, or logical: !BUILD_JOBS!
       exit /b 1
     )
   )
@@ -140,6 +148,7 @@ if /I "%~1"=="help" goto :HELP
 if /I "%~1"=="-h" goto :HELP
 if /I "%~1"=="--help" goto :HELP
 if /I "%~1"=="/?" goto :HELP
+if /I "%~1"=="jobs" goto :JOBS
 if /I "%~1"=="build" goto :BUILD
 if /I "%~1"=="all" goto :FORWARD
 if /I "%~1"=="test" goto :TEST
@@ -185,13 +194,19 @@ echo   smoke54     Run the Lua 5.4 compatibility Lua smoke test only.
 echo   smoke54quick Run incremental Lua 5.4 compatibility Lua smoke test only.
 echo   clean       Forward to make clean.
 echo   rebuild     Run clean, then build.
+echo   jobs        Print the detected local make job count.
 echo.
 echo Any other arguments are forwarded to GNU make unchanged.
 echo Perf profiles pin opt level, hotloop, and hotexit; override with LUA54_PERF_JIT_OPTS.
-echo Parallelism defaults to max mode, about 2x detected logical processors; override with BUILD_JOBS=N, BUILD_JOBS=auto, BUILD_JOBS=perf, BUILD_JOBS=max, BUILD_JOBS=logical, or -jN.
-echo BUILD_JOBS=perf uses about 1.5x detected logical processors; BUILD_JOBS=logical uses exactly the detected processor count. Bare -j is normalized to the current job count.
+echo Parallelism defaults to turbo mode, about 3x detected logical processors; override with BUILD_JOBS=N, BUILD_JOBS=auto, BUILD_JOBS=turbo, BUILD_JOBS=perf, BUILD_JOBS=max, BUILD_JOBS=logical, or -jN.
+echo BUILD_JOBS=max uses about 2x detected logical processors; BUILD_JOBS=perf uses about 1.5x; BUILD_JOBS=logical uses exactly the detected processor count. Bare -j is normalized to the current job count.
 echo Quick Lua 5.4 targets clean only when the saved build flags change.
-echo Examples: build.bat lua54quick -j64   or   set BUILD_JOBS=perf
+echo Examples: build.bat lua54quick -j96   or   set BUILD_JOBS=max
+exit /b 0
+
+:JOBS
+call :PRINT_JOBS
+echo [build.bat] make job argument: %MAKE_JOBS%
 exit /b 0
 
 :BUILD

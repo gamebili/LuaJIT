@@ -109,11 +109,22 @@ function Get-MaxMakeJobCount {
   return $jobs
 }
 
+function Get-TurboMakeJobCount {
+  param([int]$LogicalProcessors)
+  $jobs = $LogicalProcessors * 3
+  if ($jobs -lt 1) {
+    $jobs = 1
+  }
+  return $jobs
+}
+
 function Get-MakeJobCount {
   $logical = Get-DetectedLogicalProcessorCount
-  $jobs = Get-MaxMakeJobCount $logical
+  $jobs = Get-TurboMakeJobCount $logical
   if ($env:BUILD_JOBS) {
-    if ($env:BUILD_JOBS -eq "auto" -or $env:BUILD_JOBS -eq "max") {
+    if ($env:BUILD_JOBS -eq "auto" -or $env:BUILD_JOBS -eq "turbo") {
+      $jobs = Get-TurboMakeJobCount $logical
+    } elseif ($env:BUILD_JOBS -eq "max") {
       $jobs = Get-MaxMakeJobCount $logical
     } elseif ($env:BUILD_JOBS -eq "perf") {
       $jobs = Get-PerfMakeJobCount $logical
@@ -126,7 +137,7 @@ function Get-MakeJobCount {
       }
       $jobs = $requested
     } else {
-      throw "BUILD_JOBS must be a positive integer, auto, perf, max, or logical: $env:BUILD_JOBS"
+      throw "BUILD_JOBS must be a positive integer, auto, turbo, perf, max, or logical: $env:BUILD_JOBS"
     }
   }
   if ($jobs -lt 1) {

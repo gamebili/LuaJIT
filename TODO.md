@@ -54,7 +54,7 @@
    - 当前进展：`smoketest-capi-lua54compat` / `smoketest-capi-lua54compat-quick` 已在 Lua 5.4 构建完成后改走统一 `run-lua54compat-and-capi-tests` 调度，让 runtime smoke 与 C API/header smoke 在同一个 make jobserver 下并行运行，避免 `lua54` / `lua54quick` 尾段先等完整 runtime、再单独启动 C API。
    - 当前进展：默认 LuaJIT 验证路径也已拆出 `build-default`、`default-runtime-smoke`、默认 `lua.hpp` header smoke 和默认 C API runtime smoke；`build.bat default` 完成一次默认构建后会用同一个 make jobserver 并行调度默认 runtime/header/C API smoke，避免默认 ABI 验证尾段完全串行。
    - 当前进展：默认 LuaJIT 构建已新增 `build-default-incremental` 配置 stamp，`build.bat build` 和 `build.bat default` 在默认配置未变化时会复用对象文件并继续用自动检测的本机 `-jN` 并行编译；从 Lua 5.4 / non-GC64 配置切回默认 ABI 时才触发 clean，避免重复默认验证每次全量重编。
-   - 当前进展：`build.bat` 和 `tools/lua54_platform_matrix.ps1` 的默认 make 并行策略已提升到本机 max 模式，默认约 `2x` 逻辑线程以填满短编译/测试任务间隙；`BUILD_JOBS=perf` 保留原 `1.5x` 逻辑线程档，`BUILD_JOBS=logical` 或显式 `-jN` 仍可降回固定并行度。
+   - 当前进展：`build.bat` 和 `tools/lua54_platform_matrix.ps1` 的默认 make 并行策略已提升到本机 turbo 模式，默认约 `3x` 逻辑线程以填满短编译/测试任务间隙；`BUILD_JOBS=max` 保留原 `2x` 逻辑线程档，`BUILD_JOBS=perf` 保留原 `1.5x` 逻辑线程档，`BUILD_JOBS=logical` 或显式 `-jN` 仍可降回固定并行度；`build.bat jobs` 可快速查看当前检测到的本机 make job 参数。
    - 当前进展：PC x64、x86、ARM64、ARM、MIPS、MIPS64、PPC 的 `__call` callable-chain 已统一改为由 `lj_meta_call` 返回新增隐式参数数量，并由各 VM 后端更新 `NARGS`；PC x64 / Android ARM64 已额外覆盖 100 层 callable-chain tailcall 扩栈和 `CALLT` 保持，Android ARM64 设备 smoke 已覆盖该路径。
 
 6. **C API / lauxlib / 标准库收尾批次**
@@ -1016,6 +1016,7 @@
 - `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `lua_toclose()` / `lua_closeslot()` 对过深负索引和 registry pseudo-index 的 release `invalid value` 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE)` 遇到被污染为非 table 的 `_LOADED` 时创建并写回新 table 的 lauxlib 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `luaL_requiref()` 遇到 registry `_LOADED` 被污染为非 table 时重建 loaded table、写入模块并发布全局的 lauxlib 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
+- `git diff --check`、`cmd /c build.bat help`、`cmd /c build.bat jobs`、`cmd /c "set BUILD_JOBS=max&& build.bat jobs"`、`cmd /c "set BUILD_JOBS=perf&& build.bat jobs"`、`cmd /c "set BUILD_JOBS=logical&& build.bat jobs"`、`powershell -NoProfile -ExecutionPolicy Bypass -File tools\lua54_platform_matrix.ps1 -Target probe` 及其 `BUILD_JOBS=max/perf/logical` 变体、`cmd /c build.bat lua54quick` 已通过；确认本机 32 逻辑线程默认 turbo 并发使用 `-j96`，`max/perf/logical` 仍分别降回 `-j64/-j48/-j32`，平台矩阵脚本同步使用同一并发策略，Lua 5.4 compat 构建、官方矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 
 ## 已确认不列入当前 TODO 的已实现项
 
