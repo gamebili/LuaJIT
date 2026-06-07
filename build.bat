@@ -45,10 +45,12 @@ set "DEFAULT_BUILD_JOBS="
 set "MAX_BUILD_JOBS="
 set "TURBO_BUILD_JOBS="
 set "BUILD_JOBS_SOURCE=auto-turbo"
-for /f "usebackq delims=" %%C in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$sum=0; foreach ($cpu in (Get-CimInstance Win32_Processor)) { $sum += $cpu.NumberOfLogicalProcessors }; if ($sum -gt 0) { [int]$sum }" 2^>nul`) do (
-  if not "%%C"=="" set "CPU_THREADS=%%C"
+if not "%NUMBER_OF_PROCESSORS%"=="" set "CPU_THREADS=%NUMBER_OF_PROCESSORS%"
+if "!CPU_THREADS!"=="" (
+  for /f "usebackq delims=" %%C in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$sum=0; foreach ($cpu in (Get-CimInstance Win32_Processor)) { $sum += $cpu.NumberOfLogicalProcessors }; if ($sum -gt 0) { [int]$sum }" 2^>nul`) do (
+    if not "%%C"=="" set "CPU_THREADS=%%C"
+  )
 )
-if "!CPU_THREADS!"=="" if not "%NUMBER_OF_PROCESSORS%"=="" set "CPU_THREADS=%NUMBER_OF_PROCESSORS%"
 if not "!CPU_THREADS!"=="" (
   rem Default to an aggressive local job count. Short compile/test gates often
   rem leave CPU time idle at exactly one job per logical processor, while

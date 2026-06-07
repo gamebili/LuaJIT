@@ -75,15 +75,20 @@ function Invoke-Checked {
 
 function Get-DetectedLogicalProcessorCount {
   $threads = 0
-  try {
-    foreach ($cpu in (Get-CimInstance Win32_Processor)) {
-      $threads += [int]$cpu.NumberOfLogicalProcessors
-    }
-  } catch {
-    $threads = 0
+  if ($env:NUMBER_OF_PROCESSORS -and $env:NUMBER_OF_PROCESSORS -match '^\d+$') {
+    $threads = [int]$env:NUMBER_OF_PROCESSORS
   }
   if ($threads -le 0) {
     $threads = [Environment]::ProcessorCount
+  }
+  if ($threads -le 0) {
+    try {
+      foreach ($cpu in (Get-CimInstance Win32_Processor)) {
+        $threads += [int]$cpu.NumberOfLogicalProcessors
+      }
+    } catch {
+      $threads = 0
+    }
   }
   if ($threads -lt 1) {
     $threads = 1
