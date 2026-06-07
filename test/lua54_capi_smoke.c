@@ -9156,6 +9156,21 @@ static void test_lauxlib_api(lua_State *L)
     int top = lua_gettop(L);
     lua_newtable(L);
     lua_newtable(L);
+    lua_pushcfunction(L, capi_tostring_bool_meta);
+    lua_setfield(L, -2, "__tostring");
+    lua_setmetatable(L, -2);
+    check(L, luaL_callmeta(L, -1, "__tostring") == 1,
+	  "luaL_callmeta calls boolean metamethod");
+    check(L, lua_gettop(L) == top + 2,
+	  "luaL_callmeta keeps boolean result");
+    check(L, lua_isboolean(L, -1) && lua_toboolean(L, -1),
+	  "luaL_callmeta boolean result");
+    lua_pop(L, 2);
+  }
+  {
+    int top = lua_gettop(L);
+    lua_newtable(L);
+    lua_newtable(L);
     lua_pushcfunction(L, capi_tostring_multi_meta);
     lua_setfield(L, -2, "__tostring");
     lua_setmetatable(L, -2);
