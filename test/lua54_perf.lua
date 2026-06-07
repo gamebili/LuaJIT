@@ -431,6 +431,10 @@ local function base_value_helpers(n)
     end
     local text_fn, text_err = load("return 54", "lua54-load-text", "b")
     local bin_fn, bin_err = load(load_mode_binary, "lua54-load-bin", "t")
+    local name_fn = assert(load("return 1", 123, "t"))
+    local bad_name_ok, bad_name_err = pcall(load, "", true)
+    local mode_num_fn, mode_num_err = load("return 54",
+					   "lua54-load-mode-number", 123)
     local reader_i = 0
     local late_fn, late_err = load(function()
       reader_i = reader_i + 1
@@ -454,6 +458,19 @@ local function base_value_helpers(n)
       sum = sum + 1
     end
     if late_num_err == nil and late_num_fn and late_num_fn() == 123 then
+      sum = sum + 1
+    end
+    if debug.getinfo(name_fn, "S").source == "123" and name_fn() == 1 then
+      sum = sum + 1
+    end
+    if not bad_name_ok and
+       bad_name_err:find("bad argument #2 to 'load'", 1, true) and
+       bad_name_err:find("string expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+    if mode_num_fn == nil and
+       mode_num_err:find("attempt to load a text chunk (mode is '123')",
+			 1, true) then
       sum = sum + 1
     end
   end
@@ -3360,7 +3377,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_value = timeit(mode_name..":base_value_helpers",
 			    base_value_helpers, iter_n)
-  assert(r_value == iter_n * 32)
+  assert(r_value == iter_n * 35)
 
   local _, r_stdlib_edge = timeit(mode_name..":stdlib_edge_helpers",
 				  stdlib_edge_helpers, iter_n)

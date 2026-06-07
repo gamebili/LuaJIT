@@ -2320,6 +2320,10 @@ do
     for _ = 1, 80 do
       local text_fn, text_err = load("return 54", "lua54-load-text", "b")
       local bin_fn, bin_err = load(binary, "lua54-load-bin", "t")
+      local name_fn = assert(load("return 1", 123, "t"))
+      local bad_name_ok, bad_name_err = pcall(load, "", true)
+      local mode_num_fn, mode_num_err = load("return 54",
+					    "lua54-load-mode-number", 123)
       local i = 0
       local late_fn, late_err = load(function()
 	i = i + 1
@@ -2347,8 +2351,21 @@ do
       if late_num_err == nil and late_num_fn and late_num_fn() == 123 then
 	n = n + 1
       end
+      if debug.getinfo(name_fn, "S").source == "123" and name_fn() == 1 then
+	n = n + 1
+      end
+      if not bad_name_ok and
+	 bad_name_err:find("bad argument #2 to 'load'", 1, true) and
+	 bad_name_err:find("string expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if mode_num_fn == nil and
+	 mode_num_err:find("attempt to load a text chunk (mode is '123')",
+			   1, true) then
+	n = n + 1
+      end
     end
-    assert(n == 240)
+    assert(n == 480)
   end, "Lua 5.4 load mode errors")
 
   local function result_count(...)
