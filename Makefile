@@ -347,16 +347,28 @@ smoketest-lua54compat53-full:
 	$(MAKE) build-lua54compat53
 	./src/luajit test/lua54_compat53_runtime.lua
 
+LUA54_NOGC64_PARALLEL_TARGETS= \
+	lua54-nogc64-runtime-probe \
+	lua54-nogc64-runtime-smoke \
+	lua54-nogc64-jit-regress
+
 smoketest-lua54compat-nogc64:
 	$(MAKE) build-lua54compat-nogc64-incremental
-	./src/luajit -e 'assert(_VERSION == "Lua 5.4"); assert(require("jit").lua54compat == true)'
-	LUA_PATH_5_4='./src/?.lua;./src/?/init.lua;;' ./src/luajit test/smoke.lua lua54compat
-	LUA_PATH_5_4='./src/?.lua;./src/?/init.lua;;' ./src/luajit test/lua54_jit_regress.lua
+	$(MAKE) run-lua54compat-nogc64-tests
 
 smoketest-lua54compat-nogc64-full:
 	$(MAKE) build-lua54compat-nogc64
+	$(MAKE) run-lua54compat-nogc64-tests
+
+run-lua54compat-nogc64-tests: $(LUA54_NOGC64_PARALLEL_TARGETS)
+
+lua54-nogc64-runtime-probe:
 	./src/luajit -e 'assert(_VERSION == "Lua 5.4"); assert(require("jit").lua54compat == true)'
+
+lua54-nogc64-runtime-smoke:
 	LUA_PATH_5_4='./src/?.lua;./src/?/init.lua;;' ./src/luajit test/smoke.lua lua54compat
+
+lua54-nogc64-jit-regress:
 	LUA_PATH_5_4='./src/?.lua;./src/?/init.lua;;' ./src/luajit test/lua54_jit_regress.lua
 
 run-official-lua54compat:
@@ -616,6 +628,6 @@ test:
 	$(MAKE) smoketest-perf-lua54compat
 	$(MAKE) smoketest-lua54compat-nogc64
 
-.PHONY: all install amalg clean build-default build-default-incremental default-runtime-smoke smoketest smoketest-capi-default run-capi-default-tests $(DEFAULT_CAPI_PARALLEL_TARGETS) build-lua54compat build-lua54compat-incremental build-lua54compat53 build-lua54compat53-incremental build-lua54compat-nogc64 build-lua54compat-nogc64-incremental smoketest-lua54compat smoketest-lua54compat-quick run-lua54compat-tests $(LUA54_RUNTIME_PARALLEL_TARGETS) $(LUA54_OFFICIAL_PARALLEL_TARGETS) smoketest-lua54compat53 smoketest-lua54compat53-full smoketest-lua54compat-nogc64 smoketest-lua54compat-nogc64-full run-official-lua54compat smoketest-official-lua54compat smoketest-capi-lua54compat smoketest-capi-lua54compat-quick run-capi-lua54compat-tests run-lua54compat-and-capi-tests $(LUA54_CAPI_PARALLEL_TARGETS) $(LUA54_CAPI_SYMBOL_REJECT_TARGETS) smoketest-perf-lua54compat run-perf-lua54compat-tests $(LUA54_PERF_PARALLEL_TARGETS) test
+.PHONY: all install amalg clean build-default build-default-incremental default-runtime-smoke smoketest smoketest-capi-default run-capi-default-tests $(DEFAULT_CAPI_PARALLEL_TARGETS) build-lua54compat build-lua54compat-incremental build-lua54compat53 build-lua54compat53-incremental build-lua54compat-nogc64 build-lua54compat-nogc64-incremental smoketest-lua54compat smoketest-lua54compat-quick run-lua54compat-tests $(LUA54_RUNTIME_PARALLEL_TARGETS) $(LUA54_OFFICIAL_PARALLEL_TARGETS) smoketest-lua54compat53 smoketest-lua54compat53-full smoketest-lua54compat-nogc64 smoketest-lua54compat-nogc64-full run-lua54compat-nogc64-tests $(LUA54_NOGC64_PARALLEL_TARGETS) run-official-lua54compat smoketest-official-lua54compat smoketest-capi-lua54compat smoketest-capi-lua54compat-quick run-capi-lua54compat-tests run-lua54compat-and-capi-tests $(LUA54_CAPI_PARALLEL_TARGETS) $(LUA54_CAPI_SYMBOL_REJECT_TARGETS) smoketest-perf-lua54compat run-perf-lua54compat-tests $(LUA54_PERF_PARALLEL_TARGETS) test
 
 ##############################################################################
