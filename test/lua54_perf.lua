@@ -2428,6 +2428,102 @@ local function random_helpers(n)
   return sum
 end
 
+local function stdlib_alias_error_helpers(n)
+  local a = math.atan
+  local fm = math.fmod
+  local lg = math.log
+  local r = math.random
+  local rs = math.randomseed
+  local d = os.date
+  local df = os.difftime
+  local tm = os.time
+  local sp = package.searchpath
+  local sum = 0
+  for _ = 1, n do
+    local ok_a, err_a = pcall(function()
+      return a(1, true)
+    end)
+    if not ok_a and
+       err_a:find("bad argument #2 to 'a'", 1, true) and
+       err_a:find("number expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_fm, err_fm = pcall(function()
+      return fm(nil)
+    end)
+    if not ok_fm and
+       err_fm:find("bad argument #2 to 'fm'", 1, true) and
+       err_fm:find("number expected, got no value", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_lg, err_lg = pcall(function()
+      return lg(1, true)
+    end)
+    if not ok_lg and
+       err_lg:find("bad argument #2 to 'lg'", 1, true) and
+       err_lg:find("number expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_r, err_r = pcall(function()
+      return r(true)
+    end)
+    if not ok_r and
+       err_r:find("bad argument #1 to 'r'", 1, true) and
+       err_r:find("number expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_rs, err_rs = pcall(function()
+      return rs(1, 2.2)
+    end)
+    if not ok_rs and
+       err_rs:find("bad argument #2 to 'rs'", 1, true) and
+       err_rs:find("integer representation", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_d, err_d = pcall(function()
+      return d("%Y", true)
+    end)
+    if not ok_d and
+       err_d:find("bad argument #2 to 'd'", 1, true) and
+       err_d:find("number expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_df, err_df = pcall(function()
+      return df(1, true)
+    end)
+    if not ok_df and
+       err_df:find("bad argument #2 to 'df'", 1, true) and
+       err_df:find("number expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_tm, err_tm = pcall(function()
+      return tm(true)
+    end)
+    if not ok_tm and
+       err_tm:find("bad argument #1 to 'tm'", 1, true) and
+       err_tm:find("table expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+
+    local ok_sp, err_sp = pcall(function()
+      return sp("a", "?.lua", ".", true)
+    end)
+    if not ok_sp and
+       err_sp:find("bad argument #4 to 'sp'", 1, true) and
+       err_sp:find("string expected, got boolean", 1, true) then
+      sum = sum + 1
+    end
+  end
+  return sum
+end
+
 local order_a = "lua54-perf-order\0a"
 local order_b = "lua54-perf-order\0b"
 
@@ -3070,6 +3166,10 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   local _, r_random = timeit(mode_name..":random_helpers",
 			     random_helpers, iter_n)
   assert(r_random == iter_n * 18 + 1)
+
+  local _, r_alias_errors = timeit(mode_name..":stdlib_alias_error_helpers",
+				   stdlib_alias_error_helpers, iter_n)
+  assert(r_alias_errors == iter_n * 9)
 
   local _, r_string_order = timeit(mode_name..":string_order_helpers",
 				   string_order_helpers, iter_n)

@@ -3857,6 +3857,96 @@ do
 end
 
 do
+  assert_records_trace(function()
+    local a = math.atan
+    local fm = math.fmod
+    local lg = math.log
+    local r = math.random
+    local rs = math.randomseed
+    local d = os.date
+    local df = os.difftime
+    local tm = os.time
+    local sp = package.searchpath
+    local n = 0
+    for _ = 1, 80 do
+      local ok_a, err_a = pcall(function()
+	return a(1, true)
+      end)
+      local ok_fm, err_fm = pcall(function()
+	return fm(nil)
+      end)
+      local ok_lg, err_lg = pcall(function()
+	return lg(1, true)
+      end)
+      local ok_r, err_r = pcall(function()
+	return r(true)
+      end)
+      local ok_rs, err_rs = pcall(function()
+	return rs(1, 2.2)
+      end)
+      local ok_d, err_d = pcall(function()
+	return d("%Y", true)
+      end)
+      local ok_df, err_df = pcall(function()
+	return df(1, true)
+      end)
+      local ok_tm, err_tm = pcall(function()
+	return tm(true)
+      end)
+      local ok_sp, err_sp = pcall(function()
+	return sp("a", "?.lua", ".", true)
+      end)
+      if not ok_a and
+	 err_a:find("bad argument #2 to 'a'", 1, true) and
+	 err_a:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if not ok_fm and
+	 err_fm:find("bad argument #2 to 'fm'", 1, true) and
+	 err_fm:find("number expected, got no value", 1, true) then
+	n = n + 1
+      end
+      if not ok_lg and
+	 err_lg:find("bad argument #2 to 'lg'", 1, true) and
+	 err_lg:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if not ok_r and
+	 err_r:find("bad argument #1 to 'r'", 1, true) and
+	 err_r:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if not ok_rs and
+	 err_rs:find("bad argument #2 to 'rs'", 1, true) and
+	 err_rs:find("integer representation", 1, true) then
+	n = n + 1
+      end
+      if not ok_d and
+	 err_d:find("bad argument #2 to 'd'", 1, true) and
+	 err_d:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if not ok_df and
+	 err_df:find("bad argument #2 to 'df'", 1, true) and
+	 err_df:find("number expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if not ok_tm and
+	 err_tm:find("bad argument #1 to 'tm'", 1, true) and
+	 err_tm:find("table expected, got boolean", 1, true) then
+	n = n + 1
+      end
+      if not ok_sp and
+	 err_sp:find("bad argument #4 to 'sp'", 1, true) and
+	 err_sp:find("string expected, got boolean", 1, true) then
+	n = n + 1
+      end
+    end
+    assert(n == 720)
+  end, "Lua 5.4 stdlib local alias error names")
+end
+
+do
   local stamp = os.time({
     year = 2020, month = 5, day = 7, hour = 12, min = 34, sec = 56
   })

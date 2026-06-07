@@ -659,6 +659,7 @@
   - 当前进展：`test/lua54_stdlib_edges.lua` 已补入字符串库方法语法 cold smoke，固定 `s:byte({})` / `s:find({})` / `("%d"):format(true)`、`s:gsub(...)`、`s:match(...)`、`s:gmatch(...)` 和 `s:sub(...)` 在非热路径下同样保留短方法名和隐藏 self 后的公开参数编号；JIT/perf 热路径覆盖继续由 `test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 保护。
   - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入标准库局部 alias cold smoke，固定 `local gm = string.gmatch`、`local ins = table.insert`、`local m = table.move`、`local rem = table.remove` 和 `local off = utf8.offset` 这类普通局部调用在参数错误时按 Lua 5.4 恢复调用点名 `gm` / `ins` / `m` / `rem` / `off`，不退回模块函数 fallback 或 `?`。
   - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 math/os/package 局部 alias cold smoke，固定 `math.atan` / `math.fmod` / `math.log` / `math.random` / `math.randomseed`、`os.date` / `os.difftime` / `os.time` 和 `package.searchpath` 经普通局部调用出错时按 Lua 5.4 恢复调用点名 `a` / `fm` / `lg` / `r` / `rs` / `d` / `df` / `tm` / `sp`，继续防止退回模块函数 fallback。
+  - 当前进展：`test/lua54_jit_regress.lua` / `test/lua54_perf.lua` 已把上述 math/os/package 局部 alias 错误名纳入 JIT on/off 热路径覆盖，固定 `a` / `fm` / `lg` / `r` / `rs` / `d` / `df` / `tm` / `sp` 在 trace 周边和 perf profile 中仍按 Lua 5.4 调用点名报错。
   - 做法：将本机 `lua5.4.8` 的边界行为固化为对照测试，先覆盖返回值和是否报错，再逐步收紧错误文本。
 
 - [x] table 库的 Lua 5.4 边界语义。
@@ -1071,6 +1072,7 @@
 - `git diff --check`、`cmd /c build.bat lua54nogc64 -n`、`cmd /c build.bat lua54nogc64` 和 `cmd /c build.bat lua54build` 已通过；确认 non-GC64 Lua 5.4 构建后的版本探针、runtime smoke 与 JIT regression smoke 已拆成 `lua54-nogc64-*` 并行子目标，并由 `run-lua54compat-nogc64-tests` 在同一个 make jobserver 下调度，缩短 `build.bat test` 尾段等待，同时本地产物已恢复到标准 Lua 5.4 compat 增量配置。
 - `git diff --check`、`.\src\luajit.exe test\lua54_stdlib_edges.lua` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `math.atan` / `math.fmod` / `math.log` / `math.random` / `math.randomseed`、`os.date` / `os.difftime` / `os.time` 和 `package.searchpath` 经局部 alias 调用时按 Lua 5.4 恢复调用点名 `a` / `fm` / `lg` / `r` / `rs` / `d` / `df` / `tm` / `sp` 的标准库逐字错误文本边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `git diff --check`、`cmd /c src\msvcbuild.bat jobs`、`cmd /c "set LUAJIT_MSVC_JOBS=logical&& src\msvcbuild.bat jobs"`、`cmd /c "set LUAJIT_MSVC_JOBS=max&& src\msvcbuild.bat jobs"`、`cmd /c "set LUAJIT_MSVC_JOBS=perf&& src\msvcbuild.bat jobs"`、`cmd /c "set LUAJIT_MSVC_JOBS=7&& src\msvcbuild.bat jobs"`、`cmd /c build.bat jobs` 和 `cmd /c build.bat lua54build` 已通过；确认 MSVC 入口默认在本机 32 逻辑线程下选择 `/MP96`，`logical/max/perf/7` 分别选择 `/MP32`、`/MP64`、`/MP48`、`/MP7`，GNU make wrapper 仍默认 `-j96` 且 Lua 5.4 增量构建通过。
+- `git diff --check`、`.\src\luajit.exe test\lua54_jit_regress.lua`、`.\src\luajit.exe test\lua54_perf.lua jit_on`、`.\src\luajit.exe test\lua54_perf.lua jit_off` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 math/os/package 局部 alias 错误名的 JIT on/off 热路径与 perf profile；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 
 ## 已确认不列入当前 TODO 的已实现项
 
