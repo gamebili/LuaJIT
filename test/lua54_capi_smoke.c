@@ -3480,6 +3480,13 @@ static int capi_tostring_thread_meta(lua_State *L)
   return 1;
 }
 
+static int capi_tostring_userdata_meta(lua_State *L)
+{
+  int *ud = (int *)lua_newuserdatauv(L, sizeof(int), 0);
+  *ud = 0x54;
+  return 1;
+}
+
 static int capi_tostring_number_meta(lua_State *L)
 {
   (void)L;
@@ -3572,6 +3579,17 @@ static int laux_tolstring_thread_meta_arg(lua_State *L)
   lua_newtable(L);
   lua_newtable(L);
   lua_pushcfunction(L, capi_tostring_thread_meta);
+  lua_setfield(L, -2, "__tostring");
+  lua_setmetatable(L, -2);
+  luaL_tolstring(L, -1, NULL);
+  return 1;
+}
+
+static int laux_tolstring_userdata_meta_arg(lua_State *L)
+{
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushcfunction(L, capi_tostring_userdata_meta);
   lua_setfield(L, -2, "__tostring");
   lua_setmetatable(L, -2);
   luaL_tolstring(L, -1, NULL);
@@ -9269,6 +9287,23 @@ static void test_lauxlib_api(lua_State *L)
   }
   {
     int top = lua_gettop(L);
+    int *ud;
+    lua_newtable(L);
+    lua_newtable(L);
+    lua_pushcfunction(L, capi_tostring_userdata_meta);
+    lua_setfield(L, -2, "__tostring");
+    lua_setmetatable(L, -2);
+    check(L, luaL_callmeta(L, -1, "__tostring") == 1,
+	  "luaL_callmeta calls userdata-result metamethod");
+    check(L, lua_gettop(L) == top + 2,
+	  "luaL_callmeta keeps userdata result");
+    ud = (int *)lua_touserdata(L, -1);
+    check(L, lua_type(L, -1) == LUA_TUSERDATA && !lua_islightuserdata(L, -1) &&
+	  ud != NULL && *ud == 0x54, "luaL_callmeta userdata result");
+    lua_pop(L, 2);
+  }
+  {
+    int top = lua_gettop(L);
     lua_newtable(L);
     lua_newtable(L);
     lua_pushcfunction(L, capi_tostring_multi_meta);
@@ -9524,6 +9559,13 @@ static void test_lauxlib_api(lua_State *L)
   check(L, status == LUA_ERRRUN, "luaL_tolstring thread __tostring status");
   check(L, strstr(lua_tostring(L, -1), "'__tostring' must return a string") != NULL,
 	"luaL_tolstring thread __tostring error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_tolstring_userdata_meta_arg);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_tolstring userdata __tostring status");
+  check(L, strstr(lua_tostring(L, -1), "'__tostring' must return a string") != NULL,
+	"luaL_tolstring userdata __tostring error");
   lua_pop(L, 1);
 
   lua_newtable(L);
