@@ -2320,6 +2320,12 @@ do
     for _ = 1, 80 do
       local text_fn, text_err = load("return 54", "lua54-load-text", "b")
       local bin_fn, bin_err = load(binary, "lua54-load-bin", "t")
+      local i = 0
+      local late_fn, late_err = load(function()
+	i = i + 1
+	if i == 1 then return "return " end
+	if i == 2 then return true end
+      end)
       if text_fn == nil and
 	 text_err:find("attempt to load a text chunk (mode is 'b')",
 		       1, true) and
@@ -2328,8 +2334,12 @@ do
 		      1, true) then
 	n = n + 1
       end
+      if late_fn == nil and
+	 late_err:find("reader function must return a string", 1, true) then
+	n = n + 1
+      end
     end
-    assert(n == 80)
+    assert(n == 160)
   end, "Lua 5.4 load mode errors")
 
   local function result_count(...)

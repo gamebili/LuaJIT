@@ -32,6 +32,7 @@ local cases = {
   { "base.load.env.false", "local loaded = assert(load('return _ENV', 'envfalse', 't', false)); local name, value = debug.getupvalue(loaded, 1); return name, value, loaded()", ok = { "string:_ENV", "boolean:false", "boolean:false" } },
   { "base.load.binaryenv.false", "local loaded = assert(load(string.dump(function() return _ENV end, true), 'binaryenvfalse', 'b', false)); local name, value = debug.getupvalue(loaded, 1); return name, value, loaded()", ok = { "string:(no name)", "boolean:false", "boolean:false" } },
   { "base.load.reader.bool", "local done = false; return load(function() if not done then done = true; return true end end)", ok = { "nil:nil", "string:base.load.reader.bool:1: reader function must return a string" } },
+  { "base.load.reader.latebool", "local i = 0; return load(function() i = i + 1; if i == 1 then return 'return ' end; if i == 2 then return true end end)", ok = { "nil:nil", "string:base.load.reader.latebool:1: reader function must return a string" } },
   { "base.load.reader.number", "local done = false; return load(function() if not done then done = true; return 123 end end)", ok = { "nil:nil", "string:(load):1: unexpected symbol near '123'" } },
   { "base.load.reader.empty", "local done = false; return load(function() if not done then done = true; return '' end end)", ok = { "function" } },
   { "base.load.reader.nilfirst", "return load(function() return nil end)", ok = { "function" } },

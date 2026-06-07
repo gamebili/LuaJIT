@@ -431,10 +431,20 @@ local function base_value_helpers(n)
     end
     local text_fn, text_err = load("return 54", "lua54-load-text", "b")
     local bin_fn, bin_err = load(load_mode_binary, "lua54-load-bin", "t")
+    local reader_i = 0
+    local late_fn, late_err = load(function()
+      reader_i = reader_i + 1
+      if reader_i == 1 then return "return " end
+      if reader_i == 2 then return true end
+    end)
     if text_fn == nil and
        text_err:find("attempt to load a text chunk (mode is 'b')", 1, true) and
        bin_fn == nil and
        bin_err:find("attempt to load a binary chunk (mode is 't')", 1, true) then
+      sum = sum + 1
+    end
+    if late_fn == nil and
+       late_err:find("reader function must return a string", 1, true) then
       sum = sum + 1
     end
   end
@@ -3341,7 +3351,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_value = timeit(mode_name..":base_value_helpers",
 			    base_value_helpers, iter_n)
-  assert(r_value == iter_n * 30)
+  assert(r_value == iter_n * 31)
 
   local _, r_stdlib_edge = timeit(mode_name..":stdlib_edge_helpers",
 				  stdlib_edge_helpers, iter_n)
