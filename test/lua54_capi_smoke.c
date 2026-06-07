@@ -6868,6 +6868,37 @@ static void test_compare_len_arith(lua_State *L)
   check(L, lua_isnil(L, -1), "lua_getglobal missing pushes nil");
   lua_pop(L, 1);
 
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushliteral(L, "meta-field");
+  lua_setfield(L, -2, "virtual");
+  lua_pushliteral(L, "meta-index");
+  lua_seti(L, -2, 17);
+  lua_pushliteral(L, "meta-table");
+  lua_setfield(L, -2, "by-key");
+  lua_newtable(L);
+  lua_pushvalue(L, -2);
+  lua_setfield(L, -2, "__index");
+  check(L, lua_setmetatable(L, -3) == 1,
+	"lua_get wrappers set __index metatable");
+  lua_pop(L, 1);
+
+  rtype = lua_getfield_sig(L, -1, "virtual");
+  check(L, rtype == LUA_TSTRING, "lua_getfield __index return type");
+  check_string(L, -1, "meta-field", "lua_getfield __index value");
+  lua_pop(L, 1);
+
+  rtype = lua_geti_sig(L, -1, 17);
+  check(L, rtype == LUA_TSTRING, "lua_geti __index return type");
+  check_string(L, -1, "meta-index", "lua_geti __index value");
+  lua_pop(L, 1);
+
+  lua_pushliteral(L, "by-key");
+  rtype = lua_gettable_sig(L, -2);
+  check(L, rtype == LUA_TSTRING, "lua_gettable __index return type");
+  check_string(L, -1, "meta-table", "lua_gettable __index value");
+  lua_pop(L, 2);
+
   if (sizeof(lua_Integer) > sizeof(int)) {
     lua_Integer big = (lua_Integer)((lua_Unsigned)0x7fffffffu + 1u);
     lua_Integer big2 = big + 1;
