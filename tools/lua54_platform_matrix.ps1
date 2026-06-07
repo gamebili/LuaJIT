@@ -100,16 +100,25 @@ function Get-PerfMakeJobCount {
   return $jobs
 }
 
+function Get-MaxMakeJobCount {
+  param([int]$LogicalProcessors)
+  $jobs = $LogicalProcessors * 2
+  if ($jobs -lt 1) {
+    $jobs = 1
+  }
+  return $jobs
+}
+
 function Get-MakeJobCount {
   $logical = Get-DetectedLogicalProcessorCount
-  $jobs = Get-PerfMakeJobCount $logical
+  $jobs = Get-MaxMakeJobCount $logical
   if ($env:BUILD_JOBS) {
-    if ($env:BUILD_JOBS -eq "auto" -or $env:BUILD_JOBS -eq "perf") {
+    if ($env:BUILD_JOBS -eq "auto" -or $env:BUILD_JOBS -eq "max") {
+      $jobs = Get-MaxMakeJobCount $logical
+    } elseif ($env:BUILD_JOBS -eq "perf") {
       $jobs = Get-PerfMakeJobCount $logical
     } elseif ($env:BUILD_JOBS -eq "logical") {
       $jobs = $logical
-    } elseif ($env:BUILD_JOBS -eq "max") {
-      $jobs = $logical * 2
     } elseif ($env:BUILD_JOBS -match '^\d+$') {
       $requested = [int]$env:BUILD_JOBS
       if ($requested -lt 1) {
@@ -126,7 +135,9 @@ function Get-MakeJobCount {
   return $jobs
 }
 
-$script:MakeJobArgs = @("-j$(Get-MakeJobCount)")
+$script:MakeJobCount = Get-MakeJobCount
+$script:MakeJobArgs = @("-j$script:MakeJobCount")
+Write-Host ("[platform] using {0} make jobs." -f $script:MakeJobCount)
 
 function Invoke-MakeChecked {
   param([string[]]$Arguments = @())
