@@ -2135,6 +2135,17 @@ static int require_open(lua_State *L)
   return 1;
 }
 
+static int require_open_local(lua_State *L)
+{
+  check_string(L, 1, "capi.localmod",
+	       "luaL_requiref passes local module name");
+  require_open_count++;
+  lua_newtable(L);
+  lua_pushliteral(L, "local-ready");
+  lua_setfield(L, -2, "state");
+  return 1;
+}
+
 static int require_open_false(lua_State *L)
 {
   check_string(L, 1, "capi.falsemod",
@@ -8574,6 +8585,43 @@ static void test_lauxlib_api(lua_State *L)
     lua_setglobal(L, "capi.mod");
     require_open_count = before_count;
   }
+
+  before_count = require_open_count;
+  lua_pushliteral(L, "stale-local-global");
+  lua_setglobal(L, "capi.localmod");
+  top = lua_gettop(L);
+  luaL_requiref(L, "capi.localmod", require_open_local, 0);
+  check(L, require_open_count == before_count + 1,
+	"luaL_requiref calls glb false opener");
+  check(L, lua_gettop(L) == top + 1,
+	"luaL_requiref glb false result stack");
+  lua_getfield(L, -1, "state");
+  check_string(L, -1, "local-ready", "luaL_requiref glb false result");
+  lua_pop(L, 1);
+  luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
+  lua_getfield(L, -1, "capi.localmod");
+  check(L, lua_rawequal(L, -1, -3),
+	"luaL_requiref glb false writes _LOADED");
+  lua_pop(L, 2);
+  lua_getglobal(L, "capi.localmod");
+  check_string(L, -1, "stale-local-global",
+	       "luaL_requiref glb false preserves global");
+  lua_pop(L, 2);
+
+  luaL_requiref(L, "capi.localmod", require_open_local, 1);
+  check(L, require_open_count == before_count + 1,
+	"luaL_requiref glb true reuses glb false module");
+  lua_getglobal(L, "capi.localmod");
+  check(L, lua_rawequal(L, -1, -2),
+	"luaL_requiref glb true publishes glb false module");
+  lua_pop(L, 2);
+  luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
+  lua_pushnil(L);
+  lua_setfield(L, -2, "capi.localmod");
+  lua_pop(L, 1);
+  lua_pushnil(L);
+  lua_setglobal(L, "capi.localmod");
+  require_open_count = before_count;
 
   luaL_requiref(L, "capi.mod", require_open, 1);
   check(L, require_open_count == 1, "luaL_requiref calls opener once");

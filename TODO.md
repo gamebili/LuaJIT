@@ -116,6 +116,7 @@
    - 当前进展：`test/lua54_stdlib_edges.lua` 已继续补入 `load(..., env)` source chunk table / 非 table 环境和 stripped binary chunk 非 table 环境初始化边界，固定 `env` 参数会作为 exact upvalue 值写入 `_ENV` 或首个无名 upvalue。
    - 当前进展：C API smoke 已继续补入 `luaL_requiref()` opener 返回 0 个 C 结果的 lauxlib 边界，固定 `lua_call(..., 1)` 会补 `nil`、模块保持 unloaded 并可重载，且 `glb=false` 不会改写已有全局。
    - 当前进展：C API smoke 已继续补入 `luaL_requiref()` opener 显式返回 `false` 的 lauxlib 边界，固定 false 会写入 `_LOADED[modname]` 并按 `glb=true` 发布全局，但后续 `luaL_requiref()` 仍会因 loaded false 重新调用 opener。
+   - 当前进展：C API smoke 已继续补入 `luaL_requiref()` 成功 opener 搭配 `glb=false` 的 lauxlib 边界，固定模块只写入 `_LOADED[modname]` 而不改写已有全局；后续 `glb=true` 调用会复用 loaded 模块并发布全局，且不会重新调用 opener。
 
 ## P0：核心语义缺口
 
@@ -512,6 +513,7 @@
 - 当前进展：C API smoke 已固定 `luaL_requiref()` 在 `_LOADED[modname]` 已有 truthy 非 table 值时同样不会重新调用 opener；`glb=true` 会把该 loaded 值重新发布到全局表，覆盖 stale global 被修正的路径。
 - 当前进展：C API smoke 已固定 `luaL_requiref()` opener 抛错路径；opener 会收到模块名但失败时不会写入 `_LOADED[modname]`，也不会把半初始化值发布到全局表。
 - 当前进展：C API smoke 已固定 `luaL_requiref()` opener 显式返回 `false` 时会把 false 写入 `_LOADED[modname]` 并按 `glb=true` 发布全局；后续调用会因 loaded false 重新执行 opener，和标准 `require()` false-loaded 语义一致。
+- 当前进展：C API smoke 已固定 `luaL_requiref()` 成功 opener 在 `glb=false` 下只写 `_LOADED[modname]`、不覆盖既有全局；随后以 `glb=true` 调用会复用该 loaded 模块并发布全局，不重新执行 opener。
 - 当前进展：C API smoke 已固定 `luaL_tolstring()` 经过 `__tostring` metamethod 时的 Lua 5.4 表面：metamethod 返回 number 会继续按 `lua_isstring()` / `lua_tolstring()` 转成字符串并回填长度，返回含 NUL 的 string 会保留真实长度，metamethod 返回 boolean 等不可转字符串值会稳定报 `'__tostring' must return a string`。
 - 当前进展：C API smoke 已固定 `luaL_callmeta()` 遇到已存在但不可调用的 metafield 时会进入普通调用错误路径；例如 `__tostring = false` 会报 `attempt to call`，不会被当作缺失 metafield 静默返回 0。
 - 已覆盖：最小 C 程序覆盖 buffer API、`LUAL_BUFFERSIZE` 官方公式、`luaL_prepbuffer` / `luaL_addchar` / `luaL_addsize` / `luaL_buffaddr` / `luaL_bufflen` / `luaL_buffsub` 的普通裁剪、零裁剪和清空裁剪 / `luaL_argexpected` / `luaL_argcheck` / `luaL_pushfail` / `luaL_checkversion` / `luaL_intop` / `luaL_loadfile` / `luaL_loadbuffer` 宏可见性和宏-only 负向编译 gate、`lua.h` / `lauxlib.h` / `lualib.h` 单独包含的官方函数指针签名、`luaL_newlib` 版本检查宏形态、`lualib.h` 官方库名宏和 `luaopen_*` 函数指针签名、`luaL_pushresultsize()` / `luaL_buffinitsize()` 的零长度结果和 `luaL_prepbuffsize()` / `luaL_buffinitsize()` 大于 `LUAL_BUFFERSIZE` 的写入、`luaL_Buffer` 大缓冲错误 unwind 清理、`luaL_addgsub` 的普通替换/无匹配/非重叠替换路径、`luaL_gsub` 的普通替换/无匹配/非重叠替换路径、`luaL_tolstring` 的 boolean、number subtype、字符串 `__name` 和非字符串 `__name` fallback 文本、`luaL_pushfail`、`luaL_getsubtable` 的普通创建/复用、非 table 字段替换和 `__index` / `__newindex` metamethod 路径、`luaL_requiref` 的首次加载/复用和 `_LOADED[mod] == false` 重载入路径、`luaL_loadbufferx` / `luaL_loadfilex` / `lua_load()` 的 `NULL` mode 文本与二进制 chunk 路径。
@@ -1022,6 +1024,7 @@
 - `git diff --check`、`cmd /c build.bat help`、`cmd /c build.bat jobs`、`cmd /c "set BUILD_JOBS=max&& build.bat jobs"`、`cmd /c "set BUILD_JOBS=perf&& build.bat jobs"`、`cmd /c "set BUILD_JOBS=logical&& build.bat jobs"`、`powershell -NoProfile -ExecutionPolicy Bypass -File tools\lua54_platform_matrix.ps1 -Target probe` 及其 `BUILD_JOBS=max/perf/logical` 变体、`cmd /c build.bat lua54quick` 已通过；确认本机 32 逻辑线程默认 turbo 并发使用 `-j96`，`max/perf/logical` 仍分别降回 `-j64/-j48/-j32`，平台矩阵脚本同步使用同一并发策略，Lua 5.4 compat 构建、官方矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `cmd /c build.bat lua54-capi-runtime-smoke` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `luaL_requiref()` opener 返回 0 个 C 结果时补 `nil`、保持 `_LOADED[mod]` unloaded、后续重载，以及 `glb=false` 不改写既有全局的 lauxlib 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `cmd /c build.bat lua54-capi-runtime-smoke` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `luaL_requiref()` opener 显式返回 `false` 时写入 `_LOADED[mod]`、按 `glb=true` 发布全局，并因 loaded false 在后续调用中重新执行 opener 的 lauxlib 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
+- `cmd /c build.bat lua54-capi-runtime-smoke` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `luaL_requiref()` 成功 opener 在 `glb=false` 下只写 `_LOADED[mod]`、不改写既有全局，并在后续 `glb=true` 调用中复用 loaded 模块发布全局且不重开 opener 的 lauxlib 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 
 ## 已确认不列入当前 TODO 的已实现项
 
