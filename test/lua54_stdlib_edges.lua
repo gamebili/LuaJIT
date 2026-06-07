@@ -17,6 +17,7 @@ local cases = {
   { "base.collectgarbage.mode.roundtrip", "collectgarbage('incremental'); local oldgen = collectgarbage('generational'); local oldinc = collectgarbage('incremental'); local restore = collectgarbage('generational'); return oldgen, oldinc, restore", ok = { "string:incremental", "string:generational", "string:incremental" } },
   { "base.collectgarbage.minor.badopt", "return collectgarbage('minor')", err = "bad argument #1 to 'collectgarbage' (invalid option 'minor')" },
   { "base.dofile.bad", "return dofile(true)", err = "bad argument #1 to 'dofile' (string expected, got boolean)" },
+  { "base.dofile.extra.values", "local fname = 'lua54_dofile_extra_values.tmp'; os.remove(fname); local out = assert(io.open(fname, 'w')); out:write(\"return 63, nil, 'x'\\n\"); out:close(); local r = table.pack(dofile(fname, true, false)); os.remove(fname); return r.n, r[1], r[2], r[3]", ok = { "number:3", "number:63", "nil:nil", "string:x" } },
   { "base.error.noarg", "return error()", err = "nil" },
   { "base.error.level.bad", "return error('x', true)", err = "bad argument #2 to 'error' (number expected, got boolean)" },
   { "base.error.level.float", "return error('x', 1.2)", err = "bad argument #2 to 'error' (number has no integer representation)" },
