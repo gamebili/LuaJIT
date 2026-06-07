@@ -8434,6 +8434,25 @@ static void test_lauxlib_api(lua_State *L)
 	"LUA_LOADED_TABLE");
   lua_pop(L, 1);
 
+  {
+    int loaded_ref;
+    luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
+    loaded_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+    lua_pushliteral(L, "polluted-loaded-table");
+    lua_setfield(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
+    check(L, luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE) == 0,
+	  "luaL_getsubtable replaces polluted _LOADED");
+    check(L, lua_istable(L, -1),
+	  "luaL_getsubtable polluted _LOADED replacement table");
+    lua_getfield(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
+    check(L, lua_rawequal(L, -1, -2),
+	  "luaL_getsubtable stores polluted _LOADED replacement");
+    lua_pop(L, 2);
+    lua_rawgeti(L, LUA_REGISTRYINDEX, loaded_ref);
+    lua_setfield(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
+    luaL_unref(L, LUA_REGISTRYINDEX, loaded_ref);
+  }
+
   gs = luaL_gsub(L, "a-b-a", "-", "_");
   check(L, gs != NULL && strcmp(gs, "a_b_a") == 0,
 	"luaL_gsub return value");

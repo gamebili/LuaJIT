@@ -495,6 +495,7 @@
 - 当前进展：Lua 5.4 兼容构建下 `luaL_unref(t, 0)` 已不再按旧 freelist 入口改写用户 ref table 的 key `0`；默认 LuaJIT 5.1 ABI 仍保留 key `0` freelist 行为。
 - 当前进展：C API smoke 已固定 `luaL_ref()` / `luaL_unref()` 的 ref table release 边界；`luaL_ref()` 缺少待引用值、无效 ref table 索引或非 table ref table 会稳定报 `invalid value`，`luaL_unref()` 对 `LUA_NOREF` / `LUA_REFNIL` 保持无操作，但正 ref 下同样拒绝无效或非 table ref table。
 - 当前进展：C API smoke 已固定 `luaL_getsubtable()` 的目标索引 release 边界；无效 table index 会稳定报 `invalid value`，不再只依赖内部 `lua_getfield()` / `lua_setfield()` 路径间接覆盖。
+- 当前进展：C API smoke 已固定 `luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE)` 在 `_LOADED` 被污染为非 table 时会创建并写回新的 table；测试会恢复原 `_LOADED`，避免影响后续 `luaL_requiref()` / `require()` 路径。
 - 当前进展：`luaL_checkversion_()` 的 version mismatch 错误已按 Lua 5.4 把版本号格式化为 Lua number 文本，例如 `503.0` / `504.0`，不再用旧整数 `%d` 文本。
 - 当前进展：`luaL_typeerror()` 已按 Lua 5.4 在没有字符串 `__name` 覆盖时把 light userdata 报为 `light userdata`；C API smoke 同时覆盖直接 `luaL_checktype()` 路径和 `luaL_argexpected()` 宏路径。
 - 当前进展：`luaL_fileresult()` 已按 Lua 5.4 在失败且 `errno == 0` 时返回 `"(no extra info)"`，带文件名时会格式化为 `filename: (no extra info)`；`luaL_execresult(nonzero)` 在 `errno` 有值时会优先返回 system-error tuple，而 `errno == 0` 时保留普通 `"exit"` tuple。
@@ -1012,6 +1013,7 @@
 - `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 Lua 5.4 外部 `lua_getglobal()` wrapper 经由全局表 `__index` 表或函数命中时的 `LUA_TSTRING` 返回类型；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `lua_toclose()` / `lua_closeslot()` 对 `0` 和缺失正向栈索引的 release `invalid value` 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `lua_toclose()` / `lua_closeslot()` 对过深负索引和 registry pseudo-index 的 release `invalid value` 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
+- `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `luaL_getsubtable(L, LUA_REGISTRYINDEX, LUA_LOADED_TABLE)` 遇到被污染为非 table 的 `_LOADED` 时创建并写回新 table 的 lauxlib 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 
 ## 已确认不列入当前 TODO 的已实现项
 
