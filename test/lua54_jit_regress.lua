@@ -2320,6 +2320,12 @@ do
     for _ = 1, 80 do
       local text_fn, text_err = load("return 54", "lua54-load-text", "b")
       local bin_fn, bin_err = load(binary, "lua54-load-bin", "t")
+      local text_nil_fn, text_nil_err = load("return 55",
+					    "lua54-load-text-nil", nil)
+      local bin_nil_fn, bin_nil_err = load(binary, "lua54-load-bin-nil", nil)
+      local text_bt_fn, text_bt_err = load("return 56",
+					  "lua54-load-text-bt", "bt")
+      local bin_bt_fn, bin_bt_err = load(binary, "lua54-load-bin-bt", "bt")
       local name_fn = assert(load("return 1", 123, "t"))
       local bad_name_ok, bad_name_err = pcall(load, "", true)
       local mode_num_fn, mode_num_err = load("return 54",
@@ -2364,8 +2370,20 @@ do
 			   1, true) then
 	n = n + 1
       end
+      if text_nil_err == nil and text_nil_fn and text_nil_fn() == 55 then
+	n = n + 1
+      end
+      if bin_nil_err == nil and bin_nil_fn and bin_nil_fn() == 54 then
+	n = n + 1
+      end
+      if text_bt_err == nil and text_bt_fn and text_bt_fn() == 56 then
+	n = n + 1
+      end
+      if bin_bt_err == nil and bin_bt_fn and bin_bt_fn() == 54 then
+	n = n + 1
+      end
     end
-    assert(n == 480)
+    assert(n == 800)
   end, "Lua 5.4 load mode errors")
 
   local function result_count(...)

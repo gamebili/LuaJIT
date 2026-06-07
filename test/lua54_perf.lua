@@ -431,6 +431,14 @@ local function base_value_helpers(n)
     end
     local text_fn, text_err = load("return 54", "lua54-load-text", "b")
     local bin_fn, bin_err = load(load_mode_binary, "lua54-load-bin", "t")
+    local text_nil_fn, text_nil_err = load("return 55",
+					   "lua54-load-text-nil", nil)
+    local bin_nil_fn, bin_nil_err = load(load_mode_binary,
+					 "lua54-load-bin-nil", nil)
+    local text_bt_fn, text_bt_err = load("return 56",
+					 "lua54-load-text-bt", "bt")
+    local bin_bt_fn, bin_bt_err = load(load_mode_binary,
+				       "lua54-load-bin-bt", "bt")
     local name_fn = assert(load("return 1", 123, "t"))
     local bad_name_ok, bad_name_err = pcall(load, "", true)
     local mode_num_fn, mode_num_err = load("return 54",
@@ -471,6 +479,18 @@ local function base_value_helpers(n)
     if mode_num_fn == nil and
        mode_num_err:find("attempt to load a text chunk (mode is '123')",
 			 1, true) then
+      sum = sum + 1
+    end
+    if text_nil_err == nil and text_nil_fn and text_nil_fn() == 55 then
+      sum = sum + 1
+    end
+    if bin_nil_err == nil and bin_nil_fn and bin_nil_fn() == 54 then
+      sum = sum + 1
+    end
+    if text_bt_err == nil and text_bt_fn and text_bt_fn() == 56 then
+      sum = sum + 1
+    end
+    if bin_bt_err == nil and bin_bt_fn and bin_bt_fn() == 54 then
       sum = sum + 1
     end
   end
@@ -3377,7 +3397,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_value = timeit(mode_name..":base_value_helpers",
 			    base_value_helpers, iter_n)
-  assert(r_value == iter_n * 35)
+  assert(r_value == iter_n * 39)
 
   local _, r_stdlib_edge = timeit(mode_name..":stdlib_edge_helpers",
 				  stdlib_edge_helpers, iter_n)
