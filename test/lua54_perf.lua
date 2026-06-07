@@ -1501,6 +1501,12 @@ local function package_helpers(n)
       sum = sum + 1
     end
 
+    found, searcherr = package.searchpath("a.b", "?.lua", ".", nil)
+    if found == nil and
+       searcherr:find("a"..package.config:sub(1, 1).."b.lua", 1, true) then
+      sum = sum + 1
+    end
+
     found, searcherr = package.searchpath("x", "?.lua;?/init.lua")
     if found == nil and searcherr:find("x.lua", 1, true) and
        searcherr:find("x/init.lua", 1, true) then
@@ -3340,7 +3346,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 
   local _, r_package = timeit(mode_name..":package_helpers",
 			      package_helpers, iter_n)
-  assert(r_package == iter_n * 24)
+  assert(r_package == iter_n * 25)
 
   local _, r_debug = timeit(mode_name..":debug_helpers",
 			    debug_helpers, iter_n)
