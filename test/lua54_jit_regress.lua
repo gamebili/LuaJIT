@@ -4259,6 +4259,12 @@ do
     for _ = 1, 80 do
       local ok_sub, err_sub = pcall(string.sub, "abc", 1.2)
       local ok_char, err_char = pcall(string.char, 256)
+      local ok_char_method, err_char_method = pcall(function()
+	return ("abc"):char()
+      end)
+      local ok_dump_method, err_dump_method = pcall(function()
+	return ("abc"):dump()
+      end)
       local ok_byte_method, err_byte_method = pcall(function()
 	return ("abc"):byte({})
       end)
@@ -4291,6 +4297,14 @@ do
       end)
       if not ok_sub and err_sub:find("integer representation", 1, true) and
 	 not ok_char and err_char:find("value out of range", 1, true) then
+	n = n + 1
+      end
+      if not ok_char_method and
+	 err_char_method:find("calling 'char' on bad self", 1, true) then
+	n = n + 1
+      end
+      if not ok_dump_method and
+	 err_dump_method:find("calling 'dump' on bad self", 1, true) then
 	n = n + 1
       end
       if not ok_byte_method and
@@ -4336,7 +4350,7 @@ do
 	n = n + 1
       end
     end
-    assert(n == 880)
+    assert(n == 1040)
   end, "Lua 5.4 string integer errors")
 end
 

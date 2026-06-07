@@ -2849,6 +2849,14 @@ local function string_tail_format_method_bad(s)
   return s:format(true)
 end
 
+local function string_tail_char_method_bad(s)
+  return s:char()
+end
+
+local function string_tail_dump_method_bad(s)
+  return s:dump()
+end
+
 local function string_tail_gsub_missing_method_bad(s)
   return s:gsub("a")
 end
@@ -2956,6 +2964,10 @@ local function string_helpers(n)
       pcall(string_tail_find_method_bad, "abc")
     local ok_format_method, err_format_method =
       pcall(string_tail_format_method_bad, "%d")
+    local ok_char_method, err_char_method =
+      pcall(string_tail_char_method_bad, "abc")
+    local ok_dump_method, err_dump_method =
+      pcall(string_tail_dump_method_bad, "abc")
     local ok_gsub_missing_method, err_gsub_missing_method =
       pcall(string_tail_gsub_missing_method_bad, "abc")
     local ok_gsub_limit_method, err_gsub_limit_method =
@@ -2980,6 +2992,14 @@ local function string_helpers(n)
     end
     if not ok_format_method and
        err_format_method:find("bad argument #1 to 'format'", 1, true) then
+      sum = sum + 1
+    end
+    if not ok_char_method and
+       err_char_method:find("calling 'char' on bad self", 1, true) then
+      sum = sum + 1
+    end
+    if not ok_dump_method and
+       err_dump_method:find("calling 'dump' on bad self", 1, true) then
       sum = sum + 1
     end
     if not ok_gsub_missing_method and
@@ -3365,7 +3385,7 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   ratio_check(mode_name..":divmod_vs_floor", t_floor, t_lua54)
 
   local _, r_string = timeit(mode_name..":string_helpers", string_helpers, string_n)
-  assert(r_string == string_n * 234)
+  assert(r_string == string_n * 236)
 
   local _, r_utf8 = timeit(mode_name..":utf8_helpers", utf8_helpers, utf8_n)
   assert(r_utf8 == utf8_n * 14)
