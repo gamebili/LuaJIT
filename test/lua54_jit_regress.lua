@@ -899,8 +899,16 @@ do
 	 math.type("1") == nil then
 	n = n + 1
       end
+      if math.type(math.maxinteger) == "integer" and
+	 math.type(math.mininteger) == "integer" then
+	n = n + 1
+      end
+      if math.type(math.maxinteger + 0.0) == "float" and
+	 math.type(math.mininteger + 0.0) == "float" then
+	n = n + 1
+      end
     end
-    assert(n == 80)
+    assert(n == 240)
   end, "Lua 5.4 math.type")
 
   assert_records_ir_op(function()

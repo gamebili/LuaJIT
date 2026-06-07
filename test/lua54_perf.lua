@@ -2095,6 +2095,14 @@ local function number_pack_helpers(n)
     if math.type(1) == "integer" then sum = sum + 1 end
     if math.type(1.0) == "float" then sum = sum + 1 end
     if math.type("1") == nil then sum = sum + 1 end
+    if math.type(math.maxinteger) == "integer" and
+       math.type(math.mininteger) == "integer" then
+      sum = sum + 1
+    end
+    if math.type(math.maxinteger + 0.0) == "float" and
+       math.type(math.mininteger + 0.0) == "float" then
+      sum = sum + 1
+    end
     -- No-base tonumber() has a separate recorder surface from explicit-base
     -- conversion: it must preserve integer/float subtypes and reject LuaJIT
     -- numeric extensions under the fixed jit.opt perf profiles.
@@ -3355,8 +3363,8 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   local _, r_number_pack = timeit(mode_name..":number_pack_helpers",
 				  number_pack_helpers, iter_n)
   if enable_jit then jit.on(number_pack_helpers, true) end
-  assert(r_number_pack == iter_n * 192,
-	 "number_pack_helpers expected "..(iter_n * 192)..
+  assert(r_number_pack == iter_n * 194,
+	 "number_pack_helpers expected "..(iter_n * 194)..
 	 " got "..r_number_pack)
 
   local _, r_number_string = timeit(mode_name..":number_string_helpers",
