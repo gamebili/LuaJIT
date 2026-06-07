@@ -3478,6 +3478,17 @@ static int laux_tolstring_bool_meta_arg(lua_State *L)
   return 1;
 }
 
+static int laux_tolstring_none_meta_arg(lua_State *L)
+{
+  lua_newtable(L);
+  lua_newtable(L);
+  lua_pushcfunction(L, capi_tostring_none_meta);
+  lua_setfield(L, -2, "__tostring");
+  lua_setmetatable(L, -2);
+  luaL_tolstring(L, -1, NULL);
+  return 1;
+}
+
 static int capi_metafield_index(lua_State *L)
 {
   (void)L;
@@ -9290,6 +9301,13 @@ static void test_lauxlib_api(lua_State *L)
   check(L, status == LUA_ERRRUN, "luaL_tolstring boolean __tostring status");
   check(L, strstr(lua_tostring(L, -1), "'__tostring' must return a string") != NULL,
 	"luaL_tolstring boolean __tostring error");
+  lua_pop(L, 1);
+
+  lua_pushcfunction(L, laux_tolstring_none_meta_arg);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN, "luaL_tolstring no-result __tostring status");
+  check(L, strstr(lua_tostring(L, -1), "'__tostring' must return a string") != NULL,
+	"luaL_tolstring no-result __tostring error");
   lua_pop(L, 1);
 
   lua_newtable(L);

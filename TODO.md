@@ -123,6 +123,7 @@
    - 当前进展：C API smoke 已继续补入 `luaL_getmetafield()` 返回 table/function 字段的 lauxlib 边界，固定 helper 会返回被压入 metafield 的实际 `LUA_TTABLE` / `LUA_TFUNCTION` 类型并保留原值。
    - 当前进展：C API smoke 已继续补入 `luaL_tolstring()` 遇到 `__tostring` 返回多个结果的 lauxlib 边界，固定 helper 只使用第一个字符串结果并丢弃额外返回值。
    - 当前进展：C API smoke 已继续补入 `luaL_tolstring()` 遇到 callable table `__tostring` 的 lauxlib 边界，固定 helper 会按普通调用语义触发 `__call`、回填字符串长度并在栈顶留下转换结果。
+   - 当前进展：C API smoke 已继续补入 `luaL_tolstring()` 遇到 `__tostring` 返回 0 个结果的 lauxlib 边界，固定 `luaL_callmeta()` 补 `nil` 后会按 Lua 5.4 继续报 `'__tostring' must return a string`。
    - 当前进展：C API smoke 已继续补入 `luaL_callmeta()` metamethod 返回多个值的 lauxlib 边界，固定 helper 只在栈上保留第一个 metamethod 结果。
    - 当前进展：C API smoke 已继续补入 `luaL_callmeta()` metamethod 返回 0 个结果的 lauxlib 边界，固定 helper 会按 `lua_call(..., 1)` 补一个 `nil` 结果并返回成功。
    - 当前进展：C API smoke 已继续补入 `luaL_callmeta()` 的 callable table metamethod 边界，固定 helper 会按普通调用语义触发 metafield 的 `__call` 并把原对象作为参数传入。
@@ -526,7 +527,7 @@
 - 当前进展：C API smoke 已固定 `luaL_requiref()` opener 抛错路径；opener 会收到模块名但失败时不会写入 `_LOADED[modname]`，也不会把半初始化值发布到全局表。
 - 当前进展：C API smoke 已固定 `luaL_requiref()` opener 显式返回 `false` 时会把 false 写入 `_LOADED[modname]` 并按 `glb=true` 发布全局；后续调用会因 loaded false 重新执行 opener，和标准 `require()` false-loaded 语义一致。
 - 当前进展：C API smoke 已固定 `luaL_requiref()` 成功 opener 在 `glb=false` 下只写 `_LOADED[modname]`、不覆盖既有全局；随后以 `glb=true` 调用会复用该 loaded 模块并发布全局，不重新执行 opener。
-- 当前进展：C API smoke 已固定 `luaL_tolstring()` 经过 `__tostring` metamethod 时的 Lua 5.4 表面：metamethod 返回 number 会继续按 `lua_isstring()` / `lua_tolstring()` 转成字符串并回填长度，返回含 NUL 的 string 会保留真实长度，返回多个结果时只使用第一个字符串结果，callable table metamethod 会触发 `__call` 并回填结果长度，metamethod 返回 boolean 等不可转字符串值会稳定报 `'__tostring' must return a string`。
+- 当前进展：C API smoke 已固定 `luaL_tolstring()` 经过 `__tostring` metamethod 时的 Lua 5.4 表面：metamethod 返回 number 会继续按 `lua_isstring()` / `lua_tolstring()` 转成字符串并回填长度，返回含 NUL 的 string 会保留真实长度，返回多个结果时只使用第一个字符串结果，返回 0 个结果时会因补齐的 `nil` 继续报 `'__tostring' must return a string`，callable table metamethod 会触发 `__call` 并回填结果长度，metamethod 返回 boolean 等不可转字符串值会稳定报同一错误。
 - 当前进展：C API smoke 已固定 `luaL_callmeta()` 遇到已存在但不可调用的 metafield 时会进入普通调用错误路径；例如 `__tostring = false` 会报 `attempt to call`，不会被当作缺失 metafield 静默返回 0。
 - 当前进展：C API smoke 已固定 `luaL_callmeta()` 的 metamethod 多返回边界；helper 调用时只请求并保留第一个结果，额外返回值不会留在栈上。
 - 已覆盖：最小 C 程序覆盖 buffer API、`LUAL_BUFFERSIZE` 官方公式、`luaL_prepbuffer` / `luaL_addchar` / `luaL_addsize` / `luaL_buffaddr` / `luaL_bufflen` / `luaL_buffsub` 的普通裁剪、零裁剪和清空裁剪 / `luaL_argexpected` / `luaL_argcheck` / `luaL_pushfail` / `luaL_checkversion` / `luaL_intop` / `luaL_loadfile` / `luaL_loadbuffer` 宏可见性和宏-only 负向编译 gate、`lua.h` / `lauxlib.h` / `lualib.h` 单独包含的官方函数指针签名、`luaL_newlib` 版本检查宏形态、`lualib.h` 官方库名宏和 `luaopen_*` 函数指针签名、`luaL_pushresultsize()` / `luaL_buffinitsize()` 的零长度结果和 `luaL_prepbuffsize()` / `luaL_buffinitsize()` 大于 `LUAL_BUFFERSIZE` 的写入、`luaL_Buffer` 大缓冲错误 unwind 清理、`luaL_addgsub` 的普通替换/无匹配/非重叠替换路径、`luaL_gsub` 的普通替换/无匹配/非重叠替换路径、`luaL_tolstring` 的 boolean、number subtype、字符串 `__name` 和非字符串 `__name` fallback 文本、`luaL_pushfail`、`luaL_getsubtable` 的普通创建/复用、非 table 字段替换和 `__index` / `__newindex` metamethod 路径、`luaL_requiref` 的首次加载/复用和 `_LOADED[mod] == false` 重载入路径、`luaL_loadbufferx` / `luaL_loadfilex` / `lua_load()` 的 `NULL` mode 文本与二进制 chunk 路径。
@@ -1047,6 +1048,7 @@
 - `git diff --check`、`cmd /c build.bat lua54-capi-runtime-smoke` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `luaL_tolstring()` 对 callable table `__tostring` 触发 `__call`、回填长度并保留栈顶字符串结果的 lauxlib 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `git diff --check`、`cmd /c build.bat lua54-capi-runtime-smoke` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `luaL_tolstring()` 遇到 `__tostring` 返回多个结果时只使用第一个字符串结果并丢弃额外返回值的 lauxlib 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 - `git diff --check`、`cmd /c build.bat help`、`cmd /c build.bat lua54 -n` 和 `cmd /c build.bat lua54` 已通过；确认 `lua54` 常用入口已改走 `smoketest-capi-lua54compat-quick`，本机 32 逻辑线程默认继续使用 `-j96` turbo 并行，Lua 5.4 配置 stamp 相同时会复用对象文件，同时仍覆盖官方 Lua 5.4.8 矩阵、runtime smoke、C API/header smoke 与 VM 后端静态/DynASM 门禁。
+- `git diff --check`、`cmd /c build.bat lua54-capi-runtime-smoke` 和 `cmd /c build.bat lua54quick` 已通过，覆盖本轮新增 `luaL_tolstring()` 遇到 `__tostring` 返回 0 个结果时经补齐 `nil` 后报 `'__tostring' must return a string` 的 lauxlib 边界；确认 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、runtime/C API/header smoke 与 VM 后端静态/DynASM 门禁仍通过。
 
 ## 已确认不列入当前 TODO 的已实现项
 
