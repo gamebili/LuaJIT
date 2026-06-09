@@ -845,7 +845,13 @@ int lj_debug_getinfo(lua_State *L, const char *what, lj_Debug *ar, int ext)
 #endif
 	lj_debug_shortname(ar->short_src, name, pt->firstline);
 	ar->linedefined = (int)firstline;
+#if LJ_54
+	/* Official Lua 5.4 reports lastlinedefined == 0 for main chunks. */
+	ar->lastlinedefined = (firstline || !pt->numline) ?
+			      (int)(firstline + pt->numline) : 0;
+#else
 	ar->lastlinedefined = (int)(firstline + pt->numline);
+#endif
 	ar->what = (firstline || !pt->numline) ? "Lua" : "main";
       } else {
 	ar->source = "=[C]";

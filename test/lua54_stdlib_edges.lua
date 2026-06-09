@@ -793,6 +793,7 @@ local cases = {
   { "string.format.c.wide", "return string.format('%c', 65), string.format('%c', math.maxinteger):byte()", ok = { "string:A", "number:255" } },
   { "debug.traceback.namewhat","local f; f = function() return debug.traceback() end; local function mid() return (f()) end; local tb = mid(); return (tb:find([[in upvalue 'f']], 1, true)) ~= nil, (tb:find([[in local 'mid']], 1, true)) ~= nil", ok = { "boolean:true", "boolean:true" } },
   { "debug.traceback.builtincframe", "return (debug.traceback(nil, 0):find([=[[C]: in function 'debug.traceback']=], 1, true)) ~= nil", ok = { "boolean:true" } },
+  { "debug.getinfo.mainlines", "local f = assert(load('local x = 1\\nreturn function() return x end', '=chunkname')); local gm = debug.getinfo(f, 'S'); local gi = debug.getinfo(f(), 'S'); return gm.what, gm.linedefined, gm.lastlinedefined, gi.what, gi.linedefined, gi.lastlinedefined", ok = { "string:main", "number:0", "number:0", "string:Lua", "number:2", "number:2" } },
   { "utf8.char.bad", "return utf8.char(0x80000000)", err = "bad argument #1 to 'char' (value out of range)" },
   { "utf8.char.bad.arg2", "return utf8.char(65, -1)", err = "bad argument #2 to 'char' (value out of range)" },
   { "utf8.char.bad.arg2.pcall", "local ok, err = pcall(utf8.char, 65, -1); return ok, err", ok = { "boolean:false", "string:bad argument #2 to 'utf8.char' (value out of range)" } },
