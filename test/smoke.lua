@@ -2409,10 +2409,14 @@ return true
     ok, err = pcall(assert(load([[return 1 // "x"]])))
     assert(ok == false and err:match("idiv") ~= nil and
            err:match("'number'") ~= nil and err:match("'string'") ~= nil)
+    -- Official Lua 5.4 reports non-string idiv failures with the generic
+    -- arithmetic error and the __name-derived type plus the operand source.
     _G.__lua54_named_idiv = setmetatable({}, { __name = "Lua54Idiv" })
     ok, err = pcall(assert(load("return __lua54_named_idiv // 1")))
-    assert(ok == false and err:match("idiv") ~= nil and
-           err:match("'Lua54Idiv'") ~= nil)
+    assert(ok == false and err:match("perform arithmetic") ~= nil and
+           err:match("Lua54Idiv value") ~= nil and
+           err:match("global '__lua54_named_idiv'") ~= nil and
+           err:match("attempt to idiv") == nil)
     _G.__lua54_named_idiv = nil
   end
   do
