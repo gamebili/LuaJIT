@@ -1200,28 +1200,41 @@ LUALIB_API void luaL_traceback (lua_State *L, lua_State *L1, const char *msg,
     else
 #endif
     if (isffunc(fn) && !*ar.namewhat)
+#if LJ_54
+      /* Lua 5.4 shows plain C frames; do not leak LuaJIT builtin ids. */
+      lua_pushliteral(L, "\n\t[C]:");
+#else
       lua_pushfstring(L, "\n\t[builtin#%d]:", fn->c.ffid);
+#endif
     else
       lua_pushfstring(L, "\n\t%s:", ar.short_src);
     if (ar.currentline > 0)
       lua_pushfstring(L, "%d:", ar.currentline);
     if (*ar.namewhat) {
 #if LJ_54
-      if (strcmp(ar.namewhat, "hook") == 0)
-	lua_pushfstring(L, " in hook " LUA_QS, ar.name);
-      else if (strcmp(ar.namewhat, "metamethod") == 0)
-	lua_pushfstring(L, " in metamethod " LUA_QS, ar.name);
+      /* Official pushfuncname() prefers the _LOADED-derived global name for
+      ** both Lua and C functions, then reports the source-level name kind
+      ** (local/method/field/upvalue/global/hook/metamethod) for named
+      ** frames instead of a generic "function".
+      */
+      if (gname)
+	lua_pushfstring(L, " in function " LUA_QS, gname);
       else if (*ar.what == 'C' && ar.name &&
 	       strcmp(ar.name, "traceback") == 0)
 	lua_pushliteral(L, " in function 'debug.traceback'");
       else if (*ar.what == 'C' && ar.name && strcmp(ar.name, "yield") == 0)
 	lua_pushliteral(L, " in function 'coroutine.yield'");
-      else if (*ar.what == 'C' && gname)
-	lua_pushfstring(L, " in function " LUA_QS, gname);
       else
-#endif
+	lua_pushfstring(L, " in %s " LUA_QS, ar.namewhat, ar.name);
+#else
       lua_pushfstring(L, " in function " LUA_QS, ar.name);
+#endif
     } else {
+#if LJ_54
+      if (gname) {
+	lua_pushfstring(L, " in function " LUA_QS, gname);
+      } else
+#endif
       if (*ar.what == 'm') {
 	lua_pushliteral(L, " in main chunk");
       } else if (*ar.what == 'C') {

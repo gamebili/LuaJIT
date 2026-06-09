@@ -220,12 +220,12 @@ static int utf8_decode(const unsigned char *s, size_t len, size_t pos,
 }
 
 static void utf8_addchar(lua_State *L, luaL_Buffer *b, lua_Integer cp,
-			 const char *fname)
+			 int narg, const char *fname)
 {
   char buf[6];
   size_t n;
   if (cp < 0 || cp > 0x7fffffff)
-    utf8_argerror_named(L, 1, fname, "value out of range");
+    utf8_argerror_named(L, narg, fname, "value out of range");
   if (cp <= 0x7f) {
     buf[0] = (char)cp;
     n = 1;
@@ -271,7 +271,7 @@ static int utf8_char(lua_State *L)
   int i, n = lua_gettop(L);
   luaL_buffinit(L, &b);
   for (i = 1; i <= n; i++)
-    utf8_addchar(L, &b, utf8_checkchar_named(L, i), "utf8.char");
+    utf8_addchar(L, &b, utf8_checkchar_named(L, i), i, "utf8.char");
   luaL_pushresult(&b);
   return 1;
 }

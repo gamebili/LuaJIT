@@ -702,10 +702,16 @@ LJLIB_ASM(tonumber)		LJLIB_REC(.)
 #endif
 #if LJ_54
   if (!hasbase) {
+    /* Lua 5.4 reports the missing-value error against the public function
+    ** name; the generic helper would degrade the direct pcall() name to '?'.
+    */
+    TValue *o;
+    base_checkany_named54(L, 1, "tonumber");
+    o = L->base;
 #else
   if (base == 10) {
-#endif
     TValue *o = lj_lib_checkany(L, 1);
+#endif
 #if LJ_54
     if (tvisstr(o)) {
       GCstr *s = strV(o);
@@ -764,11 +770,7 @@ LJLIB_ASM(tonumber)		LJLIB_REC(.)
 #if !LJ_54
     unsigned long ul;
 #endif
-#if LJ_54
-    if (ibase < 2 || ibase > 36)
-      base_argerror_named54(L, 2, "tonumber", "base out of range");
-    base = (int32_t)ibase;
-#else
+#if !LJ_54
     if (base < 2 || base > 36)
       lj_err_arg(L, 2, LJ_ERR_BASERNG);
 #endif
@@ -776,8 +778,12 @@ LJLIB_ASM(tonumber)		LJLIB_REC(.)
     /* With an explicit base, Lua 5.4 requires the first argument to be an
     ** actual string and scans the full Lua string length, so embedded NUL
     ** bytes are invalid trailing data instead of C string terminators.
+    ** The string type check precedes the base range check.
     */
     s = base_checkstr_exact_named54(L, 1, "tonumber");
+    if (ibase < 2 || ibase > 36)
+      base_argerror_named54(L, 2, "tonumber", "base out of range");
+    base = (int32_t)ibase;
     p = strdata(s);
     pe = p + s->len;
     while (p < pe && lj_char_isspace((unsigned char)(*p))) p++;

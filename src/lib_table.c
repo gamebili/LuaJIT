@@ -565,34 +565,33 @@ static int table_concat54(lua_State *L, GCstr *sep, lua_Integer i,
 LJLIB_CF(table_concat)		LJLIB_REC(.)
 {
 #if LJ_54
-  GCstr *sep = table_optstr_named54(L, 2, "table.concat");
-  lua_Integer i = (L->base+2 < L->top && !tvisnil(L->base+2)) ?
-		  table_checkinteger_named54(L, 3, "table.concat") : 1;
+  /* Official tconcat() order: validate the table-like object and take its
+  ** length (running __len) first, then parse separator and range. The
+  ** explicit end argument overrides the default but the length operation
+  ** still runs like official aux_getn().
+  */
+  GCstr *sep;
+  lua_Integer i, e;
   table_checktab_like54(L, 1, LJ_TABLE_TAB_R|LJ_TABLE_TAB_L,
 			"table.concat");
+  e = table_len_integer_obj54(L, 1);
+  sep = table_optstr_named54(L, 2, "table.concat");
+  i = (L->base+2 < L->top && !tvisnil(L->base+2)) ?
+      table_checkinteger_named54(L, 3, "table.concat") : 1;
+  if (L->base+3 < L->top && !tvisnil(L->base+3))
+    e = table_checkinteger_named54(L, 4, "table.concat");
 #else
   GCtab *t = lj_lib_checktab(L, 1);
   GCstr *sep = lj_lib_optstr(L, 2);
   int32_t i = lj_lib_optint(L, 3, 1);
-#endif
   lua_Integer e;
-#if !LJ_54
   SBuf *sb, *sbx;
-#endif
   if (L->base+3 < L->top && !tvisnil(L->base+3)) {
-#if LJ_54
-    e = table_checkinteger_named54(L, 4, "table.concat");
-#else
     e = lj_lib_checkint(L, 4);
-#endif
-#if LJ_54
-  } else {
-    e = table_len_integer_obj54(L, 1);
-#else
   } else {
     e = (int32_t)lj_tab_len(t);
-#endif
   }
+#endif
 #if LJ_54
   return table_concat54(L, sep, i, e);
 #else

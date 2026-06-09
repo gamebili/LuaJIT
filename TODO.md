@@ -803,6 +803,7 @@
 
 ## 当前验证结果
 
+- 新增 `tools/lua54_diff_probe.lua` 差分对照清扫：对标准库 10 个库表跑 28417 个单参/双参 pcall 探针并与本机官方 `lua54.exe` 逐字节比对，当前输出完全一致。本轮由该清扫发现并修复 6 个真实缺口：`next(t, 0)` / `next(t, 1.0)` 对缺席 key 0 和 float key 按官方 `findindex()` 报 `invalid key to 'next'`（`lj_tab_keyindex` 数组部分改为 1-based 语义，`{[0]=v}` 的存在 key 0 仍可遍历）；`pcall(tonumber)` 缺参错误恢复官方 `'tonumber'` fallback 名；`tonumber(非string, base)` 先报 #1 string 类型错误再查 base 范围；`table.concat` 按官方 `aux_getn()` 先校验 #1 table-like 并始终执行 `__len`（含显式终点），再解析 separator/range；`utf8.char(65, -1)` 越界码位报实际参数编号 #2；`luaL_traceback()` 对齐官方 `pushfuncname()`——`_LOADED` 全局名优先（Lua/C 函数一致），其余具名帧显示 `in local/upvalue/method/field/global '<name>'`，未具名 builtin C 帧显示 `[C]:` 而不是 `[builtin#N]:`。`test/lua54_stdlib_edges.lua` 已固化全部新边界。
 - `cmd /c build.bat test` 已通过，覆盖本轮并行官方矩阵临时文件竞态修复：`test/lua54_official_matrix.lua` 的 wrapper chunk 改为按 case 名派生的确定性路径，不再依赖 `os.tmpname()`；Windows `os.tmpname()` 也改为 PID + 进程内计数器派生命名并只返回当前不存在的路径，消除 `GetTempFileNameA` 占位文件删除窗口内并行 luajit 进程取得同名导致的官方 `files.lua` / `api.lua` / `verybig.lua` 互相覆盖与 `File exists` 假失败。
 
 - `cmd /c build.bat smoke54` 已通过，覆盖 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、`lua54_stdlib_edges.lua` 新增标准库边界、JIT/GC/VM 后端静态与 DynASM 门禁，以及 standalone Lua 5.4 smoke。

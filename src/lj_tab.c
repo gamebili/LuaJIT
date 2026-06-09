@@ -838,21 +838,44 @@ uint32_t LJ_FASTCALL lj_tab_keyindex(GCtab *t, cTValue *key)
 #endif
   if (tvisint(key)) {
     int32_t k = intV(key);
-    if ((uint32_t)k < t->asize)
+    if ((uint32_t)k < t->asize) {
+#if LJ_54
+      /* Lua 5.4's array part is 1-based: integer key 0 is only a valid
+      ** traversal position when it is actually present. An absent key 0
+      ** must report an invalid key like official findindex(), not restart
+      ** the array walk.
+      */
+      if (k == 0 && tvisnil(arrayslot(t, 0)))
+	return ~0u;
+#endif
       return (uint32_t)k + 1;
+    }
 #if !LJ_54
     setnumV(&tmp, (lua_Number)k);
     key = &tmp;
 #endif
   } else if (tvisi64(key)) {
     int64_t k = i64V(key);
-    if (k >= 0 && (uint64_t)k < (uint64_t)t->asize)
+    if (k >= 1 && (uint64_t)k < (uint64_t)t->asize)
       return (uint32_t)k + 1;
   } else if (tvisnum(key)) {
+#if LJ_54 && LJ_DUALNUM
+    /* Lua 5.4 key variants: exact-float keys are normalized to integer
+    ** keys on insertion, so a float key never names an array slot.
+    ** Official findindex() only matches absent float keys via the strict
+    ** hash equality below.
+    */
+#else
     int64_t i64;
     int32_t k;
-    if (lj_num2int_cond(numV(key), i64, k, (uint32_t)i64 < t->asize))
+    if (lj_num2int_cond(numV(key), i64, k, (uint32_t)i64 < t->asize)) {
+#if LJ_54
+      if (k == 0 && tvisnil(arrayslot(t, 0)))
+	return ~0u;  /* Absent key 0 is not a traversal position. */
+#endif
       return (uint32_t)k + 1;
+    }
+#endif
   }
   if (!tvisnil(key)) {
     Node *n = hashkey(t, key);
