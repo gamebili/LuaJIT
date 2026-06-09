@@ -308,6 +308,22 @@ static lua_Integer lua54_checkintop(lua_State *L, int narg)
   return i;
 }
 
+static void lua54_bitop_typecheck(lua_State *L)
+{
+  /* Official luaT_trybinTM() order for bitwise events: when a metamethod is
+  ** missing, a non-number operand reports the bitwise type error before any
+  ** integer-representation diagnostics, checking the first operand first.
+  ** Strings never coerce for bitwise operators, so they count as
+  ** non-numbers here. lua54_checkintop() raises the actual error.
+  */
+  int i;
+  for (i = 1; i <= 2; i++) {
+    cTValue *o = L->base + i-1;
+    if (o >= L->top || !(tvisnumber(o) || tvisi64(o)))
+      lua54_checkintop(L, i);
+  }
+}
+
 static int lua54_tobitinteger(lua_State *L, int narg, lua_Integer *ip,
 			      int *isnum)
 {
@@ -514,22 +530,37 @@ static lua_Number lua54_nummod(lua_Number a, lua_Number b)
 
 LJLIB_CF(jit__lua54_idiv_c)		LJLIB_REC(lua54_idivmod IR_DIV)
 {
-  int ia, ib;
+  int ia, ib, oka, okb;
   lua_Integer a = 0, b = 0;
   double na, nb;
   if ((tvisstr(L->base) || tvisstr(L->base+1)) &&
       lua54_callbinmeta(L, "__idiv", 0))
     return 1;
-  if (!lua54_tonumop(L, 1, &ia, &a, &na) ||
-      !lua54_tonumop(L, 2, &ib, &b, &nb)) {
+  oka = lua54_tonumop(L, 1, &ia, &a, &na);
+  okb = lua54_tonumop(L, 2, &ib, &b, &nb);
+  if (!oka || !okb) {
     if (lua54_callbinmeta(L, "__idiv", 0))
       return 1;
-    lua54_binop_error(L, "idiv");
+    /* Official semantics: string operands fail from the string metamethod
+    ** ("attempt to idiv a 'x' with a 'y'"); plain non-numbers report the
+    ** generic arithmetic error on the first bad operand.
+    */
+    if (tvisstr(L->base) || tvisstr(L->base+1))
+      lua54_binop_error(L, "idiv");
+    lua54_arith_error(L, oka ? 2 : 1);
   }
   if (ia && ib) {
     lua_Integer q, r;
-    if (b == 0)
+    if (b == 0) {
+      if (tvisstr(L->base) || tvisstr(L->base+1)) {
+	/* Official string arithmetic raises this from the string metamethod
+	** C function, so the error carries no source position prefix.
+	*/
+	lua_pushliteral(L, "attempt to divide by zero");
+	return lua_error(L);
+      }
       return luaL_error(L, "attempt to divide by zero");
+    }
     if (a == LUA_MININTEGER && b == (lua_Integer)-1)
       return lua54_pushbinint(L, a);
     q = a / b;
@@ -560,8 +591,16 @@ LJLIB_CF(jit__lua54_mod_c)		LJLIB_REC(lua54_idivmod IR_MOD)
   }
   if (ia && ib) {
     lua_Integer r;
-    if (b == 0)
+    if (b == 0) {
+      if (tvisstr(L->base) || tvisstr(L->base+1)) {
+	/* Official string arithmetic raises this from the string metamethod
+	** C function, so the error carries no source position prefix.
+	*/
+	lua_pushliteral(L, "attempt to perform 'n%0'");
+	return lua_error(L);
+      }
       return luaL_error(L, "attempt to perform 'n%%0'");
+    }
     if (a == LUA_MININTEGER && b == (lua_Integer)-1)
       return lua54_pushbinint(L, 0);
     r = a % b;
@@ -580,6 +619,7 @@ LJLIB_CF(jit__lua54_band_c)		LJLIB_REC(lua54_bit IR_BAND)
       !lua54_tobitinteger(L, 2, &b, &ib)) {
     if (lua54_callbinmeta(L, "__band", 0))
       return 1;
+    lua54_bitop_typecheck(L);
     a = lua54_checkintop(L, 1);
     b = lua54_checkintop(L, 2);
   }
@@ -595,6 +635,7 @@ LJLIB_CF(jit__lua54_bor_c)		LJLIB_REC(lua54_bit IR_BOR)
       !lua54_tobitinteger(L, 2, &b, &ib)) {
     if (lua54_callbinmeta(L, "__bor", 0))
       return 1;
+    lua54_bitop_typecheck(L);
     a = lua54_checkintop(L, 1);
     b = lua54_checkintop(L, 2);
   }
@@ -610,6 +651,7 @@ LJLIB_CF(jit__lua54_bxor_c)		LJLIB_REC(lua54_bit IR_BXOR)
       !lua54_tobitinteger(L, 2, &b, &ib)) {
     if (lua54_callbinmeta(L, "__bxor", 0))
       return 1;
+    lua54_bitop_typecheck(L);
     a = lua54_checkintop(L, 1);
     b = lua54_checkintop(L, 2);
   }
@@ -653,6 +695,7 @@ LJLIB_CF(jit__lua54_shl_c)		LJLIB_REC(lua54_shift IR_BSHL)
       !lua54_tobitinteger(L, 2, &sh, &ib)) {
     if (lua54_callbinmeta(L, "__shl", 0))
       return 1;
+    lua54_bitop_typecheck(L);
     a = lua54_checkintop(L, 1);
     sh = lua54_checkintop(L, 2);
   }
@@ -667,6 +710,7 @@ LJLIB_CF(jit__lua54_shr_c)		LJLIB_REC(lua54_shift IR_BSHR)
       !lua54_tobitinteger(L, 2, &sh, &ib)) {
     if (lua54_callbinmeta(L, "__shr", 0))
       return 1;
+    lua54_bitop_typecheck(L);
     a = lua54_checkintop(L, 1);
     sh = lua54_checkintop(L, 2);
   }

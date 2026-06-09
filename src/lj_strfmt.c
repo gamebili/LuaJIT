@@ -584,7 +584,6 @@ static int strfmt_numisinf(lua_Number n)
 
 static int strfmt_putqnum_lua54(SBuf *sb, lua_Number n)
 {
-  int64_t k;
   if (n != n) {
     lj_buf_putmem(sb, "(0/0)", 5);
     return 1;
@@ -596,15 +595,10 @@ static int strfmt_putqnum_lua54(SBuf *sb, lua_Number n)
       lj_buf_putmem(sb, "1e9999", 6);
     return 1;
   }
-  if (n == 0 && 1.0 / n < 0) {
-    lj_buf_putmem(sb, "-0x0p+0", 7);
-    return 1;
-  }
-  k = lj_num2i64(n);
-  if (checki32(k) && (lua_Number)k == n) {
-    lj_strfmt_putint(sb, (int32_t)k);
-    return 1;
-  }
+  /* Official quotefloat() prints every finite float as a hexadecimal float
+  ** so reading the literal back restores the float subtype. Integral floats
+  ** like 2.0 must not degrade to integer literals.
+  */
   lj_strfmt_putfnum(sb, STRFMT_A, n);
   return 1;
 }
@@ -818,10 +812,17 @@ int lj_strfmt_putarg(lua_State *L, SBuf *sb, int arg, int retry)
 	}
       case STRFMT_CHAR:
 #if LJ_54
-	/* %c is an integer conversion in Lua 5.4. Keep string numerals, but
-	** reject fractions instead of truncating them to a byte.
+	/* %c is an integer conversion in Lua 5.4. Keep string numerals and
+	** reject fractions, but accept the full lua_Integer width and
+	** truncate to a C int like official l_sprintf("%c", (int)n).
 	*/
-	lj_strfmt_putfchar(sb, sf, lj_num2int(strfmt_checkintegernum(L, arg)));
+	if (tvisint(o))
+	  lj_strfmt_putfchar(sb, sf, intV(o));
+	else if (tvisi64(o))
+	  lj_strfmt_putfchar(sb, sf, (int32_t)(uint32_t)(uint64_t)i64V(o));
+	else
+	  lj_strfmt_putfchar(sb, sf, (int32_t)(uint32_t)(uint64_t)
+	    lj_num2i64(strfmt_checkintegernum(L, arg)));
 #else
 	lj_strfmt_putfchar(sb, sf, lj_lib_checkint(L, arg));
 #endif
