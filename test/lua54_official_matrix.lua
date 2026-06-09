@@ -37,8 +37,13 @@ local function readfile(path)
 end
 
 local function run_child(name, code)
-  local tmp = os.tmpname()
-  if not tmp:match("%.lua$") then tmp = tmp .. ".lua" end
+  -- The matrix cases run in parallel under make -jN. os.tmpname() deletes its
+  -- Win32 placeholder file before returning, so concurrent luajit processes
+  -- can be handed the same name and overwrite each other's wrapper chunk.
+  -- Case names are unique within one matrix run, so derive a deterministic
+  -- per-case wrapper path instead.
+  local tmpdir = (os.getenv("TMP") or os.getenv("TEMP") or "."):gsub("\\", "/"):gsub("/$", "")
+  local tmp = tmpdir .. "/lua54_official_" .. name:gsub("[^%w]", "_") .. ".lua"
   local f = assert(io.open(tmp, "w"))
   f:write("if jit then jit.off() end\n",
 	  "package.path=", longstr(lua_path), "\n", code, "\n")

@@ -803,6 +803,8 @@
 
 ## 当前验证结果
 
+- `cmd /c build.bat test` 已通过，覆盖本轮并行官方矩阵临时文件竞态修复：`test/lua54_official_matrix.lua` 的 wrapper chunk 改为按 case 名派生的确定性路径，不再依赖 `os.tmpname()`；Windows `os.tmpname()` 也改为 PID + 进程内计数器派生命名并只返回当前不存在的路径，消除 `GetTempFileNameA` 占位文件删除窗口内并行 luajit 进程取得同名导致的官方 `files.lua` / `api.lua` / `verybig.lua` 互相覆盖与 `File exists` 假失败。
+
 - `cmd /c build.bat smoke54` 已通过，覆盖 Lua 5.4 compat 构建、官方 Lua 5.4.8 矩阵、`lua54_stdlib_edges.lua` 新增标准库边界、JIT/GC/VM 后端静态与 DynASM 门禁，以及 standalone Lua 5.4 smoke。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 已通过，覆盖本轮新增的 math/table 官方对照边界。
 - `.\src\luajit.exe test\lua54_stdlib_edges.lua` 已通过，覆盖本轮新增的 string 库官方对照边界。

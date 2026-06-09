@@ -273,12 +273,34 @@ LJLIB_CF(os_tmpname)
     lj_err_caller(L, LJ_ERR_OSUNIQF);
 #else
 #if LJ_TARGET_WINDOWS && !LJ_TARGET_XBOXONE && !LJ_TARGET_UWP
+  /* GetTempFileNameA() creates a placeholder file that must be deleted
+  ** before returning the name. Concurrent processes can be handed the same
+  ** name inside that delete window, so derive the name from the process id
+  ** plus a per-process counter instead and only return names that do not
+  ** currently exist. The name is never created here, and the embedded pid
+  ** keeps parallel test runners from colliding.
+  */
+  static LONG tmpname_counter;
   char tpath[MAX_PATH+1];
   char buf[MAX_PATH+1];
   DWORD len = GetTempPathA((DWORD)sizeof(tpath), tpath);
-  if (len == 0 || len >= (DWORD)sizeof(tpath) ||
-      GetTempFileNameA(tpath, "lua", 0, buf) == 0 ||
-      DeleteFileA(buf) == 0)
+  int ok = 0;
+  if (len != 0 && len + 28 < (DWORD)sizeof(tpath)) {
+    DWORD pid = GetCurrentProcessId();
+    DWORD tick = GetTickCount();
+    int i;
+    for (i = 0; i < 100 && !ok; i++) {
+      LONG n = InterlockedIncrement(&tmpname_counter);
+      int w = snprintf(buf, sizeof(buf), "%slua_%08lx_%05lx%04x.tmp", tpath,
+		       (unsigned long)pid,
+		       (unsigned long)((tick + (DWORD)(ULONG)n) & 0xfffff),
+		       (unsigned)((ULONG)n & 0xffff));
+      if (w > 0 && (size_t)w < sizeof(buf) &&
+	  GetFileAttributesA(buf) == INVALID_FILE_ATTRIBUTES)
+	ok = 1;
+    }
+  }
+  if (!ok)
     lj_err_caller(L, LJ_ERR_OSUNIQF);
 #else
   char buf[L_tmpnam];
