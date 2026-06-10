@@ -1001,6 +1001,30 @@ LJ_NOINLINE void lj_err_lex(lua_State *L, GCstr *src, const char *tok,
 }
 
 /* Typecheck error for operands. */
+#if LJ_54
+/* Backscan for string-constant operands: Lua 5.4 reports the constant's
+** text when an operator register was loaded from KSTR (possibly via MOV).
+*/
+static const char *err_kstr_source(GCproto *pt, const BCIns *pc, BCReg slot,
+				   const char **oname)
+{
+  const BCIns *p = pc;
+  BCReg want = slot;
+  int steps = 0;
+  while (p > proto_bc(pt) && steps++ < 12) {
+    BCIns ins = *--p;
+    BCOp bop = bc_op(ins);
+    if (bop == BC_MOV && bc_a(ins) == want) {
+      want = bc_d(ins);
+    } else if (bop == BC_KSTR && bc_a(ins) == want) {
+      *oname = strdata(gco2str(proto_kgc(pt, ~(ptrdiff_t)bc_d(ins))));
+      return "constant";
+    }
+  }
+  return NULL;
+}
+#endif
+
 LJ_NOINLINE void lj_err_optype(lua_State *L, cTValue *o, ErrMsg opm)
 {
   MSize tlen;
@@ -1012,6 +1036,10 @@ LJ_NOINLINE void lj_err_optype(lua_State *L, cTValue *o, ErrMsg opm)
     const BCIns *pc = cframe_Lpc(L) - 1;
     const char *oname = NULL;
     const char *kind = lj_debug_slotname(pt, pc, (BCReg)(o-L->base), &oname);
+#if LJ_54
+    if (!kind && tvisstr(o))
+      kind = err_kstr_source(pt, pc, (BCReg)(o-L->base), &oname);
+#endif
     if (kind)
 #if LJ_54
       err_msgv(L, LJ_ERR_BADOPRT, opname, tname, kind, oname);
@@ -1021,6 +1049,22 @@ LJ_NOINLINE void lj_err_optype(lua_State *L, cTValue *o, ErrMsg opm)
   }
   err_msgv(L, LJ_ERR_BADOPRV, opname, tname);
 }
+
+#if LJ_54
+/* Integer-representation error for Lua 5.4 bitwise operands. */
+LJ_NOINLINE void lj_err_optypeint(lua_State *L, cTValue *o)
+{
+  if (curr_funcisL(L)) {
+    GCproto *pt = curr_proto(L);
+    const BCIns *pc = cframe_Lpc(L) - 1;
+    const char *oname = NULL;
+    const char *kind = lj_debug_slotname(pt, pc, (BCReg)(o-L->base), &oname);
+    if (kind)
+      err_msgv(L, LJ_ERR_NUMINTRT, kind, oname);
+  }
+  lj_err_msg(L, LJ_ERR_NUMINT);
+}
+#endif
 
 /* Typecheck error for ordered comparisons. */
 LJ_NOINLINE void lj_err_comp(lua_State *L, cTValue *o1, cTValue *o2)

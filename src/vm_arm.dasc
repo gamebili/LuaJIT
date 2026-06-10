@@ -969,6 +969,30 @@ static void build_subroutines(BuildCtx *ctx)
   |    mov NARGS8:RC, #16		// 2 args for func(o1, o2).
   |  b ->vm_call_dispatch
   |
+  |->vmeta_bnot:
+  |  add CARG3, BASE, RC
+  |  mov CARG4, CARG3
+  |  b >6
+  |
+  |->vmeta_bitop:
+  |  decode_RB8 RB, INS
+  |   decode_RC8 RC, INS
+  |  add CARG3, BASE, RB
+  |   add CARG4, BASE, RC
+  |6:
+  |  decode_OP OP, INS
+  |   add CARG2, BASE, RA
+  |    str BASE, L->base
+  |   mov CARG1, L
+  |    str PC, SAVE_PC
+  |  str OP, ARG5
+  |  bl extern lj_meta_bitop  // (lua_State *L, TValue *ra,*rb,*rc, BCReg op)
+  |  // Returns NULL (finished) or TValue * (metamethod).
+  |  .IOS ldr BASE, L->base
+  |  cmp CRET1, #0
+  |  beq ->cont_nop
+  |  b ->vmeta_binop
+  |
   |->vmeta_len:
   |  add CARG2, BASE, RC
   |   str BASE, L->base
@@ -3537,6 +3561,17 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |   ins_next2
     |  strd CARG34, [BASE, RA]		// Copy result to RA.
     |   ins_next3
+    break;
+
+  /* -- Lua 5.4 bitwise ops: C fallback only on this backend. ------------- */
+
+  case BC_BAND: case BC_BOR: case BC_BXOR: case BC_BSHL: case BC_BSHR:
+    |  b ->vmeta_bitop
+    break;
+  case BC_BNOT:
+    |  // RA = dst*8, RC = src
+    |  lsl RC, RC, #3
+    |  b ->vmeta_bnot
     break;
 
   /* -- Constant ops ------------------------------------------------------ */

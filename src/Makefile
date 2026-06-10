@@ -653,7 +653,7 @@ clean:
 	$(HOST_RM) $(ALL_RM)
 
 libbc:
-	./$(LUAJIT_T) host/genlibbc.lua -o host/buildvm_libbc.h $(LJLIB_C)
+	./$(LUAJIT_T) -joff host/genlibbc.lua -o host/buildvm_libbc.h $(LJLIB_C)
 	$(MAKE) all
 
 depend:
@@ -690,6 +690,7 @@ host/buildvm_arch.h: $(DASM_DASC) $(MINILUA_DEP) lj_arch.h lua.h luaconf.h
 	$(Q)$(DASM) $(DASM_FLAGS) -o $@ $(DASM_DASC)
 
 host/buildvm.o: $(DASM_DIR)/dasm_*.h
+host/buildvm_lib.o: host/buildvm_libbc.h
 
 $(BUILDVM_T): $(BUILDVM_O)
 	$(E) "HOSTLINK  $@"

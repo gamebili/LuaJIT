@@ -11,6 +11,7 @@
 #include "lj_obj.h"
 #include "lj_gc.h"
 #include "lj_str.h"
+#include "lj_state.h"
 #include "lj_vm.h"
 
 /* Object type names. */
@@ -44,8 +45,18 @@ void lj_obj_setint64(lua_State *L, TValue *o, int64_t i)
     setintV(o, (int32_t)i);
   } else {
     GCint64 *i64;
+    /* The GC step (or an OOM full GC inside the allocation) may shrink and
+    ** reallocate the Lua stack. Destination slots that point into the stack
+    ** must be tracked as offsets across the allocation, or the store below
+    ** writes into the freed old stack.
+    */
+    TValue *stk = tvref(L->stack);
+    int onstack = o >= stk && o < tvref(L->maxstack);
+    ptrdiff_t ofs = onstack ? savestack(L, o) : 0;
     lj_gc_check(L);
     i64 = lj_obj_newint64(L, i);
+    if (onstack)
+      o = restorestack(L, ofs);
     seti64V(L, o, i64);
   }
 }

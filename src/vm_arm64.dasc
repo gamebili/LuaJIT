@@ -319,9 +319,12 @@
 #define PC2PROTO(field)  ((int)offsetof(GCproto, field)-(int)sizeof(GCproto))
 |
 |.macro hotcheck, delta
+|  // GG_G2DISP+GG_DISP2HOT exceeds the 4095 add-immediate range once the
+|  // global_State grows (e.g. more GC roots), so build it with movz.
 |  lsr CARG1, PC, #1
 |  and CARG1, CARG1, #126
-|  add CARG1, CARG1, #GG_G2DISP+GG_DISP2HOT
+|  movz CARG2w, #GG_G2DISP+GG_DISP2HOT
+|  add CARG1, CARG1, CARG2
 |  ldrh CARG2w, [GL, CARG1]
 |  subs CARG2, CARG2, #delta
 |  strh CARG2w, [GL, CARG1]
@@ -1103,6 +1106,27 @@ static void build_subroutines(BuildCtx *ctx)
   |  mov BASE, CRET1
   |   mov NARGS8:RC, #16		// 2 args for func(o1, o2).
   |  b ->vm_call_dispatch
+  |
+  |->vmeta_bnot:
+  |  add CARG3, BASE, RC, lsl #3
+  |  mov CARG4, CARG3
+  |  b >6
+  |
+  |->vmeta_bitop:
+  |  decode_RB RB, INS
+  |   and RC, RC, #255
+  |  add CARG3, BASE, RB, lsl #3
+  |   add CARG4, BASE, RC, lsl #3
+  |6:
+  |  uxtb CARG5w, INSw
+  |   add CARG2, BASE, RA, lsl #3
+  |    str BASE, L->base
+  |   mov CARG1, L
+  |    str PC, SAVE_PC
+  |  bl extern lj_meta_bitop  // (lua_State *L, TValue *ra,*rb,*rc, BCReg op)
+  |  // Returns NULL (finished) or TValue * (metamethod).
+  |  cbz CRET1, ->cont_nop
+  |  b ->vmeta_binop
   |
   |->vmeta_len:
   |  add CARG2, BASE, RC, lsl #3
@@ -3195,6 +3219,66 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |   cbnz CRET1, ->vmeta_binop
     |  ldr TMP0, [BASE, RB, lsl #3]
     |  str TMP0, [BASE, RA, lsl #3]	// Copy result to RA.
+    |  ins_next
+    break;
+
+  /* -- Lua 5.4 bitwise ops ----------------------------------------------- */
+
+  case BC_BAND: case BC_BOR: case BC_BXOR:
+    |  decode_RB RB, INS
+    |   and RC, RC, #255
+    |  // RA = dst, RB = src1, RC = src2
+    |  ldr CARG1, [BASE, RB, lsl #3]
+    |   ldr CARG2, [BASE, RC, lsl #3]
+    |  checkint CARG1, ->vmeta_bitop
+    |  checkint CARG2, ->vmeta_bitop
+    switch (op) {
+    case BC_BAND:
+      |  and CARG1w, CARG1w, CARG2w
+      break;
+    case BC_BOR:
+      |  orr CARG1w, CARG1w, CARG2w
+      break;
+    default:
+      |  eor CARG1w, CARG1w, CARG2w
+      break;
+    }
+    |  add_TISNUM CARG1, CARG1
+    |  str CARG1, [BASE, RA, lsl #3]
+    |  ins_next
+    break;
+
+  case BC_BSHL: case BC_BSHR:
+    |  decode_RB RB, INS
+    |   and RC, RC, #255
+    |  // RA = dst, RB = value, RC = shift count
+    |  ldr CARG1, [BASE, RB, lsl #3]
+    |   ldr CARG2, [BASE, RC, lsl #3]
+    |  checkint CARG1, ->vmeta_bitop
+    |  checkint CARG2, ->vmeta_bitop
+    |  cmp CARG2w, #63			// Negative or wide counts: C semantics.
+    |  bhi ->vmeta_bitop
+    |  sxtw CARG1, CARG1w
+    if (op == BC_BSHL) {
+      |  lsl CARG1, CARG1, CARG2
+    } else {
+      |  lsr CARG1, CARG1, CARG2
+    }
+    |  cmp CARG1, CARG1, sxtw		// Result outside int32: box in C.
+    |  bne ->vmeta_bitop
+    |  mov CARG1w, CARG1w		// Zero-extend payload for the tag.
+    |  add_TISNUM CARG1, CARG1
+    |  str CARG1, [BASE, RA, lsl #3]
+    |  ins_next
+    break;
+
+  case BC_BNOT:
+    |  // RA = dst, RC = src
+    |  ldr CARG1, [BASE, RC, lsl #3]
+    |  checkint CARG1, ->vmeta_bnot
+    |  mvn CARG1w, CARG1w
+    |  add_TISNUM CARG1, CARG1
+    |  str CARG1, [BASE, RA, lsl #3]
     |  ins_next
     break;
 

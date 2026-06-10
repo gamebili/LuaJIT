@@ -1114,6 +1114,24 @@ static void build_subroutines(BuildCtx *ctx)
   |  b ->vm_call_dispatch
   |.  li NARGS8:RC, 16			// 2 args for func(o1, o2).
   |
+  |->vmeta_bitop:
+  |  // RA, RB and RC point to the destination and operand TValues.
+  |  load_got lj_meta_bitop
+  |  decode_OP1 TMP0, INS
+  |   sw BASE, L->base
+  |  move CARG2, RA
+  |   sw PC, SAVE_PC
+  |  move CARG3, RB
+  |  move CARG4, RC
+  |  sw TMP0, ARG5
+  |  call_intern lj_meta_bitop  // (lua_State *L, TValue *ra,*rb,*rc, BCReg op)
+  |.  move CARG1, L
+  |  // Returns NULL (finished) or TValue * (metamethod).
+  |  beqz CRET1, ->cont_nop
+  |.  nop
+  |  b ->vmeta_binop
+  |.  nop
+  |
   |->vmeta_len:
   |  // CARG2 already set by BC_LEN.
 #if LJ_52
@@ -4070,6 +4088,25 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  sw SFRETHI, HI(RA)
     |   sw SFRETLO, LO(RA)
     |  ins_next2
+    break;
+
+  /* -- Lua 5.4 bitwise ops: C fallback only on this backend. ------------- */
+
+  case BC_BAND: case BC_BOR: case BC_BXOR: case BC_BSHL: case BC_BSHR:
+    |  decode_RB8a RB, INS
+    |  decode_RB8b RB
+    |   decode_RDtoRC8 RC, RD
+    |  addu RB, BASE, RB
+    |  addu RC, BASE, RC
+    |  b ->vmeta_bitop
+    |.  addu RA, BASE, RA
+    break;
+  case BC_BNOT:
+    |  // RA = dst*8, RD = src*8
+    |  addu RC, BASE, RD
+    |  move RB, RC
+    |  b ->vmeta_bitop
+    |.  addu RA, BASE, RA
     break;
 
   /* -- Constant ops ------------------------------------------------------ */

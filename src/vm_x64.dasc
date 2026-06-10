@@ -1440,6 +1440,47 @@ static void build_subroutines(BuildCtx *ctx)
   |  mov NARGS:RDd, 2+1			// 2 args for func(o1, o2).
   |  jmp ->vm_call_dispatch
   |
+  |->vmeta_bnot:
+  |  movzx RDd, PC_RD
+  |  lea RC, [BASE+RD*8]
+  |  mov RB, RC
+  |  jmp >1
+  |
+  |->vmeta_bitop:
+  |  // Entered with RA/RB/RC clobbered; re-decode everything from PC.
+  |  movzx RBd, PC_RB
+  |  movzx RCd, PC_RC
+  |  lea RC, [BASE+RC*8]
+  |  lea RB, [BASE+RB*8]
+  |1:
+  |  movzx RAd, PC_RA
+  |  lea RA, [BASE+RA*8]
+  |.if X64WIN
+  |  mov CARG3, RB
+  |  mov CARG4, RC
+  |  movzx RCd, PC_OP
+  |  mov ARG5d, RCd
+  |  mov L:RB, SAVE_L
+  |  mov L:RB->base, BASE		// Caveat: CARG2 == BASE.
+  |  mov CARG2, RA
+  |  mov CARG1, L:RB			// Caveat: CARG1 == RA.
+  |.else
+  |  movzx CARG5d, PC_OP
+  |  mov CARG2, RA
+  |  mov CARG4, RC			// Caveat: CARG4 == RA.
+  |  mov L:CARG1, SAVE_L
+  |  mov L:CARG1->base, BASE		// Caveat: CARG3 == BASE.
+  |  mov CARG3, RB
+  |  mov L:RB, L:CARG1
+  |.endif
+  |  mov SAVE_PC, PC
+  |  call extern lj_meta_bitop	// (lua_State *L, TValue *ra,*rb,*rc, BCReg op)
+  |  // NULL (finished) or TValue * (metamethod) returned in eax (RC).
+  |  mov BASE, L:RB->base
+  |  test RC, RC
+  |  jz ->cont_nop
+  |  jmp ->vmeta_binop
+  |
   |->vmeta_len:
   |  movzx RDd, PC_RD
   |  mov L:RB, SAVE_L
@@ -4072,6 +4113,77 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  mov RC, [BASE+RB*8]
     |  mov [BASE+RA*8], RC
     |  ins_next
+    break;
+
+  /* -- Lua 5.4 bitwise ops ----------------------------------------------- */
+
+  case BC_BAND: case BC_BOR: case BC_BXOR:
+    |  ins_ABC	// RA = dst, RB = src1, RC = src2
+    |.if DUALNUM
+    |  mov RB, [BASE+RB*8]
+    |  mov RC, [BASE+RC*8]
+    |  checkint RB, ->vmeta_bitop
+    |  checkint RC, ->vmeta_bitop
+    switch (op) {
+    case BC_BAND:
+      |  and RBd, RCd
+      break;
+    case BC_BOR:
+      |  or RBd, RCd
+      break;
+    default:
+      |  xor RBd, RCd
+      break;
+    }
+    |  setint RB
+    |  mov [BASE+RA*8], RB
+    |  ins_next
+    |.else
+    |  jmp ->vmeta_bitop
+    |.endif
+    break;
+
+  case BC_BSHL: case BC_BSHR:
+    |  ins_ABC	// RA = dst, RB = value, RC = shift count
+    |.if DUALNUM
+    |  mov RB, [BASE+RB*8]
+    |  mov RC, [BASE+RC*8]
+    |  checkint RB, ->vmeta_bitop
+    |  checkint RC, ->vmeta_bitop
+    |  cmp RCd, 63			// Negative or wide counts: C semantics.
+    |  ja ->vmeta_bitop
+    |  movsxd RB, RBd
+    |  mov RAd, RCd			// Count to cl; dst index re-decoded.
+    if (op == BC_BSHL) {
+      |  shl RB, cl
+    } else {
+      |  shr RB, cl
+    }
+    |  movsxd TMPR, RBd
+    |  cmp TMPR, RB
+    |  jne ->vmeta_bitop		// Result needs an int64 box: redo in C.
+    |  movzx RAd, PC_RA
+    |  mov RBd, RBd			// Zero-extend payload for setint.
+    |  setint RB
+    |  mov [BASE+RA*8], RB
+    |  ins_next
+    |.else
+    |  jmp ->vmeta_bitop
+    |.endif
+    break;
+
+  case BC_BNOT:
+    |  ins_AD	// RA = dst, RD = src
+    |.if DUALNUM
+    |  mov RD, [BASE+RD*8]
+    |  checkint RD, ->vmeta_bnot
+    |  not RDd
+    |  setint RD
+    |  mov [BASE+RA*8], RD
+    |  ins_next
+    |.else
+    |  jmp ->vmeta_bnot
+    |.endif
     break;
 
   /* -- Constant ops ------------------------------------------------------ */

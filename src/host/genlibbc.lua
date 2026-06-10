@@ -195,16 +195,24 @@ local function gen_header(defs32, defs64)
     end
   end
   w("\n#endif\n0\n};\n\n")
+  -- The FR2 and non-FR2 streams may have differently sized dumps (e.g. the
+  -- Lua 5.4 close lowering emits FR2-only argument shuffles), so each mode
+  -- gets its own offset map under the same #if as its code stream.
   w("static const struct { const char *name; int ofs; } libbc_map[] = {\n")
-  local m32, m64 = 0, 0
+  w("#if LJ_FR2\n")
+  local m64 = 0
+  for i,name in ipairs(defs64) do
+    w('{"'); w(name); w('",'); w(m64) w('},\n')
+    m64 = m64 + #defs64[name].dump
+  end
+  w("{NULL,"); w(m64); w("}\n#else\n")
+  local m32 = 0
   for i,name in ipairs(defs32) do
     assert(name == defs64[i])
     w('{"'); w(name); w('",'); w(m32) w('},\n')
     m32 = m32 + #defs32[name].dump
-    m64 = m64 + #defs64[name].dump
-    assert(m32 == m64)
   end
-  w("{NULL,"); w(m32); w("}\n};\n\n")
+  w("{NULL,"); w(m32); w("}\n#endif\n};\n\n")
   return table.concat(t)
 end
 

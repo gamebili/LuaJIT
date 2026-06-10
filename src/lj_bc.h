@@ -120,6 +120,15 @@
   _(POW,	dst,	var,	var,	pow) \
   _(CAT,	dst,	rbase,	rbase,	concat) \
   \
+  /* Lua 5.4 bitwise ops. ORDER BCBIT. BNOT is unary (AD format). */ \
+  /* NOTE: renumbering opcodes invalidates host/buildvm_libbc.h (libbc). */ \
+  _(BAND,	dst,	var,	var,	band) \
+  _(BOR,	dst,	var,	var,	bor) \
+  _(BXOR,	dst,	var,	var,	bxor) \
+  _(BSHL,	dst,	var,	var,	shl) \
+  _(BSHR,	dst,	var,	var,	shr) \
+  _(BNOT,	dst,	___,	var,	bnot) \
+  \
   /* Constant ops. */ \
   _(KSTR,	dst,	___,	str,	___) \
   _(KCDATA,	dst,	___,	cdata,	___) \

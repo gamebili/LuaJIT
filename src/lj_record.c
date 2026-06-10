@@ -288,6 +288,69 @@ static TRef rec_lua54_arith_int(jit_State *J, TRef rb, TRef rc,
 				rec_lua54_tv_i64(rbv), rec_lua54_tv_i64(rcv),
 				mm);
 }
+
+/* Convert a bitwise operand to a raw IRT_I64 ref plus its runtime value.
+** Strings never coerce for bitwise operators; exact-integer floats are
+** guarded with a numeric round-trip like the recff int64 converters.
+*/
+static TRef rec_lua54_bitop_toint64ref(jit_State *J, TRef tr, cTValue *tv,
+				       int64_t *ip)
+{
+  if (tvisnum(tv)) {
+    TRef i64, back;
+    if (!rec_lua54_numtoint64_exact(numV(tv), ip))
+      return 0;
+    if (!tref_isnum(tr))
+      return 0;
+    i64 = emitir(IRT(IR_CONV, IRT_I64), tr, IRCONV_I64_NUM);
+    back = emitir(IRTN(IR_CONV), i64, IRCONV_NUM_I64_SIGNED);
+    emitir(IRTG(IR_EQ, IRT_NUM), back, tr);
+    return i64;
+  }
+  if (tvisstr(tv) || !rec_lua54_tv_toint64(tv, ip))
+    return 0;
+  return rec_lua54_toint64ref(J, tr, tv);
+}
+
+/* Runtime Lua 5.4 shift semantics, mirroring lj_meta.c bitop_shift(). */
+static int64_t rec_lua54_shiftint(int64_t a, int64_t sh, int left)
+{
+  int64_t s = sh;
+  uint64_t u = (uint64_t)a;
+  if (s < 0) {
+    if (s <= -64)
+      return 0;
+    s = -s;
+    left = !left;
+  } else if (s >= 64) {
+    return 0;
+  }
+  return left ? (int64_t)(u << s) : (int64_t)(u >> s);
+}
+
+/* Record a Lua 5.4 shift with count guards matching the runtime count. */
+static TRef rec_lua54_shiftref(jit_State *J, TRef irv, TRef irsh,
+			       int64_t sh, IROp op)
+{
+  if (sh >= 64 || sh <= -64) {
+    emitir(IRTG(sh < 0 ? IR_LE : IR_GE, IRT_I64), irsh,
+	   lj_ir_kint64(J, (uint64_t)(sh < 0 ? -64 : 64)));
+    return lj_ir_kint(J, 0);
+  } else {
+    TRef irs;
+    if (sh < 0) {
+      emitir(IRTG(IR_LT, IRT_I64), irsh, lj_ir_kint64(J, 0));
+      emitir(IRTG(IR_GE, IRT_I64), irsh, lj_ir_kint64(J, (uint64_t)-63));
+      irsh = emitir(IRT(IR_NEG, IRT_I64), irsh, irsh);
+      op = (op == IR_BSHL) ? IR_BSHR : IR_BSHL;
+    } else {
+      emitir(IRTG(IR_GE, IRT_I64), irsh, lj_ir_kint64(J, 0));
+      emitir(IRTG(IR_LE, IRT_I64), irsh, lj_ir_kint64(J, 63));
+    }
+    irs = emitir(IRTI(IR_CONV), irsh, IRCONV_INT_I64_NARROW);
+    return emitir(IRT(op, IRT_I64), irv, irs);
+  }
+}
 #endif
 
 #endif
@@ -3180,6 +3243,58 @@ void lj_record_ins(jit_State *J)
     break;
 
   /* -- Arithmetic ops ---------------------------------------------------- */
+
+#if LJ_54
+  case BC_BAND: case BC_BOR: case BC_BXOR: case BC_BSHL: case BC_BSHR:
+  case BC_BNOT: {
+    int64_t ib = 0, ic = 0;
+    TRef irb, irc = 0;
+    int unary = (op == BC_BNOT);
+    if (unary) {  /* AD format: the operand sits in rc/rcv. */
+      rb = rc;
+      copyTV(J->L, rbv, rcv);
+    }
+#if LJ_DUALNUM
+    if ((irb = rec_lua54_bitop_toint64ref(J, rb, rbv, &ib)) != 0 &&
+	(unary ||
+	 (irc = rec_lua54_bitop_toint64ref(J, rc, rcv, &ic)) != 0)) {
+      uint64_t ub = (uint64_t)ib, uc = (uint64_t)ic;
+      int64_t rv;
+      TRef tr;
+      switch (op) {
+      case BC_BAND:
+	rv = (int64_t)(ub & uc);
+	tr = emitir(IRT(IR_BAND, IRT_I64), irb, irc);
+	break;
+      case BC_BOR:
+	rv = (int64_t)(ub | uc);
+	tr = emitir(IRT(IR_BOR, IRT_I64), irb, irc);
+	break;
+      case BC_BXOR:
+	rv = (int64_t)(ub ^ uc);
+	tr = emitir(IRT(IR_BXOR, IRT_I64), irb, irc);
+	break;
+      case BC_BSHL: case BC_BSHR: {
+	IROp irop = (op == BC_BSHL) ? IR_BSHL : IR_BSHR;
+	rv = rec_lua54_shiftint(ib, ic, op == BC_BSHL);
+	tr = rec_lua54_shiftref(J, irb, irc, ic, irop);
+	break;
+      }
+      default:  /* BC_BNOT */
+	rv = (int64_t)~ub;
+	tr = emitir(IRT(IR_BNOT, IRT_I64), irb, 0);
+	break;
+      }
+      rc = tref_isinteger(tr) ? tr : rec_lua54_i64result(J, tr, rv);
+      break;
+    }
+#endif
+    /* Metamethod dispatch and conversion errors stay in the interpreter. */
+    setintV(&J->errinfo, (int32_t)op);
+    lj_trace_err_info(J, LJ_TRERR_NYIBC);
+    break;
+  }
+#endif
 
   case BC_UNM:
 #if LJ_54 && LJ_DUALNUM

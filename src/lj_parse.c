@@ -2857,6 +2857,29 @@ static void bcemit_binop_left(FuncState *fs, BinOpr op, ExpDesc *e)
   }
 }
 
+#if LJ_54
+/* Emit Lua 5.4 bitwise operator as a dedicated bytecode. */
+static void bcemit_bitop(FuncState *fs, BinOpr opr, ExpDesc *e1, ExpDesc *e2)
+{
+  BCReg rb, rc;
+  uint32_t op;
+  switch (opr) {
+  case OPR_BAND: op = BC_BAND; break;
+  case OPR_BOR: op = BC_BOR; break;
+  case OPR_BXOR: op = BC_BXOR; break;
+  case OPR_SHL: op = BC_BSHL; break;
+  default: op = BC_BSHR; break;  /* OPR_SHR */
+  }
+  rc = expr_toanyreg(fs, e2);
+  rb = expr_toanyreg(fs, e1);
+  /* Using expr_free might cause asserts if the order is wrong. */
+  if (e1->k == VNONRELOC && e1->u.s.info >= fs->nactvar) fs->freereg--;
+  if (e2->k == VNONRELOC && e2->u.s.info >= fs->nactvar) fs->freereg--;
+  e1->u.s.info = bcemit_ABC(fs, op, 0, rb, rc);
+  e1->k = VRELOCABLE;
+}
+#endif
+
 /* Emit binary operator. */
 static void bcemit_binop(FuncState *fs, BinOpr op, ExpDesc *e1, ExpDesc *e2)
 {
@@ -2870,16 +2893,8 @@ static void bcemit_binop(FuncState *fs, BinOpr op, ExpDesc *e1, ExpDesc *e2)
 #if LJ_54
   } else if (op == OPR_IDIV) {
     bcemit_lua54_helper(fs, "_lua54_idiv", 11, e1, e2, 2);
-  } else if (op == OPR_BAND) {
-    bcemit_lua54_helper(fs, "_lua54_band", 11, e1, e2, 2);
-  } else if (op == OPR_BOR) {
-    bcemit_lua54_helper(fs, "_lua54_bor", 10, e1, e2, 2);
-  } else if (op == OPR_BXOR) {
-    bcemit_lua54_helper(fs, "_lua54_bxor", 11, e1, e2, 2);
-  } else if (op == OPR_SHL) {
-    bcemit_lua54_helper(fs, "_lua54_shl", 10, e1, e2, 2);
-  } else if (op == OPR_SHR) {
-    bcemit_lua54_helper(fs, "_lua54_shr", 10, e1, e2, 2);
+  } else if (op >= OPR_BAND && op <= OPR_SHR) {
+    bcemit_bitop(fs, op, e1, e2);
 #endif
   } else if (op == OPR_AND) {
     lj_assertFS(e1->t == NO_JMP, "jump list not closed");
@@ -5163,12 +5178,16 @@ static void expr_unop(LexState *ls, ExpDesc *v)
   expr_binop(ls, v, UNARY_PRIORITY);
 #if LJ_54
   if (bitnot) {
-    bcemit_lua54_helper(ls->fs, "_lua54_bnot", 11, v, NULL, 1);
+    FuncState *fs = ls->fs;
+    BCReg rd = expr_toanyreg(fs, v);
+    if (v->k == VNONRELOC && v->u.s.info >= fs->nactvar) fs->freereg--;
+    v->u.s.info = bcemit_AD(fs, BC_BNOT, 0, rd);
+    v->k = VRELOCABLE;
     /* Lua 5.4 reports unary operator runtime errors at the operator line, not
     ** at a later operand line in split expressions.
     */
-    if (v->k == VCALL && v->u.s.info < ls->fs->pc)
-      ls->fs->bcbase[v->u.s.info].line = opline;
+    if (v->u.s.info < fs->pc)
+      fs->bcbase[v->u.s.info].line = opline;
     return;
   }
 #endif

@@ -39,6 +39,10 @@ ERRDEF(OPINDEX,	"index")
 ERRDEF(OPARITH,	"perform arithmetic on")
 ERRDEF(OPCAT,	"concatenate")
 ERRDEF(OPLEN,	"get length of")
+#if LJ_54
+ERRDEF(OPBIT,	"perform bitwise operation on")
+ERRDEF(NUMINTRT,	"number (%s " LUA_QS ") has no integer representation")
+#endif
 
 /* Type checks. */
 ERRDEF(BADSELF,	"calling " LUA_QS " on bad self (%s)")

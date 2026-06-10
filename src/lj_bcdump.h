@@ -35,8 +35,10 @@
 
 /* If you perform *any* kind of private modifications to the bytecode itself
 ** or to the dump format, you *must* set BCDUMP_VERSION to 0x80 or higher.
+** The Lua 5.4 bitwise ops (BC_BAND..BC_BNOT) shift the opcode numbering
+** after BC_CAT, so stock LuaJIT 2.1 dumps must be rejected.
 */
-#define BCDUMP_VERSION		2
+#define BCDUMP_VERSION		0x80
 
 /* Compatibility flags. */
 #define BCDUMP_F_BE		0x01

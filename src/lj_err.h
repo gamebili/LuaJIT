@@ -32,6 +32,9 @@ LJ_FUNC_NORET void lj_err_msg(lua_State *L, ErrMsg em);
 LJ_FUNC_NORET void lj_err_lex(lua_State *L, GCstr *src, const char *tok,
 			      BCLine line, ErrMsg em, va_list argp);
 LJ_FUNC_NORET void lj_err_optype(lua_State *L, cTValue *o, ErrMsg opm);
+#if LJ_54
+LJ_FUNC_NORET void lj_err_optypeint(lua_State *L, cTValue *o);
+#endif
 LJ_FUNC_NORET void lj_err_comp(lua_State *L, cTValue *o1, cTValue *o2);
 LJ_FUNC_NORET void lj_err_optype_call(lua_State *L, TValue *o);
 LJ_FUNC_NORET void lj_err_callermsg(lua_State *L, const char *msg);

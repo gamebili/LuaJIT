@@ -240,6 +240,8 @@ static MMS mmcall_bc_mm(BCOp op)
     return MM_le;
   if (op >= BC_ADDVN && op <= BC_MODVV)
     return (MMS)(MM_add + ((op - BC_ADDVN) % 5));
+  if (op >= BC_BAND && op <= BC_BNOT)
+    return (MMS)(MM_band + (op - BC_BAND));
   if (op == BC_POW)
     return MM_pow;
   if (op == BC_UNM)
@@ -452,6 +454,11 @@ TValue *lj_meta_arith(lua_State *L, TValue *ra, cTValue *rb, cTValue *rc,
   TValue tempb, tempc;
   cTValue *b, *c;
 #if LJ_54
+  /* See lj_meta_bitop(): the integer boxing path below may allocate, so
+  ** raise L->top over the running Lua frame's register window first.
+  */
+  if (curr_funcisL(L))
+    L->top = curr_topL(L);
   if (tvisstr(rb) || tvisstr(rc)) {
     cTValue *mo = lj_meta_lookup(L, rb, mm);
     if (tvisnil(mo))
@@ -491,6 +498,129 @@ TValue *lj_meta_arith(lua_State *L, TValue *ra, cTValue *rb, cTValue *rc,
     return mmcall_check(L, lj_cont_ra, mo, rb, rc, mm);
   }
 }
+
+#if LJ_54
+/* Convert a TValue to a Lua 5.4 bitwise integer operand. Strings never
+** coerce for bitwise operators; floats need an exact lua_Integer value.
+*/
+static int bitop_toint64(cTValue *o, lua_Integer *ip)
+{
+  if (tvisint(o)) {
+    *ip = (lua_Integer)intV(o);
+    return 1;
+  }
+  if (tvisi64(o)) {
+    *ip = (lua_Integer)i64V(o);
+    return 1;
+  }
+  if (tvisnum(o)) {
+    lua_Number n = numV(o);
+    if (n >= (lua_Number)LUA_MININTEGER && n < -(lua_Number)LUA_MININTEGER) {
+      lua_Integer i = (lua_Integer)n;
+      if ((lua_Number)i == n) {
+	*ip = i;
+	return 1;
+      }
+    }
+  }
+  return 0;
+}
+
+/* Lua 5.4 shift semantics: negative counts reverse the direction and
+** out-of-width counts produce zero.
+*/
+static lua_Integer bitop_shift(lua_Integer a, lua_Integer sh, int left)
+{
+  lua_Integer s = sh;
+  lua_Integer width = (lua_Integer)(8u * sizeof(lua_Unsigned));
+  lua_Unsigned u = (lua_Unsigned)a;
+  if (s < 0) {
+    if (s <= -width)
+      return 0;
+    s = -s;
+    left = !left;
+  } else if (s >= width) {
+    return 0;
+  }
+  return left ? (lua_Integer)(u << s) : (lua_Integer)(u >> s);
+}
+
+/* Error for failed bitwise conversion without a metamethod. Official order:
+** the non-number type error comes first, checking the first operand first;
+** strings count as non-numbers; integer-representation diagnostics follow.
+*/
+static LJ_NOINLINE void bitop_error(lua_State *L, cTValue *rb, cTValue *rc,
+				    int unary)
+{
+  cTValue *ops[2];
+  lua_Integer tmp;
+  int i, nop = unary ? 1 : 2;
+  ops[0] = (cTValue *)rb;
+  ops[1] = (cTValue *)rc;
+  for (i = 0; i < nop; i++) {
+    if (!(tvisnumber(ops[i]) || tvisi64(ops[i])))
+      lj_err_optype(L, ops[i], LJ_ERR_OPBIT);
+  }
+  for (i = 0; i < nop; i++) {
+    if (!bitop_toint64(ops[i], &tmp))
+      lj_err_optypeint(L, ops[i]);
+  }
+  lj_err_msg(L, LJ_ERR_NUMINT);  /* Unreachable. */
+}
+
+/* Helper for BAND/BOR/BXOR/BSHL/BSHR/BNOT. Conversion and metamethods. */
+TValue *lj_meta_bitop(lua_State *L, TValue *ra, cTValue *rb, cTValue *rc,
+		      BCReg op)
+{
+  MMS mm = bcmode_mm(op);
+  int unary = (op == BC_BNOT);
+  lua_Integer ib, ic = 0;
+  /* The boxing path below may allocate and run a GC step, and the GC marks
+  ** thread stacks only up to L->top. The VM glue does not maintain L->top
+  ** for the running Lua frame, so raise it over the full register window
+  ** first or a freshly boxed result in a high slot can be swept alive.
+  */
+  if (curr_funcisL(L))
+    L->top = curr_topL(L);
+  if (bitop_toint64(rb, &ib) && (unary || bitop_toint64(rc, &ic))) {
+    lua_Unsigned ub = (lua_Unsigned)ib, uc = (lua_Unsigned)ic;
+    lua_Integer r;
+    switch (op) {
+    case BC_BAND: r = (lua_Integer)(ub & uc); break;
+    case BC_BOR: r = (lua_Integer)(ub | uc); break;
+    case BC_BXOR: r = (lua_Integer)(ub ^ uc); break;
+    case BC_BSHL: r = bitop_shift(ib, ic, 1); break;
+    case BC_BSHR: r = bitop_shift(ib, ic, 0); break;
+    default: r = (lua_Integer)~ub; break;  /* BC_BNOT */
+    }
+    lj_obj_setint64(L, ra, (int64_t)r);
+    return NULL;
+  } else {
+    cTValue *mo = lj_meta_lookup(L, rb, mm);
+    if (tvisnil(mo)) {
+      if (!unary)
+	mo = lj_meta_lookup(L, rc, mm);
+      if (tvisnil(mo)) {
+	bitop_error(L, rb, rc, unary);
+	return NULL;  /* Unreachable. */
+      }
+    }
+    /* The unary __bnot metamethod receives the operand twice. */
+    return mmcall_check(L, lj_cont_ra, mo, rb, unary ? rb : rc, mm);
+  }
+}
+#else
+/* The BC_B* ops are never emitted outside Lua 5.4 mode, but the VM glue
+** still references this symbol in every build.
+*/
+TValue *lj_meta_bitop(lua_State *L, TValue *ra, cTValue *rb, cTValue *rc,
+		      BCReg op)
+{
+  UNUSED(ra); UNUSED(rb); UNUSED(rc); UNUSED(op);
+  lj_err_msg(L, LJ_ERR_BADVAL);
+  return NULL;  /* unreachable */
+}
+#endif
 
 /* Helper for CAT. Coercion, iterative concat, __concat metamethod. */
 TValue *lj_meta_cat(lua_State *L, TValue *top, int left)
