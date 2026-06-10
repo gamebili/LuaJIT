@@ -3532,6 +3532,12 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  ins_arithfp vdiv.f64, extern __aeabi_ddiv
     break;
   case BC_MODVN: case BC_MODNV: case BC_MODVV:
+#if LJ_54
+    /* Lua 5.4 modulo: semantics live in lj_meta_arith(). */
+    vk = ((int)op - BC_ADDVN) / (BC_ADDNV - BC_ADDVN);
+    |  ins_arithfallback b
+    break;
+#endif
     |  ins_arithdn vm_modi, vm_mod, ->vm_mod
     break;
   case BC_POW:
@@ -3572,6 +3578,10 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  // RA = dst*8, RC = src
     |  lsl RC, RC, #3
     |  b ->vmeta_bnot
+    break;
+  case BC_IDIV:
+    |  // Lua 5.4 floor division: semantics live in lj_meta_arith().
+    |  b ->vmeta_arith_vv
     break;
 
   /* -- Constant ops ------------------------------------------------------ */

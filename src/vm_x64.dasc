@@ -4072,14 +4072,90 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
   case BC_DIVVN: case BC_DIVNV: case BC_DIVVV:
     |  ins_arith divsd
     break;
+    |// Lua 5.4 integer floor modulo. Expects dividend in RB, divisor in RC
+    |// (both tagged). Falls back to lj_meta_arith() for non-int operands,
+    |// zero divisor (error) and the float/boxed/metamethod cases.
+    |.macro ins_modint, target
+    |  checkint RB, target
+    |  checkint RC, target
+    |  test RCd, RCd			// n%0: C error path.
+    |  jz target
+    |  cmp RCd, -1			// a%-1 == 0: avoid idiv trap.
+    |  je >3
+    |  xchg RBd, RCd			// Dividend to eax, divisor to RBd.
+    |  mov TMPR, BASE			// Save BASE: cdq/idiv clobber edx.
+    |  cdq
+    |  idiv RBd				// Remainder in edx.
+    |  test edx, edx			// Floor adjust toward sign of divisor.
+    |  jz >2
+    |  mov RCd, edx
+    |  xor RCd, RBd
+    |  jns >2
+    |  add edx, RBd
+    |2:
+    |  mov RCd, edx
+    |  mov BASE, TMPR
+    |  jmp >4
+    |3:
+    |  xor RCd, RCd
+    |4:
+    |  setint RC
+    |  mov [BASE+RA*8], RC
+    |  ins_next
+    |.endmacro
+    |
   case BC_MODVN:
+#if LJ_54
+    /* Lua 5.4 modulo: integer fast path inline, everything else (floats with
+    ** the official fmod formula, boxed int64, strings, metamethods) goes to
+    ** lj_meta_arith(). The BC_MODVN_Z label is kept (unreferenced) because
+    ** buildvm requires all global labels defined.
+    */
+    |  ins_ABC
+    |->BC_MODVN_Z:
+    |.if DUALNUM
+    |  mov RB, [BASE+RB*8]
+    |  mov RC, [KBASE+RC*8]
+    |  ins_modint ->vmeta_arith_vno
+    |.else
+    |  jmp ->vmeta_arith_vno
+    |.endif
+    break;
+#endif
     |  ins_arithpre movsd, xmm1
     |->BC_MODVN_Z:
     |  call ->vm_mod
     |  ins_arithpost
     |  ins_next
     break;
-  case BC_MODNV: case BC_MODVV:
+  case BC_MODNV:
+#if LJ_54
+    |  ins_ABC
+    |.if DUALNUM
+    |  mov TMPR, [BASE+RB*8]		// Divisor (variable).
+    |  mov RB, [KBASE+RC*8]		// Dividend (constant).
+    |  mov RC, TMPR
+    |  ins_modint ->vmeta_arith_nvo
+    |.else
+    |  jmp ->vmeta_arith_nvo
+    |.endif
+    break;
+#endif
+    |  ins_arithpre movsd, xmm1
+    |  jmp ->BC_MODVN_Z			// Avoid 3 copies. It's slow anyway.
+    break;
+  case BC_MODVV:
+#if LJ_54
+    |  ins_ABC
+    |.if DUALNUM
+    |  mov RB, [BASE+RB*8]
+    |  mov RC, [BASE+RC*8]
+    |  ins_modint ->vmeta_arith_vvo
+    |.else
+    |  jmp ->vmeta_arith_vvo
+    |.endif
+    break;
+#endif
     |  ins_arithpre movsd, xmm1
     |  jmp ->BC_MODVN_Z			// Avoid 3 copies. It's slow anyway.
     break;
@@ -4183,6 +4259,39 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  ins_next
     |.else
     |  jmp ->vmeta_bnot
+    |.endif
+    break;
+
+  case BC_IDIV:
+    |  ins_ABC	// RA = dst, RB = dividend, RC = divisor
+    |.if DUALNUM
+    |  mov RB, [BASE+RB*8]
+    |  mov RC, [BASE+RC*8]
+    |  checkint RB, ->vmeta_arith_vvo
+    |  checkint RC, ->vmeta_arith_vvo
+    |  test RCd, RCd			// Zero divisor: C error path.
+    |  jz ->vmeta_arith_vvo
+    |  cmp RBd, 0x80000000		// INT_MIN / -1 wraps: C path.
+    |  jne >1
+    |  cmp RCd, -1
+    |  je ->vmeta_arith_vvo
+    |1:
+    |  xchg RBd, RCd			// Dividend to eax, divisor to RBd.
+    |  mov TMPR, BASE			// Save BASE: cdq/idiv clobber edx.
+    |  cdq
+    |  idiv RBd
+    |  test edx, edx			// Floor adjust toward -inf.
+    |  jz >2
+    |  xor edx, RBd
+    |  jns >2
+    |  dec RCd
+    |2:
+    |  mov BASE, TMPR
+    |  setint RC
+    |  mov [BASE+RA*8], RC
+    |  ins_next
+    |.else
+    |  jmp ->vmeta_arith_vvo
     |.endif
     break;
 

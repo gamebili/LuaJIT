@@ -2724,6 +2724,13 @@ static int foldarith(FuncState *fs, BinOpr opr, ExpDesc *e1, ExpDesc *e2)
     }
   }
 #endif
+#if LJ_54
+  /* Keep Lua 5.4 '%' unfolded: the fold helper uses the floor-based float
+  ** formula and double-converted wide integers, both of which diverge from
+  ** the official fmod/integer semantics the runtime implements.
+  */
+  if (opr == OPR_MOD) return 0;
+#endif
   n = lj_vm_foldarith(expr_numberV(e1), expr_numberV(e2), (int)opr-OPR_ADD);
   setnumV(&o, n);
   if (tvisnan(&o) || tvismzero(&o)) return 0;  /* Avoid NaN and -0 as consts. */
@@ -2858,7 +2865,7 @@ static void bcemit_binop_left(FuncState *fs, BinOpr op, ExpDesc *e)
 }
 
 #if LJ_54
-/* Emit Lua 5.4 bitwise operator as a dedicated bytecode. */
+/* Emit Lua 5.4 bitwise or floor-division operator as a dedicated bytecode. */
 static void bcemit_bitop(FuncState *fs, BinOpr opr, ExpDesc *e1, ExpDesc *e2)
 {
   BCReg rb, rc;
@@ -2868,7 +2875,8 @@ static void bcemit_bitop(FuncState *fs, BinOpr opr, ExpDesc *e1, ExpDesc *e2)
   case OPR_BOR: op = BC_BOR; break;
   case OPR_BXOR: op = BC_BXOR; break;
   case OPR_SHL: op = BC_BSHL; break;
-  default: op = BC_BSHR; break;  /* OPR_SHR */
+  case OPR_SHR: op = BC_BSHR; break;
+  default: op = BC_IDIV; break;  /* OPR_IDIV */
   }
   rc = expr_toanyreg(fs, e2);
   rb = expr_toanyreg(fs, e1);
@@ -2883,16 +2891,11 @@ static void bcemit_bitop(FuncState *fs, BinOpr opr, ExpDesc *e1, ExpDesc *e2)
 /* Emit binary operator. */
 static void bcemit_binop(FuncState *fs, BinOpr op, ExpDesc *e1, ExpDesc *e2)
 {
-#if LJ_54
-  if (op == OPR_MOD) {
-    bcemit_lua54_helper(fs, "_lua54_mod", 10, e1, e2, 2);
-  } else
-#endif
   if (op <= OPR_POW) {
     bcemit_arith(fs, op, e1, e2);
 #if LJ_54
   } else if (op == OPR_IDIV) {
-    bcemit_lua54_helper(fs, "_lua54_idiv", 11, e1, e2, 2);
+    bcemit_bitop(fs, op, e1, e2);
   } else if (op >= OPR_BAND && op <= OPR_SHR) {
     bcemit_bitop(fs, op, e1, e2);
 #endif

@@ -3373,11 +3373,64 @@ void lj_record_ins(jit_State *J)
 
   case BC_MODVN: case BC_MODVV:
   recmod:
+#if LJ_54 && LJ_DUALNUM
+    {
+      int64_t ib, ic;
+      TRef irb, irc;
+      if (rec_lua54_tv_toint64(rbv, &ib) && rec_lua54_tv_toint64(rcv, &ic) &&
+	  ic != 0 &&
+	  (irb = rec_lua54_toint64ref(J, rb, rbv)) != 0 &&
+	  (irc = rec_lua54_toint64ref(J, rc, rcv)) != 0) {
+	TRef tr;
+	emitir(IRTG(IR_NE, IRT_I64), irc, lj_ir_kint64(J, 0));
+	tr = lj_ir_call(J, IRCALL_lj_obj_i64mod, irb, irc);
+	rc = rec_lua54_i64result(J, tr, lj_obj_i64mod(ib, ic));
+	break;
+      }
+    }
+    if (tref_isnumber_str(rb) && tref_isnumber_str(rc)) {
+      /* Lua 5.4 float modulo uses the official fmod formula; the narrowing
+      ** recorder would bake the floor-based one, so stay interpreted.
+      */
+      setintV(&J->errinfo, (int32_t)op);
+      lj_trace_err_info(J, LJ_TRERR_NYIBC);
+    }
+    rc = rec_mm_arith(J, &ix, MM_mod);
+    break;
+#else
     if (tref_isnumber_str(rb) && tref_isnumber_str(rc))
       rc = lj_opt_narrow_mod(J, rb, rc, rbv, rcv);
     else
       rc = rec_mm_arith(J, &ix, MM_mod);
     break;
+#endif
+
+#if LJ_54
+  case BC_IDIV:
+#if LJ_DUALNUM
+    {
+      int64_t ib, ic;
+      TRef irb, irc;
+      if (rec_lua54_tv_toint64(rbv, &ib) && rec_lua54_tv_toint64(rcv, &ic) &&
+	  ic != 0 &&
+	  (irb = rec_lua54_toint64ref(J, rb, rbv)) != 0 &&
+	  (irc = rec_lua54_toint64ref(J, rc, rcv)) != 0) {
+	TRef tr;
+	emitir(IRTG(IR_NE, IRT_I64), irc, lj_ir_kint64(J, 0));
+	tr = lj_ir_call(J, IRCALL_lj_obj_i64idiv, irb, irc);
+	rc = rec_lua54_i64result(J, tr, lj_obj_i64idiv(ib, ic));
+	break;
+      }
+    }
+#endif
+    if (!tref_isnumber_str(rb) || !tref_isnumber_str(rc)) {
+      rc = rec_mm_arith(J, &ix, MM_idiv);
+      break;
+    }
+    setintV(&J->errinfo, (int32_t)op);  /* Float '//' stays interpreted. */
+    lj_trace_err_info(J, LJ_TRERR_NYIBC);
+    break;
+#endif
 
   case BC_POW:
 #if LJ_54 && LJ_DUALNUM

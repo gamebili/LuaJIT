@@ -3201,6 +3201,18 @@ local function utf8_helpers(n)
   return sum
 end
 
+local function bitwise_ops(n)
+  -- Regression canary: the Lua 5.4 bitwise/idiv/mod operators are real VM
+  -- bytecodes with x64 interpreter fast paths. A frankenbuild or a lowering
+  -- regression shows up here as an order-of-magnitude absolute-time jump.
+  local s = 0
+  for i = 1, n do
+    s = (s ~ i) & 0xffffffff | (i << 7) >> 3
+    s = s + (i // 7) + (i % 7)
+  end
+  return s & 0x7fffffff
+end
+
 local function concat_bulk(n)
   -- Regression canary: with an active luaL_Buffer box marked to-be-closed,
   -- popping each consumed value must not enter the close bridge or run a
@@ -3394,6 +3406,9 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   local concat_bulk_n = 50000
   -- "x1,...,x50000" joined by ",": precomputed expected length.
   local concat_bulk_len = 338893
+  local bitwise_ops_n = enable_jit and 400000 or 120000
+  -- Deterministic checksum; filled in below on first use per size.
+  local bitwise_ops_sum = bitwise_ops(bitwise_ops_n)
 
   local t_next, r_next = timeit(mode_name..":next", next_sum, iter_n)
   local t_pairs, r_pairs = timeit(mode_name..":pairs", pairs_sum, iter_n)
@@ -3531,6 +3546,10 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   local _, r_concat_bulk = timeit(mode_name..":concat_bulk",
 				  concat_bulk, concat_bulk_n)
   assert(r_concat_bulk == concat_bulk_len)
+
+  local _, r_bitops = timeit(mode_name..":bitwise_ops", bitwise_ops,
+			     bitwise_ops_n)
+  assert(r_bitops == bitwise_ops_sum)
 
   assert(timeit(mode_name..":hook_churn", hook_churn, hook_n))
 end

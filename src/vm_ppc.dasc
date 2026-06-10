@@ -4482,9 +4482,26 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  ins_arithfp fdiv
     break;
   case BC_MODVN:
+#if LJ_54
+    /* Lua 5.4 modulo: semantics live in lj_meta_arith(). */
+    |  decode_RB8 RB, INS
+    |  decode_RC8 RC, INS
+    |  b ->vmeta_arith_vn
+    break;
+#endif
     |  ins_arith intmod, fpmod, sfpmod
     break;
   case BC_MODNV: case BC_MODVV:
+#if LJ_54
+    |  decode_RB8 RB, INS
+    |  decode_RC8 RC, INS
+    if (op == BC_MODNV) {
+      |  b ->vmeta_arith_nv
+    } else {
+      |  b ->vmeta_arith_vv
+    }
+    break;
+#endif
     |  ins_arith intmod, fpmod_, sfpmod
     break;
   case BC_POW:
@@ -4557,6 +4574,11 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  add CARG3, BASE, RD
     |  mr CARG4, CARG3
     |  b ->vmeta_bitop
+    break;
+  case BC_IDIV:
+    |  decode_RB8 RB, INS
+    |  decode_RC8 RC, INS
+    |  b ->vmeta_arith_vv
     break;
 
   /* -- Constant ops ------------------------------------------------------ */

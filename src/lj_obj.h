@@ -575,8 +575,8 @@ enum {
 #define MM_ipairs	255
 #endif
 
-/* Lua 5.4 bitwise operator metamethods, dispatched by the BC_B* ops. */
-#define MMDEF_BIT(_) _(band) _(bor) _(bxor) _(shl) _(shr) _(bnot)
+/* Lua 5.4 operator metamethods dispatched by the bitwise and IDIV ops. */
+#define MMDEF_BIT(_) _(band) _(bor) _(bxor) _(shl) _(shr) _(bnot) _(idiv)
 
 #define MMDEF(_) \
   _(index) _(newindex) _(gc) _(mode) _(eq) _(len) \

@@ -3194,6 +3194,33 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  ins_arithfp fdiv
     break;
   case BC_MODVN: case BC_MODNV: case BC_MODVV:
+#if LJ_54
+    /* Lua 5.4 modulo: integer floor modulo inline; floats (official fmod
+    ** formula), boxed int64, strings and metamethods route to lj_meta_arith().
+    */
+    |  ins_arithhead
+    |  ins_arithload CARG1, CARG2
+    |  ins_arithcheck_int >5
+    |  ins_arithfallback ins_arithcheck_nzdiv	// n%0: C error path.
+    |  cmn CARG2w, #1			// a % -1 == 0: skip the division.
+    |  beq >7
+    |  sdiv CARG3w, CARG1w, CARG2w
+    |  msub CARG3w, CARG3w, CARG2w, CARG1w
+    |  cbz CARG3w, >6
+    |  eor TMP0w, CARG3w, CARG2w	// Floor adjust toward sign of divisor.
+    |  tbz TMP0w, #31, >6
+    |  add CARG3w, CARG3w, CARG2w
+    |6:
+    |  add_TISNUM CARG1, CARG3
+    |  str CARG1, [BASE, RA, lsl #3]
+    |  ins_next
+    |7:
+    |  mov CARG3w, #0
+    |  b <6
+    |5:  // Float, boxed int64, string or metamethod: C path.
+    |  ins_arithfallback b
+    break;
+#endif
     |  ins_arithdn ins_arithmodi, ins_arithmod
     break;
   case BC_POW:
@@ -3278,6 +3305,31 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  checkint CARG1, ->vmeta_bnot
     |  mvn CARG1w, CARG1w
     |  add_TISNUM CARG1, CARG1
+    |  str CARG1, [BASE, RA, lsl #3]
+    |  ins_next
+    break;
+
+  case BC_IDIV:
+    |  decode_RB RB, INS
+    |   and RC, RC, #255
+    |  // RA = dst, RB = dividend, RC = divisor.
+    |  ldr CARG1, [BASE, RB, lsl #3]
+    |  ldr CARG2, [BASE, RC, lsl #3]
+    |  checkint CARG1, ->vmeta_arith_vv
+    |  checkint CARG2, ->vmeta_arith_vv
+    |  cbz CARG2w, ->vmeta_arith_vv	// n//0: C error path.
+    |  eor TMP0w, CARG1w, #0x80000000	// INT_MIN // -1 overflows int32:
+    |  mvn TMP1w, CARG2w		// boxed result via C.
+    |  orr TMP0w, TMP0w, TMP1w
+    |  cbz TMP0w, ->vmeta_arith_vv
+    |  sdiv CARG3w, CARG1w, CARG2w
+    |  msub TMP0w, CARG3w, CARG2w, CARG1w
+    |  cbz TMP0w, >1
+    |  eor TMP1w, TMP0w, CARG2w		// Floor adjust toward -inf.
+    |  tbz TMP1w, #31, >1
+    |  sub CARG3w, CARG3w, #1
+    |1:
+    |  add_TISNUM CARG1, CARG3
     |  str CARG1, [BASE, RA, lsl #3]
     |  ins_next
     break;

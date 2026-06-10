@@ -240,7 +240,7 @@ static MMS mmcall_bc_mm(BCOp op)
     return MM_le;
   if (op >= BC_ADDVN && op <= BC_MODVV)
     return (MMS)(MM_add + ((op - BC_ADDVN) % 5));
-  if (op >= BC_BAND && op <= BC_BNOT)
+  if (op >= BC_BAND && op <= BC_IDIV)
     return (MMS)(MM_band + (op - BC_BAND));
   if (op == BC_POW)
     return MM_pow;
@@ -369,8 +369,30 @@ static cTValue *str2num(lua_State *L, cTValue *o, TValue *n)
 
 #if LJ_54
 #if LJ_DUALNUM
+/* Integer division/modulo by zero. Official Lua 5.4 raises the string
+** operand variant from the string-metamethod C function, so it carries no
+** source position prefix; plain operands get the positioned VM error.
+*/
+static LJ_NOINLINE void lua54_divzero_error(lua_State *L, int strop,
+					    const char *msg)
+{
+#if LJ_HASJIT
+  {
+    TValue *base = tvref(G(L)->jit_base);
+    if (base) L->base = base;
+  }
+#endif
+  if (curr_funcisL(L)) L->top = curr_topL(L);
+  if (strop) {
+    lj_strfmt_pushf(L, "%s", msg);
+  } else {
+    lj_debug_addloc(L, lj_strfmt_pushf(L, "%s", msg), L->base-1, NULL);
+  }
+  lj_err_run(L);
+}
+
 static int lua54_arith_int(lua_State *L, TValue *ra, cTValue *b, cTValue *c,
-			   MMS mm)
+			   cTValue *origb, cTValue *origc, MMS mm)
 {
   lua_Integer ib, ic;
   lua_Unsigned ub, uc;
@@ -399,15 +421,16 @@ static int lua54_arith_int(lua_State *L, TValue *ra, cTValue *b, cTValue *c,
     return 1;
   case MM_mod:
     /* Lua 5.4 integer modulo by zero is an error; float modulo keeps NaN. */
-    if (ic == 0) lj_err_callermsg(L, "attempt to perform 'n%0'");
-    if (ib == LUA_MININTEGER && ic == (lua_Integer)-1) {
-      lj_obj_setint64(L, ra, 0);
-    } else {
-      lua_Integer r = ib % ic;
-      if (r != 0 && ((r ^ ic) < 0))
-	r += ic;
-      lj_obj_setint64(L, ra, (int64_t)r);
-    }
+    if (ic == 0)
+      lua54_divzero_error(L, tvisstr(origb) || tvisstr(origc),
+			  "attempt to perform 'n%0'");
+    lj_obj_setint64(L, ra, (int64_t)lj_obj_i64mod((int64_t)ib, (int64_t)ic));
+    return 1;
+  case MM_idiv:
+    if (ic == 0)
+      lua54_divzero_error(L, tvisstr(origb) || tvisstr(origc),
+			  "attempt to divide by zero");
+    lj_obj_setint64(L, ra, (int64_t)lj_obj_i64idiv((int64_t)ib, (int64_t)ic));
     return 1;
   default:
     return 0;  /* Division and power always use the float path. */
@@ -441,7 +464,8 @@ static void lua54_strarith_error(lua_State *L, cTValue *rb, cTValue *rc,
   if (curr_funcisL(L)) L->top = curr_topL(L);
   lj_debug_addloc(L, lj_strfmt_pushf(L,
     "attempt to %s a '%s' with a '%s'",
-    opnames[(int)mm - (int)MM_add], bt, ct), L->base-1, NULL);
+    mm == MM_idiv ? "idiv" : opnames[(int)mm - (int)MM_add], bt, ct),
+    L->base-1, NULL);
   lj_err_run(L);
 }
 #endif
@@ -475,8 +499,26 @@ TValue *lj_meta_arith(lua_State *L, TValue *ra, cTValue *rb, cTValue *rc,
   if ((b = str2num(L, rb, &tempb)) != NULL &&
       (c = str2num(L, rc, &tempc)) != NULL) {  /* Try coercion first. */
 #if LJ_54 && LJ_DUALNUM
-    if (lua54_arith_int(L, ra, b, c, mm))
+    if (lua54_arith_int(L, ra, b, c, rb, rc, mm))
       return NULL;
+#endif
+#if LJ_54
+    if (mm == MM_idiv) {
+      /* Lua 5.4 float floor division follows IEEE: x//0 yields inf/nan. */
+      setnumV(ra, lj_vm_floor(numberVnum(b) / numberVnum(c)));
+      return NULL;
+    }
+    if (mm == MM_mod) {
+      /* Official Lua 5.4 float modulo (luai_nummod): fmod plus sign fixup
+      ** keeps low bits that the floor-based formula loses for wide operands.
+      */
+      lua_Number na = numberVnum(b), nb = numberVnum(c);
+      lua_Number nr = fmod(na, nb);
+      if (nr > 0 ? nb < 0 : (nr < 0 && nb > 0))
+	nr += nb;
+      setnumV(ra, nr);
+      return NULL;
+    }
 #endif
     setnumV(ra, lj_vm_foldarith(numberVnum(b), numberVnum(c),
 				(int)mm-MM_add));

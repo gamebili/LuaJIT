@@ -4690,6 +4690,16 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  ins_arith divsd
     break;
   case BC_MODVN:
+#if LJ_54
+    /* Lua 5.4 modulo: integer subtype rules and the official fmod float
+    ** formula live in lj_meta_arith(). The label is kept (unreferenced)
+    ** because buildvm requires all global labels defined.
+    */
+    |  ins_ABC
+    |->BC_MODVN_Z:
+    |  jmp ->vmeta_arith_vno
+    break;
+#endif
     |  ins_arithpre movsd, xmm1
     |->BC_MODVN_Z:
     |  call ->vm_mod
@@ -4697,6 +4707,15 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  ins_next
     break;
   case BC_MODNV: case BC_MODVV:
+#if LJ_54
+    |  ins_ABC
+    if (op == BC_MODNV) {
+      |  jmp ->vmeta_arith_nvo
+    } else {
+      |  jmp ->vmeta_arith_vvo
+    }
+    break;
+#endif
     |  ins_arithpre movsd, xmm1
     |  jmp ->BC_MODVN_Z			// Avoid 3 copies. It's slow anyway.
     break;
@@ -4765,6 +4784,10 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     break;
   case BC_BNOT:
     |  jmp ->vmeta_bnot
+    break;
+  case BC_IDIV:
+    |  ins_ABC
+    |  jmp ->vmeta_arith_vvo
     break;
 
   /* -- Constant ops ------------------------------------------------------ */

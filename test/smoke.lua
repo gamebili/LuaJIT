@@ -2420,6 +2420,71 @@ return true
     _G.__lua54_named_idiv = nil
   end
   do
+    -- BC_IDIV / integer BC_MOD interpreter fast paths plus their C and JIT
+    -- fallbacks: floor semantics, INT_MIN edges, zero divisors, mm dispatch.
+    -- The '//' syntax only parses in lua54compat mode, so load() the probes.
+    assert(load([==[
+    local function eqi(got, want)
+      assert(got == want and math.type(got) == math.type(want))
+    end
+    eqi(7 // 2, 3); eqi(-7 // 2, -4); eqi(7 // -2, -4); eqi(-7 // -2, 3)
+    eqi(math.mininteger // -1, math.mininteger)
+    eqi(math.mininteger // 1, math.mininteger)
+    eqi(-2147483648 // -1, 2147483648)  -- int32 fast path must defer to C.
+    eqi(7 % 3, 1); eqi(-7 % 3, 2); eqi(7 % -3, -2); eqi(-7 % -3, -1)
+    eqi(math.mininteger % -1, 0)
+    eqi(-2147483648 % -1, 0)
+    eqi(2147483647 % -2147483648, -1)
+    eqi(7.0 // 2, 3.0); eqi(-7.5 // 2, -4.0); eqi(1 // 0.0, math.huge)
+    eqi(-1 // 0.0, -math.huge)
+    eqi(5.5 % 2, 1.5); eqi(-5.5 % 2, 0.5); eqi(5.5 % -2, -0.5)
+    do local r = 0.0 % 0.0; assert(r ~= r) end
+    eqi("7" // "2", 3); eqi("7.5" // 2, 3.0); eqi("7" % "3", 1)
+    local ok, err = pcall(function() return 7 // 0 end)
+    assert(ok == false and err:match("attempt to divide by zero") and
+           err:match("idiv_mod_regress:%d+:"))
+    ok, err = pcall(function() return 7 % 0 end)
+    assert(ok == false and err:match("attempt to perform 'n%%0'") and
+           err:match("idiv_mod_regress:%d+:"))
+    -- String operands raise from the string metamethod: no position prefix.
+    ok, err = pcall(function() return "7" // 0 end)
+    assert(ok == false and err == "attempt to divide by zero")
+    ok, err = pcall(function() return "7" % 0 end)
+    assert(ok == false and err == "attempt to perform 'n%0'")
+    local got_a, got_b
+    local mmt = setmetatable({}, {
+      __idiv = function(a, b) got_a, got_b = a, b; return "idiv" end,
+      __mod = function(a, b) got_a, got_b = a, b; return "mod" end,
+    })
+    assert(mmt // 5 == "idiv" and got_a == mmt and got_b == 5)
+    assert(5 // mmt == "idiv" and got_a == 5 and got_b == mmt)
+    assert(mmt % 3 == "mod" and got_a == mmt and got_b == 3)
+    assert(3 % mmt == "mod" and got_a == 3 and got_b == mmt)
+    local co = coroutine.create(function(x)
+      local y = setmetatable({}, {
+        __idiv = function() return coroutine.yield(42) end,
+      })
+      return x // y
+    end)
+    local okc, v = coroutine.resume(co, 1)
+    assert(okc and v == 42)
+    okc, v = coroutine.resume(co, "resumed")
+    assert(okc and v == "resumed")
+    -- Constant-slot encodings (MODVN/MODNV) and hot loops for the JIT.
+    local k = 10
+    eqi(k % 4, 2); eqi(10 % k, 0); eqi(k // 4, 2)
+    local s = 0
+    for i = 1, 200 do s = s + (i // 7) + (i % 7) end
+    eqi(s, 3384)
+    local fsum = 0.0
+    for i = 1, 200 do fsum = fsum + (i // 7.0) end
+    eqi(fsum, 2786.0)
+    local neg = 0
+    for i = -100, 100 do neg = neg + (i // 7) + (i % -7) end
+    eqi(neg, -688)
+    ]==], "=idiv_mod_regress"))()
+  end
+  do
     local only_lt = setmetatable({}, { __lt = function() return true end })
     local with_le = setmetatable({}, { __le = function() return true end })
     assert(only_lt < only_lt)

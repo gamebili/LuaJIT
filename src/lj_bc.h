@@ -128,6 +128,7 @@
   _(BSHL,	dst,	var,	var,	shl) \
   _(BSHR,	dst,	var,	var,	shr) \
   _(BNOT,	dst,	___,	var,	bnot) \
+  _(IDIV,	dst,	var,	var,	idiv) \
   \
   /* Constant ops. */ \
   _(KSTR,	dst,	___,	str,	___) \

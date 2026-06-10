@@ -4028,9 +4028,39 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  ins_arithpre ->BC_DIVVN_Z
     break;
   case BC_MODVN:
+#if LJ_54
+    /* Lua 5.4 modulo: semantics live in lj_meta_arith(). The label is kept
+    ** (unreferenced) because buildvm requires all global labels defined.
+    */
+    |  decode_RB8a RB, INS
+    |  decode_RB8b RB
+    |   decode_RDtoRC8 RC, RD
+    |  addu RB, BASE, RB
+    |  addu RC, KBASE, RC
+    |->BC_MODVN_Z:
+    |  b ->vmeta_arith
+    |.  addu RA, BASE, RA
+    break;
+#endif
     |  ins_arith modi, fpmod, sfpmod, ->BC_MODVN_Z
     break;
   case BC_MODNV: case BC_MODVV:
+#if LJ_54
+    |  decode_RB8a RB, INS
+    |  decode_RB8b RB
+    |   decode_RDtoRC8 RC, RD
+    if (op == BC_MODNV) {
+      |  addu TMP1, BASE, RB
+      |  addu RB, KBASE, RC
+      |  move RC, TMP1
+    } else {
+      |  addu RB, BASE, RB
+      |  addu RC, BASE, RC
+    }
+    |  b ->vmeta_arith
+    |.  addu RA, BASE, RA
+    break;
+#endif
     |  ins_arithpre ->BC_MODVN_Z
     break;
   case BC_POW:
@@ -4106,6 +4136,15 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  addu RC, BASE, RD
     |  move RB, RC
     |  b ->vmeta_bitop
+    |.  addu RA, BASE, RA
+    break;
+  case BC_IDIV:
+    |  decode_RB8a RB, INS
+    |  decode_RB8b RB
+    |   decode_RDtoRC8 RC, RD
+    |  addu RB, BASE, RB
+    |  addu RC, BASE, RC
+    |  b ->vmeta_arith
     |.  addu RA, BASE, RA
     break;
 
