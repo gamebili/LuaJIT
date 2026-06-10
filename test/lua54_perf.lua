@@ -3201,6 +3201,16 @@ local function utf8_helpers(n)
   return sum
 end
 
+local function concat_bulk(n)
+  -- Regression canary: with an active luaL_Buffer box marked to-be-closed,
+  -- popping each consumed value must not enter the close bridge or run a
+  -- full GC cycle; that bug made bulk table.concat quadratic (>30s here).
+  local parts = {}
+  for i = 1, n do parts[i] = "x" .. i end
+  local s = table.concat(parts, ",")
+  return #s
+end
+
 local function table_sort_helpers(n)
   local sum = 0
   local nums = {}
@@ -3381,6 +3391,9 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   local utf8_n = enable_jit and 12000 or 3600
   local sort_n = enable_jit and 6000 or 1800
   local hook_n = enable_jit and 4000 or 1500
+  local concat_bulk_n = 50000
+  -- "x1,...,x50000" joined by ",": precomputed expected length.
+  local concat_bulk_len = 338893
 
   local t_next, r_next = timeit(mode_name..":next", next_sum, iter_n)
   local t_pairs, r_pairs = timeit(mode_name..":pairs", pairs_sum, iter_n)
@@ -3514,6 +3527,10 @@ local function run_suite(mode_name, enable_jit, opt_flags)
   local _, r_sort = timeit(mode_name..":table_sort_helpers",
 			   table_sort_helpers, sort_n)
   assert(r_sort == sort_n * 448)
+
+  local _, r_concat_bulk = timeit(mode_name..":concat_bulk",
+				  concat_bulk, concat_bulk_n)
+  assert(r_concat_bulk == concat_bulk_len)
 
   assert(timeit(mode_name..":hook_churn", hook_churn, hook_n))
 end

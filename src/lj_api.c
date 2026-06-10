@@ -450,7 +450,13 @@ LUA_API int lua_absindex(lua_State *L, int idx)
 #if LJ_54
 static TValue *api_close_popped(lua_State *L, TValue *newtop)
 {
-  if (newtop < L->top && L->closelist != NULL) {
+  if (newtop < L->top && L->closelist != NULL &&
+      lj_close_hasunwind(L, newtop)) {
+    /* Only enter the close bridge when a marked slot is actually being
+    ** popped. Plain pops above an active to-be-closed slot -- e.g. every
+    ** value consumed by a luaL_Buffer while a buffer box is marked -- must
+    ** not pay the internal close pcall or the full GC cycle below.
+    */
     ptrdiff_t newtopofs = savestack(L, newtop);
     /* Lua 5.4 closes marked C API stack slots before they are removed by
     ** lua_settop()/lua_pop(). The close-list bridge keeps stack-slot offsets,
