@@ -2038,6 +2038,25 @@ LUA_API void lua_getfield(lua_State *L, int idx, const char *k)
 
 LUA_API void lua_geti(lua_State *L, int idx, lua_Integer n)
 {
+#if LJ_54
+  /* Raw fast path: a metatable-free table cannot invoke __index, so the
+  ** result equals a raw lookup. Hot C API iteration (table.sort and the
+  ** other table-library helpers) stays off the generic key-push plus
+  ** metamethod machinery this way. Wide keys keep the generic path.
+  */
+  cTValue *t = index2adr(L, idx);
+  if (tvistab(t) && !tabref(tabV(t)->metatable) &&
+      n == (lua_Integer)(int32_t)n) {
+    cTValue *v = lj_tab_getint(tabV(t), (int32_t)n);
+    if (v) {
+      copyTV(L, L->top, v);
+    } else {
+      setnilV(L->top);
+    }
+    incr_top(L);
+    return;
+  }
+#endif
   idx = api_absindex_valid(L, idx);
   lua_pushinteger(L, n);
   lua_gettable(L, idx);
@@ -2426,6 +2445,23 @@ LUA_API void lua_setfield(lua_State *L, int idx, const char *k)
 LUA_API void lua_seti(lua_State *L, int idx, lua_Integer n)
 {
   api_checknelems(L, 1);
+#if LJ_54
+  /* Raw fast path mirroring lua_geti(): without a metatable there is no
+  ** __newindex, so the store equals a raw assignment.
+  */
+  {
+    cTValue *t = index2adr(L, idx);
+    if (tvistab(t) && !tabref(tabV(t)->metatable) &&
+	n == (lua_Integer)(int32_t)n) {
+      GCtab *tab = tabV(t);
+      TValue *dst = lj_tab_setint(L, tab, (int32_t)n);
+      copyTV(L, dst, L->top-1);
+      lj_gc_anybarriert(L, tab);
+      L->top--;
+      return;
+    }
+  }
+#endif
   idx = api_absindex_valid(L, idx);
   lua_pushinteger(L, n);
   lua_insert(L, -2);

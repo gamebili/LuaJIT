@@ -643,6 +643,17 @@ static int sort_comp(lua_State *L, int a, int b)
     lua_pop(L, 1);
     return res;
   } else {  /* a < b? */
+#if LJ_54
+    /* Plain number comparisons skip the generic metamethod path; numbers
+    ** never have ordering metamethods, so this equals lua_lessthan().
+    */
+    cTValue *oa = L->top + a;
+    cTValue *ob = L->top + b;
+    if (tvisint(oa) && tvisint(ob))
+      return intV(oa) < intV(ob);
+    if (tvisnum(oa) && tvisnum(ob))
+      return numV(oa) < numV(ob);
+#endif
     return lua_lessthan(L, a, b);
   }
 }

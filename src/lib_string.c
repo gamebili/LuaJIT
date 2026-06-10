@@ -965,8 +965,29 @@ static void add_s(MatchState *ms, luaL_Buffer *b, const char *s, const char *e)
       } else if (news[i] == '0') {
 	luaL_addlstring(b, s, (size_t)(e - s));
       } else {
-	push_onecapture(ms, news[i] - '1', s, e);
-	luaL_addvalue(b);  /* add capture to accumulated result */
+	int ci = news[i] - '1';
+	if (ci < ms->level && ms->capture[ci].len >= 0) {
+	  /* Plain string captures append their source span directly,
+	  ** skipping the interned-string round trip through the stack.
+	  ** The buffer is owned by gsub here, so in-capacity appends can
+	  ** also skip the public-entry buffer validation.
+	  */
+	  size_t cl = (size_t)ms->capture[ci].len;
+#if LJ_54
+	  if (cl <= b->size - b->n) {
+	    memcpy(b->b + b->n, ms->capture[ci].init, cl);
+	    b->n += cl;
+	  } else
+#endif
+	  {
+	    luaL_addlstring(b, ms->capture[ci].init, cl);
+	  }
+	} else if (ci == 0 && ms->level == 0) {
+	  luaL_addlstring(b, s, (size_t)(e - s));  /* Whole match. */
+	} else {
+	  push_onecapture(ms, ci, s, e);
+	  luaL_addvalue(b);  /* add capture to accumulated result */
+	}
       }
     }
   }

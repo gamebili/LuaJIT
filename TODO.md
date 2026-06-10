@@ -806,6 +806,8 @@
 
 ## 当前验证结果
 
+- `cmd /c build.bat test` 和 `tools\lua54_diff_sweep.ps1` 已通过，覆盖本轮 C API/标准库热路径快路径：`lua_geti()` / `lua_seti()` 对无 metatable 表 + int32 键直接走 raw 表访问（无 `__index`/`__newindex` 可触发，语义等价），`table.sort` 默认比较器对纯数字直接比较（数字无比较元方法），gsub 替换串的普通字符串 capture 直接按源串区间追加（容量内跳过公开入口验证）。性能：200k 元素 `table.sort` 0.062s→0.038s（官方 0.036s 持平），`gsub` capture 替换 0.043s→0.031s（官方 0.021s，2x→1.5x）。
+
 - `cmd /c build.bat test`（经 PowerShell）、`tools\lua54_diff_sweep.ps1`（43.5k 探针逐字节一致）和定向语义探针已通过，覆盖本轮 Lua 5.4 运算符 helper 分派重构：`//` / `%` / 位运算的 C builtin 快路径改为单次 C 调用直达（删除 wrapper 侧 `canyield()` 全局链和元方法预查），可 yield 上下文的元方法经 `(false,false)` 哨兵交回 Lua 层平调用（保持可 yield），错误经 raise-mode 尾调用重入 C builtin（尾调用塌帧保持用户调用点归属与逐字错误文本，wrapper 内部用 `rawget(jit, ...)` 取 C 函数以绕开 parser 的 notail 别名标记）。性能：bitwise 热循环 JIT 0.704s→0.006s（官方 0.028s，由慢 25 倍变为快 4.7 倍），int64 算术 JIT 0.253s→0.029s（与官方 0.031s 持平），解释器两者也提速约 2.4 倍。
 
 - `powershell -File tools\lua54_capi_diff.ps1` 已通过：约 3100 个 C API 差分探针在官方 Lua 5.4.8 源码构建与 compat 构建之间逐字节一致；`cmd /c build.bat test`（经 PowerShell 调用）已通过，覆盖本轮 `lua_arith` float idiv/unm 子类型、float `// 0` IEEE 语义、float `%` 官方 fmod 公式、错误操作数归属与 string 双类型错误文本，以及 `lua_isyieldable()` fresh/suspended/dead 非主线程返回 1 的修复和 C API smoke 回归。
