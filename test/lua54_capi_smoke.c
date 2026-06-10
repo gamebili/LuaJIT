@@ -4635,6 +4635,37 @@ static int arith_invalid_op(lua_State *L)
   return 1;
 }
 
+static int arith_int_nil_add(lua_State *L)
+{
+  lua_pushinteger(L, 1);
+  lua_pushnil(L);
+  lua_arith(L, LUA_OPADD);
+  return 1;
+}
+
+static int arith_int_string_add(lua_State *L)
+{
+  lua_pushinteger(L, 1);
+  lua_pushliteral(L, "abc");
+  lua_arith(L, LUA_OPADD);
+  return 1;
+}
+
+static int arith_string_nil_idiv(lua_State *L)
+{
+  lua_pushliteral(L, "1");
+  lua_pushnil(L);
+  lua_arith(L, LUA_OPIDIV);
+  return 1;
+}
+
+static int arith_string_unm(lua_State *L)
+{
+  lua_pushliteral(L, "abc");
+  lua_arith(L, LUA_OPUNM);
+  return 1;
+}
+
 static int createtable_large_array_hint(lua_State *L)
 {
   lua_createtable(L, INT_MAX, 0);
@@ -6194,6 +6225,29 @@ static void test_stack_and_number_api(lua_State *L)
   }
   lua_pop(L, 1);
 
+  /* Official Lua 5.4 reports yieldability from the thread's nCcalls
+  ** snapshot: a non-main thread reports 1 when fresh, suspended or dead. */
+  co = lua_newthread(L);
+  check(L, lua_isyieldable(co) == 1, "lua_isyieldable fresh coroutine");
+  check(L, luaL_loadstring(co, "coroutine.yield() return 1") == LUA_OK,
+	"lua_isyieldable states load");
+  check(L, lua_resume(co, L, 0, NULL) == LUA_YIELD,
+	"lua_isyieldable states yield");
+  check(L, lua_isyieldable(co) == 1, "lua_isyieldable suspended coroutine");
+  lua_settop(co, 0);
+  check(L, lua_resume(co, L, 0, NULL) == LUA_OK,
+	"lua_isyieldable states finish");
+  check(L, lua_isyieldable(co) == 1, "lua_isyieldable dead coroutine");
+  lua_pop(L, 1);
+  co = lua_newthread(L);
+  check(L, luaL_loadstring(co, "error('x')") == LUA_OK,
+	"lua_isyieldable error states load");
+  check(L, lua_resume(co, L, 0, NULL) == LUA_ERRRUN,
+	"lua_isyieldable states error");
+  check(L, lua_isyieldable(co) == 1,
+	"lua_isyieldable errored dead coroutine");
+  lua_pop(L, 1);
+
   check_resume_invalid_value(L, yield_negative_results,
 			     "lua_yield rejects negative nresults",
 			     "lua_yield negative nresults error");
@@ -6878,6 +6932,79 @@ static void test_compare_len_arith(lua_State *L)
   lua_arith(L, LUA_OPPOW);
   check(L, !lua_isinteger(L, -1) && lua_tonumber(L, -1) == (lua_Number)8,
 	"lua_arith pow returns float subtype");
+  lua_pop(L, 1);
+
+  /* Official Lua 5.4: float floor division keeps the float subtype and
+  ** division by an integer-zero operand follows IEEE semantics. */
+  lua_pushinteger(L, 1);
+  lua_pushnumber(L, 1.0);
+  lua_arith(L, LUA_OPIDIV);
+  check(L, !lua_isinteger(L, -1) && lua_tonumber(L, -1) == (lua_Number)1,
+	"lua_arith mixed idiv keeps float subtype");
+  lua_pop(L, 1);
+  lua_pushnumber(L, 1.0);
+  lua_pushinteger(L, 0);
+  lua_arith(L, LUA_OPIDIV);
+  check(L, !lua_isinteger(L, -1) && lua_tonumber(L, -1) == (lua_Number)HUGE_VAL,
+	"lua_arith float idiv by zero yields inf");
+  lua_pop(L, 1);
+
+  /* Official Lua 5.4: float unary minus keeps the float subtype. */
+  lua_pushnumber(L, 1.0);
+  lua_arith(L, LUA_OPUNM);
+  check(L, !lua_isinteger(L, -1) && lua_tonumber(L, -1) == (lua_Number)-1,
+	"lua_arith float unm keeps float subtype");
+  lua_pop(L, 1);
+
+  /* Official Lua 5.4 float modulo is fmod plus a sign fixup, which keeps
+  ** the low bits for wide operands and the -0.0 result sign. */
+  lua_pushinteger(L, LUA_MAXINTEGER);
+  lua_pushnumber(L, 1.5);
+  lua_arith(L, LUA_OPMOD);
+  check(L, !lua_isinteger(L, -1) && lua_tonumber(L, -1) == (lua_Number)0.5,
+	"lua_arith wide float mod keeps fmod precision");
+  lua_pop(L, 1);
+  lua_pushinteger(L, -1);
+  lua_pushnumber(L, 1.0);
+  lua_arith(L, LUA_OPMOD);
+  {
+    lua_Number mz = lua_tonumber(L, -1);
+    check(L, !lua_isinteger(L, -1) && mz == (lua_Number)0 &&
+	  (lua_Number)1.0 / mz == -HUGE_VAL,
+	  "lua_arith float mod keeps negative zero sign");
+  }
+  lua_pop(L, 1);
+
+  /* Official lua_arith error attribution: blame the first non-number
+  ** operand; string operands fail through the string-metatable metamethod
+  ** text that reports both operand types. */
+  lua_pushcfunction(L, arith_int_nil_add);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN &&
+	strstr(lua_tostring(L, -1),
+	       "attempt to perform arithmetic on a nil value") != NULL,
+	"lua_arith blames non-number operand");
+  lua_pop(L, 1);
+  lua_pushcfunction(L, arith_int_string_add);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN &&
+	strstr(lua_tostring(L, -1),
+	       "attempt to add a 'number' with a 'string'") != NULL,
+	"lua_arith string operand reports both types");
+  lua_pop(L, 1);
+  lua_pushcfunction(L, arith_string_nil_idiv);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN &&
+	strstr(lua_tostring(L, -1),
+	       "attempt to idiv a 'string' with a 'nil'") != NULL,
+	"lua_arith string idiv reports both types");
+  lua_pop(L, 1);
+  lua_pushcfunction(L, arith_string_unm);
+  status = lua_pcall(L, 0, 0, 0);
+  check(L, status == LUA_ERRRUN &&
+	strstr(lua_tostring(L, -1),
+	       "attempt to unm a 'string' with a 'string'") != NULL,
+	"lua_arith string unm reports operand twice");
   lua_pop(L, 1);
 
   if (sizeof(lua_Integer) > sizeof(int)) {

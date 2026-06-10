@@ -1822,28 +1822,47 @@ static int api_rawarith(lua_State *L, TValue *res, cTValue *a, cTValue *b,
   case LUA_OPSUB: nr = lj_vm_foldarith(na, nb, MM_sub-MM_add); break;
   case LUA_OPMUL: nr = lj_vm_foldarith(na, nb, MM_mul-MM_add); break;
   case LUA_OPDIV: nr = lj_vm_foldarith(na, nb, MM_div-MM_add); break;
-  case LUA_OPMOD: nr = lj_vm_foldarith(na, nb, MM_mod-MM_add); break;
+  case LUA_OPMOD:
+#if LJ_54
+    /* Official Lua 5.4 float modulo (luai_nummod): fmod plus sign fixup
+    ** keeps low bits that the floor-based formula loses for wide operands.
+    */
+    nr = fmod(na, nb);
+    if (nr > 0 ? nb < 0 : (nr < 0 && nb > 0))
+      nr += nb;
+    break;
+#else
+    nr = lj_vm_foldarith(na, nb, MM_mod-MM_add); break;
+#endif
   case LUA_OPPOW: nr = lj_vm_foldarith(na, nb, MM_pow-MM_add); break;
   case LUA_OPUNM: nr = lj_vm_foldarith(na, na, MM_unm-MM_add); break;
   case LUA_OPIDIV:
+#if LJ_54
+    /* Lua 5.4 float floor division follows IEEE: x//0 yields inf/nan. */
+    nr = lj_vm_floor(na / nb);
+#else
     if (nb == 0)
       lj_err_callermsg(L, "attempt to divide by zero");
     nr = lj_vm_floor(na / nb);
+#endif
     break;
   default:
     return 0;
   }
+#if LJ_54
+  /* Lua 5.4 float arithmetic keeps the float subtype; pure integer
+  ** operands were already handled by api_rawarith_int().
+  */
+  setnumV(res, nr);
+#else
   if ((op == LUA_OPIDIV || op == LUA_OPUNM) &&
       nr >= (lua_Number)LUA_MININTEGER && nr <= (lua_Number)LUA_MAXINTEGER &&
       nr == lj_vm_floor(nr)) {
-#if LJ_54
-    lj_obj_setint64(L, res, (int64_t)(lua_Integer)nr);
-#else
     setintptrV(res, (lua_Integer)nr);
-#endif
   } else {
     setnumV(res, nr);
   }
+#endif
   return 1;
 }
 
@@ -1948,8 +1967,31 @@ LUA_API void lua_arith(lua_State *L, int op)
 #if LJ_54
   if (api_isbitop54(op))
     api_arith_biterror54(L, a, b, unary);
-#endif
+  if (tvisstr(a) || tvisstr(b)) {
+    /* Official Lua 5.4 dispatches string arithmetic through the string
+    ** metatable metamethods; their conversion failure reports both operand
+    ** types (lstrlib trymt), with the unary minus passing the operand twice.
+    */
+    const char *opname;
+    switch (op) {
+    case LUA_OPADD: opname = "add"; break;
+    case LUA_OPSUB: opname = "sub"; break;
+    case LUA_OPMUL: opname = "mul"; break;
+    case LUA_OPMOD: opname = "mod"; break;
+    case LUA_OPPOW: opname = "pow"; break;
+    case LUA_OPDIV: opname = "div"; break;
+    case LUA_OPIDIV: opname = "idiv"; break;
+    default: opname = "unm"; break;
+    }
+    lj_err_callermsg(L, lj_strfmt_pushf(L,
+      "attempt to %s a '%s' with a '%s'", opname,
+      lj_typename(a), lj_typename(b)));
+  }
+  /* Official luaG_opinterror blames the first non-number operand. */
+  lj_err_optype(L, api_tvisnumber(a) ? b : a, LJ_ERR_OPARITH);
+#else
   lj_err_optype(L, a, LJ_ERR_OPARITH);
+#endif
 }
 
 /* -- Object getters ------------------------------------------------------ */
@@ -2776,6 +2818,16 @@ LUALIB_API int luaL_callmeta(lua_State *L, int idx, const char *field)
 
 LUA_API int lua_isyieldable(lua_State *L)
 {
+#if LJ_54
+  /* Official Lua 5.4 derives this from the thread's nCcalls snapshot: the
+  ** main thread is never yieldable; a non-main thread reports 1 even when
+  ** fresh, suspended or dead, unless it sits in a non-yieldable C frame.
+  */
+  if (mainthread(G(L)) == L)
+    return 0;
+  if (L->cframe == NULL)
+    return 1;
+#endif
   return cframe_canyield(L->cframe);
 }
 
