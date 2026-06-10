@@ -806,6 +806,8 @@
 
 ## 当前验证结果
 
+- `cmd /c build.bat test`（经 PowerShell）、`tools\lua54_diff_sweep.ps1`（43.5k 探针逐字节一致）和定向语义探针已通过，覆盖本轮 Lua 5.4 运算符 helper 分派重构：`//` / `%` / 位运算的 C builtin 快路径改为单次 C 调用直达（删除 wrapper 侧 `canyield()` 全局链和元方法预查），可 yield 上下文的元方法经 `(false,false)` 哨兵交回 Lua 层平调用（保持可 yield），错误经 raise-mode 尾调用重入 C builtin（尾调用塌帧保持用户调用点归属与逐字错误文本，wrapper 内部用 `rawget(jit, ...)` 取 C 函数以绕开 parser 的 notail 别名标记）。性能：bitwise 热循环 JIT 0.704s→0.006s（官方 0.028s，由慢 25 倍变为快 4.7 倍），int64 算术 JIT 0.253s→0.029s（与官方 0.031s 持平），解释器两者也提速约 2.4 倍。
+
 - `powershell -File tools\lua54_capi_diff.ps1` 已通过：约 3100 个 C API 差分探针在官方 Lua 5.4.8 源码构建与 compat 构建之间逐字节一致；`cmd /c build.bat test`（经 PowerShell 调用）已通过，覆盖本轮 `lua_arith` float idiv/unm 子类型、float `// 0` IEEE 语义、float `%` 官方 fmod 公式、错误操作数归属与 string 双类型错误文本，以及 `lua_isyieldable()` fresh/suspended/dead 非主线程返回 1 的修复和 C API smoke 回归。
 
 - 新增 `tools/lua54_diff_probe3.lua` 差分对照第三阶段：元方法分派序列（22 个元方法的调用顺序、参数形态和返回值，含 `__eq` 双侧、`__concat` 结合序、`__index`/`__newindex` 链、callable 链）、pattern 编译/捕获错误、`string.gsub` replacement 表面、固定 UTC 时间戳的 `os.date` 全转换矩阵和 `debug.getinfo` source/short_src/行号表面共 215 个探针。本轮修复 1 个缺口：main chunk 的 `debug.getinfo(..., 'S').lastlinedefined` 按官方报 0（此前报实际末行号）。`tools/lua54_diff_sweep.ps1` 驱动脚本可在本机一键复跑全部三阶段差分（约 43500 个探针），唯一允许差异为已记录的官方 `OP_ADDI` 常量零减法工件。

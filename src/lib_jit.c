@@ -442,7 +442,32 @@ static cTValue *lua54_bad_call_chain(lua_State *L, cTValue *mo)
   return tvisfunc(mo) ? NULL : bad;
 }
 
-static int lua54_callbinmeta(lua_State *L, const char *mmname, int unary)
+/* Dispatch a Lua 5.4 operator metamethod for a lowered helper call.
+** Returns 0 when no metamethod exists. Otherwise returns 2 results:
+** either (mmresult, true) after a C-level dispatch, or the sentinel pair
+** (false, false) in a yieldable context, telling the Lua-level operator
+** wrapper to run the (already validated) metamethod as a plain Lua call
+** so it may yield.
+*/
+/* Errors below this helper family must report the user's call site. The
+** Lua wrapper reaches the raising path through a tail call back into the
+** same C helper (extra trailing mode argument), which collapses the wrapper
+** frame exactly like the historical lowering did, so caller-level errors
+** and operand-slot reflection see the original operator call.
+*/
+static int lua54_pusherrsentinel(lua_State *L)
+{
+  TValue *p;
+  setboolV(L->base, 0);
+  for (p = L->base + 1; p < L->top; p++)
+    setnilV(p);
+  L->top = L->base + 1;
+  setintV(L->top++, 0);
+  return 2;
+}
+
+static int lua54_callbinmeta(lua_State *L, const char *mmname, int unary,
+			     int raising)
 {
   GCstr *mm = lj_str_newz(L, mmname);
   cTValue *mo = lua54_getmetafield(L, L->base, mm);
@@ -454,8 +479,20 @@ static int lua54_callbinmeta(lua_State *L, const char *mmname, int unary)
   if (!mo)
     return 0;
   bad = lua54_bad_call_chain(L, mo);
-  if (bad)
+  if (bad) {
+    if (!raising)
+      return -1;
     lua54_mm_callerror(L, bad, mmname);
+  }
+  if (cframe_canyield(L->cframe)) {
+    TValue *p;
+    setboolV(L->base, 0);
+    for (p = L->base + 1; p < L->top; p++)
+      setnilV(p);
+    L->top = L->base + 1;
+    setboolV(L->top++, 0);
+    return 2;
+  }
   /* The operators are currently lowered to helper calls; explicitly calling
   ** the Lua 5.4 metamethod here preserves the language surface.
   */
@@ -485,7 +522,8 @@ static int lua54_callbinmeta(lua_State *L, const char *mmname, int unary)
       setnilV(p);
   }
   L->top = L->base + 1;
-  return 1;
+  setboolV(L->top++, 1);
+  return 2;
 }
 
 static void lua54_finish_one_result(lua_State *L)
@@ -533,14 +571,18 @@ LJLIB_CF(jit__lua54_idiv_c)		LJLIB_REC(lua54_idivmod IR_DIV)
   int ia, ib, oka, okb;
   lua_Integer a = 0, b = 0;
   double na, nb;
-  if ((tvisstr(L->base) || tvisstr(L->base+1)) &&
-      lua54_callbinmeta(L, "__idiv", 0))
-    return 1;
+  int raising = (L->top - L->base) > 2;
+  if (tvisstr(L->base) || tvisstr(L->base+1)) {
+    int nres = lua54_callbinmeta(L, "__idiv", 0, raising);
+    if (nres > 0) return nres;
+    if (nres < 0) return lua54_pusherrsentinel(L);
+  }
   oka = lua54_tonumop(L, 1, &ia, &a, &na);
   okb = lua54_tonumop(L, 2, &ib, &b, &nb);
   if (!oka || !okb) {
-    if (lua54_callbinmeta(L, "__idiv", 0))
-      return 1;
+    int nres = lua54_callbinmeta(L, "__idiv", 0, raising);
+    if (nres > 0) return nres;
+    if (!raising) return lua54_pusherrsentinel(L);
     /* Official semantics: string operands fail from the string metamethod
     ** ("attempt to idiv a 'x' with a 'y'"); plain non-numbers report the
     ** generic arithmetic error on the first bad operand.
@@ -552,6 +594,7 @@ LJLIB_CF(jit__lua54_idiv_c)		LJLIB_REC(lua54_idivmod IR_DIV)
   if (ia && ib) {
     lua_Integer q, r;
     if (b == 0) {
+      if (!raising) return lua54_pusherrsentinel(L);
       if (tvisstr(L->base) || tvisstr(L->base+1)) {
 	/* Official string arithmetic raises this from the string metamethod
 	** C function, so the error carries no source position prefix.
@@ -577,14 +620,18 @@ LJLIB_CF(jit__lua54_mod_c)		LJLIB_REC(lua54_idivmod IR_MOD)
   int ia, ib, oka, okb;
   lua_Integer a = 0, b = 0;
   double na, nb;
-  if ((tvisstr(L->base) || tvisstr(L->base+1)) &&
-      lua54_callbinmeta(L, "__mod", 0))
-    return 1;
+  int raising = (L->top - L->base) > 2;
+  if (tvisstr(L->base) || tvisstr(L->base+1)) {
+    int nres = lua54_callbinmeta(L, "__mod", 0, raising);
+    if (nres > 0) return nres;
+    if (nres < 0) return lua54_pusherrsentinel(L);
+  }
   oka = lua54_tonumop(L, 1, &ia, &a, &na);
   okb = lua54_tonumop(L, 2, &ib, &b, &nb);
   if (!oka || !okb) {
-    if (lua54_callbinmeta(L, "__mod", 0))
-      return 1;
+    int nres = lua54_callbinmeta(L, "__mod", 0, raising);
+    if (nres > 0) return nres;
+    if (!raising) return lua54_pusherrsentinel(L);
     if (tvisstr(L->base) || tvisstr(L->base+1))
       lua54_binop_error(L, "mod");
     lua54_arith_error(L, oka ? 2 : 1);
@@ -592,6 +639,7 @@ LJLIB_CF(jit__lua54_mod_c)		LJLIB_REC(lua54_idivmod IR_MOD)
   if (ia && ib) {
     lua_Integer r;
     if (b == 0) {
+      if (!raising) return lua54_pusherrsentinel(L);
       if (tvisstr(L->base) || tvisstr(L->base+1)) {
 	/* Official string arithmetic raises this from the string metamethod
 	** C function, so the error carries no source position prefix.
@@ -615,10 +663,12 @@ LJLIB_CF(jit__lua54_band_c)		LJLIB_REC(lua54_bit IR_BAND)
 {
   int ia, ib;
   lua_Integer a, b;
+  int raising = (L->top - L->base) > 2;
   if (!lua54_tobitinteger(L, 1, &a, &ia) ||
       !lua54_tobitinteger(L, 2, &b, &ib)) {
-    if (lua54_callbinmeta(L, "__band", 0))
-      return 1;
+    int nres = lua54_callbinmeta(L, "__band", 0, raising);
+    if (nres > 0) return nres;
+    if (!raising) return lua54_pusherrsentinel(L);
     lua54_bitop_typecheck(L);
     a = lua54_checkintop(L, 1);
     b = lua54_checkintop(L, 2);
@@ -631,10 +681,12 @@ LJLIB_CF(jit__lua54_bor_c)		LJLIB_REC(lua54_bit IR_BOR)
 {
   int ia, ib;
   lua_Integer a, b;
+  int raising = (L->top - L->base) > 2;
   if (!lua54_tobitinteger(L, 1, &a, &ia) ||
       !lua54_tobitinteger(L, 2, &b, &ib)) {
-    if (lua54_callbinmeta(L, "__bor", 0))
-      return 1;
+    int nres = lua54_callbinmeta(L, "__bor", 0, raising);
+    if (nres > 0) return nres;
+    if (!raising) return lua54_pusherrsentinel(L);
     lua54_bitop_typecheck(L);
     a = lua54_checkintop(L, 1);
     b = lua54_checkintop(L, 2);
@@ -647,10 +699,12 @@ LJLIB_CF(jit__lua54_bxor_c)		LJLIB_REC(lua54_bit IR_BXOR)
 {
   int ia, ib;
   lua_Integer a, b;
+  int raising = (L->top - L->base) > 2;
   if (!lua54_tobitinteger(L, 1, &a, &ia) ||
       !lua54_tobitinteger(L, 2, &b, &ib)) {
-    if (lua54_callbinmeta(L, "__bxor", 0))
-      return 1;
+    int nres = lua54_callbinmeta(L, "__bxor", 0, raising);
+    if (nres > 0) return nres;
+    if (!raising) return lua54_pusherrsentinel(L);
     lua54_bitop_typecheck(L);
     a = lua54_checkintop(L, 1);
     b = lua54_checkintop(L, 2);
@@ -663,9 +717,11 @@ LJLIB_CF(jit__lua54_bnot_c)		LJLIB_REC(lua54_bnot IR_BNOT)
 {
   int isnum;
   lua_Integer a;
+  int raising = (L->top - L->base) > 1;
   if (!lua54_tobitinteger(L, 1, &a, &isnum)) {
-    if (lua54_callbinmeta(L, "__bnot", 1))
-      return 1;
+    int nres = lua54_callbinmeta(L, "__bnot", 1, raising);
+    if (nres > 0) return nres;
+    if (!raising) return lua54_pusherrsentinel(L);
     a = lua54_checkintop(L, 1);
   }
   return lua54_pushbinint(L, (lua_Integer)~(lua_Unsigned)a);
@@ -691,10 +747,12 @@ LJLIB_CF(jit__lua54_shl_c)		LJLIB_REC(lua54_shift IR_BSHL)
 {
   int ia, ib;
   lua_Integer a, sh;
+  int raising = (L->top - L->base) > 2;
   if (!lua54_tobitinteger(L, 1, &a, &ia) ||
       !lua54_tobitinteger(L, 2, &sh, &ib)) {
-    if (lua54_callbinmeta(L, "__shl", 0))
-      return 1;
+    int nres = lua54_callbinmeta(L, "__shl", 0, raising);
+    if (nres > 0) return nres;
+    if (!raising) return lua54_pusherrsentinel(L);
     lua54_bitop_typecheck(L);
     a = lua54_checkintop(L, 1);
     sh = lua54_checkintop(L, 2);
@@ -706,10 +764,12 @@ LJLIB_CF(jit__lua54_shr_c)		LJLIB_REC(lua54_shift IR_BSHR)
 {
   int ia, ib;
   lua_Integer a, sh;
+  int raising = (L->top - L->base) > 2;
   if (!lua54_tobitinteger(L, 1, &a, &ia) ||
       !lua54_tobitinteger(L, 2, &sh, &ib)) {
-    if (lua54_callbinmeta(L, "__shr", 0))
-      return 1;
+    int nres = lua54_callbinmeta(L, "__shr", 0, raising);
+    if (nres > 0) return nres;
+    if (!raising) return lua54_pusherrsentinel(L);
     lua54_bitop_typecheck(L);
     a = lua54_checkintop(L, 1);
     sh = lua54_checkintop(L, 2);
@@ -1570,9 +1630,29 @@ LUALIB_API int luaopen_jit(lua_State *L)
   LJ_LIB_REG(L, LUA_JITLIBNAME, jit);
 #if LJ_54
   lua_getglobal(L, LUA_JITLIBNAME);
+  /* The C helpers compute plain operands directly and C-dispatch operator
+  ** metamethods in non-yieldable contexts. In a yieldable context they
+  ** return the (false, false) sentinel pair after validating the metamethod,
+  ** and the wrapper runs it as a plain Lua call so it may yield. The fast
+  ** path is thus a single C call with no preflight lookups, which also lets
+  ** hot loops record as one trace instead of stitching at every operator.
+  */
   luaL_loadstring(L,
     "local rawget, type, getmetatable = rawget, type, getmetatable\n"
     "local jit = jit\n"
+    /* Fetch the C helpers through rawget so the parser's callsite-name
+    ** alias tracking does not mark these locals notail: the raising path
+    ** must stay a real tail call to collapse the wrapper frame and keep
+    ** caller-level error attribution on the user's operator expression.
+    */
+    "local idiv_c = rawget(jit, '_lua54_idiv_c')\n"
+    "local mod_c = rawget(jit, '_lua54_mod_c')\n"
+    "local band_c = rawget(jit, '_lua54_band_c')\n"
+    "local bor_c = rawget(jit, '_lua54_bor_c')\n"
+    "local bxor_c = rawget(jit, '_lua54_bxor_c')\n"
+    "local bnot_c = rawget(jit, '_lua54_bnot_c')\n"
+    "local shl_c = rawget(jit, '_lua54_shl_c')\n"
+    "local shr_c = rawget(jit, '_lua54_shr_c')\n"
     "local function realmt(v)\n"
     "  local d = rawget(_G, 'debug')\n"
     "  local f = d and d.getmetatable\n"
@@ -1582,31 +1662,71 @@ LUALIB_API int luaopen_jit(lua_State *L)
     "  local mt = realmt(v)\n"
     "  return type(mt) == 'table' and mt[name] or nil\n"
     "end\n"
-    "local function canyield()\n"
-    "  local c = rawget(_G, 'coroutine')\n"
-    "  local f = c and c.isyieldable\n"
-    "  return f and f() or false\n"
-    "end\n"
-    "local function bin(raw, name, a, b)\n"
-    "  if not canyield() then return raw(a, b) end\n"
+    "local function binmm(name, a, b)\n"
     "  local mm = metamethod(a, name) or metamethod(b, name)\n"
-    "  if mm ~= nil then local r = mm(a, b); return r end\n"
-    "  return raw(a, b)\n"
+    "  local r = mm(a, b)\n"
+    "  return r\n"
     "end\n"
-    "local function un(raw, name, a)\n"
-    "  if not canyield() then return raw(a) end\n"
-    "  local mm = metamethod(a, name)\n"
-    "  if mm ~= nil then local r = mm(a, a); return r end\n"
-    "  return raw(a)\n"
+    "function jit._lua54_idiv(a, b)\n"
+    "  local r, st = idiv_c(a, b)\n"
+    "  if st == nil then return r end\n"
+    "  if st == false then local out = binmm('__idiv', a, b) return out end\n"
+    "  if st == true then return r end\n"
+    "  return idiv_c(a, b, true)\n"
     "end\n"
-    "function jit._lua54_idiv(a,b) return bin(jit._lua54_idiv_c, '__idiv', a, b) end\n"
-    "function jit._lua54_mod(a,b) return bin(jit._lua54_mod_c, '__mod', a, b) end\n"
-    "function jit._lua54_band(a,b) return bin(jit._lua54_band_c, '__band', a, b) end\n"
-    "function jit._lua54_bor(a,b) return bin(jit._lua54_bor_c, '__bor', a, b) end\n"
-    "function jit._lua54_bxor(a,b) return bin(jit._lua54_bxor_c, '__bxor', a, b) end\n"
-    "function jit._lua54_bnot(a) return un(jit._lua54_bnot_c, '__bnot', a) end\n"
-    "function jit._lua54_shl(a,b) return bin(jit._lua54_shl_c, '__shl', a, b) end\n"
-    "function jit._lua54_shr(a,b) return bin(jit._lua54_shr_c, '__shr', a, b) end\n");
+    "function jit._lua54_mod(a, b)\n"
+    "  local r, st = mod_c(a, b)\n"
+    "  if st == nil then return r end\n"
+    "  if st == false then local out = binmm('__mod', a, b) return out end\n"
+    "  if st == true then return r end\n"
+    "  return mod_c(a, b, true)\n"
+    "end\n"
+    "function jit._lua54_band(a, b)\n"
+    "  local r, st = band_c(a, b)\n"
+    "  if st == nil then return r end\n"
+    "  if st == false then local out = binmm('__band', a, b) return out end\n"
+    "  if st == true then return r end\n"
+    "  return band_c(a, b, true)\n"
+    "end\n"
+    "function jit._lua54_bor(a, b)\n"
+    "  local r, st = bor_c(a, b)\n"
+    "  if st == nil then return r end\n"
+    "  if st == false then local out = binmm('__bor', a, b) return out end\n"
+    "  if st == true then return r end\n"
+    "  return bor_c(a, b, true)\n"
+    "end\n"
+    "function jit._lua54_bxor(a, b)\n"
+    "  local r, st = bxor_c(a, b)\n"
+    "  if st == nil then return r end\n"
+    "  if st == false then local out = binmm('__bxor', a, b) return out end\n"
+    "  if st == true then return r end\n"
+    "  return bxor_c(a, b, true)\n"
+    "end\n"
+    "function jit._lua54_bnot(a)\n"
+    "  local r, st = bnot_c(a)\n"
+    "  if st == nil then return r end\n"
+    "  if st == false then\n"
+    "    local mm = metamethod(a, '__bnot')\n"
+    "    local out = mm(a, a)\n"
+    "    return out\n"
+    "  end\n"
+    "  if st == true then return r end\n"
+    "  return bnot_c(a, true)\n"
+    "end\n"
+    "function jit._lua54_shl(a, b)\n"
+    "  local r, st = shl_c(a, b)\n"
+    "  if st == nil then return r end\n"
+    "  if st == false then local out = binmm('__shl', a, b) return out end\n"
+    "  if st == true then return r end\n"
+    "  return shl_c(a, b, true)\n"
+    "end\n"
+    "function jit._lua54_shr(a, b)\n"
+    "  local r, st = shr_c(a, b)\n"
+    "  if st == nil then return r end\n"
+    "  if st == false then local out = binmm('__shr', a, b) return out end\n"
+    "  if st == true then return r end\n"
+    "  return shr_c(a, b, true)\n"
+    "end\n");
   lua_call(L, 0, 0);
   lua_pushcfunction(L, lj_cf_jit__lua54_forstep);
   lua_setfield(L, -2, "_lua54_forstep");
