@@ -15,7 +15,7 @@
 #include "lj_vm.h"
 
 #if LJ_54 && LJ_TARGET_ARM64
-#define LJ_I64_FREELIST_MAX	65536
+#define LJ_I64_FREELIST_MAX	1048576
 #endif
 
 /* Object type names. */
@@ -50,6 +50,9 @@ GCint64 *lj_obj_newint64(lua_State *L, int64_t i)
   }
   i64->gct = ~LJ_TINT64;
   i64->i = i;
+#if LJ_54 && LJ_TARGET_ARM64
+  setmref(i64->owner, NULL);
+#endif
   return i64;
 }
 
@@ -58,6 +61,9 @@ void LJ_FASTCALL lj_obj_freeint64(global_State *g, GCint64 *i64)
 #if LJ_54 && LJ_TARGET_ARM64
   if (g->i64freelistn < LJ_I64_FREELIST_MAX) {
     GCobj *o = obj2gco(i64);
+#if LJ_54 && LJ_TARGET_ARM64
+    setmref(i64->owner, NULL);
+#endif
     setgcrefr(o->gch.nextgc, g->i64freelist);
     setgcref(g->i64freelist, o);
     g->i64freelistn++;
@@ -87,18 +93,40 @@ void lj_obj_setint64(lua_State *L, TValue *o, int64_t i)
     setintV(o, (int32_t)i);
   } else {
     GCint64 *i64;
+    TValue *stk = tvref(L->stack);
+    int onstack = o >= stk && o < tvref(L->maxstack);
+#if LJ_54 && LJ_TARGET_ARM64
+    global_State *g = G(L);
+    GCobj *go = gcref(g->i64freelist);
+    if (go) {
+      setgcrefr(g->i64freelist, go->gch.nextgc);
+      g->i64freelistn--;
+      setgcrefr(go->gch.nextgc, g->gc.root);
+      setgcref(g->gc.root, go);
+      newwhite(g, go);
+      i64 = &go->i64;
+      i64->gct = ~LJ_TINT64;
+      i64->i = i;
+      if (onstack)
+	setmref(i64->owner, o);
+      else
+	setmref(i64->owner, NULL);
+      seti64V(L, o, i64);
+      return;
+    }
+#endif
     /* The GC step (or an OOM full GC inside the allocation) may shrink and
     ** reallocate the Lua stack. Destination slots that point into the stack
     ** must be tracked as offsets across the allocation, or the store below
     ** writes into the freed old stack.
     */
-    TValue *stk = tvref(L->stack);
-    int onstack = o >= stk && o < tvref(L->maxstack);
     ptrdiff_t ofs = onstack ? savestack(L, o) : 0;
     lj_gc_check(L);
     i64 = lj_obj_newint64(L, i);
     if (onstack)
       o = restorestack(L, ofs);
+    if (onstack)
+      setmref(i64->owner, o);
     seti64V(L, o, i64);
   }
 }

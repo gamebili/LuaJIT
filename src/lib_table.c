@@ -658,6 +658,94 @@ static int sort_comp(lua_State *L, int a, int b)
   }
 }
 
+#if LJ_54 && LJ_TARGET_ARM64
+static LJ_AINLINE void sort_raw_int_swap54(TValue *array, int i, int j)
+{
+  TValue tmp = array[i];
+  array[i] = array[j];
+  array[j] = tmp;
+}
+
+static LJ_AINLINE int sort_raw_int_lt54(TValue *array, int i, int j)
+{
+  return intV(&array[i]) < intV(&array[j]);
+}
+
+static void sort_raw_int_insert54(TValue *array, int l, int u)
+{
+  int i;
+  for (i = l+1; i <= u; i++) {
+    TValue tv = array[i];
+    int32_t v = intV(&tv);
+    int j = i-1;
+    while (j >= l && intV(&array[j]) > v) {
+      array[j+1] = array[j];
+      j--;
+    }
+    array[j+1] = tv;
+  }
+}
+
+static void sort_raw_int_quick54(TValue *array, int l, int u)
+{
+  while (u-l > 15) {
+    int p = (l+u) >> 1;
+    int i, j;
+    TValue pivot;
+    int32_t pv;
+    if (sort_raw_int_lt54(array, p, l))
+      sort_raw_int_swap54(array, p, l);
+    if (sort_raw_int_lt54(array, u, p)) {
+      sort_raw_int_swap54(array, u, p);
+      if (sort_raw_int_lt54(array, p, l))
+	sort_raw_int_swap54(array, p, l);
+    }
+    sort_raw_int_swap54(array, p, u-1);
+    pivot = array[u-1];
+    pv = intV(&pivot);
+    i = l;
+    j = u-1;
+    for (;;) {
+      do { i++; } while (intV(&array[i]) < pv);
+      do { j--; } while (pv < intV(&array[j]));
+      if (j < i)
+	break;
+      sort_raw_int_swap54(array, i, j);
+    }
+    array[u-1] = array[i];
+    array[i] = pivot;
+    if (i-l < u-i) {
+      sort_raw_int_quick54(array, l, i-1);
+      l = i+1;
+    } else {
+      sort_raw_int_quick54(array, i+1, u);
+      u = i-1;
+    }
+  }
+  if (l < u)
+    sort_raw_int_insert54(array, l, u);
+}
+
+static int table_sort_raw_int_array54(lua_State *L, int32_t n)
+{
+  GCtab *t;
+  TValue *array;
+  int32_t i;
+  if (!tvistab(L->base) || !tvisnil(L->base+1))
+    return 0;
+  t = tabV(L->base);
+  if (tabref(t->metatable) || (MSize)n >= t->asize)
+    return 0;
+  array = tvref(t->array);
+  for (i = 1; i <= n; i++)
+    if (!tvisint(&array[i]))
+      return 0;
+  if (n > 1)
+    sort_raw_int_quick54(array, 1, n);
+  return 1;
+}
+#endif
+
 static void auxsort(lua_State *L, int l, int u)
 {
   while (l < u) {  /* for tail recursion */
@@ -757,6 +845,10 @@ LJLIB_CF(table_sort)
   if (n > 1 && !tvisnil(L->base+1)) {
     table_checkfunc_named54(L, 2, "table.sort");
   }
+#if LJ_TARGET_ARM64
+  if (table_sort_raw_int_array54(L, n))
+    return 0;
+#endif
 #else
   if (!tvisnil(L->base+1)) {
     lj_lib_checkfunc(L, 2);
@@ -882,4 +974,3 @@ LUALIB_API int luaopen_table(lua_State *L)
   lj_lib_prereg(L, LUA_TABLIBNAME ".clear", luaopen_table_clear, tabV(L->top-1));
   return 1;
 }
-

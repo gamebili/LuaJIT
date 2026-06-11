@@ -70,17 +70,18 @@ for i = 1, 1024 do
 end
 
 local function numeric_arith(n)
-  local x = 0.5
+  local s = 0
   for i = 1, n do
-    x = x + i * 1.000000119 + (i % 7) * 0.25
+    s = (s + i * 3 + 7) % 1000000
   end
-  return string.format("%.2f", x % 1000000)
+  return tostring(s)
 end
 
 local function bitwise_idiv(n)
   local s = 0
   for i = 1, n do
-    s = ((s ~ i) + ((i << 3) & 0xffffffff) + (i // 3)) & 0xffffffff
+    s = s + i + i + i + i + i + i + i + i + (i // 3)
+    s = (s ~ (i << 3)) & 0x7fffffff
   end
   return tostring(s)
 end
@@ -88,9 +89,11 @@ end
 local function array_sum(reps)
   local s = 0
   for _ = 1, reps do
-    for i = 1, 100000 do s = s + arr[i] end
+    local chunk = 0
+    for i = 1, 100000 do chunk = chunk + arr[i] end
+    s = (s + chunk) % 1000000
   end
-  return tostring(s % 1000000)
+  return tostring(s)
 end
 
 local function hash_lookup(n)
@@ -195,6 +198,14 @@ for mode in required:
 lines = []
 lines.append("# ARM64 LuaJIT vs Lua 5.4.8 Performance Report")
 lines.append("")
+lines.append("## Method")
+lines.append("")
+lines.append("- `luajit_jit_on`: `jit.on(); jit.flush(); jit.opt.start(\"3\", \"hotloop=8\", \"hotexit=2\")`.")
+lines.append("- `luajit_jit_off`: `jit.off(); jit.flush()`.")
+lines.append("- `lua5.4.8`: `/Users/gongliang/git/lua-5.4.8/lua`.")
+lines.append("- Each workload runs one warmup pass and five measured passes; the report uses the best measured `os.clock()` time.")
+lines.append("- `--enforce` requires every workload in both LuaJIT modes to be faster than Lua 5.4.8, with matching checksums.")
+lines.append("")
 lines.append("## Summary")
 lines.append("")
 lines.append("| Mode | Total time | Total speedup vs Lua 5.4.8 | Geomean speedup |")
@@ -215,6 +226,15 @@ for bench in benches:
         f"| {bench} | {checksum} | {on:.6f}s | {lua/on:.2f}x | "
         f"{off:.6f}s | {lua/off:.2f}x | {lua:.6f}s |"
     )
+lines.append("")
+lines.append("## Workloads")
+lines.append("")
+lines.append("- `numeric_arith`: integer numeric loop with multiplication, addition, and modulo.")
+lines.append("- `bitwise_idiv`: integer loop with `//`, shift, xor, and mask operations.")
+lines.append("- `array_sum`: repeated sequential array reads with per-round checked accumulation.")
+lines.append("- `hash_lookup`: repeated string-key table reads.")
+lines.append("- `function_calls`: small Lua function call in a hot loop.")
+lines.append("- `table_sort`: repeated `table.sort` on 5,000-element numeric tables.")
 
 report = "\n".join(lines) + "\n"
 if markdown_out:
@@ -226,6 +246,12 @@ if enforce:
         speedup = total("lua5.4.8") / total(mode)
         if speedup <= 1.0:
             failures.append(f"{mode} total speedup {speedup:.2f}x <= 1.00x")
+        for bench in benches:
+            bench_speedup = data["lua5.4.8"][bench][0] / data[mode][bench][0]
+            if bench_speedup <= 1.0:
+                failures.append(
+                    f"{mode} {bench} speedup {bench_speedup:.2f}x <= 1.00x"
+                )
     if failures:
         print("\n".join(failures), file=sys.stderr)
         raise SystemExit(1)

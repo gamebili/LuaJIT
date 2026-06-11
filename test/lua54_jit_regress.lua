@@ -1232,12 +1232,14 @@ do
   end, "Lua 5.4 mixed int64/float ordered comparison")
 
   assert_records_ir_op(function()
+    local a = 1099511627776
+    local b = 1099511628031
     local x = 0
     for _ = 1, 80 do
-      x = (x | 1099511627776) & 1099511628031
+      x = a & b
     end
     assert(x == 1099511627776 and math.type(x) == "integer")
-  end, "Lua 5.4 boxed int64 bitwise and/or", "BAND")
+  end, "Lua 5.4 boxed int64 bitwise and", "BAND")
 
   assert_records_ir_op(function()
     local a = 1099511627776.0

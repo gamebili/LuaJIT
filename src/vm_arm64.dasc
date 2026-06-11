@@ -303,6 +303,17 @@
 |  cmp TISNUMhi, reg, lsr #32
 |  blo target
 |.endmacro
+#if LJ_54
+|.macro clear_int64_owner, val, obj, safe
+|  asr ITYPE, val, #47
+|   and obj, val, #LJ_GCVMASK
+|  add safe, sp, TMPDofs
+|  sub safe, safe, #offsetof(GCint64, owner)
+|  cmn ITYPE, #-LJ_TINT64
+|  csel obj, obj, safe, eq
+|  str xzr, INT64:obj->owner
+|.endmacro
+#endif
 |
 |.macro init_constants
 |  movn TISNIL, #0
@@ -1006,6 +1017,9 @@ static void build_subroutines(BuildCtx *ctx)
   |  bl extern lj_meta_tset		// (lua_State *L, TValue *o, TValue *k)
   |  // Returns TValue * (finished) or NULL (metamethod).
   |   ldr TMP0, [BASE, RA, lsl #3]
+#if LJ_54
+  |  clear_int64_owner TMP0, TMP1, TMP2
+#endif
   |  cbz CRET1, >3
   |  // NOBARRIER: lj_meta_tset ensures the table is not black.
   |   str TMP0, [CRET1]
@@ -3074,6 +3088,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
   case BC_MOV:
     |  // RA = dst, RC = src
     |  ldr TMP0, [BASE, RC, lsl #3]
+#if LJ_54
+    |  clear_int64_owner TMP0, TMP1, TMP2
+#endif
     |  str TMP0, [BASE, RA, lsl #3]
     |  ins_next
     break;
@@ -3164,6 +3181,10 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  cbz CARG2w, target
     |.endmacro
     |
+    |.macro ins_arithcheck_nzdiv64, target
+    |  cbz CARG2, target
+    |.endmacro
+    |
     |.macro ins_arithhead
     ||vk = ((int)op - BC_ADDVN) / (BC_ADDNV-BC_ADDVN);
     ||if (vk == 1) {
@@ -3215,6 +3236,29 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  fsub res, reg1, d2
     |.endmacro
     |
+    |.macro ins_arithnumint, fpins, target, done
+    |  cmp TISNUMhi, CARG1, lsr #32
+    |  beq >1
+    |  blo target
+    |  cmp TISNUMhi, CARG2, lsr #32
+    |  bne target
+    |  // src1 number, src2 int.
+    |  fmov FARG1, CARG1
+    |  scvtf FARG2, CARG2w
+    |  fpins FARG1, FARG1, FARG2
+    |  str FARG1, [BASE, RA, lsl #3]
+    |  b done
+    |1:
+    |  cmp TISNUMhi, CARG2, lsr #32
+    |  bls target
+    |  // src1 int, src2 number.
+    |  scvtf FARG1, CARG1w
+    |  fmov FARG2, CARG2
+    |  fpins FARG1, FARG1, FARG2
+    |  str FARG1, [BASE, RA, lsl #3]
+    |  b done
+    |.endmacro
+    |
     |.macro ins_arithdn, intins, fpins
     |  ins_arithhead
     |  ins_arithload CARG1, CARG2
@@ -3237,6 +3281,10 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  ins_next
     |
     |5:  // FP variant.
+#if LJ_54
+    |  ins_arithnumint fpins, >6, <4
+    |6:
+#endif
     |  ins_arithload FARG1, FARG2
     |  ins_arithfallback ins_arithcheck_num
     |  fpins FARG1, FARG1, FARG2
@@ -3296,6 +3344,18 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  str CARG1, [BASE, RA, lsl #3]
     |  ins_next
     |9:
+    |  ldr TMP0, [BASE, RA, lsl #3]
+    |  asr ITYPE, TMP0, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and TMP0, TMP0, #LJ_GCVMASK
+    |  bne >8
+    |  add TMP1, BASE, RA, lsl #3
+    |  ldr TMP2, INT64:TMP0->owner
+    |  cmp TMP1, TMP2
+    |  bne >8
+    |  str CARG1, INT64:TMP0->i
+    |  ins_next
+    |8:
     |  ldr LFUNC:TMP1, [BASE, FRAME_FUNC]
     |   add CARG2, BASE, RA, lsl #3
     |  and LFUNC:TMP1, TMP1, #LJ_GCVMASK
@@ -3354,28 +3414,28 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
   case BC_MODVN: case BC_MODNV: case BC_MODVV:
 #if LJ_54
     /* Lua 5.4 modulo: integer floor modulo inline; floats (official fmod
-    ** formula), boxed int64, strings and metamethods route to lj_meta_arith().
+    ** formula), strings and metamethods route to lj_meta_arith().
     */
     |  ins_arithhead
     |  ins_arithload CARG1, CARG2
-    |  ins_arithcheck_int >5
-    |  ins_arithfallback ins_arithcheck_nzdiv	// n%0: C error path.
-    |  cmn CARG2w, #1			// a % -1 == 0: skip the division.
+    |  load_arithint64_1 >5
+    |  load_arithint64_2 >5
+    |  ins_arithfallback ins_arithcheck_nzdiv64	// n%0: C error path.
+    |  cmn CARG2, #1			// a % -1 == 0: skip the division.
     |  beq >7
-    |  sdiv CARG3w, CARG1w, CARG2w
-    |  msub CARG3w, CARG3w, CARG2w, CARG1w
-    |  cbz CARG3w, >6
-    |  eor TMP0w, CARG3w, CARG2w	// Floor adjust toward sign of divisor.
-    |  tbz TMP0w, #31, >6
-    |  add CARG3w, CARG3w, CARG2w
+    |  sdiv CARG3, CARG1, CARG2
+    |  msub CARG3, CARG3, CARG2, CARG1
+    |  cbz CARG3, >6
+    |  eor TMP0, CARG3, CARG2		// Floor adjust toward sign of divisor.
+    |  tbz TMP0, #63, >6
+    |  add CARG3, CARG3, CARG2
     |6:
-    |  add_TISNUM CARG1, CARG3
-    |  str CARG1, [BASE, RA, lsl #3]
-    |  ins_next
+    |  mov CARG1, CARG3
+    |  store_arithint64_1
     |7:
-    |  mov CARG3w, #0
+    |  mov CARG3, #0
     |  b <6
-    |5:  // Float, boxed int64, string or metamethod: C path.
+    |5:  // Float, string or metamethod: C path.
     |  ins_arithfallback b
     break;
 #endif
@@ -3447,6 +3507,18 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  str CARG1, [BASE, RA, lsl #3]
     |  ins_next
     |9:
+    |  ldr TMP0, [BASE, RA, lsl #3]
+    |  asr ITYPE, TMP0, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and TMP0, TMP0, #LJ_GCVMASK
+    |  bne >8
+    |  add TMP1, BASE, RA, lsl #3
+    |  ldr TMP2, INT64:TMP0->owner
+    |  cmp TMP1, TMP2
+    |  bne >8
+    |  str CARG1, INT64:TMP0->i
+    |  ins_next
+    |8:
     |  ldr LFUNC:TMP1, [BASE, FRAME_FUNC]
     |   add CARG2, BASE, RA, lsl #3
     |  and LFUNC:TMP1, TMP1, #LJ_GCVMASK
@@ -3517,6 +3589,28 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  // RA = dst, RB = dividend, RC = divisor.
     |  ldr CARG1, [BASE, RB, lsl #3]
     |  ldr CARG2, [BASE, RC, lsl #3]
+#if LJ_54
+    |  load_arithint64_1 ->vmeta_arith_vv
+    |  load_arithint64_2 ->vmeta_arith_vv
+    |  cbz CARG2, ->vmeta_arith_vv	// n//0: C error path.
+    |  mov TMP0, #1
+    |  lsl TMP0, TMP0, #63
+    |  cmp CARG1, TMP0			// mininteger // -1 wraps to mininteger.
+    |  bne >2
+    |  cmn CARG2, #1
+    |  beq >3
+    |2:
+    |  sdiv CARG3, CARG1, CARG2
+    |  msub TMP0, CARG3, CARG2, CARG1
+    |  cbz TMP0, >1
+    |  eor TMP1, TMP0, CARG2		// Floor adjust toward -inf.
+    |  tbz TMP1, #63, >1
+    |  sub CARG3, CARG3, #1
+    |1:
+    |  mov CARG1, CARG3
+    |3:
+    |  store_arithint64_1
+#else
     |  checkint CARG1, ->vmeta_arith_vv
     |  checkint CARG2, ->vmeta_arith_vv
     |  cbz CARG2w, ->vmeta_arith_vv	// n//0: C error path.
@@ -3534,6 +3628,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  add_TISNUM CARG1, CARG3
     |  str CARG1, [BASE, RA, lsl #3]
     |  ins_next
+#endif
     break;
 
   /* -- Constant ops ------------------------------------------------------ */
@@ -3599,6 +3694,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  ldr UPVAL:CARG2, [LFUNC:CARG2, RC, lsl #3]
     |  ldr CARG2, UPVAL:CARG2->v
     |  ldr TMP0, [CARG2]
+#if LJ_54
+    |  clear_int64_owner TMP0, TMP1, TMP3
+#endif
     |  str TMP0, [BASE, RA, lsl #3]
     |  ins_next
     break;
@@ -3613,6 +3711,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  ldrb TMP2w, UPVAL:CARG1->marked
     |  ldrb TMP0w, UPVAL:CARG1->closed
     |    asr ITYPE, CARG3, #47
+#if LJ_54
+    |   clear_int64_owner CARG3, TMP1, TMP3
+#endif
     |   str CARG3, [CARG2]
     |    add ITYPE, ITYPE, #-LJ_TISGCV
     |  tst TMP2w, #LJ_GC_BLACK		// isblack(uv)
@@ -3928,9 +4029,12 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  add CARG3, CARG3, TMP1, uxtw #3
     |   cmp TMP1w, CARG1w		// In array part?
     |   bhs ->vmeta_tsetv
-    |  ldr TMP1, [CARG3]
-    |   ldr TMP0, [BASE, RA, lsl #3]
-    |    ldrb TMP2w, TAB:CARG2->marked
+  |  ldr TMP1, [CARG3]
+  |   ldr TMP0, [BASE, RA, lsl #3]
+#if LJ_54
+    |   clear_int64_owner TMP0, CARG4, TMP3
+#endif
+  |    ldrb TMP2w, TAB:CARG2->marked
     |  cmp_nil TMP1			// Previous value is nil?
     |  beq >5
     |1:
@@ -3994,6 +4098,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  cmp CARG1, CARG4
     |  bne >5
     |   ldr TMP0, [BASE, RA, lsl #3]
+#if LJ_54
+    |   clear_int64_owner TMP0, TMP3, CARG4
+#endif
     |  cmp_nil TMP1			// Previous value is nil?
     |  beq >4
     |2:
@@ -4032,6 +4139,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  // Returns TValue *.
     |  ldr BASE, L->base
     |  ldr TMP0, [BASE, RA, lsl #3]
+#if LJ_54
+    |  clear_int64_owner TMP0, TMP1, TMP2
+#endif
     |  str TMP0, [CRET1]
     |  b <3				// No 2nd write barrier needed.
     |
@@ -4052,6 +4162,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |   bhs ->vmeta_tsetb
     |  ldr TMP1, [CARG3]
     |   ldr TMP0, [BASE, RA, lsl #3]
+#if LJ_54
+    |   clear_int64_owner TMP0, CARG4, TMP3
+#endif
     |    ldrb TMP2w, TAB:CARG2->marked
     |  cmp_nil TMP1			// Previous value is nil?
     |  beq >5
@@ -4089,6 +4202,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |   bhs ->vmeta_tsetr
     |->BC_TSETR_Z:
     |   ldr TMP0, [BASE, RA, lsl #3]
+#if LJ_54
+    |   clear_int64_owner TMP0, CARG4, TMP3
+#endif
     |   str TMP0, [CARG1]
     |   ins_next
     |
@@ -4117,6 +4233,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |    ldrb TMP2w, TAB:CARG2->marked
     |3:  // Copy result slots to table.
     |   ldr TMP0, [RA], #8
+#if LJ_54
+    |   clear_int64_owner TMP0, TMP3, CARG4
+#endif
     |   str TMP0, [TMP1], #8
     |  cmp RA, RB
     |  blo <3
@@ -4452,6 +4571,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  beq >3
     |2:
     |  ldr TMP0, [RA], #8
+#if LJ_54
+    |   clear_int64_owner TMP0, TMP2, TMP3
+#endif
     |   add BASE, BASE, #8
     |   sub TMP1, TMP1, #8
     |  str TMP0, [BASE, #-24]

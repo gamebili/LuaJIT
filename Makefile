@@ -37,6 +37,9 @@ LUA54_TESTES_DIR?= $(LUA54_SRC_DIR)/testes
 LUA54COMPAT_XCFLAGS= -DLUAJIT_ENABLE_LUA54COMPAT -DLUAJIT_NUMMODE=2
 LUA54COMPAT53_XCFLAGS= $(LUA54COMPAT_XCFLAGS) -DLUA_COMPAT_5_3
 LUA54_NOGC64_XCFLAGS= $(LUA54COMPAT_XCFLAGS) -DLUAJIT_DISABLE_GC64
+LUA54COMPAT_HOST_ARCH:= $(shell uname -m 2>/dev/null)
+LUA54COMPAT_TARGET_CFLAGS?= $(if $(filter arm64 aarch64,$(LUA54COMPAT_HOST_ARCH)),-mcpu=native,)
+LUA54COMPAT_TARGET_CFLAGS_ARG= $(if $(strip $(LUA54COMPAT_TARGET_CFLAGS)),TARGET_CFLAGS='$(strip $(LUA54COMPAT_TARGET_CFLAGS))')
 LUA54COMPAT_BUILD_STAMP= src/.luajit-build-config
 DEFAULT_BUILD_CONFIG= default
 CXX?= g++
@@ -197,33 +200,33 @@ smoketest: build-default-incremental
 
 build-lua54compat:
 	$(MAKE) clean
-	$(MAKE) XCFLAGS='$(LUA54COMPAT_XCFLAGS)'
-	@printf '%s\n' "$(LUA54COMPAT_XCFLAGS)" > $(LUA54COMPAT_BUILD_STAMP)
+	$(MAKE) XCFLAGS='$(LUA54COMPAT_XCFLAGS)' $(LUA54COMPAT_TARGET_CFLAGS_ARG)
+	@printf '%s\n' "$(LUA54COMPAT_XCFLAGS) TARGET_CFLAGS=$(strip $(LUA54COMPAT_TARGET_CFLAGS))" > $(LUA54COMPAT_BUILD_STAMP)
 
 build-lua54compat-incremental:
-	@cfg='$(LUA54COMPAT_XCFLAGS)'; if test -f $(LUA54COMPAT_BUILD_STAMP) && test "$$(cat $(LUA54COMPAT_BUILD_STAMP))" = "$$cfg"; then echo "==== Reusing Lua 5.4 compatibility build config ===="; else echo "==== Lua 5.4 compatibility build config changed; cleaning ===="; $(MAKE) clean; fi
-	$(MAKE) XCFLAGS='$(LUA54COMPAT_XCFLAGS)'
-	@printf '%s\n' "$(LUA54COMPAT_XCFLAGS)" > $(LUA54COMPAT_BUILD_STAMP)
+	@cfg='$(LUA54COMPAT_XCFLAGS) TARGET_CFLAGS=$(strip $(LUA54COMPAT_TARGET_CFLAGS))'; if test -f $(LUA54COMPAT_BUILD_STAMP) && test "$$(cat $(LUA54COMPAT_BUILD_STAMP))" = "$$cfg"; then echo "==== Reusing Lua 5.4 compatibility build config ===="; else echo "==== Lua 5.4 compatibility build config changed; cleaning ===="; $(MAKE) clean; fi
+	$(MAKE) XCFLAGS='$(LUA54COMPAT_XCFLAGS)' $(LUA54COMPAT_TARGET_CFLAGS_ARG)
+	@printf '%s\n' "$(LUA54COMPAT_XCFLAGS) TARGET_CFLAGS=$(strip $(LUA54COMPAT_TARGET_CFLAGS))" > $(LUA54COMPAT_BUILD_STAMP)
 
 build-lua54compat53:
 	$(MAKE) clean
-	$(MAKE) XCFLAGS='$(LUA54COMPAT53_XCFLAGS)'
-	@printf '%s\n' "$(LUA54COMPAT53_XCFLAGS)" > $(LUA54COMPAT_BUILD_STAMP)
+	$(MAKE) XCFLAGS='$(LUA54COMPAT53_XCFLAGS)' $(LUA54COMPAT_TARGET_CFLAGS_ARG)
+	@printf '%s\n' "$(LUA54COMPAT53_XCFLAGS) TARGET_CFLAGS=$(strip $(LUA54COMPAT_TARGET_CFLAGS))" > $(LUA54COMPAT_BUILD_STAMP)
 
 build-lua54compat53-incremental:
-	@cfg='$(LUA54COMPAT53_XCFLAGS)'; if test -f $(LUA54COMPAT_BUILD_STAMP) && test "$$(cat $(LUA54COMPAT_BUILD_STAMP))" = "$$cfg"; then echo "==== Reusing Lua 5.4 compatibility + LUA_COMPAT_5_3 build config ===="; else echo "==== Lua 5.4 compatibility + LUA_COMPAT_5_3 build config changed; cleaning ===="; $(MAKE) clean; fi
-	$(MAKE) XCFLAGS='$(LUA54COMPAT53_XCFLAGS)'
-	@printf '%s\n' "$(LUA54COMPAT53_XCFLAGS)" > $(LUA54COMPAT_BUILD_STAMP)
+	@cfg='$(LUA54COMPAT53_XCFLAGS) TARGET_CFLAGS=$(strip $(LUA54COMPAT_TARGET_CFLAGS))'; if test -f $(LUA54COMPAT_BUILD_STAMP) && test "$$(cat $(LUA54COMPAT_BUILD_STAMP))" = "$$cfg"; then echo "==== Reusing Lua 5.4 compatibility + LUA_COMPAT_5_3 build config ===="; else echo "==== Lua 5.4 compatibility + LUA_COMPAT_5_3 build config changed; cleaning ===="; $(MAKE) clean; fi
+	$(MAKE) XCFLAGS='$(LUA54COMPAT53_XCFLAGS)' $(LUA54COMPAT_TARGET_CFLAGS_ARG)
+	@printf '%s\n' "$(LUA54COMPAT53_XCFLAGS) TARGET_CFLAGS=$(strip $(LUA54COMPAT_TARGET_CFLAGS))" > $(LUA54COMPAT_BUILD_STAMP)
 
 build-lua54compat-nogc64:
 	$(MAKE) clean
-	$(MAKE) XCFLAGS='$(LUA54_NOGC64_XCFLAGS)'
-	@printf '%s\n' "$(LUA54_NOGC64_XCFLAGS)" > $(LUA54COMPAT_BUILD_STAMP)
+	$(MAKE) XCFLAGS='$(LUA54_NOGC64_XCFLAGS)' $(LUA54COMPAT_TARGET_CFLAGS_ARG)
+	@printf '%s\n' "$(LUA54_NOGC64_XCFLAGS) TARGET_CFLAGS=$(strip $(LUA54COMPAT_TARGET_CFLAGS))" > $(LUA54COMPAT_BUILD_STAMP)
 
 build-lua54compat-nogc64-incremental:
-	@cfg='$(LUA54_NOGC64_XCFLAGS)'; if test -f $(LUA54COMPAT_BUILD_STAMP) && test "$$(cat $(LUA54COMPAT_BUILD_STAMP))" = "$$cfg"; then echo "==== Reusing Lua 5.4 compatibility non-GC64 build config ===="; else echo "==== Lua 5.4 compatibility non-GC64 build config changed; cleaning ===="; $(MAKE) clean; fi
-	$(MAKE) XCFLAGS='$(LUA54_NOGC64_XCFLAGS)'
-	@printf '%s\n' "$(LUA54_NOGC64_XCFLAGS)" > $(LUA54COMPAT_BUILD_STAMP)
+	@cfg='$(LUA54_NOGC64_XCFLAGS) TARGET_CFLAGS=$(strip $(LUA54COMPAT_TARGET_CFLAGS))'; if test -f $(LUA54COMPAT_BUILD_STAMP) && test "$$(cat $(LUA54COMPAT_BUILD_STAMP))" = "$$cfg"; then echo "==== Reusing Lua 5.4 compatibility non-GC64 build config ===="; else echo "==== Lua 5.4 compatibility non-GC64 build config changed; cleaning ===="; $(MAKE) clean; fi
+	$(MAKE) XCFLAGS='$(LUA54_NOGC64_XCFLAGS)' $(LUA54COMPAT_TARGET_CFLAGS_ARG)
+	@printf '%s\n' "$(LUA54_NOGC64_XCFLAGS) TARGET_CFLAGS=$(strip $(LUA54COMPAT_TARGET_CFLAGS))" > $(LUA54COMPAT_BUILD_STAMP)
 
 smoketest-lua54compat:
 	$(MAKE) build-lua54compat

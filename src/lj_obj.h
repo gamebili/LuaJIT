@@ -376,6 +376,9 @@ typedef struct GCcdataVar {
 typedef struct GCint64 {
   GCHeader;
   int64_t i;
+#if LJ_54 && LJ_TARGET_ARM64
+  MRef owner;		/* Stack slot allowed to update this object in place. */
+#endif
 } GCint64;
 
 /* -- Prototype object ---------------------------------------------------- */
@@ -976,6 +979,16 @@ static LJ_AINLINE void *lightudV(global_State *g, cTValue *o)
 #define numV(o)		check_exp(tvisnum(o), (o)->n)
 #define intV(o)		check_exp(tvisint(o), (int32_t)(o)->i)
 
+#if LJ_54 && LJ_TARGET_ARM64
+static LJ_AINLINE void clearint64owner(cTValue *o)
+{
+  if (LJ_UNLIKELY(tvisi64(o)))
+    setmref(gco2i64(gcval(o))->owner, NULL);
+}
+#else
+#define clearint64owner(o)	UNUSED(o)
+#endif
+
 /* Macros to set tagged values. */
 #if LJ_GC64
 #define setitype(o, i)		((o)->it = ((i) << 15))
@@ -1084,6 +1097,7 @@ static LJ_AINLINE void setint64V(TValue *o, int64_t i)
 /* Copy tagged values. */
 static LJ_AINLINE void copyTV(lua_State *L, TValue *o1, const TValue *o2)
 {
+  clearint64owner(o2);
   *o1 = *o2;
   checklivetv(L, o1, "copy of dead GC object");
 }

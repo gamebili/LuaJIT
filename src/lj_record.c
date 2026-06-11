@@ -232,6 +232,27 @@ static TRef rec_lua54_i64result(jit_State *J, TRef tr, int64_t rv)
   }
 }
 
+#if LJ_TARGET_ARM64
+static TRef rec_lua54_i64result_raw(jit_State *J, TRef tr, int64_t rv)
+{
+  if (rv >= LJ_LUA54_I32_MIN && rv <= LJ_LUA54_I32_MAX) {
+    emitir(IRTG(IR_GE, IRT_I64), tr,
+	   lj_ir_kint64(J, (uint64_t)LJ_LUA54_I32_MIN));
+    emitir(IRTG(IR_LE, IRT_I64), tr,
+	   lj_ir_kint64(J, (uint64_t)LJ_LUA54_I32_MAX));
+    return emitir(IRTI(IR_CONV), tr, IRCONV_INT_I64_NARROW);
+  }
+  return tr;
+}
+
+static TRef rec_lua54_boxraw_i64(jit_State *J, TRef tr)
+{
+  if (tref_type(tr) == IRT_I64)
+    return lj_ir_call(J, IRCALL_lj_obj_newint64, tr);
+  return tr;
+}
+#endif
+
 static TRef rec_lua54_toint64ref(jit_State *J, TRef tr, cTValue *tv)
 {
   if (rec_lua54_tv_isinteger(tv)) {
@@ -263,7 +284,7 @@ static TRef rec_lua54_unm_int(jit_State *J, TRef rc, cTValue *rcv)
 }
 
 static TRef rec_lua54_arith_intref(jit_State *J, TRef irb, TRef irc,
-				   int64_t ib, int64_t ic, MMS mm)
+				   int64_t ib, int64_t ic, MMS mm, int rawok)
 {
   lua_Unsigned ub = (lua_Unsigned)(lua_Integer)ib;
   lua_Unsigned uc = (lua_Unsigned)(lua_Integer)ic;
@@ -277,6 +298,12 @@ static TRef rec_lua54_arith_intref(jit_State *J, TRef irb, TRef irc,
   default: lj_assertJ(0, "bad Lua 5.4 integer arithmetic op"); rv = 0; break;
   }
   tr = emitir(IRT(op, IRT_I64), irb, irc);
+#if LJ_TARGET_ARM64
+  if (rawok)
+    return rec_lua54_i64result_raw(J, tr, rv);
+#else
+  UNUSED(rawok);
+#endif
   return rec_lua54_i64result(J, tr, rv);
 }
 
@@ -286,7 +313,8 @@ static TRef rec_lua54_arith_int(jit_State *J, TRef rb, TRef rc,
   return rec_lua54_arith_intref(J, rec_lua54_i64ref(J, rb),
 				rec_lua54_i64ref(J, rc),
 				rec_lua54_tv_i64(rbv), rec_lua54_tv_i64(rcv),
-				mm);
+				mm, tref_type(rb) == IRT_I64 ||
+				    tref_type(rc) == IRT_I64);
 }
 
 /* Convert a bitwise operand to a raw IRT_I64 ref plus its runtime value.
@@ -2215,6 +2243,9 @@ TRef lj_record_idx(jit_State *J, RecordIndex *ix)
 	}
 	if (!LJ_DUALNUM && tref_isinteger(ix->val))
 	  ix->val = emitir(IRTN(IR_CONV), ix->val, IRCONV_NUM_INT);
+#if LJ_54 && LJ_DUALNUM && LJ_TARGET_ARM64
+	ix->val = rec_lua54_boxraw_i64(J, ix->val);
+#endif
 	emitir(IRT(IR_HSTORE, tref_type(ix->val)), xref, ix->val);
 	if (tref_isgcv(ix->val))
 	  emitir(IRT(IR_TBAR, IRT_NIL), ix->tab, 0);
@@ -2287,6 +2318,9 @@ TRef lj_record_idx(jit_State *J, RecordIndex *ix)
       }
       if (!LJ_DUALNUM && tref_isinteger(ix->val))
 	ix->val = emitir(IRTN(IR_CONV), ix->val, IRCONV_NUM_INT);
+#if LJ_54 && LJ_DUALNUM && LJ_TARGET_ARM64
+      ix->val = rec_lua54_boxraw_i64(J, ix->val);
+#endif
       emitir(IRT(IR_HSTORE, tref_type(ix->val)), xref, ix->val);
       if (tref_isgcv(ix->val))
 	emitir(IRT(IR_TBAR, IRT_NIL), ix->tab, 0);
@@ -2397,6 +2431,9 @@ TRef lj_record_idx(jit_State *J, RecordIndex *ix)
     /* Convert int to number before storing. */
     if (!LJ_DUALNUM && tref_isinteger(ix->val))
       ix->val = emitir(IRTN(IR_CONV), ix->val, IRCONV_NUM_INT);
+#if LJ_54 && LJ_DUALNUM && LJ_TARGET_ARM64
+    ix->val = rec_lua54_boxraw_i64(J, ix->val);
+#endif
     emitir(IRT(loadop+IRDELTA_L2S, tref_type(ix->val)), xref, ix->val);
     if (keybarrier || tref_isgcv(ix->val))
       emitir(IRT(IR_TBAR, IRT_NIL), ix->tab, 0);
@@ -3292,7 +3329,11 @@ void lj_record_ins(jit_State *J)
 	tr = emitir(IRT(IR_BNOT, IRT_I64), irb, 0);
 	break;
       }
+#if LJ_TARGET_ARM64
+      rc = tref_isinteger(tr) ? tr : rec_lua54_i64result_raw(J, tr, rv);
+#else
       rc = tref_isinteger(tr) ? tr : rec_lua54_i64result(J, tr, rv);
+#endif
       break;
     }
 #endif
@@ -3354,14 +3395,16 @@ void lj_record_ins(jit_State *J)
     if (irop <= IR_MUL) {
       int64_t ib, ic;
       TRef irb, irc;
-      if (rec_lua54_tv_toint64(rbv, &ib) &&
-	  rec_lua54_tv_toint64(rcv, &ic) &&
-	  (irb = rec_lua54_toint64ref(J, rb, rbv)) &&
-	  (irc = rec_lua54_toint64ref(J, rc, rcv))) {
-	rc = rec_lua54_arith_intref(J, irb, irc, ib, ic, mm);
-	break;
+	if (rec_lua54_tv_toint64(rbv, &ib) &&
+	    rec_lua54_tv_toint64(rcv, &ic) &&
+	    (irb = rec_lua54_toint64ref(J, rb, rbv)) &&
+	    (irc = rec_lua54_toint64ref(J, rc, rcv))) {
+	  rc = rec_lua54_arith_intref(J, irb, irc, ib, ic, mm,
+				      tref_type(rb) == IRT_I64 ||
+				      tref_type(rc) == IRT_I64);
+	  break;
+	}
       }
-    }
 #endif
     if (tref_isnumber_str(rb) && tref_isnumber_str(rc)) {
 #if LJ_54 && LJ_DUALNUM

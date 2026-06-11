@@ -739,6 +739,10 @@ static void snap_restoreval(jit_State *J, GCtrace *T, ExitState *ex,
     } else if (irt_isnum(t)) {
       o->u64 = *(uint64_t *)sps;
 #endif
+#if LJ_54 && LJ_DUALNUM && LJ_TARGET_ARM64
+    } else if (irt_isi64(t)) {
+      lj_obj_setint64(J->L, o, *(int64_t *)sps);
+#endif
 #if LJ_64 && !LJ_GC64
     } else if (irt_islightud(t)) {
       /* 64 bit lightuserdata which may escape already has the tag bits. */
@@ -764,6 +768,10 @@ static void snap_restoreval(jit_State *J, GCtrace *T, ExitState *ex,
 #elif LJ_64  /* && LJ_SOFTFP */
     } else if (irt_isnum(t)) {
       o->u64 = ex->gpr[r-RID_MIN_GPR];
+#endif
+#if LJ_54 && LJ_DUALNUM && LJ_TARGET_ARM64
+    } else if (irt_isi64(t)) {
+      lj_obj_setint64(J->L, o, (int64_t)ex->gpr[r-RID_MIN_GPR]);
 #endif
 #if LJ_64 && !LJ_GC64
     } else if (irt_is64(t)) {
