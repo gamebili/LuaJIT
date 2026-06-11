@@ -845,7 +845,7 @@ static void rec_for_loop_i64(jit_State *J, const BCIns *fori, ScEvEntry *scev,
 {
   BCReg ra = bc_a(*fori);
   cTValue *tv = &J->L->base[ra];
-  TRef stop, step, idxobj, idx;
+  TRef stop, step, idxobj, idxslot, idx;
   int64_t rv = rec_lua54_tv_i64(&tv[FORL_IDX]);
   int dir;
   if (!rec_for_i64mode(tv))
@@ -853,7 +853,7 @@ static void rec_for_loop_i64(jit_State *J, const BCIns *fori, ScEvEntry *scev,
   dir = rec_lua54_tv_i64(&tv[FORL_STEP]) > 0;
   stop = rec_for_i64_rawarg(J, ra+FORL_STOP);
   step = rec_for_i64_rawarg(J, ra+FORL_STEP);
-  idxobj = getslot(J, ra+FORL_IDX);
+  idxslot = idxobj = getslot(J, ra+FORL_IDX);
   idx = rec_lua54_i64ref(J, idxobj);
   rec_for_i64_check(J, stop, step, dir);
   if (!init) {
@@ -861,7 +861,14 @@ static void rec_for_loop_i64(jit_State *J, const BCIns *fori, ScEvEntry *scev,
     rv = (int64_t)((lua_Unsigned)rv + (lua_Unsigned)istep);
     idx = emitir(IRT(IR_ADD, IRT_I64), idx, step);
     idxobj = rec_lua54_i64result(J, idx, rv);
-    J->base[ra+FORL_IDX] = idxobj;
+#if LJ_TARGET_ARM64
+    if (tvisi64(&tv[FORL_IDX]) &&
+	rv >= LJ_LUA54_I32_MIN && rv <= LJ_LUA54_I32_MAX)
+      idxslot = lj_ir_call(J, IRCALL_lj_obj_newint64, idx);
+    else
+#endif
+      idxslot = idxobj;
+    J->base[ra+FORL_IDX] = idxslot;
   }
   J->base[ra+FORL_STOP] = getslot(J, ra+FORL_STOP);
   J->base[ra+FORL_STEP] = getslot(J, ra+FORL_STEP);

@@ -84,16 +84,25 @@ LJ_FUNC void lj_gc_fullgc(lua_State *L);
 
 #if LJ_54
 LJ_FUNC void lj_gc_gen_whitelist54(global_State *g);
-#define LJ_GC_FIN_CHECK_CYCLES	32
-static LJ_AINLINE void lj_gc_arm_finalizer54(global_State *g)
+#if LJ_TARGET_ARM64
+#define LJ_GC_FIN_CHECK_CYCLES	255
+#endif
+static LJ_AINLINE void lj_gc_arm_finalizer54(global_State *g, GCtab *t)
 {
+#if LJ_TARGET_ARM64
+  UNUSED(t);
   /* A just-armed Lua 5.4 __gc object can otherwise wait for unrelated GC debt
   ** before its first finalizer run. Keep a few following cycles
-  ** allocation-driven without changing stopped-GC semantics.
+  ** allocation-driven on ARM64 without changing stopped-GC semantics.
   */
-  g->gc.fin_check = LJ_GC_FIN_CHECK_CYCLES;
-  if (g->gc.threshold != LJ_MAX_MEM && g->gc.threshold > g->gc.total)
+  if (g->gc.threshold != LJ_MAX_MEM) {
+    g->gc.fin_check = LJ_GC_FIN_CHECK_CYCLES;
     g->gc.threshold = g->gc.total;
+  }
+#else
+  UNUSED(g);
+  UNUSED(t);
+#endif
 }
 #endif
 

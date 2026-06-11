@@ -260,8 +260,10 @@ static void gc_gen_enter54(global_State *g)
   g->gc_genactive54 = 1;
   g->gc_genrevisit54 = 0;
   g->gc_genlastatomic54 = 0;
+#if LJ_TARGET_ARM64
   /* A full baseline already handled pending table-finalizer responsiveness. */
   g->gc.fin_check = 0;
+#endif
 }
 
 static void gc_whitelist_chain54(global_State *g, GCobj *o)
@@ -1569,6 +1571,7 @@ static void gc_gen_major54(lua_State *L)
   }
 }
 
+#if LJ_TARGET_ARM64
 static void gc_gen_fincheck_step54(global_State *g)
 {
   if (g->gc.fin_check != 0) {
@@ -1576,6 +1579,7 @@ static void gc_gen_fincheck_step54(global_State *g)
     g->gc.threshold = g->gc.total;
   }
 }
+#endif
 #endif
 
 /* Perform a limited amount of incremental GC steps. */
@@ -1597,20 +1601,29 @@ int LJ_FASTCALL lj_gc_step(lua_State *L)
       g->vmstate = ostate;
       return -1;
     }
+#if LJ_TARGET_ARM64
     if (g->gc.fin_check != 0) {
-      gc_gen_major54(L);
-      gc_gen_fincheck_step54(g);
+      uint8_t fin_check = (uint8_t)(g->gc.fin_check - 1);
+      lj_gc_fullgc(L);
+      g->gc.fin_check = fin_check;
+      if (fin_check != 0)
+	g->gc.threshold = g->gc.total;
       g->vmstate = ostate;
       return 1;
     }
+#endif
     if (g->gc_genlastatomic54 != 0 || gc_gen_needmajor54(g)) {
       gc_gen_major54(L);
+#if LJ_TARGET_ARM64
       gc_gen_fincheck_step54(g);
+#endif
       g->vmstate = ostate;
       return 1;
     } else {
       gc_gen_minor54(L);
+#if LJ_TARGET_ARM64
       gc_gen_fincheck_step54(g);
+#endif
       g->vmstate = ostate;
       return 1;
     }
@@ -1635,12 +1648,16 @@ int LJ_FASTCALL lj_gc_step(lua_State *L)
 #if LJ_54
       if (g->gc_mode54) {
 	gc_gen_enter54(g);
+#if LJ_TARGET_ARM64
 	if (g->gc.fin_check != 0) {
 	  g->gc.fin_check--;
 	  g->gc.threshold = g->gc.total;
 	} else {
+#endif
 	  g->gc.threshold = gc_gen_threshold54(g);
+#if LJ_TARGET_ARM64
 	}
+#endif
       } else
 #endif
 	g->gc.threshold = (g->gc.estimate/100) * g->gc.pause;
@@ -1649,7 +1666,7 @@ int LJ_FASTCALL lj_gc_step(lua_State *L)
     }
   } while (sizeof(lim) == 8 ? ((int64_t)lim > 0) : ((int32_t)lim > 0));
   if (g->gc.debt < stepsize) {
-#if LJ_54
+#if LJ_54 && LJ_TARGET_ARM64
     if (g->gc.fin_check != 0)
       g->gc.threshold = g->gc.total;
     else

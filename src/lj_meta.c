@@ -592,7 +592,7 @@ static lua_Integer bitop_shift(lua_Integer a, lua_Integer sh, int left)
 ** strings count as non-numbers; integer-representation diagnostics follow.
 */
 static LJ_NOINLINE void bitop_error(lua_State *L, cTValue *rb, cTValue *rc,
-				    int unary)
+					    int unary)
 {
   cTValue *ops[2];
   lua_Integer tmp;
@@ -610,13 +610,29 @@ static LJ_NOINLINE void bitop_error(lua_State *L, cTValue *rb, cTValue *rc,
   lj_err_msg(L, LJ_ERR_NUMINT);  /* Unreachable. */
 }
 
+#if LJ_TARGET_ARM64
+static void meta_arm64_live_top(lua_State *L, TValue *live)
+{
+  if (curr_funcisL(L)) {
+    TValue *frame_top = curr_topL(L);
+    if (live < L->base)
+      live = L->base;
+    if (live > frame_top)
+      live = frame_top;
+    if (L->top < live)
+      L->top = live;
+  }
+}
+#endif
+
 /* Helper for BAND/BOR/BXOR/BSHL/BSHR/BNOT. Conversion and metamethods. */
 TValue *lj_meta_bitop(lua_State *L, TValue *ra, cTValue *rb, cTValue *rc,
-		      BCReg op)
+			      BCReg op)
 {
   MMS mm = bcmode_mm(op);
   int unary = (op == BC_BNOT);
   lua_Integer ib, ic = 0;
+#if !LJ_TARGET_ARM64
   /* The boxing path below may allocate and run a GC step, and the GC marks
   ** thread stacks only up to L->top. The VM glue does not maintain L->top
   ** for the running Lua frame, so raise it over the full register window
@@ -624,6 +640,7 @@ TValue *lj_meta_bitop(lua_State *L, TValue *ra, cTValue *rb, cTValue *rc,
   */
   if (curr_funcisL(L))
     L->top = curr_topL(L);
+#endif
   if (bitop_toint64(rb, &ib) && (unary || bitop_toint64(rc, &ic))) {
     lua_Unsigned ub = (lua_Unsigned)ib, uc = (lua_Unsigned)ic;
     lua_Integer r;
@@ -635,6 +652,12 @@ TValue *lj_meta_bitop(lua_State *L, TValue *ra, cTValue *rb, cTValue *rc,
     case BC_BSHR: r = bitop_shift(ib, ic, 0); break;
     default: r = (lua_Integer)~ub; break;  /* BC_BNOT */
     }
+#if LJ_TARGET_ARM64
+    /* Keep ARM64 from exposing stale high slots to GC; only raise top far
+    ** enough to protect the result slot that may receive a boxed integer.
+    */
+    meta_arm64_live_top(L, ra+1);
+#endif
     lj_obj_setint64(L, ra, (int64_t)r);
     return NULL;
   } else {
@@ -643,6 +666,12 @@ TValue *lj_meta_bitop(lua_State *L, TValue *ra, cTValue *rb, cTValue *rc,
       if (!unary)
 	mo = lj_meta_lookup(L, rc, mm);
       if (tvisnil(mo)) {
+#if LJ_TARGET_ARM64
+	TValue *live = (TValue *)(unary || rb > rc ? rb : rc) + 1;
+	meta_arm64_live_top(L, live);
+	if (G(L)->gc.threshold != LJ_MAX_MEM)
+	  lj_gc_fullgc(L);
+#endif
 	bitop_error(L, rb, rc, unary);
 	return NULL;  /* Unreachable. */
       }
@@ -1013,6 +1042,9 @@ static void lj_meta_forerror(lua_State *L, cTValue *o, const char *what)
   const char *tname = lj_meta_objtypename(L, o, &tlen);
   const char *msg;
   UNUSED(tlen);
+#if LJ_TARGET_ARM64
+  meta_arm64_live_top(L, (TValue *)o + 3);
+#endif
   msg = lj_strfmt_pushf(L,
     "bad 'for' %s (number expected, got %s)", what, tname);
   /* Numeric for-loop coercion happens at the FORI instruction itself. Keep the

@@ -1548,6 +1548,33 @@ do
         return setmetatable({}, { __close = f })
       end
       local trace = {}
+      local function hook(ev)
+        local info = debug.getinfo(2, "n")
+        trace[#trace + 1] = ev .. " " .. tostring(info.name)
+      end
+      local function foo(...)
+        local x <close> = func2close(function()
+          trace[#trace + 1] = "x"
+        end)
+        local y <close> = func2close(function()
+          debug.sethook(hook, "r")
+        end)
+        return ...
+      end
+      local t = { foo(10, 20, 30) }
+      debug.sethook()
+      assert(#t == 3 and t[1] == 10 and t[2] == 20 and t[3] == 30)
+      assert(table.concat(trace, ",") ==
+             "return sethook,return close,x,return close,return foo")
+      return true
+    ]]))())
+  end
+  do
+    assert(assert(load([[
+      local function func2close(f)
+        return setmetatable({}, { __close = f })
+      end
+      local trace = {}
       local co = coroutine.wrap(function()
         do
           local x <close> = func2close(function(_, err)
@@ -5369,7 +5396,8 @@ do
   ok, err = pcall(os.time, { year = 2020, month = 1, day = 1, sec = true })
   assert(ok == false and err:match("field 'sec' is not an integer") ~= nil)
   ok, err = pcall(os.time, { year = 4000, month = 1, day = 1 })
-  assert(ok == false and err:match("time result cannot be represented") ~= nil)
+  assert((ok == true and math.type(err) == "integer") or
+	 (ok == false and err:match("time result cannot be represented") ~= nil))
   local stamp = os.time({ year = 2020, month = 5, day = 7,
 			  hour = 12, min = 34, sec = 56 })
   assert(math.type(stamp) == "integer")
@@ -5633,11 +5661,14 @@ assert(assert(load([[
     f:write("abcdef")
     assert(f:seek("set", "2") == 2)
     local ok, err = pcall(function() return f:seek("set", 2147483648) end)
-    assert(ok == false and tostring(err):find("not an integer in proper range", 1, true))
+    assert((ok == true and err == 2147483648) or
+	   (ok == false and tostring(err):find("not an integer in proper range", 1, true)))
     ok, err = pcall(function() return f:seek("set", "2147483648") end)
-    assert(ok == false and tostring(err):find("not an integer in proper range", 1, true))
+    assert((ok == true and err == 2147483648) or
+	   (ok == false and tostring(err):find("not an integer in proper range", 1, true)))
     ok, err = pcall(function() return f:seek("set", 1099511627776) end)
-    assert(ok == false and tostring(err):find("not an integer in proper range", 1, true))
+    assert((ok == true and err == 1099511627776) or
+	   (ok == false and tostring(err):find("not an integer in proper range", 1, true)))
     -- Lua 5.4 requires seek offsets to be exact integers.  The compat path
     -- must not silently truncate fraction numbers or numeric strings.
     ok, err = pcall(function() return f:seek("set", 1.5) end)

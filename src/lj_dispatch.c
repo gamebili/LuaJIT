@@ -364,6 +364,12 @@ LUA_API int lua_sethook(lua_State *L, lua_Hook func, int mask, int count)
 #endif
   g->hookmask = (uint8_t)((g->hookmask & ~HOOK_EVENTMASK) | mask);
   lj_trace_abort(g);  /* Abort recording on any hook change. */
+#if LJ_54 && LJ_TARGET_ARM64
+  if (hook_active(g)) {
+    g->hook_needupdate = 1;
+    return 1;
+  }
+#endif
   lj_dispatch_update(g);
   return 1;
 }
@@ -385,7 +391,12 @@ LUA_API lua_Hook lua_gethook(lua_State *L)
 
 LUA_API int lua_gethookmask(lua_State *L)
 {
-  return G(L)->hookmask & HOOK_EVENTMASK;
+  global_State *g = G(L);
+#if LJ_54 && LJ_TARGET_ARM64
+  if ((g->hookmask & HOOK_ACTIVE) && g->hook_savemask)
+    return g->hook_savemask;
+#endif
+  return g->hookmask & HOOK_EVENTMASK;
 }
 
 LUA_API int lua_gethookcount(lua_State *L)
@@ -458,11 +469,11 @@ static void callhook(lua_State *L, int event, BCLine line,
     lj_profile_hook_enter(g);
 #else
     hook_enter(g);
-#if LJ_54
-    /* Lua 5.4 keeps hooks disabled while a hook callback is running. Keep the
-    ** active-hook bit set so pcall/xpcall inside hooks use FRAME_PCALLH, but
-    ** hide event bits until the callback returns to avoid recursive hooks.
+#if LJ_54 && LJ_TARGET_ARM64
+    /* Lua 5.4 keeps hooks disabled while a hook callback is running, but
+    ** debug.gethook() from inside the callback still reports the public mask.
     */
+    g->hook_savemask = oldevents;
     g->hookmask &= (uint8_t)~HOOK_EVENTMASK;
 #endif
 #endif
@@ -472,14 +483,39 @@ static void callhook(lua_State *L, int event, BCLine line,
 #if LJ_HASPROFILE && !LJ_PROFILE_SIGPROF
     lj_profile_hook_leave(g);
 #else
-#if LJ_54
+#if LJ_54 && LJ_TARGET_ARM64
     if ((g->hookmask & HOOK_EVENTMASK) == 0 && g->hookf == hf)
       g->hookmask |= oldevents;
+    g->hook_savemask = 0;
 #endif
     hook_leave(g);
+#if LJ_54 && LJ_TARGET_ARM64
+    if (g->hook_needupdate) {
+      g->hook_needupdate = 0;
+      lj_dispatch_update(g);
+    }
+#endif
 #endif
   }
 }
+
+#if LJ_54 && LJ_TARGET_ARM64
+static int arm64_lua54_close_return_hook(lua_State *L)
+{
+  const char *name = NULL;
+  int size;
+  cTValue *frame;
+  const char *kind;
+  if (!L->close_pcall)
+    return 0;
+  frame = lj_debug_frame(L, 0, &size);
+  kind = frame ? lj_debug_funcname(L, frame, &name) : NULL;
+  return kind && name &&
+	 kind[0] == 'm' && kind[1] == 'e' &&
+	 name[0] == 'c' && name[1] == 'l' && name[2] == 'o' &&
+	 name[3] == 's' && name[4] == 'e' && name[5] == '\0';
+}
+#endif
 
 /* C function return hook dispatch.
 **
@@ -566,6 +602,14 @@ static BCReg cur_topslot(GCproto *pt, const BCIns *pc, uint32_t nres)
     ins = pc[bc_j(ins)];
   switch (bc_op(ins)) {
   case BC_CALLM: case BC_CALLMT: return bc_a(ins) + bc_c(ins) + nres-1+1+LJ_FR2;
+#if LJ_TARGET_ARM64
+  case BC_CALL:
+    if (bc_b(ins) != 0) {
+      BCReg slots = bc_a(ins) + bc_b(ins) - 1 + LJ_FR2;
+      return slots > pt->framesize ? slots : pt->framesize;
+    }
+    return pt->framesize;
+#endif
   case BC_RETM: return bc_a(ins) + bc_d(ins) + nres-1;
   case BC_TSETM: return bc_a(ins) + nres-1;
   default: return pt->framesize;
@@ -659,6 +703,9 @@ void LJ_FASTCALL lj_dispatch_ins(lua_State *L, const BCIns *pc)
       BCIns ins = pc[-1];
       BCReg first = bc_a(ins);
       uint32_t nres = 0;
+#if LJ_54 && LJ_TARGET_ARM64
+      int close_return_hook = arm64_lua54_close_return_hook(L);
+#endif
       switch (bc_op(ins)) {
       case BC_RET1:
 	nres = 1;
@@ -674,6 +721,10 @@ void LJ_FASTCALL lj_dispatch_ins(lua_State *L, const BCIns *pc)
       }
       callhook(L, LUA_HOOKRET, -1, nres ? (uint16_t)(first + 1) : 0,
 	       (uint16_t)nres);
+#if LJ_54 && LJ_TARGET_ARM64
+      if (close_return_hook && (g->hookmask & LUA_MASKRET))
+	g->hook_skipret++;
+#endif
     }
   }
   ERRNO_RESTORE
@@ -833,4 +884,3 @@ void LJ_FASTCALL lj_dispatch_profile(lua_State *L, const BCIns *pc)
   ERRNO_RESTORE
 }
 #endif
-

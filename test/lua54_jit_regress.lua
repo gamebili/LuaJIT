@@ -4112,6 +4112,10 @@ do
   }
   local future_ok, future_stamp = pcall(os.time, future_fields)
   local future_supported = future_ok and future_stamp > 2147483647
+  local time4000_ok, time4000_value = pcall(os.time, {
+    year = 4000, month = 1, day = 1
+  })
+  local time4000_supported = time4000_ok and math.type(time4000_value) == "integer"
   local path_present = os.getenv("PATH") ~= nil
   local windows_date_ext = package.config:sub(1, 1) == "\\"
 
@@ -4222,8 +4226,10 @@ do
 	 err_diff_nil:find("bad argument #1 to 'difftime'", 1, true) and
 	 not ok_date_huge and
 	 err_date_huge:find("date result cannot be represented", 1, true) and
-	 not ok_time_repr and
-	 err_time_repr:find("time result cannot be represented", 1, true) and
+		 ((time4000_supported and ok_time_repr and
+		   math.type(err_time_repr) == "integer") or
+		  (not time4000_supported and not ok_time_repr and
+		   err_time_repr:find("time result cannot be represented", 1, true))) and
 	 not ok_time_year and
 	 err_time_year:find("field 'year' missing", 1, true) and
 	 not ok_time_month and

@@ -126,4 +126,84 @@ do
 	 path .. ": missing shared Lua-return close completion label")
 end
 
+do
+  local path = "src/vm_arm64.dasc"
+  local data = readfile(path)
+  local barrier_start = assert(data:find("|.macro barrierback", 1, true),
+			       path .. ": missing ARM64 table write barrier")
+  local barrier_end = assert(data:find("|.endmacro", barrier_start, true),
+			     path .. ": unterminated ARM64 table write barrier")
+  local barrier = data:sub(barrier_start, barrier_end)
+  assert(barrier:find("GL->gc_mode54", 1, true) and
+	 barrier:find("LJ_GC_AGE_TOUCHED1", 1, true) and
+	 barrier:find("LJ_GC_AGE_TOUCHED2", 1, true) and
+	 barrier:find("beq target", 1, true),
+	 path .. ": ARM64 barrierback must preserve Lua 5.4 generational age")
+  assert(not barrier:find("|9:", 1, true),
+	 path .. ": ARM64 barrierback macro must not capture TSETV's >9 label")
+  -- GC64 tags use bit 47. After adding the Lua 5.4 int64 GC type, LJ_TTAB
+  -- became odd, so composing only the high 16 bits turns table values into
+  -- userdata values on ARM64.
+  assert(not data:find("LJ_TTAB>>1", 1, true),
+	 path .. ": table TValue tag must preserve bit 47")
+  assert(not data:find("LJ_TISNUM>>1", 1, true),
+	 path .. ": integer TValue tag must preserve bit 47")
+  assert(data:find("add CRET1, CRET1, TMP0, lsl #47", 1, true),
+	 path .. ": table allocation must tag results with LJ_TTAB << 47")
+  assert(data:find("vmeta_equal_i64", 1, true) and
+	 data:find("lj_meta_equal_i64", 1, true),
+	 path .. ": boxed int64 equality must use Lua 5.4 numeric semantics")
+  assert(data:find("lj_meta_fori64", 1, true),
+	 path .. ": boxed int64 numeric for must use Lua 5.4 helper")
+  assert(data:find("mov RB, BASE", data:find("|->vmeta_binop", 1, true), true),
+	 path .. ": ARM64 binop metamethod dispatch must preserve caller base")
+  assert(data:find("#if !LJ_54\n  |   movz CARG3, #0x8000", 1, true),
+	 path .. ": ARM64 Lua 5.4 unary minus must keep integer zero")
+  assert(data:find("sub RC, CARG1, RA", 1, true),
+	 path .. ": coroutine resume after yield must count results from RA")
+  assert(data:find("GL->gc.fin_check", 1, true) and
+	 data:find("add TMP1, TMP1, #32", 1, true),
+	 path .. ": ARM64 finalizer GC window must preserve nearby live slots")
+  assert(data:find("lj_gc_step_fixtop", 1, true) and
+	 data:find("ldr INSw, [PC, #-4]", 1, true) and
+	 data:find("decode_RD RC, INS", 1, true),
+	 path .. ": table allocation must reload destination after GC")
+end
+
+do
+  local path = "src/lj_dispatch.c"
+  local data = readfile(path)
+  assert(data:find("#if LJ_54 && LJ_TARGET_ARM64", 1, true),
+	 path .. ": ARM64 hook deferral must stay target-gated")
+  assert(data:find("case BC_CALL:", 1, true) and
+	 data:find("bc_b(ins) != 0", 1, true),
+	 path .. ": ARM64 fixed-result BC_CALL top slot must include results")
+  assert(data:find("arm64_lua54_close_return_hook", 1, true) and
+	 data:find("lj_debug_frame(L, 0", 1, true) and
+	 data:find("close_return_hook && (g->hookmask & LUA_MASKRET)", 1, true),
+	 path .. ": ARM64 close return hooks must hide internal close-pcall C returns")
+end
+
+do
+  local path = "src/lj_gc.h"
+  local data = readfile(path)
+  assert(data:find("#if LJ_TARGET_ARM64", 1, true) and
+	 data:find("LJ_GC_FIN_CHECK_CYCLES", 1, true),
+	 path .. ": table-finalizer responsiveness must stay ARM64-gated")
+end
+
+do
+  local path = "src/lj_meta.c"
+  local data = readfile(path)
+  assert(data:find("#if !LJ_TARGET_ARM64", 1, true) and
+	 data:find("#if LJ_TARGET_ARM64", 1, true),
+	 path .. ": bitop top adjustment must keep non-ARM64 behavior unchanged")
+  assert(data:find("meta_arm64_live_top", 1, true) and
+	 data:find("bad 'for' %s", 1, true),
+	 path .. ": ARM64 numeric-for errors must protect live slots before formatting")
+  assert(data:find("lj_gc_fullgc(L)", 1, true) and
+	 data:find("G(L)->gc.threshold != LJ_MAX_MEM", 1, true),
+	 path .. ": ARM64 bitwise error recovery must not run when GC is stopped")
+end
+
 print("lua54_vm_backend_static.lua OK")

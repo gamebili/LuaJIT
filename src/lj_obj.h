@@ -620,8 +620,11 @@ typedef struct GCState {
   GCSize threshold;	/* Memory threshold. */
   uint8_t currentwhite;	/* Current white color. */
   uint8_t state;	/* GC state. */
-#if LJ_54
+#if LJ_54 && LJ_TARGET_ARM64
   uint8_t fin_check;	/* Keep GC responsive after arming table __gc. */
+  uint8_t closing;	/* State close is already running finalizers. */
+#elif LJ_54
+  uint8_t unused0;
   uint8_t closing;	/* State close is already running finalizers. */
 #else
   uint8_t unused0;
@@ -711,7 +714,16 @@ typedef struct global_State {
   GCfunc *hook_cfunc;	/* C frame function restored for fast return hooks. */
   GCfunc *debug_mmfunc;	/* Lua 5.4 lowered helper metamethod function. */
   const char *debug_mmname;	/* Lua 5.4 lowered helper metamethod name. */
-#if LJ_54
+#if LJ_54 && LJ_TARGET_ARM64
+  uint8_t hook_skipline;	/* Suppress same-line hook once after sethook. */
+  uint8_t hook_skipcount;	/* Suppress first count hook after sethook. */
+  uint8_t hook_skipret;		/* Suppress return hooks for internal helpers. */
+  uint8_t hook_debug;		/* Hook installed by debug.sethook(). */
+  uint8_t hook_savemask;	/* Event mask hidden while a hook is active. */
+  uint8_t hook_needupdate;	/* Dispatch update deferred from active hook. */
+  int32_t hook_skipline_ci;	/* Frame that enabled the line hook. */
+  BCLine hook_skipline_line;	/* Source line that enabled the line hook. */
+#elif LJ_54
   uint8_t hook_skipline;	/* Suppress same-line hook once after sethook. */
   uint8_t hook_skipcount;	/* Suppress first count hook after sethook. */
   uint8_t hook_skipret;		/* Suppress return hooks for internal helpers. */

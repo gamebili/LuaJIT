@@ -159,7 +159,7 @@ local ok, err = pcall(function()
 					  "\239print(3)")),
 	      "unexpected symbol")
 
-  expect_ok("compact_e", "-eprint(1) -ea=3 -e " .. q("print(a)"), "1\n3\n")
+  expect_ok("compact_e", "-e" .. q("print(1)") .. " -ea=3 -e " .. q("print(a)"), "1\n3\n")
 
   local r = run("version_exec", "-v -e " .. q("print'hello'"))
   assert(r.ok, "version + exec failed: " .. r.err)

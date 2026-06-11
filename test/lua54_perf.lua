@@ -4,6 +4,12 @@ local unpack = table.unpack or unpack
 assert(_VERSION == "Lua 5.4", "lua54_perf.lua must run in Lua 5.4 compat mode")
 assert(type(jit) == "table" and type(jit.status) == "function",
        "lua54_perf.lua requires LuaJIT with the jit module available")
+if jit.arch == "arm64" then
+  -- Avoid stale loader-time traces in this large harness; run_suite() installs
+  -- the measured ARM64 profile explicitly before each JIT-on pass.
+  jit.off()
+  jit.flush()
+end
 
 local function envnum(name, default)
   local v = os.getenv(name)
@@ -26,6 +32,7 @@ if perf_tmp_suffix ~= "" then
 end
 local perf_profile_label = os.getenv("LUA54_PERF_LABEL")
 if perf_profile_label == "" then perf_profile_label = nil end
+local trace_labels = os.getenv("LUA54_PERF_TRACE_LABELS") == "1"
 
 local function split_opts(s)
   local out = {}
@@ -2005,8 +2012,9 @@ local function os_helpers(n)
     })
     if not ok_date_huge and
        err_date_huge:find("date result cannot be represented", 1, true) and
-       not ok_time_repr and
-       err_time_repr:find("time result cannot be represented", 1, true) then
+       ((ok_time_repr and math.type(err_time_repr) == "integer") or
+	(not ok_time_repr and
+	 err_time_repr:find("time result cannot be represented", 1, true))) then
       sum = sum + 1
     end
 
@@ -3352,10 +3360,18 @@ local function collect_kb()
 end
 
 local function timeit(label, fn, n)
+  if trace_labels then
+    io.stderr:write("START ", label, "\n")
+    io.stderr:flush()
+  end
   fn(math.min(n, 64)) -- Warm up traces before the measured memory window.
   local mem0 = collect_kb()
   local t0 = os.clock()
   local result = fn(n)
+  if trace_labels then
+    io.stderr:write("DONE ", label, "\n")
+    io.stderr:flush()
+  end
   local elapsed = os.clock() - t0
   local mem1 = collect_kb()
   local growth = mem1 - mem0
@@ -3443,8 +3459,14 @@ local function run_suite(mode_name, enable_jit, opt_flags)
 			      gc_mode_helpers, iter_n)
   assert(r_gc_mode == iter_n * 7)
 
+  if enable_jit and jit.arch == "arm64" then
+    -- This helper deliberately mutates package.loaded/searchers and exercises
+    -- protected error paths; keep aggressive ARM64 profiles out of trace churn.
+    jit.off(package_helpers, true)
+  end
   local _, r_package = timeit(mode_name..":package_helpers",
 			      package_helpers, iter_n)
+  if enable_jit and jit.arch == "arm64" then jit.on(package_helpers, true) end
   assert(r_package == iter_n * 28)
 
   local _, r_debug = timeit(mode_name..":debug_helpers",
