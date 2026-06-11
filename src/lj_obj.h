@@ -688,6 +688,10 @@ typedef struct global_State {
   GCRef gc_genold154;  /* First OLD1 root object. */
   GCRef gc_genreallyold54;  /* First really-old root object. */
   GCRef gc_genfirstold154;  /* First OLD1 object to mark next minor. */
+#if LJ_54 && LJ_TARGET_ARM64
+  GCRef i64freelist;	/* Reusable boxed int64 objects. */
+  MSize i64freelistn;	/* Number of cached boxed int64 objects. */
+#endif
   MSize gc_genminormul54;  /* Lua 5.4 generational minor multiplier. */
   MSize gc_genmajormul54;  /* Lua 5.4 generational major multiplier. */
   GCSize gc_genlastatomic54;  /* Last bad-major atomic work proxy. */
@@ -1185,6 +1189,9 @@ LJ_DATA const char *const lj_obj_itypename[~LJ_TNUMX+1];
 
 LJ_FUNC GCint64 *lj_obj_newint64(lua_State *L, int64_t i);
 LJ_FUNC void LJ_FASTCALL lj_obj_freeint64(global_State *g, GCint64 *i64);
+#if LJ_54 && LJ_TARGET_ARM64
+LJ_FUNC void lj_obj_freeint64_freelist(global_State *g);
+#endif
 LJ_FUNC void lj_obj_setint64(lua_State *L, TValue *o, int64_t i);
 LJ_FUNC int lj_obj_i64eqnum(int64_t i, lua_Number n);
 LJ_FUNC int lj_obj_i64cmpnum(int64_t i, lua_Number n, int op);

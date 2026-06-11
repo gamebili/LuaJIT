@@ -240,6 +240,9 @@ static void close_state(lua_State *L)
 #endif
   lj_func_closeuv(L, tvref(L->stack));
   lj_gc_freeall(g);
+#if LJ_54 && LJ_TARGET_ARM64
+  lj_obj_freeint64_freelist(g);
+#endif
   lj_assertG(gcref(g->gc.root) == obj2gco(L),
 	     "main thread is not first GC object");
   lj_assertG(g->str.num == 0, "leaked %d strings", g->str.num);
@@ -503,4 +506,3 @@ void LJ_FASTCALL lj_state_free(global_State *g, lua_State *L)
   lj_mem_freevec(g, tvref(L->stack), L->stacksize, TValue);
   lj_mem_freet(g, L);
 }
-

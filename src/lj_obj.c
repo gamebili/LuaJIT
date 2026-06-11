@@ -14,6 +14,10 @@
 #include "lj_state.h"
 #include "lj_vm.h"
 
+#if LJ_54 && LJ_TARGET_ARM64
+#define LJ_I64_FREELIST_MAX	65536
+#endif
+
 /* Object type names. */
 LJ_DATADEF const char *const lj_obj_typename[] = {  /* ORDER LUA_T */
   "no value", "nil", "boolean", "userdata", "number", "string",
@@ -28,7 +32,22 @@ LJ_DATADEF const char *const lj_obj_itypename[] = {  /* ORDER LJ_T */
 
 GCint64 *lj_obj_newint64(lua_State *L, int64_t i)
 {
-  GCint64 *i64 = (GCint64 *)lj_mem_newgco(L, sizeof(GCint64));
+  global_State *g = G(L);
+  GCint64 *i64;
+#if LJ_54 && LJ_TARGET_ARM64
+  GCobj *o = gcref(g->i64freelist);
+  if (o) {
+    setgcrefr(g->i64freelist, o->gch.nextgc);
+    g->i64freelistn--;
+    setgcrefr(o->gch.nextgc, g->gc.root);
+    setgcref(g->gc.root, o);
+    newwhite(g, o);
+    i64 = &o->i64;
+  } else
+#endif
+  {
+    i64 = (GCint64 *)lj_mem_newgco(L, sizeof(GCint64));
+  }
   i64->gct = ~LJ_TINT64;
   i64->i = i;
   return i64;
@@ -36,8 +55,31 @@ GCint64 *lj_obj_newint64(lua_State *L, int64_t i)
 
 void LJ_FASTCALL lj_obj_freeint64(global_State *g, GCint64 *i64)
 {
+#if LJ_54 && LJ_TARGET_ARM64
+  if (g->i64freelistn < LJ_I64_FREELIST_MAX) {
+    GCobj *o = obj2gco(i64);
+    setgcrefr(o->gch.nextgc, g->i64freelist);
+    setgcref(g->i64freelist, o);
+    g->i64freelistn++;
+    return;
+  }
+#endif
   lj_mem_freet(g, i64);
 }
+
+#if LJ_54 && LJ_TARGET_ARM64
+void lj_obj_freeint64_freelist(global_State *g)
+{
+  GCobj *o = gcref(g->i64freelist);
+  setgcrefnull(g->i64freelist);
+  g->i64freelistn = 0;
+  while (o) {
+    GCobj *next = gcnext(o);
+    lj_mem_freet(g, &o->i64);
+    o = next;
+  }
+}
+#endif
 
 void lj_obj_setint64(lua_State *L, TValue *o, int64_t i)
 {
@@ -219,4 +261,3 @@ const void * LJ_FASTCALL lj_obj_ptr(global_State *g, cTValue *o)
   else
     return NULL;
 }
-

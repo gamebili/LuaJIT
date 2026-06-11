@@ -186,6 +186,7 @@
 |.type GCOBJ,		GCobj
 |.type STR,		GCstr
 |.type TAB,		GCtab
+|.type INT64,		GCint64
 |.type LFUNC,		GCfuncL
 |.type CFUNC,		GCfuncC
 |.type PROTO,		GCproto
@@ -3256,14 +3257,95 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  str FARG1, [BASE, RA, lsl #3]
     |  ins_next
     |.endmacro
+    |
+    |.macro load_arithint64_1, target
+    |  cmp TISNUMhi, CARG1, lsr #32
+    |  beq >1
+    |  bhi target
+    |  asr ITYPE, CARG1, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and CARG1, CARG1, #LJ_GCVMASK
+    |  bne target
+    |  ldr CARG1, INT64:CARG1->i
+    |  b >2
+    |1:
+    |  sxtw CARG1, CARG1w
+    |2:
+    |.endmacro
+    |
+    |.macro load_arithint64_2, target
+    |  cmp TISNUMhi, CARG2, lsr #32
+    |  beq >1
+    |  bhi target
+    |  asr ITYPE, CARG2, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and CARG2, CARG2, #LJ_GCVMASK
+    |  bne target
+    |  ldr CARG2, INT64:CARG2->i
+    |  b >2
+    |1:
+    |  sxtw CARG2, CARG2w
+    |2:
+    |.endmacro
+    |
+    |.macro store_arithint64_1
+    |  cmp CARG1, CARG1, sxtw
+    |  bne >9
+    |  mov CARG1w, CARG1w
+    |  add_TISNUM CARG1, CARG1
+    |  str CARG1, [BASE, RA, lsl #3]
+    |  ins_next
+    |9:
+    |  ldr LFUNC:TMP1, [BASE, FRAME_FUNC]
+    |   add CARG2, BASE, RA, lsl #3
+    |  and LFUNC:TMP1, TMP1, #LJ_GCVMASK
+    |   mov CARG3, CARG1
+    |  ldr TMP1, LFUNC:TMP1->pc
+    |   str BASE, L->base
+    |  ldrb TMP1w, [TMP1, #PC2PROTO(framesize)]
+    |   mov CARG1, L
+    |  add TMP1, BASE, TMP1, lsl #3
+    |   str PC, SAVE_PC
+    |  str TMP1, L->top
+    |  bl extern lj_obj_setint64	// (lua_State *L, TValue *o, int64_t i)
+    |  ldr BASE, L->base
+    |  ins_next
+    |.endmacro
 
   case BC_ADDVN: case BC_ADDNV: case BC_ADDVV:
+#if LJ_54
+    |  ins_arithhead
+    |  ins_arithload CARG1, CARG2
+    |  load_arithint64_1 >7
+    |  load_arithint64_2 >7
+    |  add CARG1, CARG1, CARG2
+    |  store_arithint64_1
+    |7:
+#endif
     |  ins_arithdn adds, fadd
     break;
   case BC_SUBVN: case BC_SUBNV: case BC_SUBVV:
+#if LJ_54
+    |  ins_arithhead
+    |  ins_arithload CARG1, CARG2
+    |  load_arithint64_1 >7
+    |  load_arithint64_2 >7
+    |  sub CARG1, CARG1, CARG2
+    |  store_arithint64_1
+    |7:
+#endif
     |  ins_arithdn subs, fsub
     break;
   case BC_MULVN: case BC_MULNV: case BC_MULVV:
+#if LJ_54
+    |  ins_arithhead
+    |  ins_arithload CARG1, CARG2
+    |  load_arithint64_1 >7
+    |  load_arithint64_2 >7
+    |  mul CARG1, CARG1, CARG2
+    |  store_arithint64_1
+    |7:
+#endif
     |  ins_arithdn smull, fmul
     break;
   case BC_DIVVN: case BC_DIVNV: case BC_DIVVV:
@@ -3327,28 +3409,80 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
 
   /* -- Lua 5.4 bitwise ops ----------------------------------------------- */
 
+    |.macro load_bitint64_1, target
+    |  cmp TISNUMhi, CARG1, lsr #32
+    |  beq >1
+    |  bhi target
+    |  asr ITYPE, CARG1, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and CARG1, CARG1, #LJ_GCVMASK
+    |  bne target
+    |  ldr CARG1, INT64:CARG1->i
+    |  b >2
+    |1:
+    |  sxtw CARG1, CARG1w
+    |2:
+    |.endmacro
+    |
+    |.macro load_bitint64_2, target
+    |  cmp TISNUMhi, CARG2, lsr #32
+    |  beq >1
+    |  bhi target
+    |  asr ITYPE, CARG2, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and CARG2, CARG2, #LJ_GCVMASK
+    |  bne target
+    |  ldr CARG2, INT64:CARG2->i
+    |  b >2
+    |1:
+    |  sxtw CARG2, CARG2w
+    |2:
+    |.endmacro
+    |
+    |.macro store_bitint64_1
+    |  cmp CARG1, CARG1, sxtw
+    |  bne >9
+    |  mov CARG1w, CARG1w
+    |  add_TISNUM CARG1, CARG1
+    |  str CARG1, [BASE, RA, lsl #3]
+    |  ins_next
+    |9:
+    |  ldr LFUNC:TMP1, [BASE, FRAME_FUNC]
+    |   add CARG2, BASE, RA, lsl #3
+    |  and LFUNC:TMP1, TMP1, #LJ_GCVMASK
+    |   mov CARG3, CARG1
+    |  ldr TMP1, LFUNC:TMP1->pc
+    |   str BASE, L->base
+    |  ldrb TMP1w, [TMP1, #PC2PROTO(framesize)]
+    |   mov CARG1, L
+    |  add TMP1, BASE, TMP1, lsl #3
+    |   str PC, SAVE_PC
+    |  str TMP1, L->top
+    |  bl extern lj_obj_setint64	// (lua_State *L, TValue *o, int64_t i)
+    |  ldr BASE, L->base
+    |  ins_next
+    |.endmacro
+    |
   case BC_BAND: case BC_BOR: case BC_BXOR:
     |  decode_RB RB, INS
     |   and RC, RC, #255
     |  // RA = dst, RB = src1, RC = src2
     |  ldr CARG1, [BASE, RB, lsl #3]
-    |   ldr CARG2, [BASE, RC, lsl #3]
-    |  checkint CARG1, ->vmeta_bitop
-    |  checkint CARG2, ->vmeta_bitop
+     |   ldr CARG2, [BASE, RC, lsl #3]
+    |  load_bitint64_1 ->vmeta_bitop
+    |  load_bitint64_2 ->vmeta_bitop
     switch (op) {
     case BC_BAND:
-      |  and CARG1w, CARG1w, CARG2w
+      |  and CARG1, CARG1, CARG2
       break;
     case BC_BOR:
-      |  orr CARG1w, CARG1w, CARG2w
+      |  orr CARG1, CARG1, CARG2
       break;
     default:
-      |  eor CARG1w, CARG1w, CARG2w
+      |  eor CARG1, CARG1, CARG2
       break;
     }
-    |  add_TISNUM CARG1, CARG1
-    |  str CARG1, [BASE, RA, lsl #3]
-    |  ins_next
+    |  store_bitint64_1
     break;
 
   case BC_BSHL: case BC_BSHR:
@@ -3357,32 +3491,24 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  // RA = dst, RB = value, RC = shift count
     |  ldr CARG1, [BASE, RB, lsl #3]
     |   ldr CARG2, [BASE, RC, lsl #3]
-    |  checkint CARG1, ->vmeta_bitop
-    |  checkint CARG2, ->vmeta_bitop
+    |  load_bitint64_1 ->vmeta_bitop
+    |  load_bitint64_2 ->vmeta_bitop
     |  cmp CARG2w, #63			// Negative or wide counts: C semantics.
     |  bhi ->vmeta_bitop
-    |  sxtw CARG1, CARG1w
     if (op == BC_BSHL) {
       |  lsl CARG1, CARG1, CARG2
     } else {
       |  lsr CARG1, CARG1, CARG2
     }
-    |  cmp CARG1, CARG1, sxtw		// Result outside int32: box in C.
-    |  bne ->vmeta_bitop
-    |  mov CARG1w, CARG1w		// Zero-extend payload for the tag.
-    |  add_TISNUM CARG1, CARG1
-    |  str CARG1, [BASE, RA, lsl #3]
-    |  ins_next
+    |  store_bitint64_1
     break;
 
   case BC_BNOT:
     |  // RA = dst, RC = src
     |  ldr CARG1, [BASE, RC, lsl #3]
-    |  checkint CARG1, ->vmeta_bnot
-    |  mvn CARG1w, CARG1w
-    |  add_TISNUM CARG1, CARG1
-    |  str CARG1, [BASE, RA, lsl #3]
-    |  ins_next
+    |  load_bitint64_1 ->vmeta_bnot
+    |  mvn CARG1, CARG1
+    |  store_bitint64_1
     break;
 
   case BC_IDIV:
