@@ -67,6 +67,14 @@ double lj_vm_foldarith(double x, double y, int op)
   }
 }
 
+double lj_vm_lua54fmod(double x, double y)
+{
+  double r = fmod(x, y);
+  if (r > 0 ? y < 0 : (r < 0 && y > 0))
+    r += y;
+  return r;
+}
+
 /* -- Helper functions for generated machine code ------------------------- */
 
 #if (LJ_HASJIT && !(LJ_TARGET_ARM || LJ_TARGET_ARM64 || LJ_TARGET_PPC)) || LJ_TARGET_MIPS

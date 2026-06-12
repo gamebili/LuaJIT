@@ -87,6 +87,9 @@ LJ_FUNC TValue *lj_tab_set(lua_State *L, GCtab *t, cTValue *key);
 
 LJ_FUNC uint32_t LJ_FASTCALL lj_tab_keyindex(GCtab *t, cTValue *key);
 LJ_FUNCA int lj_tab_next(GCtab *t, cTValue *key, TValue *o);
+#if LJ_54 && LJ_TARGET_ARM64
+LJ_FUNCA int lj_tab_next_global54(GCtab *t, cTValue *key, TValue *o);
+#endif
 LJ_FUNCA MSize LJ_FASTCALL lj_tab_len(GCtab *t);
 #if LJ_HASJIT
 LJ_FUNC MSize LJ_FASTCALL lj_tab_len_hint(GCtab *t, size_t hint);

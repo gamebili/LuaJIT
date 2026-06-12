@@ -438,6 +438,11 @@ TRef LJ_FASTCALL lj_ir_tonum(jit_State *J, TRef tr)
 TRef LJ_FASTCALL lj_ir_tostr(jit_State *J, TRef tr)
 {
   if (!tref_isstr(tr)) {
+#if LJ_54 && LJ_TARGET_ARM64
+    if (tref_type(tr) == IRT_I64) {
+      return lj_ir_call(J, IRCALL_lj_strfmt_i64, tr);
+    }
+#endif
 #if LJ_54
     if (tref_type(tr) == IRT_INT64) {
       TRef i64 = emitir(IRT(IR_FLOAD, IRT_I64), tr, IRFL_INT64_VALUE);

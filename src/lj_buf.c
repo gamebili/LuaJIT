@@ -340,7 +340,11 @@ SBuf *lj_buf_puttab_i64(SBuf *sb, GCtab *t, GCstr *sep, int64_t i, int64_t e)
 
 GCstr * LJ_FASTCALL lj_buf_tostr(SBuf *sb)
 {
+#if LJ_54 && LJ_TARGET_ARM64
+  return lj_str_new_noscan(sbufL(sb), sb->b, sbuflen(sb));
+#else
   return lj_str_new(sbufL(sb), sb->b, sbuflen(sb));
+#endif
 }
 
 /* Concatenate two strings. */
@@ -350,7 +354,11 @@ GCstr *lj_buf_cat2str(lua_State *L, GCstr *s1, GCstr *s2)
   char *buf = lj_buf_tmp(L, len1 + len2);
   memcpy(buf, strdata(s1), len1);
   memcpy(buf+len1, strdata(s2), len2);
+#if LJ_54 && LJ_TARGET_ARM64
+  return lj_str_new_noscan(L, buf, len1 + len2);
+#else
   return lj_str_new(L, buf, len1 + len2);
+#endif
 }
 
 /* Read ULEB128 from buffer. */
@@ -366,4 +374,3 @@ uint32_t LJ_FASTCALL lj_buf_ruleb128(const char **pp)
   *pp = (const char *)w;
   return v;
 }
-

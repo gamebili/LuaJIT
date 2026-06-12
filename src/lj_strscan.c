@@ -85,6 +85,80 @@ static int strscan_isdp(uint32_t c)
   return 0;
 }
 
+#if LJ_54 && LJ_TARGET_ARM64
+static int strscan_fast_decimal54(GCstr *str, TValue *o)
+{
+  static const lua_Number pow10[] = {
+    1.0, 10.0, 100.0, 1000.0, 10000.0,
+    100000.0, 1000000.0, 10000000.0, 100000000.0, 1000000000.0
+  };
+  const uint8_t *p = (const uint8_t *)strdata(str);
+  const uint8_t *e = p + str->len;
+  uint64_t acc = 0;
+  int neg = 0, seen_dp = 0, intdig = 0, fracdig = 0;
+  while (p < e && lj_char_isspace(*p)) p++;
+  if (p < e && (*p == '+' || *p == '-')) {
+    neg = (*p == '-');
+    p++;
+  }
+  while (p < e) {
+    uint32_t c = *p;
+    if (lj_char_isdigit(c)) {
+      if (intdig + fracdig >= 15)
+	return 0;
+      acc = acc * 10u + (uint32_t)(c - '0');
+      if (seen_dp) {
+	if (++fracdig > 9)
+	  return 0;
+      } else {
+	intdig++;
+      }
+      p++;
+    } else if (c == '.' && !seen_dp) {
+      seen_dp = 1;
+      p++;
+    } else {
+      break;
+    }
+  }
+  if (!seen_dp || intdig + fracdig == 0)
+    return 0;
+  while (p < e && lj_char_isspace(*p)) p++;
+  if (p != e)
+    return 0;
+  o->n = (lua_Number)acc / pow10[fracdig];
+  if (neg)
+    o->n = -o->n;
+  return 1;
+}
+
+static int strscan_fast_int64_decimal54(GCstr *str, int64_t *ip)
+{
+  const uint8_t *p = (const uint8_t *)strdata(str);
+  const uint8_t *e = p + str->len;
+  uint64_t acc = 0;
+  int neg = 0, dig = 0;
+  while (p < e && lj_char_isspace(*p)) p++;
+  if (p < e && (*p == '+' || *p == '-')) {
+    neg = (*p == '-');
+    p++;
+  }
+  while (p < e && lj_char_isdigit(*p)) {
+    if (++dig > 18)
+      return 0;
+    acc = acc * 10u + (uint32_t)(*p - '0');
+    p++;
+  }
+  if (dig == 0)
+    return 0;
+  while (p < e && lj_char_isspace(*p)) p++;
+  if (p != e)
+    return 0;
+  *ip = neg ? -(int64_t)acc : (int64_t)acc;
+  return 1;
+}
+#endif
+
 #if LJ_54
 int lj_strscan_rejectnum54(const char *sp, MSize len)
 {
@@ -669,6 +743,13 @@ int LJ_FASTCALL lj_strscan_numtype54(GCstr *str)
 #if LJ_54
   TValue o;
   StrScanFmt fmt;
+#if LJ_TARGET_ARM64
+  int64_t i;
+  if (strscan_fast_int64_decimal54(str, &i))
+    return 1;
+  if (strscan_fast_decimal54(str, &o))
+    return 2;
+#endif
   if (lj_strscan_rejectnum54(strdata(str), str->len))
     return 3;  /* LuaJIT-only numeric extension rejected by Lua 5.4. */
   fmt = lj_strscan_scan((const uint8_t *)strdata(str), str->len, &o,
@@ -705,7 +786,12 @@ lua_Number LJ_FASTCALL lj_strscan_tonum54s(GCstr *str)
 {
 #if LJ_54
   TValue o;
-  int ok = lj_strscan_number(str, &o);
+  int ok;
+#if LJ_TARGET_ARM64
+  if (strscan_fast_decimal54(str, &o))
+    return numV(&o);
+#endif
+  ok = lj_strscan_number(str, &o);
   lj_assertX(ok && tvisnumber(&o), "bad numeric string guard");
   if (!ok)
     return 0;
@@ -749,6 +835,10 @@ static int strscan_toi6454(GCstr *str, int64_t *ip)
 #if LJ_54
   TValue o;
   StrScanFmt fmt;
+#if LJ_TARGET_ARM64
+  if (strscan_fast_int64_decimal54(str, ip))
+    return 1;
+#endif
   if (lj_strscan_rejectnum54(strdata(str), str->len))
     return 0;
   fmt = lj_strscan_scan((const uint8_t *)strdata(str), str->len, &o,
@@ -783,6 +873,10 @@ static int strscan_toint6454(GCstr *str, int64_t *ip)
 #if LJ_54
   TValue o;
   StrScanFmt fmt;
+#if LJ_TARGET_ARM64
+  if (strscan_fast_int64_decimal54(str, ip))
+    return 1;
+#endif
   if (lj_strscan_rejectnum54(strdata(str), str->len))
     return 0;
   fmt = lj_strscan_scan((const uint8_t *)strdata(str), str->len, &o,
@@ -799,6 +893,11 @@ static int strscan_toint6454(GCstr *str, int64_t *ip)
 #endif
   UNUSED(ip);
   return 0;
+}
+
+int lj_strscan_toint64try54(GCstr *str, int64_t *ip)
+{
+  return strscan_toint6454(str, ip);
 }
 
 int LJ_FASTCALL lj_strscan_toi64ok54(GCstr *str)
@@ -896,6 +995,21 @@ int LJ_FASTCALL lj_strscan_number(GCstr *str, TValue *o)
 int LJ_FASTCALL lj_strscan_number54(lua_State *L, GCstr *str, TValue *o)
 {
   StrScanFmt fmt;
+#if LJ_TARGET_ARM64
+  int64_t i;
+  if (strscan_fast_int64_decimal54(str, &i)) {
+    if (i == (int64_t)(int32_t)i) {
+      setintV(o, (int32_t)i);
+    } else {
+      lj_obj_setint64(L, o, i);
+    }
+    return 1;
+  }
+  if (strscan_fast_decimal54(str, o)) {
+    setnumV(o, numV(o));
+    return 1;
+  }
+#endif
   if (lj_strscan_rejectnum54(strdata(str), str->len))
     return 0;
   fmt = lj_strscan_scan((const uint8_t *)strdata(str), str->len, o,
@@ -916,4 +1030,3 @@ int LJ_FASTCALL lj_strscan_number54(lua_State *L, GCstr *str, TValue *o)
 #undef DNEXT
 #undef DPREV
 #undef DLEN
-

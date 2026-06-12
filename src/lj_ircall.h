@@ -249,6 +249,7 @@ typedef struct CCallInfo {
   _(ANY,	log,			1,   N, NUM, XA_FP) \
   _(ANY,	lj_vm_log2,		1,   N, NUM, XA_FP) \
   _(ANY,	pow,			2,   N, NUM, XA2_FP) \
+  _(ANY,	lj_vm_lua54fmod,	2,   N, NUM, XA2_FP) \
   _(ANY,	atan2,			2,   N, NUM, XA2_FP) \
   _(ANY,	ldexp,			2,   N, NUM, XA_FP) \
   _(SOFTFP,	lj_vm_tobit,		1,   N, INT, XA_FP32) \

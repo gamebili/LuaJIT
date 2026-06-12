@@ -1476,6 +1476,51 @@ static void asm_mul(ASMState *as, IRIns *ir)
 #define asm_fpdiv(as, ir)	asm_fparith(as, ir, A64I_FDIVd)
 #define asm_abs(as, ir)		asm_fpunary(as, ir, A64I_FABS)
 
+static void asm_intmod(ASMState *as, IRIns *ir)
+{
+  RegSet allow;
+  Reg dest = ra_dest(as, ir, RSET_GPR);
+  Reg left = ra_alloc1(as, ir->op1, rset_exclude(RSET_GPR, dest));
+  Reg right, tmp;
+  allow = rset_exclude(RSET_GPR, dest);
+  rset_clear(allow, left);
+  right = ra_alloc1(as, ir->op2, allow);
+  rset_clear(allow, right);
+  tmp = ra_scratch(as, allow);
+  lj_assertA(irt_isint(ir->t), "bad ARM64 int modulo type");
+  emit_dnm(as, A64I_ADDw, dest, dest, tmp);
+  emit_dnm(as, A64I_ANDw, tmp, tmp, right);
+  emit_dnm(as, A64I_CSELw | A64F_CC(CC_NE), tmp, tmp, RID_ZERO);
+  emit_dn(as, A64I_ASRw | A64F_IMMR(31), tmp, tmp);
+  emit_dnm(as, A64I_EORw, tmp, dest, right);
+  emit_nm(as, A64I_CMPw, dest, RID_ZERO);
+  emit_dnma(as, A64I_MSUBw, dest, dest, right, left);
+  emit_dnm(as, A64I_SDIVw, dest, left, right);
+}
+#define LJ_TARGET_ASM_INTMOD 1
+
+static void asm_intdiv(ASMState *as, IRIns *ir)
+{
+  RegSet allow;
+  Reg dest = ra_dest(as, ir, RSET_GPR);
+  Reg left = ra_alloc1(as, ir->op1, rset_exclude(RSET_GPR, dest));
+  Reg right, tmp;
+  allow = rset_exclude(RSET_GPR, dest);
+  rset_clear(allow, left);
+  right = ra_alloc1(as, ir->op2, allow);
+  rset_clear(allow, right);
+  tmp = ra_scratch(as, allow);
+  lj_assertA(irt_isint(ir->t), "bad ARM64 int division type");
+  emit_dnm(as, A64I_ADDw, dest, dest, tmp);
+  emit_dnm(as, A64I_CSELw | A64F_CC(CC_NE), tmp, tmp, RID_ZERO);
+  emit_dn(as, A64I_ASRw | A64F_IMMR(31), tmp, tmp);
+  emit_dnm(as, A64I_EORw, tmp, tmp, right);
+  emit_nm(as, A64I_CMPw, tmp, RID_ZERO);
+  emit_dnma(as, A64I_MSUBw, tmp, dest, right, left);
+  emit_dnm(as, A64I_SDIVw, dest, left, right);
+}
+#define LJ_TARGET_ASM_INTDIV 1
+
 static void asm_neg(ASMState *as, IRIns *ir)
 {
   if (irt_isnum(ir->t)) {
@@ -1596,8 +1641,10 @@ static void asm_intmin_max(ASMState *as, IRIns *ir, A64CC cc)
   Reg dest = ra_dest(as, ir, RSET_GPR);
   Reg left = ra_hintalloc(as, ir->op1, dest, RSET_GPR);
   Reg right = ra_alloc1(as, ir->op2, rset_exclude(RSET_GPR, left));
-  emit_dnm(as, A64I_CSELw|A64F_CC(cc), dest, left, right);
-  emit_nm(as, A64I_CMPw, left, right);
+  A64Ins csel = irt_is64(ir->t) ? A64I_CSELx : A64I_CSELw;
+  A64Ins cmp = irt_is64(ir->t) ? A64I_CMPx : A64I_CMPw;
+  emit_dnm(as, csel|A64F_CC(cc), dest, left, right);
+  emit_nm(as, cmp, left, right);
 }
 
 static void asm_fpmin_max(ASMState *as, IRIns *ir, A64CC fcc)
@@ -2098,4 +2145,3 @@ void lj_asm_patchexit(jit_State *J, GCtrace *T, ExitNo exitno, MCode *target)
   if (cstart) lj_mcode_sync(cstart, px+1);
   lj_mcode_patch(J, mcarea, 1);
 }
-

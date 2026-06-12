@@ -109,6 +109,14 @@ static int expr_numiszero(ExpDesc *e)
 	 tvisi64(o) ? (i64V(o) == 0) : tviszero(o);
 }
 
+#if LJ_54 && LJ_TARGET_ARM64
+static int expr_lua54_i32k_nojump(ExpDesc *e, int nonzero)
+{
+  return expr_isnumk_nojump(e) && tvisint(expr_numtv(e)) &&
+	 (!nonzero || intV(expr_numtv(e)) != 0);
+}
+#endif
+
 /* Per-function linked list of scope blocks. */
 typedef struct FuncScope {
   struct FuncScope *prev;	/* Link to outer scope. */
@@ -2338,10 +2346,17 @@ static void bcemit_lua54_checkclose(FuncState *fs, BCReg slot, GCstr *name)
   BCReg base = fs->freereg;
   BCReg argbase, idx;
   ExpDesc e;
+#if LJ_TARGET_ARM64
+  BCPos skip;
+#endif
   /* Keep the first slice of <close> semantics in the same compatibility
   ** helper path as the Lua 5.4-only operators, avoiding bytecode/VM churn
   ** until full scope-exit dispatch is implemented.
   */
+#if LJ_TARGET_ARM64
+  bcemit_AD(fs, BC_ISF, 0, slot);
+  skip = bcemit_jmp(fs);
+#endif
   bcemit_AD(fs, BC_GGET, base, const_lit(fs, "jit", 3));
   bcreg_reserve(fs, 1);
   if (ls->fr2) bcreg_reserve(fs, 1);
@@ -2357,6 +2372,9 @@ static void bcemit_lua54_checkclose(FuncState *fs, BCReg slot, GCstr *name)
 	    (BCReg)(uint16_t)((int32_t)slot - (int32_t)argbase));
   bcemit_ABC(fs, BC_CALL, base, 1, fs->freereg - base - ls->fr2);
   fs->freereg = base;
+#if LJ_TARGET_ARM64
+  jmp_patch(fs, skip, fs->pc);
+#endif
 }
 
 static void bcemit_lua54_closevalue(FuncState *fs, BCReg slot, BCReg errval,
@@ -2366,11 +2384,18 @@ static void bcemit_lua54_closevalue(FuncState *fs, BCReg slot, BCReg errval,
   BCReg base = fs->freereg;
   BCReg argbase;
   BCPos okjump;
+#if LJ_TARGET_ARM64
+  BCPos skipclose;
+#endif
   /* The C helper only prepares the close method call and unmarks the slot.
   ** The parser emits the actual __close(value, nil) as a normal Lua call so a
   ** closing metamethod can yield and resume across this frame, matching Lua
   ** 5.4's yieldable close path.
   */
+#if LJ_TARGET_ARM64
+  bcemit_AD(fs, BC_ISF, 0, slot);
+  skipclose = bcemit_jmp(fs);
+#endif
   bcemit_AD(fs, BC_GGET, base, const_lit(fs, "jit", 3));
   bcreg_reserve(fs, 1);
   if (ls->fr2) bcreg_reserve(fs, 1);
@@ -2414,6 +2439,9 @@ static void bcemit_lua54_closevalue(FuncState *fs, BCReg slot, BCReg errval,
   bcemit_AD(fs, BC_KPRI, haserr, 2);
   jmp_tohere(fs, okjump);
   fs->freereg = base;
+#if LJ_TARGET_ARM64
+  jmp_patch(fs, skipclose, fs->pc);
+#endif
 }
 
 static void bcemit_lua54_throwcloseerror(FuncState *fs, BCReg errval,
@@ -5235,14 +5263,6 @@ static void expr(LexState *ls, ExpDesc *v)
   expr_binop(ls, v, 0);  /* Priority 0: parse whole expression. */
 }
 
-/* Assign expression to the next register. */
-static void expr_next(LexState *ls)
-{
-  ExpDesc e;
-  expr(ls, &e);
-  expr_tonextreg(ls->fs, &e);
-}
-
 /* Parse conditional expression. */
 static BCPos expr_cond(LexState *ls)
 {
@@ -5848,6 +5868,10 @@ static void parse_for_num(LexState *ls, GCstr *varname, BCLine line)
   BCReg base = fs->freereg;
   FuncScope bl;
   BCPos loop, loopend;
+  ExpDesc start, stop, step;
+#if LJ_54 && LJ_TARGET_ARM64
+  int start_i32, stop_i32, skip_forstep;
+#endif
   /* Hidden control variables. */
   var_new_fixed(ls, FORL_IDX, VARNAME_FOR_IDX);
   var_new_fixed(ls, FORL_STOP, VARNAME_FOR_STOP);
@@ -5855,19 +5879,36 @@ static void parse_for_num(LexState *ls, GCstr *varname, BCLine line)
   /* Visible copy of index variable. */
   var_new(ls, FORL_EXT, varname);
   lex_check(ls, '=');
-  expr_next(ls);
+  expr(ls, &start);
+#if LJ_54 && LJ_TARGET_ARM64
+  start_i32 = expr_lua54_i32k_nojump(&start, 0);
+#endif
+  expr_tonextreg(fs, &start);
   lex_check(ls, ',');
-  expr_next(ls);
+  expr(ls, &stop);
+#if LJ_54 && LJ_TARGET_ARM64
+  stop_i32 = expr_lua54_i32k_nojump(&stop, 0);
+#endif
+  expr_tonextreg(fs, &stop);
   if (lex_opt(ls, ',')) {
-    ExpDesc step;
     expr(ls, &step);
+#if LJ_54 && LJ_TARGET_ARM64
+    skip_forstep = start_i32 && stop_i32 &&
+		   expr_lua54_i32k_nojump(&step, 1);
+#endif
     expr_tonextreg(fs, &step);
   } else {
+#if LJ_54 && LJ_TARGET_ARM64
+    skip_forstep = start_i32 && stop_i32;
+#endif
     bcemit_AD(fs, BC_KSHORT, fs->freereg, 1);  /* Default step is 1. */
     bcreg_reserve(fs, 1);
   }
 #if LJ_54
-  bcemit_lua54_forstep(fs, (BCReg)(base + FORL_STEP));
+#if LJ_TARGET_ARM64
+  if (!skip_forstep)
+#endif
+    bcemit_lua54_forstep(fs, (BCReg)(base + FORL_STEP));
 #endif
   var_add(ls, 3);  /* Hidden control variables. */
   lex_check(ls, TK_do);

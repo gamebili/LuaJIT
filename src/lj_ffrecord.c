@@ -254,7 +254,11 @@ static void LJ_FASTCALL recff_nyi(jit_State *J, RecordFFData *rd)
 
 static int recff_lua54_tref_isi64(TRef tr)
 {
-  return tref_type(tr) == IRT_INT64;
+  return tref_type(tr) == IRT_INT64
+#if LJ_TARGET_ARM64
+	 || tref_type(tr) == IRT_I64
+#endif
+	 ;
 }
 
 static int recff_lua54_tref_isinteger(TRef tr)
@@ -341,6 +345,10 @@ static TRef recff_lua54_i64ref(jit_State *J, TRef tr)
 {
   if (tref_isinteger(tr))
     return emitir(IRT(IR_CONV, IRT_I64), tr, RECFF_IRCONV_I64_INT_SEXT);
+#if LJ_TARGET_ARM64
+  if (tref_type(tr) == IRT_I64)
+    return tr;
+#endif
   return emitir(IRT(IR_FLOAD, IRT_I64), tr, IRFL_INT64_VALUE);
 }
 
@@ -458,6 +466,110 @@ static TRef recff_lua54_i64result(jit_State *J, TRef tr, int64_t rv)
     return lj_ir_call(J, IRCALL_lj_obj_newint64, tr);
   }
 }
+
+#if LJ_TARGET_ARM64
+static TRef recff_lua54_i64result_raw(jit_State *J, TRef tr, int64_t rv)
+{
+  if (rv >= RECFF_LUA54_I32_MIN && rv <= RECFF_LUA54_I32_MAX) {
+    emitir(IRTG(IR_GE, IRT_I64), tr,
+	   lj_ir_kint64(J, (uint64_t)RECFF_LUA54_I32_MIN));
+    emitir(IRTG(IR_LE, IRT_I64), tr,
+	   lj_ir_kint64(J, (uint64_t)RECFF_LUA54_I32_MAX));
+    return emitir(IRTI(IR_CONV), tr, RECFF_IRCONV_INT_I64_NARROW);
+  }
+  emitir(IRTG(rv < RECFF_LUA54_I32_MIN ? IR_LT : IR_GT, IRT_I64), tr,
+	 lj_ir_kint64(J, (uint64_t)(rv < RECFF_LUA54_I32_MIN ?
+				    RECFF_LUA54_I32_MIN :
+				    RECFF_LUA54_I32_MAX)));
+  return tr;
+}
+
+static int recff_lua54_arith_uses_slot(BCIns ins, BCReg slot)
+{
+  BCOp op = bc_op(ins);
+  switch (op) {
+  case BC_ADDVN: case BC_SUBVN: case BC_MULVN: case BC_DIVVN:
+  case BC_MODVN:
+    return bc_b(ins) == slot;
+  case BC_ADDNV: case BC_SUBNV: case BC_MULNV: case BC_DIVNV:
+  case BC_MODNV:
+    return bc_c(ins) == slot;
+  case BC_ADDVV: case BC_SUBVV: case BC_MULVV: case BC_DIVVV:
+  case BC_MODVV: case BC_IDIV:
+  case BC_BAND: case BC_BOR: case BC_BXOR: case BC_BSHL: case BC_BSHR:
+    return bc_b(ins) == slot || bc_c(ins) == slot;
+  case BC_BNOT:
+    return bc_c(ins) == slot;
+  default:
+    return 0;
+  }
+}
+
+static int recff_lua54_defines_slot(BCIns ins, BCReg slot)
+{
+  BCOp op = bc_op(ins);
+  switch (bcmode_a(op)) {
+  case BCMdst:
+  case BCMvar:
+    return bc_a(ins) == slot;
+  case BCMbase:
+    if (op >= BC_CALLM && op <= BC_ITERN) {
+      BCReg base = bc_a(ins);
+      BCReg nres = bc_c(ins);
+      if (op == BC_CALLM || op == BC_CALLMT || nres == 0)
+	return slot >= base;
+      return slot >= base && slot < base + nres + LJ_FR2;
+    } else if (op == BC_KNIL) {
+      return slot >= bc_a(ins) && slot <= bc_d(ins);
+    }
+    return 0;
+  default:
+    return 0;
+  }
+}
+
+static int recff_lua54_result_used_by_near_arith(jit_State *J)
+{
+  cTValue *frame = J->L->base - 1;
+  const BCIns *pc;
+  BCReg slot;
+  int n;
+  if (!frame_islua(frame))
+    return 0;
+  pc = frame_pc(frame);
+  slot = bc_a(pc[-1]);
+  for (n = 0; n < 8; n++, pc++) {
+    BCIns ins = *pc;
+    if (recff_lua54_arith_uses_slot(ins, slot))
+      return 1;
+    if (recff_lua54_defines_slot(ins, slot))
+      return 0;
+    switch (bc_op(ins)) {
+    case BC_JMP: case BC_UCLO:
+    case BC_RET: case BC_RET0: case BC_RET1:
+    case BC_RETM:
+      return 0;
+    default:
+      break;
+    }
+  }
+  return 0;
+}
+
+#if LJ_TARGET_ARM64
+static int recff_lua54_result_used_by_immediate_len(jit_State *J)
+{
+  cTValue *frame = J->L->base - 1;
+  const BCIns *pc;
+  BCReg slot;
+  if (!frame_islua(frame))
+    return 0;
+  pc = frame_pc(frame);
+  slot = bc_a(pc[-1]);
+  return bc_op(*pc) == BC_LEN && bc_a(*pc) == slot && bc_b(*pc) == slot;
+}
+#endif
+#endif
 
 static int64_t recff_lua54_shiftint(int64_t a, int64_t sh, int left)
 {
@@ -921,7 +1033,7 @@ static void recff_lua54_tonumber_strref(jit_State *J, RecordFFData *rd,
       ** Use a side-effect helper for them so os.setlocale() cannot leave a
       ** stale folded STRTO result in the trace.
       */
-      J->base[0] = runtime_locale ?
+      J->base[0] = (runtime_locale || LJ_TARGET_ARM64) ?
 		   lj_ir_call(J, IRCALL_lj_strscan_tonum54s, tr) :
 		   emitir(IRTG(IR_STRTO, IRT_NUM), tr, 0);
     }
@@ -1150,6 +1262,35 @@ static void LJ_FASTCALL recff_ipairs_aux(jit_State *J, RecordFFData *rd)
 static void LJ_FASTCALL recff_xpairs(jit_State *J, RecordFFData *rd)
 {
   TRef tr = J->base[0];
+#if LJ_54 && LJ_TARGET_ARM64
+  if (rd->data == 0) {
+    if (tref_istab(tr) && tabV(&rd->argv[0]) == tabref(J->L->env)) {
+      recff_nyiu(J, rd);
+      return;
+    }
+    if (!recff_metacall(J, rd, MM_pairs)) {
+      if (tref_istab(tr) && tabV(&rd->argv[0])->asize != 0) {
+	recff_nyiu(J, rd);
+	return;
+      }
+      if (!tref_istab(tr)) {
+	cTValue *tv = lj_tab_getstr(tabV(registry(J->L)),
+				    lj_str_newlit(J->L,
+				      "_LUA54_NEXT_WRAPPER"));
+	if (tv && tvisfunc(tv))
+	  J->base[0] = lj_ir_kfunc(J, funcV(tv));
+	else
+	  J->base[0] = lj_ir_kfunc(J, funcV(&J->fn->c.upvalue[0]));
+      } else {
+	J->base[0] = lj_ir_kfunc(J, funcV(&J->fn->c.upvalue[0]));
+      }
+      J->base[1] = tr;
+      J->base[2] = TREF_NIL;
+      rd->nres = 3;
+    }
+    return;
+  }
+#endif
   if (!((LJ_52 || (LJ_HASFFI && tref_iscdata(tr))) &&
 	recff_metacall(J, rd, MM_pairs + rd->data))) {
     if (tref_istab(tr)) {
@@ -1224,6 +1365,13 @@ static void LJ_FASTCALL recff_getfenv(jit_State *J, RecordFFData *rd)
 
 static void LJ_FASTCALL recff_next(jit_State *J, RecordFFData *rd)
 {
+#if LJ_54 && LJ_TARGET_ARM64
+  if (J->framedepth && frame_islua(J->L->base-1) &&
+      bc_op(frame_pc(J->L->base-1)[-1]) != BC_ITERC) {
+    recff_nyiu(J, rd);
+    return;
+  }
+#endif
 #if LJ_BE
   /* YAGNI: Disabled on big-endian due to issues with lj_vm_next,
   ** IR_HIOP, RID_RETLO/RID_RETHI and ra_destpair.
@@ -1526,7 +1674,12 @@ static void LJ_FASTCALL recff_math_minmax(jit_State *J, RecordFFData *rd)
 	best = ai;
       tr = emitir(IRT(op, IRT_I64), tr, tr2);
     }
-    J->base[0] = recff_lua54_i64result(J, tr, best);
+    J->base[0] =
+#if LJ_TARGET_ARM64
+      recff_lua54_result_used_by_near_arith(J) ?
+      recff_lua54_i64result_raw(J, tr, best) :
+#endif
+      recff_lua54_i64result(J, tr, best);
     return;
   }
 nyi:
@@ -1883,6 +2036,13 @@ static void LJ_FASTCALL recff_string_range(jit_State *J, RecordFFData *rd)
   if (rd->data) {  /* Return string.sub result. */
     if (start <= end) {
       /* Also handle empty range here, to avoid extra traces. */
+#if LJ_54 && LJ_TARGET_ARM64
+      if (end - start + 1 > LJ_STR_MAXSHORT &&
+	  !recff_lua54_result_used_by_immediate_len(J)) {
+	recff_nyiu(J, rd);
+	return;
+      }
+#endif
       TRef trptr, trslen = emitir(IRTGI(IR_SUBOV), trend, trstart);
       emitir(IRTGI(IR_GE), trslen, tr0);
       trptr = emitir(IRT(IR_STRREF, IRT_PGC), trstr, trstart);

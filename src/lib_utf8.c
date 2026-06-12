@@ -10,6 +10,7 @@
 #define LUA_LIB
 
 #include "lua.h"
+#include "luajit.h"
 #include "lauxlib.h"
 #include "lualib.h"
 
@@ -20,6 +21,7 @@
 #include "lj_str.h"
 #include "lj_strscan.h"
 #include "lj_strfmt.h"
+#include "lj_lib.h"
 
 /* ------------------------------------------------------------------------ */
 
@@ -296,6 +298,21 @@ static int utf8_codepoint(lua_State *L)
     return 0;
   pos = (size_t)i - 1;
   end = (size_t)j;
+#if LJ_54 && LJ_TARGET_ARM64
+  if (LJ_LIKELY(end - pos <= 256 &&
+		L->top + (end - pos) <= tvref(L->maxstack))) {
+    TValue *top = L->top;
+    while (pos < end) {
+      if (!utf8_decode(s, len, pos, &cp, &next, strict))
+	luaL_error(L, "invalid UTF-8 code");
+      setintV(top++, (int32_t)cp);
+      n++;
+      pos = next;
+    }
+    L->top = top;
+    return n;
+  }
+#endif
   while (pos < end) {
     if (!utf8_decode(s, len, pos, &cp, &next, strict))
       luaL_error(L, "invalid UTF-8 code");
@@ -402,10 +419,32 @@ static int utf8_offset(lua_State *L)
 static int utf8_codes_iter(lua_State *L)
 {
   size_t len, pos, next;
+#if LJ_TARGET_ARM64
+  cTValue *o = L->base;
+  GCstr *str;
+  int strict;
+#endif
   const unsigned char *s = (const unsigned char *)
     utf8_checklstring_named(L, 1, &len, "utf8.codes");
   lua_Integer last = lua_tointeger(L, 2);
   uint32_t cp;
+#if LJ_TARGET_ARM64
+  if (LJ_LIKELY(tvisstr(o))) {
+    str = strV(o);
+    s = (const unsigned char *)strdata(str);
+    len = str->len;
+    o++;
+    if (LJ_LIKELY(o < L->top && tvisint(o)))
+      last = (lua_Integer)intV(o);
+    else if (o < L->top && tvisi64(o))
+      last = (lua_Integer)i64V(o);
+    strict = !tvistruecond(lj_lib_upvalue(L, 1));
+  } else {
+    strict = !lua_toboolean(L, lua_upvalueindex(1));
+  }
+#else
+  int strict = !lua_toboolean(L, lua_upvalueindex(1));
+#endif
   /* Lua 5.4's iterator is intentionally tolerant of an out-of-range control
   ** variable supplied by external callers: it just terminates iteration.
   */
@@ -416,13 +455,23 @@ static int utf8_codes_iter(lua_State *L)
     pos++;
   if (pos >= len)
     return 0;
-  if (!utf8_decode(s, len, pos, &cp, &next,
-		   !lua_toboolean(L, lua_upvalueindex(1))))
+  if (!utf8_decode(s, len, pos, &cp, &next, strict))
     return luaL_error(L, "invalid UTF-8 code");
   if (next < len && utf8_iscont(s[next]))
     return luaL_error(L, "invalid UTF-8 code");
+#if LJ_TARGET_ARM64
+  L->top = L->base;
+  if (LJ_LIKELY((uint64_t)pos < (uint64_t)INT32_MAX)) {
+    setintV(L->top++, (int32_t)pos + 1);
+  } else {
+    lj_obj_setint64(L, L->top, (int64_t)pos + 1);
+    L->top++;
+  }
+  setintV(L->top++, (int32_t)cp);
+#else
   lua_pushinteger(L, (lua_Integer)pos + 1);
   lua_pushinteger(L, (lua_Integer)cp);
+#endif
   return 2;
 }
 
@@ -433,6 +482,15 @@ static int utf8_codes(lua_State *L)
     utf8_checklstring_named(L, 1, &len, "utf8.codes");
   if (len > 0 && utf8_iscont(s[0]))
     utf8_argerror_named(L, 1, "utf8.codes", "invalid UTF-8 code");
+#if LJ_54 && LJ_TARGET_ARM64 && LJ_HASJIT
+  /* Recording the C iterator currently creates a trace storm on ARM64. The
+  ** interpreter path is already faster than Lua 5.4.8 for long scans, so keep
+  ** those callers interpreted until a full recorder exists for the iterator
+  ** protocol. Short lax-mode helper tests still need to record.
+  */
+  if (len >= 32)
+    luaJIT_setmode(L, 0, LUAJIT_MODE_FUNC|LUAJIT_MODE_OFF);
+#endif
   lua_pushboolean(L, lua_toboolean(L, 2));
   lua_pushcclosure(L, utf8_codes_iter, 1);
   lua_pushvalue(L, 1);

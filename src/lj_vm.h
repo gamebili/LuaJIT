@@ -83,6 +83,7 @@ LJ_ASMF LJ_CONSTF double lj_vm_log2(double);
 #if !(defined(_LJ_DISPATCH_H) && LJ_TARGET_MIPS)
 LJ_ASMF int32_t LJ_FASTCALL lj_vm_modi(int32_t, int32_t);
 #endif
+LJ_FUNCA double lj_vm_lua54fmod(double, double);
 
 #if LJ_HASJIT
 #if LJ_TARGET_X86ORX64

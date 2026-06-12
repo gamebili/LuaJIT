@@ -96,6 +96,15 @@ void lj_obj_setint64(lua_State *L, TValue *o, int64_t i)
     TValue *stk = tvref(L->stack);
     int onstack = o >= stk && o < tvref(L->maxstack);
 #if LJ_54 && LJ_TARGET_ARM64
+    if (onstack && tvisi64(o)) {
+      i64 = gco2i64(gcval(o));
+      if (mref(i64->owner, TValue) == o) {
+	i64->i = i;
+	return;
+      }
+    }
+#endif
+#if LJ_54 && LJ_TARGET_ARM64
     global_State *g = G(L);
     GCobj *go = gcref(g->i64freelist);
     if (go) {

@@ -137,6 +137,20 @@ local function assert_records_ir_call(fn, what, callname)
 	 what .. " did not record " .. callname)
 end
 
+local function assert_no_ir_call(fn, what, callname)
+  jitmod.off()
+  jitmod.flush()
+  collectgarbage()
+  jitmod.on()
+  jit.opt.start("hotloop=1", "hotexit=1")
+  local before = trace_highwater()
+  fn()
+  local after = trace_highwater()
+  assert(after > before, what .. " did not record a trace")
+  assert(not trace_has_ir_call(before + 1, after, callname),
+	 what .. " unexpectedly recorded " .. callname)
+end
+
 local function assert_records_ir_calls(fn, what, callnames)
   jitmod.off()
   jitmod.flush()
@@ -482,7 +496,7 @@ end
 
 do
   local p = pairs
-  assert_no_trace(function()
+  local function check_pairs_iterator_call_names()
     local n = 0
     for _ = 1, 80 do
       local ok_direct, err_direct = pcall(function()
@@ -523,7 +537,13 @@ do
       end
     end
     assert(n == 80)
-  end, "Lua 5.4 pairs iterator call names")
+  end
+  if jitmod.arch == "arm64" then
+    check_pairs_iterator_call_names()
+  else
+    assert_records_trace(check_pairs_iterator_call_names,
+			 "Lua 5.4 pairs iterator call names")
+  end
 end
 
 do
@@ -1412,6 +1432,32 @@ do
     assert(x == -160 and math.type(math.fmod(a, b)) == "integer")
   end, "Lua 5.4 boxed int64 math.fmod", "MOD")
 
+  assert_no_ir_call(function()
+    local s = 0
+    local base = 1099511627776
+    for i = 1, 80 do
+      local v = -(base + i)
+      s = (s + ((-v) % 1000000)) % 1000000
+    end
+    assert(s == 225320 and math.type(s) == "integer")
+  end, "Lua 5.4 boxed int64 unary minus chain", "lj_obj_newint64")
+
+  assert_records_trace(function()
+    local before = trace_highwater()
+    local s = 0
+    for i = 1, 200000 do
+      if (i % 7) < 3 then
+	s = s + i
+      else
+	s = s - i
+      end
+    end
+    local after = trace_highwater()
+    assert(s % 1000000 == 14284 and math.type(s) == "integer")
+    assert(after - before <= 12,
+	   "branchy boxed int64 accumulator recorded too many traces")
+  end, "Lua 5.4 branchy boxed int64 accumulator")
+
   assert_records_trace(function()
     local n = 0
     for i = "1", "80" do
@@ -1920,9 +1966,10 @@ do
       local iv = tonumber(int_input)
       local direct64 = tonumber(1099511627776)
       local bad = tonumber(bad_input)
-      -- This is the no-base tonumber() recorder surface: floats must record
-      -- through STRTO, integers must keep the Lua 5.4 integer subtype, and
-      -- rejected LuaJIT-only numerals must still return nil in the hot loop.
+      -- This is the no-base tonumber() recorder surface: floats record through
+      -- STRTO on generic targets and through the ARM64 Lua 5.4 decimal helper
+      -- on ARM64, integers must keep the Lua 5.4 integer subtype, and rejected
+      -- LuaJIT-only numerals must still return nil in the hot loop.
       if math.type(f) == "float" then n = n + 1 end
       if math.type(iv) == "integer" then n = n + 1 end
       if direct64 == 1099511627776 and math.type(direct64) == "integer" then
@@ -1933,9 +1980,15 @@ do
     return n
   end
 
-  assert_records_ir_op(function()
-    assert(tonumber_no_base_mix("1.5", "0xff", "nan") == 320)
-  end, "Lua 5.4 tonumber no-base recorder", "STRTO")
+  if jit.arch == "arm64" then
+    assert_records_ir_call(function()
+      assert(tonumber_no_base_mix("1.5", "0xff", "nan") == 320)
+    end, "Lua 5.4 tonumber no-base recorder", "lj_strscan_tonum54s")
+  else
+    assert_records_ir_op(function()
+      assert(tonumber_no_base_mix("1.5", "0xff", "nan") == 320)
+    end, "Lua 5.4 tonumber no-base recorder", "STRTO")
+  end
 end
 
 do
@@ -2957,7 +3010,29 @@ do
       end
     end
     assert(n == 80 * 3)
-  end, "Lua 5.4 debug upvalue access edges")
+  end, "Lua 5.4 debug upvalue mutation edges")
+
+  do
+    local function setupvalue_sum(n)
+      local value = 0
+      local function f() return value end
+      local s = 0
+      for i = 1, n do
+	debug.setupvalue(f, 1, i & 255)
+	s = s + f()
+      end
+      return s % 1000000
+    end
+    jitmod.off()
+    jitmod.flush()
+    collectgarbage()
+    jitmod.on()
+    jit.opt.start("3", "hotloop=8", "hotexit=2")
+    for _ = 1, 4 do
+      assert(setupvalue_sum(90000) == 467080,
+	     "debug.setupvalue must invalidate stale upvalue traces")
+    end
+  end
 
   assert_records_trace(function()
     local function result_count(...)
@@ -3073,7 +3148,7 @@ do
     assert(n == 80)
   end, "Lua 5.4 debug local level error names")
 
-  assert_records_trace(function()
+  assert_no_trace(function()
     local function result_count(...)
       return select("#", ...), ...
     end
@@ -4799,6 +4874,15 @@ do
     assert(n == 560)
   end, "Lua 5.4 boxed int64 table key value lookup", "lj_tab_geti64")
 
+  assert_no_ir_call(function()
+    local base = 1099511627776
+    local t = {}
+    for i = 1, 80 do
+      t[base + i] = i
+    end
+    assert(t[base + 1] == 1 and t[base + 80] == 80)
+  end, "Lua 5.4 computed int64 table key store", "lj_obj_newint64")
+
   assert_records_ir_call(function()
     local key = 1099511627776
     local t = {}
@@ -5038,6 +5122,43 @@ do
     end
     assert(n == 9840)
   end, "Lua 5.4 table.sort numeric")
+
+  do
+    local n = 0
+    for _ = 1, 80 do
+      local t = { 3, math.maxinteger, 1, 2 }
+      table.sort(t, function(a, b) return a > b end)
+      if t[1] == math.maxinteger and t[2] == 3 and t[4] == 1 then
+	n = n + 1
+      end
+    end
+    assert(n == 80)
+  end
+
+  do
+    local salt = 17
+    local n = 0
+    for _ = 1, 80 do
+      local t = { 5, 6, 1, 3, 2, 4 }
+      table.sort(t, function(a, b)
+	return ((a ~ salt) & 0xffff) < ((b ~ salt) & 0xffff)
+      end)
+      for i = 2, #t do
+	assert(((t[i-1] ~ salt) & 0xffff) <= ((t[i] ~ salt) & 0xffff))
+      end
+      n = n + 1
+    end
+    assert(n == 80)
+  end
+
+  do
+    local calls = 0
+    debug.sethook(function() calls = calls + 1 end, "c")
+    local t = { 4, 1, 3, 2 }
+    table.sort(t, function(a, b) return a > b end)
+    debug.sethook()
+    assert(calls > 0 and t[1] == 4 and t[4] == 1)
+  end
 
   local mt = {
     __lt = function(a, b)

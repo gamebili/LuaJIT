@@ -7,6 +7,7 @@
 #define LUA_CORE
 
 #include <math.h>
+#include <string.h>
 
 #include "lj_obj.h"
 
@@ -164,7 +165,15 @@ static TRef rec_lua54_i64ref(jit_State *J, TRef tr)
   if (tref_type(tr) == IRT_I64)
     return tr;
   lj_assertJ(rec_lua54_tref_isi64(tr), "bad int64 TValue ref");
+#if LJ_TARGET_ARM64
+  {
+    TRef addr = emitir(IRT(IR_ADD, IRT_PGC), tr,
+		       lj_ir_kintpgc(J, offsetof(GCint64, i)));
+    return emitir(IRT(IR_XLOAD, IRT_I64), addr, IRXLOAD_VOLATILE);
+  }
+#else
   return emitir(IRT(IR_FLOAD, IRT_I64), tr, IRFL_INT64_VALUE);
+#endif
 }
 
 #if LJ_54
@@ -251,6 +260,91 @@ static TRef rec_lua54_boxraw_i64(jit_State *J, TRef tr)
     return lj_ir_call(J, IRCALL_lj_obj_newint64, tr);
   return tr;
 }
+
+static TRef rec_lua54_store_owned_i64(jit_State *J, TRef obj, TRef tr,
+				      BCReg ra)
+{
+  TRef owner = emitir(IRT(IR_FLOAD, IRT_PGC), obj, IRFL_INT64_OWNER);
+  TRef slot = emitir(IRT(IR_ADD, IRT_PGC), REF_BASE,
+		     lj_ir_kintpgc(J, (int32_t)ra * 8));
+  TRef fref;
+  emitir(IRTG(IR_EQ, IRT_PGC), owner, slot);
+  fref = emitir(IRT(IR_FREF, IRT_PGC), obj, IRFL_INT64_VALUE);
+  emitir(IRT(IR_FSTORE, IRT_I64), fref, tr);
+  J->needsnap = 1;
+  return obj;
+}
+
+static TRef rec_lua54_xload_i64value(jit_State *J, TRef obj)
+{
+  TRef addr = emitir(IRT(IR_ADD, IRT_PGC), obj,
+		     lj_ir_kintpgc(J, offsetof(GCint64, i)));
+  return emitir(IRT(IR_XLOAD, IRT_I64), addr, IRXLOAD_VOLATILE);
+}
+
+static int rec_lua54_box_loopcarried_i64(jit_State *J, BCReg ra,
+					 cTValue *lbase)
+{
+  TRef old = J->base[ra];
+  return tvisi64(&lbase[ra]) && old && tref_type(old) == IRT_INT64;
+}
+
+static int rec_lua54_loopback_op(BCOp op)
+{
+  return op == BC_FORL || op == BC_IFORL || op == BC_JFORL;
+}
+
+static int rec_lua54_next_loopback(jit_State *J)
+{
+  const BCIns *next = J->pc + 1;
+  BCOp op = bc_op(*next);
+  if (rec_lua54_loopback_op(op))
+    return 1;
+  if (op == BC_JMP) {
+    const BCIns *start = proto_bc(J->pt);
+    const BCIns *target = next + bc_j(*next) + 1;
+    if (target >= start && target < start + J->pt->sizebc)
+      return rec_lua54_loopback_op(bc_op(*target));
+  }
+  return 0;
+}
+
+static int rec_lua54_next_loopback_keeps_slot(jit_State *J, BCReg ra)
+{
+  const BCIns *start = proto_bc(J->pt);
+  const BCIns *pc = J->pc + 1;
+  const BCIns *end = start + J->pt->sizebc;
+  const BCIns *limit = pc + 24;
+  for (; pc < end && pc < limit; pc++) {
+    BCIns ins = *pc;
+    BCOp op = bc_op(ins);
+    if (rec_lua54_loopback_op(op))
+      return ra < bc_a(ins) + FORL_EXT;
+    if (op == BC_JMP) {
+      const BCIns *target = pc + bc_j(ins) + 1;
+      if (target >= start && target < end &&
+	  rec_lua54_loopback_op(bc_op(*target)))
+	return ra < bc_a(*target) + FORL_EXT;
+      if (target <= pc)
+	return 0;
+    }
+    switch (bcmode_a(op)) {
+    case BCMdst:
+      if (bc_a(ins) == ra && !(op == BC_ISTC || op == BC_ISFC))
+	return 0;
+      break;
+    case BCMbase:
+      if (op == BC_KNIL && bc_a(ins) <= ra && ra <= bc_d(ins))
+	return 0;
+      if (op >= BC_CALLM && op <= BC_ITERN && bc_a(ins) <= ra)
+	return 0;
+      break;
+    default:
+      break;
+    }
+  }
+  return 0;
+}
 #endif
 
 static TRef rec_lua54_toint64ref(jit_State *J, TRef tr, cTValue *tv)
@@ -270,17 +364,24 @@ static TRef rec_lua54_toint64ref(jit_State *J, TRef tr, cTValue *tv)
   return 0;
 }
 
-static TRef rec_lua54_unm_intref(jit_State *J, TRef irc, int64_t ic)
+static TRef rec_lua54_unm_intref(jit_State *J, TRef irc, int64_t ic,
+				 int rawok)
 {
   int64_t rv = (int64_t)(lua_Integer)((lua_Unsigned)0 - (lua_Unsigned)ic);
   TRef tr = emitir(IRT(IR_NEG, IRT_I64), irc, irc);
+#if LJ_TARGET_ARM64
+  if (rawok)
+    return rec_lua54_i64result_raw(J, tr, rv);
+#else
+  UNUSED(rawok);
+#endif
   return rec_lua54_i64result(J, tr, rv);
 }
 
-static TRef rec_lua54_unm_int(jit_State *J, TRef rc, cTValue *rcv)
+static TRef rec_lua54_unm_int(jit_State *J, TRef rc, cTValue *rcv, int rawok)
 {
   return rec_lua54_unm_intref(J, rec_lua54_i64ref(J, rc),
-			      rec_lua54_tv_i64(rcv));
+			      rec_lua54_tv_i64(rcv), rawok);
 }
 
 static TRef rec_lua54_arith_intref(jit_State *J, TRef irb, TRef irc,
@@ -307,13 +408,300 @@ static TRef rec_lua54_arith_intref(jit_State *J, TRef irb, TRef irc,
   return rec_lua54_i64result(J, tr, rv);
 }
 
-static TRef rec_lua54_arith_int(jit_State *J, TRef rb, TRef rc,
+#if LJ_TARGET_ARM64
+static TRef rec_lua54_arith_intref_owned(jit_State *J, TRef irb, TRef irc,
+					 int64_t ib, int64_t ic, MMS mm,
+					 TRef obj, BCReg ra)
+{
+  IROp op = (IROp)((int)mm - (int)MM_add + (int)IR_ADD);
+  TRef tr;
+  switch (mm) {
+  case MM_add: break;
+  case MM_sub: break;
+  case MM_mul: break;
+  default: lj_assertJ(0, "bad Lua 5.4 integer arithmetic op"); break;
+  }
+  UNUSED(ib); UNUSED(ic);
+  tr = emitir(IRT(op, IRT_I64), irb, irc);
+  return rec_lua54_store_owned_i64(J, obj, tr, ra);
+}
+
+static TRef rec_lua54_arith_i32(jit_State *J, TRef rb, TRef rc,
 				cTValue *rbv, cTValue *rcv, MMS mm)
+{
+  lua_Unsigned ub, uc;
+  int64_t rv;
+  IROp op;
+  if (!tref_isinteger(rb) || !tref_isinteger(rc) ||
+      !tvisint(rbv) || !tvisint(rcv))
+    return 0;
+  ub = (lua_Unsigned)(lua_Integer)intV(rbv);
+  uc = (lua_Unsigned)(lua_Integer)intV(rcv);
+  switch (mm) {
+  case MM_add:
+    rv = (int64_t)(lua_Integer)(ub + uc);
+    op = IR_ADDOV;
+    break;
+  case MM_sub:
+    rv = (int64_t)(lua_Integer)(ub - uc);
+    op = IR_SUBOV;
+    break;
+  case MM_mul:
+    rv = (int64_t)(lua_Integer)(ub * uc);
+    op = IR_MULOV;
+    break;
+  default:
+    return 0;
+  }
+  if (rv < LJ_LUA54_I32_MIN || rv > LJ_LUA54_I32_MAX)
+    return 0;
+  return emitir(IRTGI(op), rb, rc);
+}
+
+static int rec_lua54_next_tgetv_key(jit_State *J, BCReg ra)
+{
+  BCIns next = J->pc[1];
+  if (bc_op(next) == BC_TGETV || bc_op(next) == BC_TSETV)
+    return bc_c(next) == ra;
+  if (bc_op(next) == BC_UGET && bc_a(next) != ra) {
+    next = J->pc[2];
+    return (bc_op(next) == BC_TGETV || bc_op(next) == BC_TSETV) &&
+	   bc_c(next) == ra;
+  }
+  return 0;
+}
+
+static int rec_lua54_next_bitop_operand(jit_State *J, BCReg ra)
+{
+  const BCIns *pc = J->pc + 1;
+  int n;
+  for (n = 0; n < 3; n++, pc++) {
+    BCIns next = *pc;
+    BCOp op = bc_op(next);
+    switch (op) {
+    case BC_BAND: case BC_BOR: case BC_BXOR: case BC_BSHL: case BC_BSHR:
+      return bc_b(next) == ra || bc_c(next) == ra;
+    case BC_BNOT:
+      return bc_c(next) == ra;
+    case BC_KSHORT: case BC_KNUM:
+      if (bc_a(next) == ra)
+	return 0;
+      break;
+    default:
+      return 0;
+    }
+  }
+  return 0;
+}
+
+static int rec_lua54_next_arith_bitop_operand(jit_State *J, BCReg ra)
+{
+  const BCIns *pc = J->pc + 1;
+  int n;
+  for (n = 0; n < 5; n++, pc++) {
+    BCIns next = *pc;
+    BCOp op = bc_op(next);
+    switch (op) {
+    case BC_BAND: case BC_BOR: case BC_BXOR: case BC_BSHL: case BC_BSHR:
+      return bc_b(next) == ra || bc_c(next) == ra;
+    case BC_BNOT:
+      return bc_c(next) == ra;
+    case BC_ADDNV: case BC_SUBNV: case BC_MULNV:
+    case BC_ADDVN: case BC_SUBVN: case BC_MULVN:
+    case BC_ADDVV: case BC_SUBVV: case BC_MULVV:
+      if (bc_a(next) != ra)
+	return 0;
+      break;
+    case BC_KSHORT: case BC_KNUM:
+      if (bc_a(next) == ra)
+	return 0;
+      break;
+    default:
+      return 0;
+    }
+  }
+  return 0;
+}
+
+static int rec_lua54_next_unm_operand(jit_State *J, BCReg ra)
+{
+  BCIns next = J->pc[1];
+  return bc_op(next) == BC_UNM && bc_c(next) == ra;
+}
+
+static int rec_lua54_next_mod_operand(jit_State *J, BCReg ra)
+{
+  BCIns next = J->pc[1];
+  BCOp op = bc_op(next);
+  switch (op) {
+  case BC_MODVN: case BC_IDIV:
+    return bc_b(next) == ra;
+  case BC_MODNV:
+    return bc_c(next) == ra;
+  case BC_MODVV:
+    return bc_b(next) == ra || bc_c(next) == ra;
+  default:
+    return 0;
+  }
+}
+
+static int rec_lua54_next_comp_operand(jit_State *J, BCReg ra)
+{
+  const BCIns *pc = J->pc + 1;
+  const BCIns *end = pc + 4;
+  for (; pc < end; pc++) {
+    BCIns ins = *pc;
+    BCOp op = bc_op(ins);
+    switch (op) {
+    case BC_ISLT: case BC_ISGE: case BC_ISLE: case BC_ISGT:
+    case BC_ISEQV: case BC_ISNEV:
+      return bc_a(ins) == ra || bc_d(ins) == ra;
+    case BC_ISEQN: case BC_ISNEN:
+      return bc_a(ins) == ra;
+    default:
+      if (bcmode_d(op) == BCMjump || bcmode_a(op) == BCMbase ||
+	  bc_isret_or_tail(op))
+	return 0;
+      if (bcmode_a(op) == BCMdst && bc_a(ins) == ra)
+	return 0;
+      break;
+    }
+  }
+  return 0;
+}
+
+static int rec_lua54_loopcarried_arith_i64(jit_State *J, BCIns ins,
+					   TRef rb, TRef rc, cTValue *lbase)
+{
+  BCReg ra = bc_a(ins);
+  TRef old = J->base[ra];
+  if (!rec_lua54_next_loopback(J))
+    return 0;
+  if (!rec_lua54_box_loopcarried_i64(J, ra, lbase))
+    return 0;
+  return rb == old || rc == old;
+}
+
+static int rec_lua54_tgets_minmax(jit_State *J, BCIns ins)
+{
+  GCstr *s;
+  if (bc_op(ins) != BC_TGETS)
+    return 0;
+  s = gco2str(proto_kgc(J->pt, ~(ptrdiff_t)bc_c(ins)));
+  return (s->len == 3 && memcmp(strdata(s), "max", 3) == 0) ||
+	 (s->len == 3 && memcmp(strdata(s), "min", 3) == 0);
+}
+
+static int rec_lua54_alias_has(BCReg *alias, int nalias, BCReg slot)
+{
+  int i;
+  for (i = 0; i < nalias; i++)
+    if (alias[i] == slot)
+      return 1;
+  return 0;
+}
+
+static int rec_lua54_next_math_minmax_arg(jit_State *J, BCReg ra)
+{
+  BCReg alias[8], ffslot = LJ_MAX_JSLOTS;
+  int i, n, nalias = 1;
+  alias[0] = ra;
+  for (n = 1; n <= 16; n++) {
+    BCIns ins = J->pc[n];
+    BCOp op = bc_op(ins);
+    if (op == BC_MOV && rec_lua54_alias_has(alias, nalias, bc_d(ins))) {
+      BCReg dst = bc_a(ins);
+      if (!rec_lua54_alias_has(alias, nalias, dst) &&
+	  nalias < (int)(sizeof(alias)/sizeof(alias[0])))
+	alias[nalias++] = dst;
+      continue;
+    }
+    if (rec_lua54_tgets_minmax(J, ins)) {
+      ffslot = bc_a(ins);
+      continue;
+    }
+    if (op == BC_CALL && bc_a(ins) == ffslot && bc_c(ins) != 0) {
+      BCReg first = bc_a(ins) + 1 + LJ_FR2;
+      BCReg last = first + bc_c(ins) - 2;
+      for (i = 0; i < nalias; i++)
+	if (alias[i] >= first && alias[i] <= last)
+	  return 1;
+      ffslot = LJ_MAX_JSLOTS;
+      continue;
+    }
+    switch (op) {
+    case BC_JMP: case BC_UCLO:
+    case BC_RET: case BC_RET0: case BC_RET1:
+    case BC_RETM:
+      return 0;
+    default:
+      break;
+    }
+    if (rec_lua54_alias_has(alias, nalias, bc_a(ins)) &&
+	(op == BC_UGET || bcmode_a(op) == BCMdst || bcmode_a(op) == BCMbase))
+      return 0;
+  }
+  return 0;
+}
+
+static int rec_lua54_next_string_format_arg(jit_State *J, BCReg ra)
+{
+  BCReg alias[8];
+  int i, n, nalias = 1;
+  alias[0] = ra;
+  for (n = 1; n <= 16; n++) {
+    BCIns ins = J->pc[n];
+    BCOp op = bc_op(ins);
+    if (op == BC_MOV) {
+      BCReg src = bc_d(ins), dst = bc_a(ins);
+      if (rec_lua54_alias_has(alias, nalias, src) &&
+	  !rec_lua54_alias_has(alias, nalias, dst) &&
+	  nalias < (int)(sizeof(alias)/sizeof(alias[0])))
+	alias[nalias++] = dst;
+      continue;
+    }
+    if (op == BC_CALL) {
+      BCReg base = bc_a(ins);
+      BCReg narg = bc_c(ins);
+      if (narg != 0) {
+	BCReg first = base + 1 + LJ_FR2;
+	BCReg last = first + narg - 2;
+	for (i = 0; i < nalias; i++) {
+	  if (alias[i] >= first && alias[i] <= last) {
+	    cTValue *fnv = &J->L->base[base];
+	    if (tvisfunc(fnv) && funcV(fnv)->c.ffid == FF_string_format)
+	      return 1;
+	    return 0;
+	  }
+	}
+      }
+      return 0;
+    }
+    switch (op) {
+    case BC_JMP: case BC_UCLO:
+    case BC_RET: case BC_RET0: case BC_RET1:
+    case BC_RETM:
+      return 0;
+    case BC_KSTR: case BC_KSHORT: case BC_KNUM:
+      if (rec_lua54_alias_has(alias, nalias, bc_a(ins)))
+	return 0;
+      break;
+    default:
+      return 0;
+    }
+  }
+  return 0;
+}
+#endif
+
+static TRef rec_lua54_arith_int(jit_State *J, TRef rb, TRef rc,
+				cTValue *rbv, cTValue *rcv, MMS mm,
+				int rawok)
 {
   return rec_lua54_arith_intref(J, rec_lua54_i64ref(J, rb),
 				rec_lua54_i64ref(J, rc),
 				rec_lua54_tv_i64(rbv), rec_lua54_tv_i64(rcv),
-				mm, tref_type(rb) == IRT_I64 ||
+				mm, rawok || tref_type(rb) == IRT_I64 ||
 				    tref_type(rc) == IRT_I64);
 }
 
@@ -337,6 +725,10 @@ static TRef rec_lua54_bitop_toint64ref(jit_State *J, TRef tr, cTValue *tv,
   }
   if (tvisstr(tv) || !rec_lua54_tv_toint64(tv, ip))
     return 0;
+#if LJ_TARGET_ARM64
+  if (tvisi64(tv) && tref_type(tr) == IRT_INT64 && !tref_isk(tr))
+    return rec_lua54_xload_i64value(J, tr);
+#endif
   return rec_lua54_toint64ref(J, tr, tv);
 }
 
@@ -1153,6 +1545,17 @@ static LoopEvent rec_iterl(jit_State *J, const BCIns iterins)
 #if LJ_54
   if (J->L->closelist != NULL)
     lj_trace_err_info(J, LJ_TRERR_NYIBC);
+#if LJ_TARGET_ARM64
+  {
+    cTValue *b = &J->L->base[ra-3];
+    if (tvisfunc(b) && funcV(b)->c.ffid == FF_next &&
+	tvistab(b+1)) {
+      GCtab *t = tabV(b+1);
+      if (t->asize != 0 || tvisint(&J->L->base[ra]))
+	lj_trace_err_info(J, LJ_TRERR_NYIBC);
+    }
+  }
+#endif
 #endif
   if (!tref_isnil(getslot(J, ra))) {  /* Looping back? */
     J->base[ra-1] = J->base[ra];  /* Copy result of ITERC to control var. */
@@ -2518,6 +2921,14 @@ static void rec_tsetm(jit_State *J, BCReg ra, BCReg rn, int32_t i)
 /* Check whether upvalue is immutable and ok to constify. */
 static int rec_upvalue_constify(jit_State *J, GCupval *uvp)
 {
+#if LJ_54 && LJ_TARGET_ARM64
+  /* debug.setupvalue() can mutate closed upvalues from outside recorded code.
+  ** Keep ARM64/Lua 5.4 traces loading through the upvalue instead of baking a
+  ** stale immutable value and relying on an expensive global trace flush.
+  */
+  UNUSED(J); UNUSED(uvp);
+  return 0;
+#else
   if (uvp->immutable) {
     cTValue *o = uvval(uvp);
     /* Don't constify objects that may retain large amounts of memory. */
@@ -2538,6 +2949,7 @@ static int rec_upvalue_constify(jit_State *J, GCupval *uvp)
       return 1;
   }
   return 0;
+#endif
 }
 
 /* Record upvalue load/store. */
@@ -3142,7 +3554,9 @@ void lj_record_ins(jit_State *J)
       IRType tc = tref_isinteger(rc) ? IRT_INT : tref_type(rc);
       int irop;
 #if LJ_54 && LJ_DUALNUM
-      if (rec_lua54_tref_isinteger(ra) && rec_lua54_tref_isinteger(rc) &&
+      if ((rec_lua54_tref_isi64(ra) || rec_lua54_tref_isi64(rc) ||
+	   tvisi64(rav) || tvisi64(rcv)) &&
+	  rec_lua54_tref_isinteger(ra) && rec_lua54_tref_isinteger(rc) &&
 	  rec_lua54_tv_isinteger(rav) && rec_lua54_tv_isinteger(rcv)) {
 	rec_comp_prep(J);
 	irop = (int)op - (int)BC_ISLT + (int)IR_LT;
@@ -3154,10 +3568,15 @@ void lj_record_ins(jit_State *J)
 	break;
       }
       if (((ta == IRT_INT64 && tc == IRT_NUM) ||
-	   (ta == IRT_NUM && tc == IRT_INT64)) &&
+	   (ta == IRT_NUM && tc == IRT_INT64)
+#if LJ_TARGET_ARM64
+	   || (tref_type(ra) == IRT_I64 && tc == IRT_NUM)
+	   || (ta == IRT_NUM && tref_type(rc) == IRT_I64)
+#endif
+	  ) &&
 	  ((rec_lua54_tv_isinteger(rav) && tvisnum(rcv)) ||
 	   (tvisnum(rav) && rec_lua54_tv_isinteger(rcv)))) {
-	int emitop, mode;
+	int emitop, mode, lefti64 = rec_lua54_tref_isi64(ra);
 	TRef cmp;
 	rec_comp_prep(J);
 	irop = (int)op - (int)BC_ISLT + (int)IR_LT;
@@ -3165,7 +3584,7 @@ void lj_record_ins(jit_State *J)
 	emitop = irop;
 	if (!rec_lua54_i64numcmp(rav, rcv, (IROp)irop))
 	  emitop ^= 1;
-	cmp = ta == IRT_INT64 ?
+	cmp = lefti64 ?
 	  lj_ir_call(J, IRCALL_lj_obj_i64cmpnum, rec_lua54_i64ref(J, ra),
 		     rc, lj_ir_kint(J, mode)) :
 	  lj_ir_call(J, IRCALL_lj_obj_numcmpi64, ra,
@@ -3330,7 +3749,16 @@ void lj_record_ins(jit_State *J)
 	break;
       }
 #if LJ_TARGET_ARM64
-      rc = tref_isinteger(tr) ? tr : rec_lua54_i64result_raw(J, tr, rv);
+      if (tref_isinteger(tr)) {
+	rc = tr;
+      } else if (rec_lua54_box_loopcarried_i64(J, bc_a(ins), lbase) &&
+		 rec_lua54_next_loopback_keeps_slot(J, bc_a(ins))) {
+	rc = rec_lua54_store_owned_i64(J, J->base[bc_a(ins)], tr, bc_a(ins));
+      } else if (rec_lua54_next_bitop_operand(J, bc_a(ins))) {
+	rc = rec_lua54_i64result_raw(J, tr, rv);
+      } else {
+	rc = rec_lua54_i64result_raw(J, tr, rv);
+      }
 #else
       rc = tref_isinteger(tr) ? tr : rec_lua54_i64result(J, tr, rv);
 #endif
@@ -3347,14 +3775,26 @@ void lj_record_ins(jit_State *J)
   case BC_UNM:
 #if LJ_54 && LJ_DUALNUM
     if (rec_lua54_tref_isinteger(rc) && rec_lua54_tv_isinteger(rcv)) {
-      rc = rec_lua54_unm_int(J, rc, rcv);
+#if LJ_TARGET_ARM64
+      rc = rec_lua54_unm_int(J, rc, rcv,
+			     rec_lua54_next_unm_operand(J, bc_a(ins)) ||
+			     rec_lua54_next_mod_operand(J, bc_a(ins)));
+#else
+      rc = rec_lua54_unm_int(J, rc, rcv, 0);
+#endif
       break;
     } else {
       int64_t ic;
       TRef irc;
       if (rec_lua54_tv_toint64(rcv, &ic) &&
 	  (irc = rec_lua54_toint64ref(J, rc, rcv))) {
-	rc = rec_lua54_unm_intref(J, irc, ic);
+#if LJ_TARGET_ARM64
+	rc = rec_lua54_unm_intref(J, irc, ic,
+				  rec_lua54_next_unm_operand(J, bc_a(ins)) ||
+				  rec_lua54_next_mod_operand(J, bc_a(ins)));
+#else
+	rc = rec_lua54_unm_intref(J, irc, ic, 0);
+#endif
 	break;
       }
     }
@@ -3382,10 +3822,33 @@ void lj_record_ins(jit_State *J)
     MMS mm = bcmode_mm(op);
 #if LJ_54 && LJ_DUALNUM
     IROp irop = (int)mm - (int)MM_add + (int)IR_ADD;
+#if LJ_TARGET_ARM64
+    int rawtmp = rec_lua54_next_tgetv_key(J, bc_a(ins)) ||
+		 rec_lua54_next_comp_operand(J, bc_a(ins)) ||
+		 rec_lua54_next_unm_operand(J, bc_a(ins)) ||
+		 rec_lua54_next_arith_bitop_operand(J, bc_a(ins)) ||
+		 rec_lua54_next_string_format_arg(J, bc_a(ins)) ||
+		 rec_lua54_next_math_minmax_arg(J, bc_a(ins));
+#endif
     if (rec_lua54_tref_isnumeric(rb) && rec_lua54_tref_isnumeric(rc)) {
       if (irop <= IR_MUL && rec_lua54_tv_isinteger(rbv) &&
 	  rec_lua54_tv_isinteger(rcv)) {
-	rc = rec_lua54_arith_int(J, rb, rc, rbv, rcv, mm);
+#if LJ_TARGET_ARM64
+	TRef tr = rec_lua54_arith_i32(J, rb, rc, rbv, rcv, mm);
+	if (tr) {
+	  rc = tr;
+	} else if (rec_lua54_loopcarried_arith_i64(J, ins, rb, rc, lbase)) {
+	  rc = rec_lua54_arith_intref_owned(J, rec_lua54_i64ref(J, rb),
+					    rec_lua54_i64ref(J, rc),
+					    rec_lua54_tv_i64(rbv),
+					    rec_lua54_tv_i64(rcv), mm,
+					    J->base[bc_a(ins)], bc_a(ins));
+	} else {
+	  rc = rec_lua54_arith_int(J, rb, rc, rbv, rcv, mm, rawtmp);
+	}
+#else
+	rc = rec_lua54_arith_int(J, rb, rc, rbv, rcv, mm, 0);
+#endif
       } else {
 	rc = emitir(IRTN(irop), rec_lua54_numref(J, rb),
 		    rec_lua54_numref(J, rc));
@@ -3400,6 +3863,9 @@ void lj_record_ins(jit_State *J)
 	    (irb = rec_lua54_toint64ref(J, rb, rbv)) &&
 	    (irc = rec_lua54_toint64ref(J, rc, rcv))) {
 	  rc = rec_lua54_arith_intref(J, irb, irc, ib, ic, mm,
+#if LJ_TARGET_ARM64
+				      rawtmp ||
+#endif
 				      tref_type(rb) == IRT_I64 ||
 				      tref_type(rc) == IRT_I64);
 	  break;
@@ -3424,6 +3890,11 @@ void lj_record_ins(jit_State *J)
   case BC_MODVN: case BC_MODVV:
   recmod:
 #if LJ_54 && LJ_DUALNUM
+    if (tvisint(rbv) && tvisint(rcv) && intV(rcv) != 0 &&
+	tref_isinteger(rb) && tref_isinteger(rc)) {
+      rc = lj_opt_narrow_mod(J, rb, rc, rbv, rcv);
+      break;
+    }
     {
       int64_t ib, ic;
       TRef irb, irc;
@@ -3439,6 +3910,14 @@ void lj_record_ins(jit_State *J)
       }
     }
     if (tref_isnumber_str(rb) && tref_isnumber_str(rc)) {
+#if LJ_TARGET_ARM64
+      TRef nb = rec_lua54_tonumref(J, rb, rbv);
+      TRef nc = rec_lua54_tonumref(J, rc, rcv);
+      if (nb && nc) {
+	rc = lj_ir_call(J, IRCALL_lj_vm_lua54fmod, nb, nc);
+	break;
+      }
+#endif
       /* Lua 5.4 float modulo uses the official fmod formula; the narrowing
       ** recorder would bake the floor-based one, so stay interpreted.
       */
@@ -3458,6 +3937,17 @@ void lj_record_ins(jit_State *J)
 #if LJ_54
   case BC_IDIV:
 #if LJ_DUALNUM
+#if LJ_TARGET_ARM64
+    if (tvisint(rbv) && tvisint(rcv) && intV(rcv) > 0 &&
+	tref_isinteger(rb) && tref_isinteger(rc) && tref_isk(rc)) {
+      int32_t k = intV(rcv);
+	    if ((k & (k-1)) == 0)
+	      rc = emitir(IRTI(IR_BSAR), rb, lj_ir_kint(J, lj_fls((uint32_t)k)));
+	    else
+	      rc = emitir(IRTI(IR_DIV), rb, rc);
+	    break;
+	  }
+#endif
     {
       int64_t ib, ic;
       TRef irb, irc;
@@ -3507,6 +3997,20 @@ void lj_record_ins(jit_State *J)
   /* -- Miscellaneous ops ------------------------------------------------- */
 
   case BC_CAT:
+#if LJ_54 && LJ_TARGET_ARM64
+    {
+      TRef trb = getslot(J, rb), trc = getslot(J, rc);
+      int len1 = (tref_isstr(trb) && tref_isk(trb) &&
+		  ir_kstr(IR(tref_ref(trb)))->len == 1) ||
+		 (tref_isstr(trc) && tref_isk(trc) &&
+		  ir_kstr(IR(tref_ref(trc)))->len == 1);
+      if (tref_isstr(trb) && tref_isstr(trc) && len1) {
+	J->pt->flags |= PROTO_NOJIT;
+	setintV(&J->errinfo, (int32_t)op);
+	lj_trace_err_info(J, LJ_TRERR_NYIBC);
+      }
+    }
+#endif
     rc = rec_cat(J, rb, rc);
     if (rc >= 0xffffff00)
       lj_err_throw(J->L, -(int32_t)rc);  /* Propagate errors. */

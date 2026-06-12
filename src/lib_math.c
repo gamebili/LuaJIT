@@ -63,6 +63,13 @@ static int math_tointeger54(lua_State *L, int narg, lua_Integer *ip, int *isnum)
   if (tvisstr(o)) {
     GCstr *s = strV(o);
     StrScanFmt fmt;
+#if LJ_TARGET_ARM64
+    if (lj_strscan_toint64try54(s, &k)) {
+      if (isnum) *isnum = 1;
+      *ip = (lua_Integer)k;
+      return 1;
+    }
+#endif
     if (lj_strscan_rejectnum54(strdata(s), s->len))
       return 0;
     fmt = lj_strscan_scan((const uint8_t *)strdata(s), s->len, &tmp,
@@ -222,6 +229,8 @@ static lua_Number math_checknum_named54(lua_State *L, int narg,
   math_argtype_named54(L, narg, fname, "number");
   return 0;  /* unreachable */
 }
+
+static int math_minmax54(lua_State *L, int ismax);
 
 #endif
 
@@ -389,9 +398,56 @@ LJLIB_ASM(math_ldexp)		LJLIB_REC(.)
 
 LJLIB_ASM(math_min)		LJLIB_REC(math_minmax IR_MIN)
 {
+#if LJ_54 && LJ_TARGET_ARM64
+  int nres;
+  cTValue *base = L->base;
+  cTValue *topv = L->top;
+  cTValue *bestv = base;
+  int ismax = curr_func(L)->c.ffid == FF_math_max;
+  if (base < topv && (tvisint(bestv) || tvisi64(bestv))) {
+    int64_t besti = tvisint(bestv) ? (int64_t)intV(bestv) :
+				    (int64_t)i64V(bestv);
+    cTValue *o;
+    if (topv == base + 2) {
+      int64_t oi;
+      o = base + 1;
+      if (tvisint(o))
+	oi = (int64_t)intV(o);
+      else if (tvisi64(o))
+	oi = (int64_t)i64V(o);
+      else
+	goto generic_minmax54;
+      if (ismax ? (besti < oi) : (oi < besti))
+	bestv = o;
+      copyTV(L, L->base-1-LJ_FR2, bestv);
+      return FFH_RES(1);
+    }
+    for (o = base + 1; o < topv; o++) {
+      int64_t oi;
+      if (tvisint(o))
+	oi = (int64_t)intV(o);
+      else if (tvisi64(o))
+	oi = (int64_t)i64V(o);
+      else
+	goto generic_minmax54;
+      if (ismax ? (besti < oi) : (oi < besti)) {
+	besti = oi;
+	bestv = o;
+      }
+    }
+    copyTV(L, L->base-1-LJ_FR2, bestv);
+    return FFH_RES(1);
+  }
+generic_minmax54:
+  nres = math_minmax54(L, curr_func(L)->c.ffid == FF_math_max);
+  copyTV(L, L->base-1-LJ_FR2, L->top-1);
+  L->top--;
+  return FFH_RES(nres);
+#else
   int i = 0;
   do { lj_lib_checknumber(L, ++i); } while (L->base+i < L->top);
   return FFH_RETRY;
+#endif
 }
 LJLIB_ASM_(math_max)		LJLIB_REC(math_minmax IR_MAX)
 
@@ -401,10 +457,42 @@ LJLIB_PUSH(1e310) LJLIB_SET(huge)
 #if LJ_54
 static int math_minmax54(lua_State *L, int ismax)
 {
-  int i, top = lua_gettop(L);
+  int i;
+#if LJ_TARGET_ARM64
+  int top = (int)(L->top - L->base);
+#else
+  int top = lua_gettop(L);
+#endif
   int best = 1;
   if (L->base >= L->top)
     math_argvalue_named54(L, 1, ismax ? "math.max" : "math.min");
+#if LJ_TARGET_ARM64
+  {
+    TValue *base = L->base;
+    TValue *bestv = base;
+    if (tvisint(bestv) || tvisi64(bestv)) {
+      int64_t besti = tvisint(bestv) ? (int64_t)intV(bestv) :
+				      (int64_t)i64V(bestv);
+      for (i = 1; i < top; i++) {
+	TValue *o = base + i;
+	int64_t oi;
+	if (tvisint(o))
+	  oi = (int64_t)intV(o);
+	else if (tvisi64(o))
+	  oi = (int64_t)i64V(o);
+	else
+	  goto generic;
+	if (ismax ? (besti < oi) : (oi < besti)) {
+	  besti = oi;
+	  bestv = o;
+	}
+      }
+      copyTV(L, L->top++, bestv);
+      return 1;
+    }
+  }
+generic:
+#endif
   /* Lua 5.4 math.min/max use ordinary < comparisons, so strings and objects
   ** with __lt are valid; only the zero-argument case is a value error.
   */
@@ -418,6 +506,7 @@ static int math_minmax54(lua_State *L, int ismax)
   return 1;
 }
 
+#if !LJ_TARGET_ARM64
 static int lj_cf_math_min54(lua_State *L)
 {
   return math_minmax54(L, 0);
@@ -427,6 +516,7 @@ static int lj_cf_math_max54(lua_State *L)
 {
   return math_minmax54(L, 1);
 }
+#endif
 
 static int lj_cf_math_type(lua_State *L)
 {
@@ -633,6 +723,17 @@ LJLIB_CF(math_ult)		LJLIB_REC(lua54_ult)
 {
   lua_Integer a, b;
   int isnum;
+#if LJ_TARGET_ARM64
+  cTValue *o1 = L->base;
+  cTValue *o2 = L->base + 1;
+  if (o2 < L->top &&
+      (tvisint(o1) || tvisi64(o1)) && (tvisint(o2) || tvisi64(o2))) {
+    a = tvisint(o1) ? (lua_Integer)intV(o1) : (lua_Integer)i64V(o1);
+    b = tvisint(o2) ? (lua_Integer)intV(o2) : (lua_Integer)i64V(o2);
+    setboolV(L->top++, (lua_Unsigned)a < (lua_Unsigned)b);
+    return 1;
+  }
+#endif
   if (!math_tointeger54(L, 1, &a, &isnum)) {
     if (isnum)
       lj_err_callermsg(L, lj_strfmt_pushf(L, "bad argument #1 to '%s' "
@@ -899,10 +1000,12 @@ LUALIB_API int luaopen_math(lua_State *L)
   lua_setfield(L, -2, "tointeger");
   lj_lib_pushcf(L, lj_cf_math_ult, FF_math_ult);
   lua_setfield(L, -2, "ult");
+#if !LJ_TARGET_ARM64
   lj_lib_pushcf(L, lj_cf_math_min54, FF_math_min);
   lua_setfield(L, -2, "min");
   lj_lib_pushcf(L, lj_cf_math_max54, FF_math_max);
   lua_setfield(L, -2, "max");
+#endif
   lj_lib_pushcf(L, lj_cf_math_floor54, FF_math_floor);
   lua_setfield(L, -2, "floor");
   lj_lib_pushcf(L, lj_cf_math_ceil54, FF_math_ceil);

@@ -344,9 +344,19 @@ SBuf * LJ_FASTCALL lj_strfmt_putint(SBuf *sb, int32_t k)
 
 SBuf * LJ_FASTCALL lj_strfmt_puti64(SBuf *sb, int64_t k)
 {
+#if LJ_54 && LJ_TARGET_ARM64
+  char buf[STRFMT_MAXBUF_I64];
+  char *p;
+  if (checki32(k))
+    return lj_strfmt_putint(sb, (int32_t)k);
+  p = strfmt_wi64(buf, k);
+  lj_buf_putmem(sb, buf, (MSize)(p - buf));
+  return sb;
+#else
   if (checki32(k))
     return lj_strfmt_putint(sb, (int32_t)k);
   return lj_strfmt_putfxint(sb, STRFMT_INT, (uint64_t)k);
+#endif
 }
 
 #if LJ_HASJIT
@@ -1096,4 +1106,3 @@ const char *lj_strfmt_pushf(lua_State *L, const char *fmt, ...)
   va_end(argp);
   return msg;
 }
-

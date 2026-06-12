@@ -190,6 +190,11 @@ IRFPMDEF(FPMENUM)
 } IRFPMathOp;
 
 /* FLOAD fields. */
+#if LJ_54 && LJ_TARGET_ARM64
+#define IRFL_INT64_OWNER(_) _(INT64_OWNER, offsetof(GCint64, owner))
+#else
+#define IRFL_INT64_OWNER(_)
+#endif
 #define IRFLDEF(_) \
   _(STR_LEN,	offsetof(GCstr, len)) \
   _(FUNC_ENV,	offsetof(GCfunc, l.env)) \
@@ -216,7 +221,8 @@ IRFPMDEF(FPMENUM)
   _(CDATA_INT,	sizeof(GCcdata)) \
   _(CDATA_INT64, sizeof(GCcdata)) \
   _(CDATA_INT64_4, sizeof(GCcdata) + 4) \
-  _(INT64_VALUE, offsetof(GCint64, i))
+  _(INT64_VALUE, offsetof(GCint64, i)) \
+  IRFL_INT64_OWNER(_)
 
 typedef enum {
 #define FLENUM(name, ofs)	IRFL_##name,

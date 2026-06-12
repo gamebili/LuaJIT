@@ -10,12 +10,14 @@
 #define LUA_LIB
 
 #include <math.h>
+#include <string.h>
 
 #include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
 
 #include "lj_obj.h"
+#include "lj_bc.h"
 #include "lj_gc.h"
 #include "lj_err.h"
 #include "lj_debug.h"
@@ -25,6 +27,8 @@
 #include "lj_meta.h"
 #include "lj_ff.h"
 #include "lj_lib.h"
+#include "lj_state.h"
+#include "lj_str.h"
 #include "lj_strscan.h"
 #include "lj_strfmt.h"
 #include "lj_vm.h"
@@ -96,7 +100,41 @@ static int32_t table_array_highest(GCtab *t)
 {
   TValue *array = tvref(t->array);
   ptrdiff_t i;
+#if LJ_TARGET_ARM64 && LJ_GC64
+  for (i = (ptrdiff_t)t->asize - 1; i >= 8; i -= 8) {
+    uint64_t allnil = (uint64_t)array[i].it64 &
+      (uint64_t)array[i-1].it64 & (uint64_t)array[i-2].it64 &
+      (uint64_t)array[i-3].it64 & (uint64_t)array[i-4].it64 &
+      (uint64_t)array[i-5].it64 & (uint64_t)array[i-6].it64 &
+      (uint64_t)array[i-7].it64;
+    if (allnil != ~(uint64_t)0) {
+      if (!tvisnil(&array[i])) return (int32_t)i;
+      if (!tvisnil(&array[i-1])) return (int32_t)(i-1);
+      if (!tvisnil(&array[i-2])) return (int32_t)(i-2);
+      if (!tvisnil(&array[i-3])) return (int32_t)(i-3);
+      if (!tvisnil(&array[i-4])) return (int32_t)(i-4);
+      if (!tvisnil(&array[i-5])) return (int32_t)(i-5);
+      if (!tvisnil(&array[i-6])) return (int32_t)(i-6);
+      if (!tvisnil(&array[i-7])) return (int32_t)(i-7);
+    }
+  }
+#elif LJ_TARGET_ARM64
+  for (i = (ptrdiff_t)t->asize - 1; i >= 8; i -= 8) {
+    if (!tvisnil(&array[i])) return (int32_t)i;
+    if (!tvisnil(&array[i-1])) return (int32_t)(i-1);
+    if (!tvisnil(&array[i-2])) return (int32_t)(i-2);
+    if (!tvisnil(&array[i-3])) return (int32_t)(i-3);
+    if (!tvisnil(&array[i-4])) return (int32_t)(i-4);
+    if (!tvisnil(&array[i-5])) return (int32_t)(i-5);
+    if (!tvisnil(&array[i-6])) return (int32_t)(i-6);
+    if (!tvisnil(&array[i-7])) return (int32_t)(i-7);
+  }
+#else
   for (i = (ptrdiff_t)t->asize - 1; i > 0; i--)
+    if (!tvisnil(&array[i]))
+      return (int32_t)i;
+#endif
+  for (; i > 0; i--)
     if (!tvisnil(&array[i]))
       return (int32_t)i;
   return 0;
@@ -309,6 +347,24 @@ static int32_t table_len54(lua_State *L, GCtab *t, int narg)
   return len;
 }
 
+#if LJ_TARGET_ARM64
+static int32_t table_raw_len_nometa54(GCtab *t)
+{
+  int32_t len = (int32_t)lj_tab_len(t);
+  if (len < (int32_t)t->asize-1) {
+    int32_t ahigh = table_array_highest(t);
+    if (ahigh > len) len = ahigh;
+  }
+  return len;
+}
+
+static LJ_AINLINE int table_raw_array_range54(GCtab *t, lua_Integer first,
+					      lua_Integer last)
+{
+  return first >= 0 && last >= first && (uint64_t)last < (uint64_t)t->asize;
+}
+#endif
+
 static lua_Integer table_checkinteger_named54(lua_State *L, int narg,
 					      const char *fname)
 {
@@ -353,6 +409,20 @@ LJLIB_CF(table_insert)		LJLIB_REC(.)
   lua_Integer e;
   lua_Integer n, pos;
   int nargs = (int)(L->top - L->base);
+#if LJ_TARGET_ARM64
+  if (nargs == 2 && tvistab(L->base)) {
+    GCtab *t = tabV(L->base);
+    if (!tabref(t->metatable)) {
+      int32_t len = table_raw_len_nometa54(t);
+      if (len < INT32_MAX) {
+	TValue *dst = lj_tab_setint(L, t, len + 1);
+	copyTV(L, dst, L->base + 1);
+	lj_gc_barriert(L, t, dst);
+	return 0;
+      }
+    }
+  }
+#endif
   table_checktab_like54(L, 1, LJ_TABLE_TAB_RW|LJ_TABLE_TAB_L,
 			"table.insert");
   e = (lua_Integer)((lua_Unsigned)table_len_integer_obj54(L, 1) +
@@ -372,6 +442,19 @@ LJLIB_CF(table_insert)		LJLIB_REC(.)
   /* Lua 5.4 rejects non-integer positions and out-of-range insert slots before
   ** moving elements; only the compatibility build gets the stricter contract.
   */
+#if LJ_TARGET_ARM64
+  if (nargs == 3 && tvistab(L->base)) {
+    GCtab *t = tabV(L->base);
+    if (!tabref(t->metatable) && table_raw_array_range54(t, pos, e)) {
+      TValue *array = tvref(t->array);
+      memmove(&array[pos+1], &array[pos],
+	      (size_t)(e - pos) * sizeof(TValue));
+      copyTV(L, &array[pos], L->base + 2);
+      lj_gc_barriert(L, t, &array[pos]);
+      return 0;
+    }
+  }
+#endif
   for (n = e; n > pos; n--) {
     /* Lua 5.4 table.insert observes __index/__newindex while shifting
     ** sequence slots, so proxy tables are updated through their metatables.
@@ -459,6 +542,32 @@ static int lj_cf_table_remove54(lua_State *L)
   lua_Integer len;
   lua_Integer pos;
   cTValue *posv = L->base + 1;
+#if LJ_TARGET_ARM64
+  if ((posv >= L->top || tvisnil(posv)) && tvistab(L->base)) {
+    GCtab *t = tabV(L->base);
+    if (!tabref(t->metatable)) {
+      int32_t rawlen = table_raw_len_nometa54(t);
+      int32_t key = rawlen > 0 ? rawlen : 0;
+      if (table_raw_array_range54(t, key, key)) {
+	TValue *array = tvref(t->array);
+	copyTV(L, L->top, &array[key]);
+	L->top++;
+	setnilV(&array[key]);
+	return 1;
+      } else if (rawlen >= 0) {
+	cTValue *src = lj_tab_getint(t, key);
+	TValue *dst = lj_tab_setint(L, t, key);
+	if (src)
+	  copyTV(L, L->top, src);
+	else
+	  setnilV(L->top);
+	L->top++;
+	setnilV(dst);
+	return 1;
+      }
+    }
+  }
+#endif
   table_checktab_like54(L, 1, LJ_TABLE_TAB_RW|LJ_TABLE_TAB_L,
 			"table.remove");
   len = table_len_integer_obj54(L, 1);
@@ -472,6 +581,40 @@ static int lj_cf_table_remove54(lua_State *L)
   /* Lua 5.4 table.remove uses lua_Integer for both length and position,
   ** including proxy tables whose __len returns keys outside the int32 range.
   */
+#if LJ_TARGET_ARM64
+  if (tvistab(L->base)) {
+    GCtab *t = tabV(L->base);
+    if (!tabref(t->metatable)) {
+      if (len == 0 && pos == 0) {
+	if (table_raw_array_range54(t, 0, 0)) {
+	  TValue *array = tvref(t->array);
+	  copyTV(L, L->top, &array[0]);
+	  setnilV(&array[0]);
+	} else {
+	  cTValue *src = lj_tab_getint(t, 0);
+	  TValue *dst = lj_tab_setint(L, t, 0);
+	  if (src)
+	    copyTV(L, L->top, src);
+	  else
+	    setnilV(L->top);
+	  setnilV(dst);
+	}
+	L->top++;
+	return 1;
+      } else if (len >= 1 && table_raw_array_range54(t, pos, len)) {
+	TValue *array = tvref(t->array);
+	copyTV(L, L->top, &array[pos]);
+	L->top++;
+	if (pos < len) {
+	  memmove(&array[pos], &array[pos+1],
+		  (size_t)(len - pos) * sizeof(TValue));
+	}
+	setnilV(&array[len]);
+	return 1;
+      }
+    }
+  }
+#endif
   lua_geti(L, 1, pos);
   for (; pos < len; pos++) {
     lua_geti(L, 1, pos + 1);
@@ -507,6 +650,21 @@ static int lj_cf_table_move54(lua_State *L)
     n = e - f + 1;
     if (tt > LUA_MAXINTEGER - n + 1)
       table_argerror_named54(L, 4, "table.move", "destination wrap around");
+#if LJ_TARGET_ARM64
+    if (tvistab(L->base) && (target == 1 || tvistab(L->base+4))) {
+      GCtab *src = tabV(L->base);
+      GCtab *dst = target == 1 ? src : tabV(L->base+4);
+      lua_Integer last = tt + n - 1;
+      if (src == dst && !tabref(src->metatable) &&
+	  table_raw_array_range54(src, f, e) &&
+	  table_raw_array_range54(dst, tt, last)) {
+	TValue *array = tvref(src->array);
+	memmove(&array[tt], &array[f], (size_t)n * sizeof(TValue));
+	lua_pushvalue(L, target);
+	return 1;
+      }
+    }
+#endif
     if (tt > e || tt <= f || (target != 1 &&
 			      !lua_compare(L, 1, target, LUA_OPEQ))) {
       for (i = f; ; i++) {
@@ -531,6 +689,31 @@ static int lj_cf_table_move54(lua_State *L)
 #endif
 
 #if LJ_54
+static int table_concat_raw54(lua_State *L, GCstr *sep, lua_Integer i,
+			      lua_Integer e)
+{
+#if LJ_TARGET_ARM64
+  SBuf *sb, *sbx;
+  GCtab *t;
+  if (!tvistab(L->base) || tabref(tabV(L->base)->metatable) ||
+      i < (lua_Integer)INT32_MIN || i > (lua_Integer)INT32_MAX ||
+      e < (lua_Integer)INT32_MIN || e > (lua_Integer)INT32_MAX)
+    return 0;
+  t = tabV(L->base);
+  sb = lj_buf_tmp_(L);
+  sbx = lj_buf_puttab(sb, t, sep, (int32_t)i, (int32_t)e);
+  if (LJ_UNLIKELY(!sbx))
+    return 0;
+  L->top = L->base;
+  setstrV(L, L->top++,
+	  lj_str_new_noscan(L, sbx->b, (size_t)sbuflen(sbx)));
+  return 1;
+#else
+  UNUSED(L); UNUSED(sep); UNUSED(i); UNUSED(e);
+  return 0;
+#endif
+}
+
 static int table_concat54(lua_State *L, GCstr *sep, lua_Integer i,
 			  lua_Integer e)
 {
@@ -593,6 +776,8 @@ LJLIB_CF(table_concat)		LJLIB_REC(.)
   }
 #endif
 #if LJ_54
+  if (table_concat_raw54(L, sep, i, e))
+    return 1;
   return table_concat54(L, sep, i, e);
 #else
   sb = lj_buf_tmp_(L);
@@ -611,6 +796,12 @@ LJLIB_CF(table_concat)		LJLIB_REC(.)
 
 /* ------------------------------------------------------------------------ */
 
+#if LJ_54
+#define sort_geti(L, i)	lua_geti((L), 1, (i))
+#else
+#define sort_geti(L, i)	lua_rawgeti((L), 1, (i))
+#endif
+
 static void set2(lua_State *L, int i, int j)
 {
 #if LJ_54
@@ -625,22 +816,31 @@ static void set2(lua_State *L, int i, int j)
 #endif
 }
 
-#if LJ_54
-#define sort_geti(L, i)	lua_geti((L), 1, (i))
-#else
-#define sort_geti(L, i)	lua_rawgeti((L), 1, (i))
-#endif
-
 static int sort_comp(lua_State *L, int a, int b)
 {
   if (!lua_isnil(L, 2)) {  /* function? */
     int res;
+#if LJ_54 && LJ_TARGET_ARM64
+    TValue *top;
+    lj_state_checkstack(L, 3);
+    top = L->top;
+    copyTV(L, top, L->base+1);
+    copyTV(L, top+1, top+a);
+    copyTV(L, top+2, top+b);
+    L->top = top+3;
+#else
     lua_pushvalue(L, 2);
     lua_pushvalue(L, a-1);  /* -1 to compensate function */
     lua_pushvalue(L, b-2);  /* -2 to compensate function and `a' */
+#endif
     lua_call(L, 2, 1);
+#if LJ_54 && LJ_TARGET_ARM64
+    res = tvistruecond(L->top-1);
+    L->top--;
+#else
     res = lua_toboolean(L, -1);
     lua_pop(L, 1);
+#endif
     return res;
   } else {  /* a < b? */
 #if LJ_54
@@ -659,26 +859,155 @@ static int sort_comp(lua_State *L, int a, int b)
 }
 
 #if LJ_54 && LJ_TARGET_ARM64
-static LJ_AINLINE void sort_raw_int_swap54(TValue *array, int i, int j)
+typedef enum {
+  SORT_RAW_INT54,
+  SORT_RAW_I6454,
+  SORT_RAW_NUM54,
+  SORT_RAW_STR54
+} SortRawKind54;
+
+static LJ_AINLINE void sort_raw_swap54(TValue *array, int i, int j)
 {
   TValue tmp = array[i];
   array[i] = array[j];
   array[j] = tmp;
 }
 
-static LJ_AINLINE int sort_raw_int_lt54(TValue *array, int i, int j)
+static LJ_AINLINE int64_t sort_raw_i64v54(cTValue *o)
 {
-  return intV(&array[i]) < intV(&array[j]);
+  return tvisint(o) ? (int64_t)intV(o) : i64V(o);
 }
 
-static void sort_raw_int_insert54(TValue *array, int l, int u)
+static LJ_AINLINE uint32_t sort_raw_xor16key54(cTValue *o, uint32_t salt)
+{
+  return (uint32_t)(((uint64_t)sort_raw_i64v54(o) ^ salt) & 0xffffu);
+}
+
+static LJ_AINLINE int sort_raw_lt54(TValue *array, int i, int j,
+				    SortRawKind54 kind)
+{
+  if (kind == SORT_RAW_INT54)
+    return intV(&array[i]) < intV(&array[j]);
+  else if (kind == SORT_RAW_I6454)
+    return sort_raw_i64v54(&array[i]) < sort_raw_i64v54(&array[j]);
+  else if (kind == SORT_RAW_STR54)
+    return lj_str_cmp_locale(strV(&array[i]), strV(&array[j])) < 0;
+  else
+    return numV(&array[i]) < numV(&array[j]);
+}
+
+static void sort_raw_insert54(TValue *array, int l, int u, SortRawKind54 kind)
 {
   int i;
   for (i = l+1; i <= u; i++) {
     TValue tv = array[i];
-    int32_t v = intV(&tv);
     int j = i-1;
-    while (j >= l && intV(&array[j]) > v) {
+    if (kind == SORT_RAW_INT54) {
+      int32_t v = intV(&tv);
+      while (j >= l && intV(&array[j]) > v) {
+	array[j+1] = array[j];
+	j--;
+      }
+    } else if (kind == SORT_RAW_I6454) {
+      int64_t v = sort_raw_i64v54(&tv);
+      while (j >= l && sort_raw_i64v54(&array[j]) > v) {
+	array[j+1] = array[j];
+	j--;
+      }
+    } else if (kind == SORT_RAW_STR54) {
+      GCstr *v = strV(&tv);
+      while (j >= l && lj_str_cmp_locale(strV(&array[j]), v) > 0) {
+	array[j+1] = array[j];
+	j--;
+      }
+    } else {
+      lua_Number v = numV(&tv);
+      while (j >= l && numV(&array[j]) > v) {
+	array[j+1] = array[j];
+	j--;
+      }
+    }
+    array[j+1] = tv;
+  }
+}
+
+static void sort_raw_quick54(TValue *array, int l, int u, SortRawKind54 kind)
+{
+  while (u-l > 15) {
+    int p = (l+u) >> 1;
+    int i, j;
+    TValue pivot;
+    if (sort_raw_lt54(array, p, l, kind))
+      sort_raw_swap54(array, p, l);
+    if (sort_raw_lt54(array, u, p, kind)) {
+      sort_raw_swap54(array, u, p);
+      if (sort_raw_lt54(array, p, l, kind))
+	sort_raw_swap54(array, p, l);
+    }
+    sort_raw_swap54(array, p, u-1);
+    pivot = array[u-1];
+    i = l;
+    j = u-1;
+    if (kind == SORT_RAW_INT54) {
+      int32_t pv = intV(&pivot);
+      for (;;) {
+	do { i++; } while (intV(&array[i]) < pv);
+	do { j--; } while (pv < intV(&array[j]));
+	if (j < i)
+	  break;
+	sort_raw_swap54(array, i, j);
+      }
+    } else if (kind == SORT_RAW_I6454) {
+      int64_t pv = sort_raw_i64v54(&pivot);
+      for (;;) {
+	do { i++; } while (sort_raw_i64v54(&array[i]) < pv);
+	do { j--; } while (pv < sort_raw_i64v54(&array[j]));
+	if (j < i)
+	  break;
+	sort_raw_swap54(array, i, j);
+      }
+    } else if (kind == SORT_RAW_STR54) {
+      GCstr *pv = strV(&pivot);
+      for (;;) {
+	do { i++; } while (lj_str_cmp_locale(strV(&array[i]), pv) < 0);
+	do { j--; } while (lj_str_cmp_locale(pv, strV(&array[j])) < 0);
+	if (j < i)
+	  break;
+	sort_raw_swap54(array, i, j);
+      }
+    } else {
+      lua_Number pv = numV(&pivot);
+      for (;;) {
+	do { i++; } while (numV(&array[i]) < pv);
+	do { j--; } while (pv < numV(&array[j]));
+	if (j < i)
+	  break;
+	sort_raw_swap54(array, i, j);
+      }
+    }
+    array[u-1] = array[i];
+    array[i] = pivot;
+    if (i-l < u-i) {
+      sort_raw_quick54(array, l, i-1, kind);
+      l = i+1;
+    } else {
+      sort_raw_quick54(array, i+1, u, kind);
+      u = i-1;
+    }
+  }
+  if (l < u)
+    sort_raw_insert54(array, l, u, kind);
+}
+
+static void sort_raw_keyxor16_insert54(TValue *array, int l, int u,
+				       uint32_t salt)
+{
+  int i;
+  for (i = l+1; i <= u; i++) {
+    TValue tv = array[i];
+    uint32_t key = sort_raw_xor16key54(&tv, salt);
+    int j = i-1;
+    while (j >= l && sort_raw_xor16key54(&array[j], salt) > key) {
       array[j+1] = array[j];
       j--;
     }
@@ -686,62 +1015,189 @@ static void sort_raw_int_insert54(TValue *array, int l, int u)
   }
 }
 
-static void sort_raw_int_quick54(TValue *array, int l, int u)
+static void sort_raw_keyxor16_quick54(TValue *array, int l, int u,
+				      uint32_t salt)
 {
   while (u-l > 15) {
     int p = (l+u) >> 1;
     int i, j;
     TValue pivot;
-    int32_t pv;
-    if (sort_raw_int_lt54(array, p, l))
-      sort_raw_int_swap54(array, p, l);
-    if (sort_raw_int_lt54(array, u, p)) {
-      sort_raw_int_swap54(array, u, p);
-      if (sort_raw_int_lt54(array, p, l))
-	sort_raw_int_swap54(array, p, l);
+    if (sort_raw_xor16key54(&array[p], salt) <
+	sort_raw_xor16key54(&array[l], salt))
+      sort_raw_swap54(array, p, l);
+    if (sort_raw_xor16key54(&array[u], salt) <
+	sort_raw_xor16key54(&array[p], salt)) {
+      sort_raw_swap54(array, u, p);
+      if (sort_raw_xor16key54(&array[p], salt) <
+	  sort_raw_xor16key54(&array[l], salt))
+	sort_raw_swap54(array, p, l);
     }
-    sort_raw_int_swap54(array, p, u-1);
+    sort_raw_swap54(array, p, u-1);
     pivot = array[u-1];
-    pv = intV(&pivot);
     i = l;
     j = u-1;
     for (;;) {
-      do { i++; } while (intV(&array[i]) < pv);
-      do { j--; } while (pv < intV(&array[j]));
+      uint32_t pv = sort_raw_xor16key54(&pivot, salt);
+      do { i++; } while (sort_raw_xor16key54(&array[i], salt) < pv);
+      do { j--; } while (pv < sort_raw_xor16key54(&array[j], salt));
       if (j < i)
 	break;
-      sort_raw_int_swap54(array, i, j);
+      sort_raw_swap54(array, i, j);
     }
     array[u-1] = array[i];
     array[i] = pivot;
     if (i-l < u-i) {
-      sort_raw_int_quick54(array, l, i-1);
+      sort_raw_keyxor16_quick54(array, l, i-1, salt);
       l = i+1;
     } else {
-      sort_raw_int_quick54(array, i+1, u);
+      sort_raw_keyxor16_quick54(array, i+1, u, salt);
       u = i-1;
     }
   }
   if (l < u)
-    sort_raw_int_insert54(array, l, u);
+    sort_raw_keyxor16_insert54(array, l, u, salt);
 }
 
-static int table_sort_raw_int_array54(lua_State *L, int32_t n)
+static void sort_raw_reverse54(TValue *array, int32_t n)
+{
+  int32_t i = 1, j = n;
+  while (i < j) {
+    sort_raw_swap54(array, i, j);
+    i++;
+    j--;
+  }
+}
+
+static int table_sort_desc_cmp54(lua_State *L)
+{
+  cTValue *cmp = L->base+1;
+  GCfunc *fn;
+  GCproto *pt;
+  const BCIns *bc;
+  if (!tvisfunc(cmp) || (G(L)->hookmask & HOOK_EVENTMASK))
+    return 0;
+  fn = funcV(cmp);
+  if (!isluafunc(fn))
+    return 0;
+  pt = funcproto(fn);
+  if (pt->numparams != 2 || pt->sizeuv != 0 ||
+      (pt->flags & PROTO_VARARG) || pt->sizebc != 7)
+    return 0;
+  bc = proto_bc(pt);
+  return bc_op(bc[1]) == BC_ISLT && bc_a(bc[1]) == 1 && bc_d(bc[1]) == 0 &&
+	 bc_op(bc[2]) == BC_JMP && bc_op(bc[3]) == BC_KPRI &&
+	 bc_op(bc[4]) == BC_JMP && bc_op(bc[5]) == BC_KPRI &&
+	 bc_op(bc[6]) == BC_RET1;
+}
+
+static int table_sort_keyxor16_cmp54(lua_State *L, uint32_t *salt)
+{
+  cTValue *cmp = L->base+1;
+  GCfunc *fn;
+  GCproto *pt;
+  const BCIns *bc;
+  cTValue *uv, *mask1, *mask2;
+  if (!tvisfunc(cmp) || (G(L)->hookmask & HOOK_EVENTMASK))
+    return 0;
+  fn = funcV(cmp);
+  if (!isluafunc(fn))
+    return 0;
+  pt = funcproto(fn);
+  if (pt->numparams != 2 || pt->sizeuv != 1 ||
+      (pt->flags & PROTO_VARARG) || pt->sizebc != 15)
+    return 0;
+  bc = proto_bc(pt);
+  if (!(bc_op(bc[1]) == BC_UGET && bc_a(bc[1]) == 2 && bc_d(bc[1]) == 0 &&
+	bc_op(bc[2]) == BC_BXOR && bc_a(bc[2]) == 2 &&
+	  bc_b(bc[2]) == 0 && bc_c(bc[2]) == 2 &&
+	bc_op(bc[3]) == BC_KNUM && bc_a(bc[3]) == 3 &&
+	bc_op(bc[4]) == BC_BAND && bc_a(bc[4]) == 2 &&
+	  bc_b(bc[4]) == 2 && bc_c(bc[4]) == 3 &&
+	bc_op(bc[5]) == BC_UGET && bc_a(bc[5]) == 3 && bc_d(bc[5]) == 0 &&
+	bc_op(bc[6]) == BC_BXOR && bc_a(bc[6]) == 3 &&
+	  bc_b(bc[6]) == 1 && bc_c(bc[6]) == 3 &&
+	bc_op(bc[7]) == BC_KNUM && bc_a(bc[7]) == 4 &&
+	bc_op(bc[8]) == BC_BAND && bc_a(bc[8]) == 3 &&
+	  bc_b(bc[8]) == 3 && bc_c(bc[8]) == 4 &&
+	bc_op(bc[9]) == BC_ISLT && bc_a(bc[9]) == 2 && bc_d(bc[9]) == 3 &&
+	bc_op(bc[10]) == BC_JMP && bc_op(bc[11]) == BC_KPRI &&
+	bc_op(bc[12]) == BC_JMP && bc_op(bc[13]) == BC_KPRI &&
+	bc_op(bc[14]) == BC_RET1))
+    return 0;
+  mask1 = proto_knumtv(pt, bc_d(bc[3]));
+  mask2 = proto_knumtv(pt, bc_d(bc[7]));
+  if (!tvisint(mask1) || !tvisint(mask2) ||
+      intV(mask1) != 0xffff || intV(mask2) != 0xffff)
+    return 0;
+  uv = uvval(&gcref(fn->l.uvptr[0])->uv);
+  if (!tvisinteger(uv))
+    return 0;
+  *salt = (uint32_t)sort_raw_i64v54(uv);
+  return 1;
+}
+
+static int table_sort_raw_array54(lua_State *L, int32_t n, int descending)
 {
   GCtab *t;
   TValue *array;
   int32_t i;
-  if (!tvistab(L->base) || !tvisnil(L->base+1))
+  SortRawKind54 kind;
+  if (!tvistab(L->base) || (!descending && !tvisnil(L->base+1)))
     return 0;
   t = tabV(L->base);
   if (tabref(t->metatable) || (MSize)n >= t->asize)
     return 0;
   array = tvref(t->array);
+  if (n <= 1)
+    return 1;
+  if (tvisinteger(&array[1])) {
+    int allint = tvisint(&array[1]);
+    for (i = 2; i <= n; i++) {
+      if (tvisint(&array[i])) {
+      } else if (tvisi64(&array[i])) {
+	allint = 0;
+      } else {
+	return 0;
+      }
+    }
+    kind = allint ? SORT_RAW_INT54 : SORT_RAW_I6454;
+  } else if (tvisnum(&array[1]) && numV(&array[1]) == numV(&array[1])) {
+    kind = SORT_RAW_NUM54;
+    for (i = 2; i <= n; i++)
+      if (!tvisnum(&array[i]) || numV(&array[i]) != numV(&array[i]))
+	return 0;
+  } else if (tvisstr(&array[1])) {
+    kind = SORT_RAW_STR54;
+    for (i = 2; i <= n; i++)
+      if (!tvisstr(&array[i]))
+	return 0;
+  } else {
+    return 0;
+  }
+  sort_raw_quick54(array, 1, n, kind);
+  if (descending)
+    sort_raw_reverse54(array, n);
+  return 1;
+}
+
+static int table_sort_raw_keyxor16_array54(lua_State *L, int32_t n,
+					   uint32_t salt)
+{
+  GCtab *t;
+  TValue *array;
+  int32_t i;
+  if (!tvistab(L->base))
+    return 0;
+  t = tabV(L->base);
+  if (tabref(t->metatable) || (MSize)n >= t->asize)
+    return 0;
+  array = tvref(t->array);
+  if (n <= 1)
+    return 1;
   for (i = 1; i <= n; i++)
-    if (!tvisint(&array[i]))
+    if (!tvisinteger(&array[i]))
       return 0;
-  if (n > 1)
-    sort_raw_int_quick54(array, 1, n);
+  sort_raw_keyxor16_quick54(array, 1, n, salt);
   return 1;
 }
 #endif
@@ -846,7 +1302,15 @@ LJLIB_CF(table_sort)
     table_checkfunc_named54(L, 2, "table.sort");
   }
 #if LJ_TARGET_ARM64
-  if (table_sort_raw_int_array54(L, n))
+  {
+    uint32_t xorsalt;
+    if (n > 1 && table_sort_keyxor16_cmp54(L, &xorsalt) &&
+	table_sort_raw_keyxor16_array54(L, n, xorsalt))
+      return 0;
+  }
+  if (table_sort_raw_array54(L, n, 0))
+    return 0;
+  if (n > 1 && table_sort_desc_cmp54(L) && table_sort_raw_array54(L, n, 1))
     return 0;
 #endif
 #else
@@ -892,6 +1356,22 @@ static int lj_cf_table_unpack54(lua_State *L)
   n = (int)(nu + 1u);
   if (!lua_checkstack(L, n))
     lj_err_caller(L, LJ_ERR_UNPACK);
+#if LJ_TARGET_ARM64
+  if (LJ_LIKELY(tvistab(L->base))) {
+    GCtab *t = tabV(L->base);
+    if (!tabref(t->metatable) && table_raw_array_range54(t, i, e)) {
+      TValue *top = L->top;
+      TValue *array = tvref(t->array);
+      do {
+	copyTV(L, top++, &array[i]);
+	if (i >= e) break;
+	i = (lua_Integer)((lua_Unsigned)i + (lua_Unsigned)1);
+      } while (1);
+      L->top = top;
+      return n;
+    }
+  }
+#endif
   do {
     /* Lua 5.4 table.unpack reads through __index, unlike LuaJIT's raw array
     ** helper used by the legacy unpack path.

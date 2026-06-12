@@ -194,7 +194,11 @@ LJ_FUNC uint32_t LJ_FASTCALL lj_buf_ruleb128(const char **pp);
 
 static LJ_AINLINE GCstr *lj_buf_str(lua_State *L, SBuf *sb)
 {
+#if LJ_54 && LJ_TARGET_ARM64
+  return lj_str_new_noscan(L, sb->b, sbuflen(sb));
+#else
   return lj_str_new(L, sb->b, sbuflen(sb));
+#endif
 }
 
 #endif

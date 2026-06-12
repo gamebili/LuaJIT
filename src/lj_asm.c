@@ -1741,6 +1741,12 @@ static void asm_pow(ASMState *as, IRIns *ir)
 
 static void asm_div(ASMState *as, IRIns *ir)
 {
+#if LJ_TARGET_ASM_INTDIV
+  if (irt_isint(ir->t)) {
+    asm_intdiv(as, ir);
+    return;
+  }
+#endif
 #if LJ_64 && LJ_HASFFI
   if (!irt_isnum(ir->t))
     asm_callid(as, ir, irt_isi64(ir->t) ? IRCALL_lj_carith_divi64 :
@@ -1753,6 +1759,12 @@ static void asm_div(ASMState *as, IRIns *ir)
 
 static void asm_mod(ASMState *as, IRIns *ir)
 {
+#if LJ_TARGET_ASM_INTMOD
+  if (irt_isint(ir->t)) {
+    asm_intmod(as, ir);
+    return;
+  }
+#endif
 #if LJ_64 && LJ_HASFFI
   if (!irt_isint(ir->t))
     asm_callid(as, ir, irt_isi64(ir->t) ? IRCALL_lj_carith_modi64 :

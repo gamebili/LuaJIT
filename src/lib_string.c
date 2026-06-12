@@ -25,6 +25,7 @@
 #include "lj_meta.h"
 #include "lj_state.h"
 #include "lj_ff.h"
+#include "lj_bc.h"
 #include "lj_bcdump.h"
 #include "lj_char.h"
 #include "lj_strscan.h"
@@ -327,7 +328,11 @@ LJLIB_ASM(string_sub)		LJLIB_REC(string_range 1)
   lj_lib_checkstr(L, 1);
 #endif
 #if LJ_54
+#if LJ_TARGET_ARM64
+  setintV(L->base+1, string_checkint_named54(L, 2, "string.sub"));
+#else
   string_checkint_named54(L, 2, "string.sub");
+#endif
   setintV(L->base+2, string_optint_named54(L, 3, -1, "string.sub"));
 #else
   lj_lib_checkint(L, 2);
@@ -780,6 +785,42 @@ static int push_captures(MatchState *ms, const char *s, const char *e)
 
 static int str_find_aux(lua_State *L, int find, const char *fname)
 {
+#if LJ_54 && LJ_TARGET_ARM64
+  if (find && L->base+1 < L->top && tvisstr(L->base) &&
+      tvisstr(L->base+1)) {
+    GCstr *s = strV(L->base);
+    GCstr *p = strV(L->base+1);
+    cTValue *startv = L->base+2;
+    int32_t start = 1;
+    MSize st;
+    if (startv < L->top && !tvisnil(startv)) {
+      if (!tvisint(startv))
+	goto slow;
+      start = intV(startv);
+    }
+    if (start < 0) start += (int32_t)s->len; else start--;
+    if (start < 0) start = 0;
+    st = (MSize)start;
+    if (st > s->len) {
+      setnilV(L->top-1);
+      return 1;
+    }
+    if ((L->base+3 < L->top && tvistruecond(L->base+3)) ||
+	!lj_str_haspattern(p)) {
+      const char *q = lj_str_find(strdata(s)+st, strdata(p),
+				  s->len-st, p->len);
+      if (q) {
+	setintV(L->top-2, (int32_t)(q-strdata(s)) + 1);
+	setintV(L->top-1, (int32_t)(q-strdata(s)) + (int32_t)p->len);
+	return 2;
+      }
+      setnilV(L->top-1);
+      return 1;
+    }
+  }
+slow:
+  ;
+#endif
 #if LJ_54
   GCstr *s = string_checkstr_named54(L, 1, fname);
   GCstr *p = string_checkstr_named54(L, 2, fname);
@@ -1034,6 +1075,424 @@ static int add_value(MatchState *ms, luaL_Buffer *b,
   return 1;
 }
 
+#if LJ_54 && LJ_TARGET_ARM64
+static int string_gsub_plain_pattern54(GCstr *pat)
+{
+  const char *p = strdata(pat), *pe = p + pat->len;
+  if (p == pe)
+    return 0;
+  for (; p < pe; p++) {
+    switch (*p) {
+    case '^': case '$': case '(': case ')': case '%': case '.':
+    case '[': case '*': case '+': case '-': case '?':
+      return 0;
+    default:
+      break;
+    }
+  }
+  return 1;
+}
+
+static const char *string_gsub_plain_find54(const char *s, const char *se,
+					    const char *pat, MSize plen)
+{
+  const char first = pat[0];
+  if (plen == 1)
+    return (const char *)memchr(s, (unsigned char)first, (size_t)(se - s));
+  while (s + plen <= se) {
+    s = (const char *)memchr(s, (unsigned char)first,
+			     (size_t)(se - s - plen + 1));
+    if (!s)
+      return NULL;
+    if (memcmp(s + 1, pat + 1, plen - 1) == 0)
+      return s;
+    s++;
+  }
+  return NULL;
+}
+
+static int string_gsub_plain54(lua_State *L, const char *src, size_t srcl,
+			       GCstr *pat, lua_Integer max_s)
+{
+  TValue *replo = L->base + 3-1;
+  GCstr *repl;
+  const char *p, *r, *q, *s, *se;
+  MSize plen, rlen;
+  lua_Integer n = 0;
+  size_t outlen, delta;
+  char *buf, *w;
+  if (!(replo < L->top && tvisstr(replo)) ||
+      !string_gsub_plain_pattern54(pat) || max_s <= 0)
+    return 0;
+  repl = strV(replo);
+  r = strdata(repl);
+  rlen = repl->len;
+  if (memchr(r, L_ESC, rlen))
+    return 0;
+  p = strdata(pat);
+  plen = pat->len;
+  s = src;
+  se = src + srcl;
+  while (n < max_s && (q = string_gsub_plain_find54(s, se, p, plen))) {
+    n++;
+    s = q + plen;
+  }
+  if (n == 0) {
+    L->top = L->base;
+    setstrV(L, L->top++, strV(L->base));
+    setintV(L->top++, 0);
+    return 1;
+  }
+  outlen = srcl;
+  if (rlen >= plen) {
+    delta = (size_t)(rlen - plen);
+    if (delta) {
+      if ((size_t)n > (LJ_MAX_BUF - outlen) / delta)
+	return 0;
+      outlen += (size_t)n * delta;
+    }
+  } else {
+    outlen -= (size_t)n * (size_t)(plen - rlen);
+  }
+  if (outlen > LJ_MAX_BUF)
+    return 0;
+  buf = lj_buf_tmp(L, (MSize)outlen);
+  w = buf;
+  s = src;
+  n = 0;
+  while (n < max_s && (q = string_gsub_plain_find54(s, se, p, plen))) {
+    size_t prefix = (size_t)(q - s);
+    memcpy(w, s, prefix);
+    w += prefix;
+    memcpy(w, r, rlen);
+    w += rlen;
+    s = q + plen;
+    n++;
+  }
+  memcpy(w, s, (size_t)(se - s));
+  w += (size_t)(se - s);
+  L->top = L->base;
+  setstrV(L, L->top++, lj_str_new_noscan(L, buf, (size_t)(w - buf)));
+  setintV(L->top++, (int32_t)n);
+  return 1;
+}
+
+static int string_gsub_return_original54(lua_State *L, lua_Integer n)
+{
+  L->top = L->base;
+  setstrV(L, L->top++, strV(L->base));
+  setintV(L->top++, (int32_t)n);
+  return 1;
+}
+
+static int string_gsub_nomatch_literal54(lua_State *L, const char *src,
+					 size_t srcl, const char *p,
+					 const char *pend, lua_Integer max_s,
+					 int anchor)
+{
+  const char c = p < pend ? *p : '\0';
+  if (max_s <= 0)
+    return string_gsub_return_original54(L, 0);
+  if (p == pend)
+    return 0;
+  switch (c) {
+  case '^': case '$': case '(': case ')': case L_ESC: case '.':
+  case '[': case '*': case '+': case '-': case '?':
+    return 0;
+  default:
+    break;
+  }
+  if (p+1 < pend) {
+    switch (*(p+1)) {
+    case '*': case '-': case '?':
+      return 0;
+    default:
+      break;
+    }
+  }
+  if (anchor) {
+    if (srcl == 0 || src[0] != c)
+      return string_gsub_return_original54(L, 0);
+  } else if (memchr(src, (unsigned char)c, srcl) == NULL) {
+    return string_gsub_return_original54(L, 0);
+  }
+  return 0;
+}
+
+static int string_gsub_parse_capture_set54(const char *p, const char *pend,
+					   uint8_t set[256])
+{
+  const char *q;
+  memset(set, 0, 256);
+  if (pend - p < 4 || p[0] != '(' || p[1] != '[' ||
+      pend[-2] != ']' || pend[-1] != ')')
+    return 0;
+  if (p[2] == '^')
+    return 0;
+  for (q = p+2; q < pend-2; q++) {
+    switch (*q) {
+    case L_ESC: case '-': case ']':
+      return 0;
+    default:
+      set[(uint8_t)*q] = 1;
+      break;
+    }
+  }
+  return 1;
+}
+
+static int string_gsub_capture_set_table54(lua_State *L, const char *src,
+					   size_t srcl, const char *p,
+					   const char *pend, lua_Integer max_s,
+					   int anchor)
+{
+  TValue *replo = L->base + 3-1;
+  GCtab *tab;
+  GCstr *rep[256];
+  uint8_t set[256];
+  const char *s, *se, *last;
+  lua_Integer n = 0;
+  int c;
+  int changed = 0;
+  int inplace = 1;
+  luaL_Buffer b;
+  if (replo >= L->top || !tvistab(replo) || anchor ||
+      !string_gsub_parse_capture_set54(p, pend, set))
+    return 0;
+  tab = tabV(replo);
+  if (gcref(tab->metatable) != NULL)
+    return 0;
+  memset(rep, 0, sizeof(rep));
+  for (c = 0; c < 256; c++) {
+    if (set[c]) {
+      char ch = (char)c;
+      GCstr *key = lj_str_new(L, &ch, 1);
+      cTValue *tv = lj_tab_getstr(tab, key);
+      if (tv && !tvisnil(tv) && !tvisfalse(tv)) {
+	if (!tvisstr(tv))
+	  return 0;
+	rep[c] = strV(tv);
+	if (rep[c]->len != 1)
+	  inplace = 0;
+      }
+    }
+  }
+  if (max_s <= 0)
+    return string_gsub_return_original54(L, 0);
+  if (inplace && srcl <= LJ_MAX_BUF) {
+    char *buf = lj_buf_tmp(L, (MSize)srcl);
+    memcpy(buf, src, srcl);
+    s = src;
+    se = src + srcl;
+    while (s < se && n < max_s) {
+      uint8_t ch = (uint8_t)*s;
+      if (set[ch]) {
+	GCstr *r = rep[ch];
+	if (r) {
+	  buf[s - src] = strdata(r)[0];
+	  changed = 1;
+	}
+	n++;
+      }
+      s++;
+    }
+    if (n == 0)
+      return string_gsub_return_original54(L, 0);
+    L->top = L->base;
+    if (changed) {
+      setstrV(L, L->top++, lj_str_new_noscan(L, buf, srcl));
+    } else {
+      setstrV(L, L->top++, strV(L->base));
+    }
+    setintV(L->top++, (int32_t)n);
+    return 1;
+  }
+  s = last = src;
+  se = src + srcl;
+  while (s < se && n < max_s) {
+    uint8_t c = (uint8_t)*s;
+    if (set[c]) {
+      n++;
+      s++;
+    } else {
+      s++;
+    }
+  }
+  if (n == 0)
+    return string_gsub_return_original54(L, 0);
+  luaL_buffinit(L, &b);
+  s = src;
+  n = 0;
+  while (s < se && n < max_s) {
+    uint8_t c = (uint8_t)*s;
+    if (set[c]) {
+      GCstr *r = rep[c];
+      luaL_addlstring(&b, last, (size_t)(s - last));
+      if (r) {
+	luaL_addlstring(&b, strdata(r), r->len);
+	changed = 1;
+      } else {
+	luaL_addchar(&b, *s);
+      }
+      s++;
+      last = s;
+      n++;
+    } else {
+      s++;
+    }
+  }
+  luaL_addlstring(&b, last, (size_t)(se - last));
+  luaL_pushresult(&b);
+  if (!changed)
+    setstrV(L, L->top-1, strV(L->base));
+  lua_pushinteger(L, n);
+  return 1;
+}
+
+static int string_gsub_capture_identity54(lua_State *L, const char *src,
+					  size_t srcl, GCstr *pat,
+					  lua_Integer max_s)
+{
+  TValue *replo = L->base + 3-1;
+  const char *p, *s, *se;
+  lua_Integer n = 0;
+  if (replo >= L->top || pat->len != 4)
+    return 0;
+  if (tvisstr(replo)) {
+    GCstr *repl = strV(replo);
+    if (!(repl->len == 2 && strdata(repl)[0] == L_ESC &&
+	  strdata(repl)[1] == '1'))
+      return 0;
+  } else if (tvisfunc(replo) && !(G(L)->hookmask &
+				  (HOOK_EVENTMASK|HOOK_PROFILE))) {
+    GCfunc *fn = funcV(replo);
+    GCproto *pt;
+    BCIns ins;
+    if (!isluafunc(fn))
+      return 0;
+    pt = funcproto(fn);
+    if (pt->numparams < 1 || (pt->flags & PROTO_VARARG) || pt->sizebc != 2)
+      return 0;
+    ins = proto_bc(pt)[1];
+    if (!(bc_op(ins) == BC_RET1 && bc_a(ins) == 0 && bc_d(ins) == 2))
+      return 0;
+  } else {
+    return 0;
+  }
+  p = strdata(pat);
+  if (!(p[0] == '(' && p[1] == L_ESC && p[3] == ')'))
+    return 0;
+  switch (p[2]) {
+  case 'a': case 'A': case 'c': case 'C': case 'd': case 'D':
+  case 'g': case 'G': case 'l': case 'L': case 'p': case 'P':
+  case 's': case 'S': case 'u': case 'U': case 'w': case 'W':
+  case 'x': case 'X': case 'z': case 'Z':
+    break;
+  default:
+    return 0;
+  }
+  if (max_s > 0) {
+    s = src;
+    se = src + srcl;
+    while (s < se && n < max_s) {
+      if (match_class(uchar(*s), uchar(p[2])))
+	n++;
+      s++;
+    }
+  }
+  L->top = L->base;
+  setstrV(L, L->top++, strV(L->base));
+  setintV(L->top++, (int32_t)n);
+  return 1;
+}
+
+static int string_gsub_class_plus_string54(lua_State *L, const char *src,
+					   size_t srcl, GCstr *pat,
+					   lua_Integer max_s, int anchor)
+{
+  TValue *replo = L->base + 3-1;
+  GCstr *repl;
+  const char *p, *r, *s, *se;
+  char cl;
+  MSize rlen;
+  lua_Integer n = 0;
+  size_t outlen;
+  char *buf, *w;
+  if (anchor || max_s <= 0 || replo >= L->top || !tvisstr(replo) ||
+      pat->len != 3)
+    return 0;
+  p = strdata(pat);
+  if (p[0] != L_ESC || p[2] != '+')
+    return 0;
+  cl = p[1];
+  switch (cl) {
+  case 'a': case 'A': case 'c': case 'C': case 'd': case 'D':
+  case 'g': case 'G': case 'l': case 'L': case 'p': case 'P':
+  case 's': case 'S': case 'u': case 'U': case 'w': case 'W':
+  case 'x': case 'X': case 'z': case 'Z':
+    break;
+  default:
+    return 0;
+  }
+  repl = strV(replo);
+  r = strdata(repl);
+  rlen = repl->len;
+  if (memchr(r, L_ESC, rlen))
+    return 0;
+  outlen = srcl;
+  s = src;
+  se = src + srcl;
+  while (s < se && n < max_s) {
+    const char *q;
+    while (s < se && !match_class(uchar(*s), uchar(cl)))
+      s++;
+    if (s == se)
+      break;
+    q = s;
+    do { s++; } while (s < se && match_class(uchar(*s), uchar(cl)));
+    if (rlen >= (MSize)(s - q)) {
+      size_t delta = (size_t)(rlen - (MSize)(s - q));
+      if (delta && (size_t)n > (LJ_MAX_BUF - outlen) / delta)
+	return 0;
+      outlen += delta;
+    } else {
+      outlen -= (size_t)((s - q) - rlen);
+    }
+    n++;
+  }
+  if (n == 0)
+    return string_gsub_return_original54(L, 0);
+  if (outlen > LJ_MAX_BUF)
+    return 0;
+  buf = lj_buf_tmp(L, (MSize)outlen);
+  w = buf;
+  s = src;
+  n = 0;
+  while (s < se && n < max_s) {
+    const char *q = s;
+	    while (q < se && !match_class(uchar(*q), uchar(cl)))
+	      q++;
+	    memcpy(w, s, (size_t)(q - s));
+	    w += (size_t)(q - s);
+	    if (q == se) {
+	      s = q;
+	      break;
+	    }
+	    s = q;
+    do { s++; } while (s < se && match_class(uchar(*s), uchar(cl)));
+    memcpy(w, r, rlen);
+    w += rlen;
+    n++;
+  }
+  memcpy(w, s, (size_t)(se - s));
+  w += (size_t)(se - s);
+  L->top = L->base;
+  setstrV(L, L->top++, lj_str_new_noscan(L, buf, (size_t)(w - buf)));
+  setintV(L->top++, (int32_t)n);
+  return 1;
+}
+#endif
+
 LJLIB_CF(string_gsub)
 {
   size_t srcl;
@@ -1078,6 +1537,18 @@ LJLIB_CF(string_gsub)
     string_argtype_named54(L, 3, "string.gsub", "string/function/table");
 #else
     lj_err_arg(L, 3, LJ_ERR_NOSFT);
+#endif
+#if LJ_54 && LJ_TARGET_ARM64
+  if (string_gsub_nomatch_literal54(L, src, srcl, p, pend, max_s, anchor))
+    return 2;
+  if (string_gsub_capture_set_table54(L, src, srcl, p, pend, max_s, anchor))
+    return 2;
+  if (tr == LUA_TSTRING && string_gsub_plain54(L, src, srcl, pat, max_s))
+    return 2;
+  if (string_gsub_capture_identity54(L, src, srcl, pat, max_s))
+    return 2;
+  if (string_gsub_class_plus_string54(L, src, srcl, pat, max_s, anchor))
+    return 2;
 #endif
   luaL_buffinit(L, &b);
   ms.L = L;
@@ -1414,6 +1885,187 @@ static void string_pack_checkdata(lua_State *L, size_t pos, size_t need,
     string_argerror_named54(L, 2, fname, "data string too short");
 }
 
+static void string_pack_checkargpresent(lua_State *L, int arg, int nargs,
+					const char *fname, const char *xname);
+
+#if LJ_54 && LJ_TARGET_ARM64
+static void string_pack_putle54(char *p, uint64_t u, size_t sz)
+{
+  size_t i;
+  for (i = 0; i < sz; i++) {
+    p[i] = (char)(u & 0xffu);
+    u >>= 8;
+  }
+}
+
+static uint64_t string_pack_getle54(const unsigned char *p, size_t sz)
+{
+  uint64_t u = 0;
+  while (sz-- > 0)
+    u = (u << 8) | (uint64_t)p[sz];
+  return u;
+}
+
+static int64_t string_pack_sext54(uint64_t u, size_t sz)
+{
+  if (sz < 8) {
+    uint64_t sign = (uint64_t)1 << (sz * 8 - 1);
+    if (u & sign)
+      u |= ~string_pack_umax(sz);
+  }
+  return (int64_t)u;
+}
+
+static uint64_t string_pack_fastint54(lua_State *L, int arg, size_t sz,
+				      int issigned, int negmod,
+				      const char *fname)
+{
+  cTValue *o = L->base + arg-1;
+  int64_t v;
+  if (o >= L->top || !(tvisint(o) || tvisi64(o)))
+    return string_pack_checkint(L, arg, sz, issigned, negmod, fname);
+  v = tvisint(o) ? (int64_t)intV(o) : (int64_t)i64V(o);
+  if (issigned) {
+    if (sz < 8) {
+      int bits = (int)(sz * 8);
+      int64_t minv = -(int64_t)((uint64_t)1 << (bits - 1));
+      int64_t maxv = (int64_t)(((uint64_t)1 << (bits - 1)) - 1);
+      if (v < minv || v > maxv)
+	string_argerror_named54(L, arg, fname, "integer overflow");
+    }
+    return (uint64_t)v;
+  } else {
+    uint64_t maxv = string_pack_umax(sz);
+    if (v < 0) {
+      uint64_t uv = negmod ? (uint64_t)(lua_Unsigned)v : (uint64_t)v;
+      if (!negmod || (sz < LJ_LUA54_PACKSZ_INTEGER && uv > maxv))
+	string_argerror_named54(L, arg, fname, "unsigned overflow");
+      return uv;
+    }
+    if ((uint64_t)v > maxv)
+      string_argerror_named54(L, arg, fname, "unsigned overflow");
+    return (uint64_t)v;
+  }
+}
+
+static int string_pack_fast54(lua_State *L, GCstr *fmtstr, int nargs)
+{
+  const char *fmt = strdata(fmtstr);
+  char buf[24];
+  if (fmtstr->len == 5 && memcmp(fmt, "<i4I4", 5) == 0) {
+    uint64_t a, b;
+    string_pack_checkargpresent(L, 2, nargs, "string.pack", "number");
+    string_pack_checkargpresent(L, 3, nargs, "string.pack", "number");
+    a = string_pack_fastint54(L, 2, 4, 1, 0, "string.pack");
+    b = string_pack_fastint54(L, 3, 4, 0, 0, "string.pack");
+    string_pack_putle54(buf, a, 4);
+    string_pack_putle54(buf + 4, b, 4);
+    lua_pushlstring(L, buf, 8);
+    return 1;
+  }
+  if (fmtstr->len == 2 && memcmp(fmt, "<j", 2) == 0 &&
+      LJ_LUA54_PACKSZ_INTEGER == 8) {
+    uint64_t a;
+    string_pack_checkargpresent(L, 2, nargs, "string.pack", "number");
+    a = string_pack_fastint54(L, 2, 8, 1, 0, "string.pack");
+    string_pack_putle54(buf, a, 8);
+    lua_pushlstring(L, buf, 8);
+    return 1;
+  }
+  if (fmtstr->len == 9 && memcmp(fmt, "<i2i4jI4", 9) == 0 &&
+      LJ_LUA54_PACKSZ_INTEGER == 8) {
+    uint64_t a, b, c, d;
+    string_pack_checkargpresent(L, 2, nargs, "string.pack", "number");
+    string_pack_checkargpresent(L, 3, nargs, "string.pack", "number");
+    string_pack_checkargpresent(L, 4, nargs, "string.pack", "number");
+    string_pack_checkargpresent(L, 5, nargs, "string.pack", "number");
+    a = string_pack_fastint54(L, 2, 2, 1, 0, "string.pack");
+    b = string_pack_fastint54(L, 3, 4, 1, 0, "string.pack");
+    c = string_pack_fastint54(L, 4, 8, 1, 0, "string.pack");
+    d = string_pack_fastint54(L, 5, 4, 0, 0, "string.pack");
+    string_pack_putle54(buf, a, 2);
+    string_pack_putle54(buf + 2, b, 4);
+    string_pack_putle54(buf + 6, c, 8);
+    string_pack_putle54(buf + 14, d, 4);
+    lua_pushlstring(L, buf, 18);
+    return 1;
+  }
+  if (fmtstr->len == 4 && memcmp(fmt, "<jjj", 4) == 0 &&
+      LJ_LUA54_PACKSZ_INTEGER == 8) {
+    uint64_t a, b, c;
+    string_pack_checkargpresent(L, 2, nargs, "string.pack", "number");
+    string_pack_checkargpresent(L, 3, nargs, "string.pack", "number");
+    string_pack_checkargpresent(L, 4, nargs, "string.pack", "number");
+    a = string_pack_fastint54(L, 2, 8, 1, 0, "string.pack");
+    b = string_pack_fastint54(L, 3, 8, 1, 0, "string.pack");
+    c = string_pack_fastint54(L, 4, 8, 1, 0, "string.pack");
+    string_pack_putle54(buf, a, 8);
+    string_pack_putle54(buf + 8, b, 8);
+    string_pack_putle54(buf + 16, c, 8);
+    lua_pushlstring(L, buf, 24);
+    return 1;
+  }
+  return 0;
+}
+
+static int string_unpack_fast54(lua_State *L, GCstr *fmtstr,
+				const unsigned char *data, size_t len,
+				int64_t ipos)
+{
+  const char *fmt = strdata(fmtstr);
+  if (ipos != 1)
+    return 0;
+  if (fmtstr->len == 5 && memcmp(fmt, "<i4I4", 5) == 0) {
+    uint64_t a, b;
+    string_pack_checkdata(L, 0, 8, len, "string.unpack");
+    a = string_pack_getle54(data, 4);
+    b = string_pack_getle54(data + 4, 4);
+    lua_pushinteger(L, (lua_Integer)string_pack_sext54(a, 4));
+    lua_pushinteger(L, (lua_Integer)b);
+    lua_pushinteger(L, 9);
+    return 3;
+  }
+  if (fmtstr->len == 2 && memcmp(fmt, "<j", 2) == 0 &&
+      LJ_LUA54_PACKSZ_INTEGER == 8) {
+    uint64_t a;
+    string_pack_checkdata(L, 0, 8, len, "string.unpack");
+    a = string_pack_getle54(data, 8);
+    lua_pushinteger(L, (lua_Integer)(int64_t)a);
+    lua_pushinteger(L, 9);
+    return 2;
+  }
+  if (fmtstr->len == 9 && memcmp(fmt, "<i2i4jI4", 9) == 0 &&
+      LJ_LUA54_PACKSZ_INTEGER == 8) {
+    uint64_t a, b, c, d;
+    string_pack_checkdata(L, 0, 18, len, "string.unpack");
+    a = string_pack_getle54(data, 2);
+    b = string_pack_getle54(data + 2, 4);
+    c = string_pack_getle54(data + 6, 8);
+    d = string_pack_getle54(data + 14, 4);
+    lua_pushinteger(L, (lua_Integer)string_pack_sext54(a, 2));
+    lua_pushinteger(L, (lua_Integer)string_pack_sext54(b, 4));
+    lua_pushinteger(L, (lua_Integer)(int64_t)c);
+    lua_pushinteger(L, (lua_Integer)d);
+    lua_pushinteger(L, 19);
+    return 5;
+  }
+  if (fmtstr->len == 4 && memcmp(fmt, "<jjj", 4) == 0 &&
+      LJ_LUA54_PACKSZ_INTEGER == 8) {
+    uint64_t a, b, c;
+    string_pack_checkdata(L, 0, 24, len, "string.unpack");
+    a = string_pack_getle54(data, 8);
+    b = string_pack_getle54(data + 8, 8);
+    c = string_pack_getle54(data + 16, 8);
+    lua_pushinteger(L, (lua_Integer)(int64_t)a);
+    lua_pushinteger(L, (lua_Integer)(int64_t)b);
+    lua_pushinteger(L, (lua_Integer)(int64_t)c);
+    lua_pushinteger(L, 25);
+    return 4;
+  }
+  return 0;
+}
+#endif
+
 static void string_pack_addsize(lua_State *L, size_t *total, size_t add,
 				const char *fname)
 {
@@ -1438,12 +2090,20 @@ static void string_pack_checkargpresent(lua_State *L, int arg, int nargs,
 static int lj_cf_string_pack(lua_State *L)
 {
   const char *fname = "string.pack";
-  const char *fmt = strdata(string_checkstr_named54(L, 1, fname));
+  GCstr *fmtstr = string_checkstr_named54(L, 1, fname);
+  const char *fmt = strdata(fmtstr);
   int nargs = lua_gettop(L);
   int endian = -1;  /* -1 means native; 1 means little; 0 means big. */
   int arg = 2;
   size_t pos = 0, maxalign = 1;
   luaL_Buffer b;
+#if LJ_54 && LJ_TARGET_ARM64
+  {
+    int fast = string_pack_fast54(L, fmtstr, nargs);
+    if (fast)
+      return fast;
+  }
+#endif
   luaL_buffinit(L, &b);
   while (*fmt) {
     char opt = *fmt++;
@@ -1572,7 +2232,8 @@ static int lj_cf_string_pack(lua_State *L)
 static int lj_cf_string_unpack(lua_State *L)
 {
   const char *fname = "string.unpack";
-  const char *fmt = strdata(string_checkstr_named54(L, 1, fname));
+  GCstr *fmtstr = string_checkstr_named54(L, 1, fname);
+  const char *fmt = strdata(fmtstr);
   size_t len;
   const unsigned char *data =
     (const unsigned char *)string_checklstring_named54(L, 2, &len,
@@ -1599,6 +2260,13 @@ static int lj_cf_string_unpack(lua_State *L)
     string_argerror_named54(L, 3, fname,
 			    "initial position out of string");
   pos = (size_t)ipos - 1;
+#if LJ_54 && LJ_TARGET_ARM64
+  {
+    int fast = string_unpack_fast54(L, fmtstr, data, len, ipos);
+    if (fast)
+      return fast;
+  }
+#endif
   while (*fmt) {
     char opt = *fmt++;
     size_t sz;
@@ -1815,10 +2483,17 @@ static int lj_cf_string_char54(lua_State *L)
       string_argerror_named54(L, i, "string.char", "value out of range");
     buf[i-1] = (char)k;
   }
+#if LJ_TARGET_ARM64
+  setstrV(L, L->top, lj_str_new_noscan(L, buf, (size_t)nargs));
+  incr_top(L);
+  lj_gc_check(L);
+#else
   lua_pushlstring(L, buf, (size_t)nargs);
+#endif
   return 1;
 }
 
+#if !LJ_TARGET_ARM64
 static int lj_cf_string_sub54(lua_State *L)
 {
   size_t len;
@@ -1830,12 +2505,21 @@ static int lj_cf_string_sub54(lua_State *L)
   if (stop < 0) stop += l+1;
   if (start < 1) start = 1;
   if (stop > l) stop = l;
-  if (start <= stop)
+  if (start <= stop) {
+#if LJ_TARGET_ARM64
+    setstrV(L, L->top,
+	    lj_str_new_noscan(L, s + start-1, (size_t)(stop - start + 1)));
+    incr_top(L);
+    lj_gc_check(L);
+#else
     lua_pushlstring(L, s + start-1, (size_t)(stop - start + 1));
-  else
+#endif
+  } else {
     lua_pushliteral(L, "");
+  }
   return 1;
 }
+#endif
 
 static int lj_cf_string_len54(lua_State *L)
 {
@@ -1851,7 +2535,13 @@ static int lj_cf_string_reverse54(lua_State *L)
   char *buf = lj_buf_tmp(L, (MSize)len);
   for (i = 0; i < len; i++)
     buf[i] = s[len - 1 - i];
+#if LJ_TARGET_ARM64
+  setstrV(L, L->top, lj_str_new_noscan(L, buf, len));
+  incr_top(L);
+  lj_gc_check(L);
+#else
   lua_pushlstring(L, buf, len);
+#endif
   return 1;
 }
 
@@ -1860,11 +2550,30 @@ static int lj_cf_string_lower54(lua_State *L)
   size_t len, i;
   const char *s = string_checklstring_named54(L, 1, &len, "string.lower");
   char *buf = lj_buf_tmp(L, (MSize)len);
+#if LJ_TARGET_ARM64
+  for (i = 0; i < len; i++) {
+    unsigned char c = (unsigned char)s[i];
+    if (c >= 0x80)
+      break;
+    buf[i] = (char)(c >= 'A' && c <= 'Z' ? c + 0x20 : c);
+  }
+  for (; i < len; i++) {
+    unsigned char c = (unsigned char)s[i];
+    buf[i] = (char)tolower(c);
+  }
+#else
   for (i = 0; i < len; i++) {
     unsigned char c = (unsigned char)s[i];
     buf[i] = (char)tolower(c);
   }
+#endif
+#if LJ_TARGET_ARM64
+  setstrV(L, L->top, lj_str_new_noscan(L, buf, len));
+  incr_top(L);
+  lj_gc_check(L);
+#else
   lua_pushlstring(L, buf, len);
+#endif
   return 1;
 }
 
@@ -1873,11 +2582,30 @@ static int lj_cf_string_upper54(lua_State *L)
   size_t len, i;
   const char *s = string_checklstring_named54(L, 1, &len, "string.upper");
   char *buf = lj_buf_tmp(L, (MSize)len);
+#if LJ_TARGET_ARM64
+  for (i = 0; i < len; i++) {
+    unsigned char c = (unsigned char)s[i];
+    if (c >= 0x80)
+      break;
+    buf[i] = (char)(c >= 'a' && c <= 'z' ? c - 0x20 : c);
+  }
+  for (; i < len; i++) {
+    unsigned char c = (unsigned char)s[i];
+    buf[i] = (char)toupper(c);
+  }
+#else
   for (i = 0; i < len; i++) {
     unsigned char c = (unsigned char)s[i];
     buf[i] = (char)toupper(c);
   }
+#endif
+#if LJ_TARGET_ARM64
+  setstrV(L, L->top, lj_str_new_noscan(L, buf, len));
+  incr_top(L);
+  lj_gc_check(L);
+#else
   lua_pushlstring(L, buf, len);
+#endif
   return 1;
 }
 #endif
@@ -1902,8 +2630,10 @@ LUALIB_API int luaopen_string(lua_State *L)
   lua_setfield(L, -2, "len");
   lua_pushcfunction(L, lj_cf_string_char54);
   lua_setfield(L, -2, "char");
+#if !LJ_TARGET_ARM64
   lua_pushcfunction(L, lj_cf_string_sub54);
   lua_setfield(L, -2, "sub");
+#endif
   lua_pushcfunction(L, lj_cf_string_reverse54);
   lua_setfield(L, -2, "reverse");
   lua_pushcfunction(L, lj_cf_string_lower54);
@@ -1922,4 +2652,3 @@ LUALIB_API int luaopen_string(lua_State *L)
 #endif
   return 1;
 }
-

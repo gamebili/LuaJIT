@@ -180,6 +180,10 @@ typedef enum A64Ins {
 
   A64I_MULw = 0x1b007c00,
   A64I_MULx = 0x9b007c00,
+  A64I_MSUBw = 0x1b008000,
+  A64I_MSUBx = 0x9b008000,
+  A64I_SDIVw = 0x1ac00c00,
+  A64I_SDIVx = 0x9ac00c00,
   A64I_SMULL = 0x9b207c00,
 
   A64I_ANDw = 0x0a000000,

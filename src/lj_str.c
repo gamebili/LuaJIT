@@ -155,6 +155,81 @@ static LJ_NOINLINE StrHash hash_dense(uint64_t seed, StrHash h,
 }
 #endif
 
+#if LJ_54 && LJ_TARGET_ARM64
+static LJ_AINLINE uint8_t str_cat_byte(GCstr *s1, GCstr *s2, MSize pos)
+{
+  MSize len1 = s1->len;
+  return pos < len1 ? (uint8_t)strdata(s1)[pos] :
+		      (uint8_t)strdata(s2)[pos - len1];
+}
+
+static LJ_AINLINE uint32_t str_cat_getu32(GCstr *s1, GCstr *s2, MSize pos)
+{
+  MSize len1 = s1->len;
+  if (pos + 4 <= len1)
+    return lj_getu32(strdata(s1) + pos);
+  if (pos >= len1)
+    return lj_getu32(strdata(s2) + (pos - len1));
+  {
+    uint32_t b0 = str_cat_byte(s1, s2, pos);
+    uint32_t b1 = str_cat_byte(s1, s2, pos + 1);
+    uint32_t b2 = str_cat_byte(s1, s2, pos + 2);
+    uint32_t b3 = str_cat_byte(s1, s2, pos + 3);
+#if LJ_LE
+    return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
+#else
+    return (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
+#endif
+  }
+}
+
+static StrHash hash_sparse_cat(uint64_t seed, GCstr *s1, GCstr *s2, MSize len)
+{
+  StrHash a, b, h = len ^ (StrHash)seed;
+  if (len >= 4) {
+    a = str_cat_getu32(s1, s2, 0);
+    h ^= str_cat_getu32(s1, s2, len-4);
+    b = str_cat_getu32(s1, s2, (len>>1)-2);
+    h ^= b; h -= lj_rol(b, 14);
+    b += str_cat_getu32(s1, s2, (len>>2)-1);
+  } else {
+    a = str_cat_byte(s1, s2, 0);
+    h ^= str_cat_byte(s1, s2, len-1);
+    b = str_cat_byte(s1, s2, len>>1);
+    h ^= b; h -= lj_rol(b, 14);
+  }
+  a ^= h; a -= lj_rol(h, 11);
+  b ^= a; b -= lj_rol(a, 25);
+  h ^= b; h -= lj_rol(b, 16);
+  return h;
+}
+
+#if LUAJIT_SECURITY_STRHASH
+static LJ_NOINLINE StrHash hash_dense_cat(uint64_t seed, StrHash h,
+					  GCstr *s1, GCstr *s2, MSize len)
+{
+  StrHash b = lj_bswap(lj_rol(h ^ (StrHash)(seed >> 32), 4));
+  if (len > 12) {
+    StrHash a = (StrHash)seed;
+    MSize pe = len-12, p = pe, q = 0;
+    do {
+      a += str_cat_getu32(s1, s2, p);
+      b += str_cat_getu32(s1, s2, p+4);
+      h += str_cat_getu32(s1, s2, p+8);
+      p = q; q += 12;
+      h ^= b; h -= lj_rol(b, 14);
+      a ^= h; a -= lj_rol(h, 11);
+      b ^= a; b -= lj_rol(a, 25);
+    } while (p < pe);
+    h ^= b; h -= lj_rol(b, 16);
+    a ^= h; a -= lj_rol(h, 4);
+    b ^= a; b -= lj_rol(a, 14);
+  }
+  return b;
+}
+#endif
+#endif
+
 /* -- String interning ---------------------------------------------------- */
 
 #define LJ_STR_MAXCOLL		32
@@ -352,6 +427,35 @@ static GCstr *lj_str_alloc(lua_State *L, const char *str, MSize len,
   return s;  /* Return newly interned string. */
 }
 
+#if LJ_54 && LJ_TARGET_ARM64
+static GCstr *lj_str_alloc_cat2(lua_State *L, GCstr *s1, GCstr *s2, MSize len,
+				StrHash hash, int hashalg)
+{
+  GCstr *s = lj_mem_newt(L, lj_str_size(len), GCstr);
+  global_State *g = G(L);
+  uintptr_t u;
+  char *data;
+  newwhite(g, s);
+  s->gct = ~LJ_TSTR;
+  s->len = len;
+  s->hash = hash;
+  s->sid = (StrID)hash;
+  s->reserved = 0;
+  s->hashalg = (uint8_t)hashalg;
+  data = strdatawr(s);
+  *(uint32_t *)(data+(len & ~(MSize)3)) = 0;
+  memcpy(data, strdata(s1), s1->len);
+  memcpy(data + s1->len, strdata(s2), s2->len);
+  hash &= g->str.mask;
+  u = gcrefu(g->str.tab[hash]);
+  setgcrefp(s->nextgc, (u & ~(uintptr_t)1));
+  setgcrefp(g->str.tab[hash], ((uintptr_t)s | (u & 1)));
+  if (g->str.num++ > g->str.mask)
+    lj_str_resize(L, (g->str.mask<<1)+1);
+  return s;
+}
+#endif
+
 /* Create a string and return string object. Parser constants may force
 ** interning even for Lua 5.4 long strings; runtime-created long strings must
 ** stay distinct objects.
@@ -398,7 +502,13 @@ static GCstr *lj_str_newx(lua_State *L, const char *str, size_t lenx,
     }
 #endif
     /* Otherwise allocate a new string. */
-    return lj_str_alloc(L, str, len, hash, hashalg, nointern, sid);
+    return lj_str_alloc(L, str, len, hash, hashalg,
+#if LJ_TARGET_ARM64
+			LJ_54 && len > LJ_STR_MAXSHORT ? 1 : nointern,
+#else
+			nointern,
+#endif
+			sid);
   } else {
     if (lenx)
       lj_err_msg(L, LJ_ERR_STROV);
@@ -418,6 +528,54 @@ GCstr *lj_str_new_intern(lua_State *L, const char *str, size_t lenx)
   return lj_str_newx(L, str, lenx, 1);
 }
 
+#if LJ_54 && LJ_TARGET_ARM64
+GCstr *lj_str_new_noscan(lua_State *L, const char *str, size_t lenx)
+{
+  global_State *g = G(L);
+  if (lenx-1 < LJ_MAX_STR-1) {
+    MSize len = (MSize)lenx;
+    StrHash hash;
+    int hashalg = 0;
+    if (len <= LJ_STR_MAXSHORT)
+      return lj_str_new(L, str, len);
+    hash = hash_sparse(g->str.seed, str, len);
+#if LUAJIT_SECURITY_STRHASH
+    if (LJ_UNLIKELY((uintptr_t)gcref(g->str.tab[hash & g->str.mask]) & 1)) {
+      hashalg = 1;
+      hash = hash_dense(g->str.seed, hash, str, len);
+    }
+#endif
+    return lj_str_alloc(L, str, len, hash, hashalg, 1, (StrID)hash);
+  } else {
+    if (lenx)
+      lj_err_msg(L, LJ_ERR_STROV);
+    return &g->strempty;
+  }
+}
+
+GCstr *lj_str_new_cat2(lua_State *L, GCstr *s1, GCstr *s2)
+{
+  global_State *g = G(L);
+  size_t lenx = (size_t)s1->len + (size_t)s2->len;
+  if (lenx-1 < LJ_MAX_STR-1) {
+    MSize len = (MSize)lenx;
+    StrHash hash = hash_sparse_cat(g->str.seed, s1, s2, len);
+    int hashalg = 0;
+#if LUAJIT_SECURITY_STRHASH
+    GCobj *o = gcref(g->str.tab[hash & g->str.mask]);
+    if (LJ_UNLIKELY((uintptr_t)o & 1)) {
+      hashalg = 1;
+      hash = hash_dense_cat(g->str.seed, hash, s1, s2, len);
+    }
+#endif
+    return lj_str_alloc_cat2(L, s1, s2, len, hash, hashalg);
+  } else {
+    lj_err_msg(L, LJ_ERR_STROV);
+    return &g->strempty;  /* unreachable */
+  }
+}
+#endif
+
 void LJ_FASTCALL lj_str_free(global_State *g, GCstr *s)
 {
   g->str.num--;
@@ -430,4 +588,3 @@ void LJ_FASTCALL lj_str_init(lua_State *L)
   g->str.seed = lj_prng_u64(&g->prng);
   lj_str_resize(L, LJ_MIN_STRTAB-1);
 }
-

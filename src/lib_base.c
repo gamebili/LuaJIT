@@ -39,6 +39,8 @@
 #include "lj_strfmt.h"
 #include "lj_lib.h"
 #include "lj_close.h"
+#include "lj_bcdump.h"
+#include "lj_udata.h"
 
 #include "luajit.h"
 
@@ -266,9 +268,15 @@ static int lj_cf_type54(lua_State *L)
 LJ_STATIC_ASSERT((int)FF_next == FF_next_N);
 LJ_STATIC_ASSERT((int)FF_xpcall == FF_xpcall_N);
 
+#if LJ_54 && LJ_TARGET_ARM64
+static int lj_cf_next54(lua_State *L);
+#endif
+
 LJLIB_ASM(next)			LJLIB_REC(.)
 {
-#if LJ_54
+#if LJ_54 && LJ_TARGET_ARM64
+  return lj_cf_next54(L);
+#elif LJ_54
   base_checktab_named54(L, 1, "next");
 #else
   lj_lib_checktab(L, 1);
@@ -296,6 +304,27 @@ static int lj_cf_next54(lua_State *L)
 {
   GCtab *t = base_checktab_named54(L, 1, "next");
   int hide_env = base_isglobalenv(L, t);
+#if LJ_TARGET_ARM64
+  if (!hide_env) {
+    int more;
+    if (L->top < L->base+2) {
+      setnilV(L->base+1);
+      L->top = L->base+2;
+    } else {
+      L->top = L->base+2;
+    }
+    more = lj_tab_next(t, L->base+1, L->base);
+    if (more > 0) {
+      L->top = L->base+2;
+      return 2;
+    } else if (!more) {
+      setnilV(L->base);
+      L->top = L->base+1;
+      return 1;
+    }
+    lj_err_msg(L, LJ_ERR_NEXTIDX);
+  }
+#endif
   if (lua_gettop(L) < 2)
     lua_pushnil(L);
   else
@@ -374,10 +403,32 @@ LJLIB_ASM(ipairs)		LJLIB_REC(xpairs 1)
 }
 
 #if LJ_54
+#define LUA54_NEXT_WRAPPER_REGKEY	"_LUA54_NEXT_WRAPPER"
 #define LUA54_IPAIRS_AUX_REGKEY	"_LUA54_IPAIRS_AUX"
 
 static int lj_cf_ipairs_aux54(lua_State *L)
 {
+  if (LJ_LIKELY(L->base + 1 < L->top && tvistab(L->base) &&
+		tvisint(L->base+1))) {
+    GCtab *t = tabV(L->base);
+    int32_t oldi = intV(L->base+1);
+    if (LJ_LIKELY(gcref(t->metatable) == NULL && oldi != INT32_MAX)) {
+      int32_t i = oldi + 1;
+      if (LJ_LIKELY((MSize)i < t->asize)) {
+	cTValue *v = arrayslot(t, i);
+	if (LJ_LIKELY(!tvisnil(v))) {
+	  setintV(L->base, i);
+	  copyTV(L, L->base+1, v);
+	  return 2;
+	}
+	setnilV(L->base+1);
+	return 1;
+      } else if (t->hmask == 0) {
+	setnilV(L->base+1);
+	return 1;
+      }
+    }
+  }
   lua_Integer i = luaL_checkinteger(L, 2);
   /* Official ipairs uses luaL_intop(+, i, 1), so advancing maxinteger wraps
   ** to mininteger. Avoid C signed overflow while preserving that surface.
@@ -717,6 +768,11 @@ LJLIB_ASM(tonumber)		LJLIB_REC(.)
       GCstr *s = strV(o);
       TValue tmp;
       StrScanFmt fmt;
+#if LJ_TARGET_ARM64
+      if (lj_strscan_number54(L, s, L->base-1-LJ_FR2))
+	return FFH_RES(1);
+      goto badbase;
+#endif
       if (lj_strscan_rejectnum54(strdata(s), s->len))
 	goto badbase;
       fmt = lj_strscan_scan((const uint8_t *)strdata(s), s->len, &tmp,
@@ -954,6 +1010,71 @@ static int load_aux(lua_State *L, int status, int envarg, int hasenv)
   }
 }
 
+#if LJ_54 && LJ_TARGET_ARM64
+static char load_bc_cache_key54_arm64;
+
+#define LOAD_BC_CACHE_SLOTS	16
+
+static GCtab *base_load_bc_cache_tab54_arm64(lua_State *L)
+{
+  GCtab *registry = tabV(registry(L));
+  GCtab *cache;
+  TValue key;
+  cTValue *tv;
+  setrawlightudV(&key, lj_lightud_intern(L, &load_bc_cache_key54_arm64));
+  tv = lj_tab_get(L, registry, &key);
+  if (tvistab(tv))
+    return tabV(tv);
+  cache = lj_tab_new(L, LOAD_BC_CACHE_SLOTS*2+2, 0);
+  settabV(L, lj_tab_set(L, registry, &key), cache);
+  lj_gc_anybarriert(L, registry);
+  return cache;
+}
+
+static GCfunc *base_load_bc_cache_get54_arm64(lua_State *L, GCstr *chunk)
+{
+  GCtab *cache = base_load_bc_cache_tab54_arm64(L);
+  int32_t i;
+  cTValue *tv;
+  for (i = 0; i < LOAD_BC_CACHE_SLOTS; i++) {
+    tv = lj_tab_getint(cache, i*2+1);
+    if (tv && tvisstr(tv) && strV(tv) == chunk) {
+      tv = lj_tab_getint(cache, i*2+2);
+      if (tv && tvisfunc(tv) && isluafunc(funcV(tv)))
+	return funcV(tv);
+    }
+  }
+  return NULL;
+}
+
+static void base_load_bc_cache_set54_arm64(lua_State *L, GCstr *chunk,
+					   GCfunc *fn)
+{
+  GCtab *cache = base_load_bc_cache_tab54_arm64(L);
+  cTValue *tv = lj_tab_getint(cache, LOAD_BC_CACHE_SLOTS*2+1);
+  int32_t slot = tv && tvisint(tv) ? intV(tv) : 0;
+  if ((uint32_t)slot >= LOAD_BC_CACHE_SLOTS)
+    slot = 0;
+  setstrV(L, lj_tab_setint(L, cache, slot*2+1), chunk);
+  setfuncV(L, lj_tab_setint(L, cache, slot*2+2), fn);
+  setintV(lj_tab_setint(L, cache, LOAD_BC_CACHE_SLOTS*2+1),
+	  (slot + 1) & (LOAD_BC_CACHE_SLOTS - 1));
+  lj_gc_anybarriert(L, cache);
+}
+
+static int base_load_bc_cacheable54_arm64(lua_State *L, GCstr **chunk)
+{
+  if (L->top == L->base+1 && tvisstr(L->base)) {
+    GCstr *s = strV(L->base);
+    if (s->len > 0 && *(const uint8_t *)strdata(s) == BCDUMP_HEAD1) {
+      *chunk = s;
+      return 1;
+    }
+  }
+  return 0;
+}
+#endif
+
 LJLIB_CF(loadfile)
 {
   int hasenv = (int)(L->top - L->base) >= 3;
@@ -1047,6 +1168,10 @@ static const char *reader_func(lua_State *L, void *ud, size_t *size)
 LJLIB_CF(load)
 {
   int hasenv = (int)(L->top - L->base) >= 4;
+#if LJ_54 && LJ_TARGET_ARM64
+  GCstr *cache_chunk = NULL;
+  int cacheable = base_load_bc_cacheable54_arm64(L, &cache_chunk);
+#endif
 #if LJ_54
   GCstr *name = base_optstr_named54(L, 2, "load");
   GCstr *mode = base_optstr_named54(L, 3, "load");
@@ -1055,6 +1180,19 @@ LJLIB_CF(load)
   GCstr *mode = lj_lib_optstr(L, 3);
 #endif
   int status;
+#if LJ_54 && LJ_TARGET_ARM64
+  if (cacheable) {
+    GCfunc *tmpl = base_load_bc_cache_get54_arm64(L, cache_chunk);
+    if (tmpl != NULL) {
+      GCfunc *fn = lj_func_newL_empty(L, funcproto(tmpl), tabref(L->env));
+      lj_func_inituv_tabenv(L, fn, tabref(L->env));
+      L->top = L->base;
+      setfuncV(L, L->top++, fn);
+      lj_gc_check(L);
+      return 1;
+    }
+  }
+#endif
   if (L->base < L->top &&
       (tvisstr(L->base) || tvisnumber(L->base) || tvisi64(L->base) ||
        tvisbuf(L->base))) {
@@ -1073,6 +1211,11 @@ LJLIB_CF(load)
     lua_settop(L, 4);  /* Ensure env arg exists. */
     status = luaL_loadbufferx(L, s, len, name ? strdata(name) : s,
 			      mode ? strdata(mode) : NULL);
+#if LJ_54 && LJ_TARGET_ARM64
+    if (cacheable && status == LUA_OK && tvisfunc(L->top-1) &&
+	isluafunc(funcV(L->top-1)))
+      base_load_bc_cache_set54_arm64(L, cache_chunk, funcV(L->top-1));
+#endif
   } else {
 #if LJ_54
     base_checkfunc_named54(L, 1, "load");
@@ -1772,9 +1915,14 @@ LUALIB_API int luaopen_base(lua_State *L)
   lua_insert(L, -2);
   lua_call(L, 1, 1);
   lua_setglobal(L, "xpcall");
+  lua_getglobal(L, "pairs");
+#if !LJ_TARGET_ARM64
   lua_pushcfunction(L, lj_cf_next54);
   lua_setglobal(L, "next");
-  lua_getglobal(L, "pairs");
+#else
+  lua_pushcfunction(L, lj_cf_next54);
+  lua_setfield(L, LUA_REGISTRYINDEX, LUA54_NEXT_WRAPPER_REGKEY);
+#endif
   lua_getglobal(L, "next");
   /* The registered pairs fast function owns a cached next upvalue. Point it at
   ** the Lua 5.4-compatible next so pairs(_G) hides internal _ENV as well.

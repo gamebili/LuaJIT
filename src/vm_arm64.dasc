@@ -313,6 +313,41 @@
 |  csel obj, obj, safe, eq
 |  str xzr, INT64:obj->owner
 |.endmacro
+|.macro store_int64_result
+|  cmp CARG1, CARG1, sxtw
+|  bne >9
+|  mov CARG1w, CARG1w
+|  add_TISNUM CARG1, CARG1
+|  str CARG1, [BASE, RA, lsl #3]
+|  ins_next
+|9:
+|  ldr TMP0, [BASE, RA, lsl #3]
+|  asr ITYPE, TMP0, #47
+|  cmn ITYPE, #-LJ_TINT64
+|   and TMP0, TMP0, #LJ_GCVMASK
+|  bne >8
+|  add TMP1, BASE, RA, lsl #3
+|  ldr TMP2, INT64:TMP0->owner
+|  cmp TMP1, TMP2
+|  bne >8
+|  str CARG1, INT64:TMP0->i
+|  ins_next
+|8:
+|  ldr LFUNC:TMP1, [BASE, FRAME_FUNC]
+|   add CARG2, BASE, RA, lsl #3
+|  and LFUNC:TMP1, TMP1, #LJ_GCVMASK
+|   mov CARG3, CARG1
+|  ldr TMP1, LFUNC:TMP1->pc
+|   str BASE, L->base
+|  ldrb TMP1w, [TMP1, #PC2PROTO(framesize)]
+|   mov CARG1, L
+|  add TMP1, BASE, TMP1, lsl #3
+|   str PC, SAVE_PC
+|  str TMP1, L->top
+|  bl extern lj_obj_setint64	// (lua_State *L, TValue *o, int64_t i)
+|  ldr BASE, L->base
+|  ins_next
+|.endmacro
 #endif
 |
 |.macro init_constants
@@ -1490,14 +1525,25 @@ static void build_subroutines(BuildCtx *ctx)
   |  b ->fff_restv
   |
   |//-- Base library: iterators -------------------------------------------
-  |
-  |.ffunc_1 next
-  |  checktp CARG1, LJ_TTAB, ->fff_fallback
-  |  str TISNIL, [BASE, NARGS8:RC]	// Set missing 2nd arg to nil.
+	  |
+	  |.ffunc_1 next
+	  |  checktp CARG1, LJ_TTAB, ->fff_fallback
+	  |  str TISNIL, [BASE, NARGS8:RC]	// Set missing 2nd arg to nil.
   |  ldr PC, [BASE, FRAME_PC]
   |  add CARG2, BASE, #8
   |  sub CARG3, BASE, #16
+#if LJ_54
+	  |  ldr TAB:TMP1, L->env
+	  |  cmp TAB:CARG1, TAB:TMP1
+	  |  bne >1
+	  |  bl extern lj_tab_next_global54	// (GCtab *t, cTValue *key, TValue *o)
+	  |  b >2
+	  |1:
+#endif
   |  bl extern lj_tab_next		// (GCtab *t, cTValue *key, TValue *o)
+#if LJ_54
+	  |2:
+#endif
   |  // Returns 1=found, 0=end, -1=error.
   |   mov RC, #(2+1)*8
   |  tbnz CRET1w, #31, ->fff_fallback	// Invalid key.
@@ -1508,15 +1554,20 @@ static void build_subroutines(BuildCtx *ctx)
   |
   |.ffunc_1 pairs
   |  checktp TMP1, CARG1, LJ_TTAB, ->fff_fallback
-#if LJ_52
-  |  ldr TAB:CARG2, TAB:TMP1->metatable
+	#if LJ_52
+	  |  ldr TAB:CARG2, TAB:TMP1->metatable
+	#endif
+	  |   ldr CFUNC:CARG4, CFUNC:CARG3->upvalue[0]
+	  |    ldr PC, [BASE, FRAME_PC]
+	#if LJ_52
+	  |  cbnz TAB:CARG2, ->fff_fallback
+	#endif
+#if LJ_54
+	  |  ldr TAB:CARG2, L->env
+	  |  cmp TAB:TMP1, TAB:CARG2
+	  |  beq ->fff_fallback
 #endif
-  |   ldr CFUNC:CARG4, CFUNC:CARG3->upvalue[0]
-  |    ldr PC, [BASE, FRAME_PC]
-#if LJ_52
-  |  cbnz TAB:CARG2, ->fff_fallback
-#endif
-  |  mov RC, #(3+1)*8
+	  |  mov RC, #(3+1)*8
   |  stp CFUNC:CARG4, CARG1, [BASE, #-16]
   |   str TISNIL, [BASE]
   |  b ->fff_res
@@ -1755,7 +1806,11 @@ static void build_subroutines(BuildCtx *ctx)
   |  math_round ceil, frintp
   |
   |.ffunc_1 math_abs
+#if LJ_54
+  |  checknumber CARG1, >1
+#else
   |  checknumber CARG1, ->fff_fallback
+#endif
   |  and CARG1, CARG1, #U64x(7fffffff,ffffffff)
   |  bne ->fff_restv
   |  eor CARG2w, CARG1w, CARG1w, asr #31
@@ -1769,6 +1824,41 @@ static void build_subroutines(BuildCtx *ctx)
   |  csel CARG1, CARG1, CARG3, pl
 #endif
   |  // Fallthrough.
+#if LJ_54
+  |  b ->fff_restv
+  |1:
+  |  asr ITYPE, CARG1, #47
+  |  cmn ITYPE, #-LJ_TINT64
+  |   and TMP0, CARG1, #LJ_GCVMASK
+  |  bne ->fff_fallback
+  |  ldr CARG3, INT64:TMP0->i
+  |  cmp CARG3, #0
+  |  bge ->fff_restv
+  |  cneg CARG3, CARG3, mi
+  |  ldr TMP1, [BASE, #-16]
+  |  asr ITYPE, TMP1, #47
+  |  cmn ITYPE, #-LJ_TINT64
+  |   and TMP1, TMP1, #LJ_GCVMASK
+  |  bne >2
+  |  sub CARG2, BASE, #16
+  |  ldr TMP2, INT64:TMP1->owner
+  |  cmp CARG2, TMP2
+  |  bne >2
+  |  str CARG3, INT64:TMP1->i
+  |  ldr PC, [BASE, FRAME_PC]
+  |  b ->fff_res1
+|2:
+  |  ldr PC, [BASE, FRAME_PC]
+  |   add TMP1, BASE, NARGS8:RC
+  |  stp BASE, TMP1, L->base
+  |   sub CARG2, BASE, #16
+  |  str PC, SAVE_PC
+  |   mov CARG1, L
+  |  bl extern lj_obj_setint64	// (lua_State *L, TValue *o, int64_t i)
+  |  ldr BASE, L->base
+  |  ldr PC, [BASE, FRAME_PC]
+  |  b ->fff_res1
+#endif
   |
   |->fff_restv:
   |  // CARG1 = TValue result.
@@ -1896,6 +1986,41 @@ static void build_subroutines(BuildCtx *ctx)
   |  .ffunc_1 name
   |   add RB, BASE, RC
   |   add RA, BASE, #8
+#if LJ_54
+  |  checkint CARG1, >8
+  |  sxtw TMP0, CARG1w
+  |  b >1
+  |8:
+  |  asr ITYPE, CARG1, #47
+  |  cmn ITYPE, #-LJ_TINT64
+  |   and TMP1, CARG1, #LJ_GCVMASK
+  |  bne >4
+  |  ldr TMP0, INT64:TMP1->i
+  |1:  // Handle Lua 5.4 integer values, including boxed int64.
+  |  ldr CARG2, [RA]
+  |   cmp RA, RB
+  |   bhs ->fff_restv
+  |  checkint CARG2, >2
+  |  sxtw TMP1, CARG2w
+  |  b >9
+  |2:
+  |  asr ITYPE, CARG2, #47
+  |  cmn ITYPE, #-LJ_TINT64
+  |   and TMP2, CARG2, #LJ_GCVMASK
+  |  bne >3
+  |  ldr TMP1, INT64:TMP2->i
+  |9:
+  |  cmp TMP0, TMP1
+  |   add RA, RA, #8
+  |  csel TMP0, TMP1, TMP0, cond
+  |  csel CARG1, CARG2, CARG1, cond
+  |  b <1
+  |3:  // Convert intermediate integer result to number and continue below.
+  |  scvtf d0, TMP0
+  |  checknum CARG2, ->fff_fallback
+  |  ldr d1, [RA]
+  |  b >6
+#else
   |  checkint CARG1, >4
   |1:  // Handle integers.
   |  ldr CARG2, [RA]
@@ -1911,6 +2036,7 @@ static void build_subroutines(BuildCtx *ctx)
   |  blo ->fff_fallback
   |  ldr d1, [RA]
   |  b >6
+#endif
   |
   |4:
   |  ldr d0, [BASE]
@@ -1923,6 +2049,9 @@ static void build_subroutines(BuildCtx *ctx)
   |  checknum CARG2, >7
   |6:
   |  fcmp d0, d1
+#if LJ_54
+  |  bvs ->fff_fallback
+#endif
   |   add RA, RA, #8
   |  fcsel d0, d1, d0, fcond
   |  b <5
@@ -1978,6 +2107,16 @@ static void build_subroutines(BuildCtx *ctx)
   |   movn TMP1, #~LJ_TSTR
   |  add CARG1, CARG1, TMP1, lsl #47
   |  b ->fff_restv
+#if LJ_54
+  |
+  |->fff_newstr_noscan:
+  |  // CARG2 = str, CARG3 = len.
+  |   str BASE, L->base
+  |  mov CARG1, L
+  |   str PC, SAVE_PC
+  |  bl extern lj_str_new_noscan		// (lua_State *L, char *str, size_t l)
+  |  b ->fff_resstr
+#endif
   |
   |.ffunc string_sub
   |  ffgccheck
@@ -2012,7 +2151,11 @@ static void build_subroutines(BuildCtx *ctx)
   |   subs CARG3, RB, CARG2		// len = end - start
   |  add CARG2, CARG1, CARG2
   |   add CARG3, CARG3, #1		// len += 1
+#if LJ_54
+  |   bge ->fff_newstr_noscan
+#else
   |   bge ->fff_newstr
+#endif
   |  add STR:CARG1, GL, #offsetof(global_State, strempty)
   |   movn TMP1, #~LJ_TSTR
   |  add CARG1, CARG1, TMP1, lsl #47
@@ -2771,6 +2914,38 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  ins_next
     |
     |3:  // RA not int.
+#if LJ_54
+    |  bhi >6
+    |  asr ITYPE, CARG1, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and TMP0, CARG1, #LJ_GCVMASK
+    |  bne ->vmeta_comp
+    |  ldr CARG1, INT64:TMP0->i
+    |  checkint CARG2, >7
+    |  sxtw CARG2, CARG2w
+    |  b >8
+    |7:
+    |  cmp TISNUMhi, CARG2, lsr #32
+    |  bhi ->vmeta_comp
+    |  asr ITYPE, CARG2, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and TMP0, CARG2, #LJ_GCVMASK
+    |  bne ->vmeta_comp
+    |  ldr CARG2, INT64:TMP0->i
+    |8:
+    |  cmp CARG1, CARG2
+    if (op == BC_ISLT) {
+      |  csel PC, RB, PC, lt
+    } else if (op == BC_ISGE) {
+      |  csel PC, RB, PC, ge
+    } else if (op == BC_ISLE) {
+      |  csel PC, RB, PC, le
+    } else {
+      |  csel PC, RB, PC, gt
+    }
+    |  b <1
+    |6:
+#endif
     |    ldr FARG1, [BASE, RA, lsl #3]
     |  blo ->vmeta_comp
     |    ldr FARG2, [BASE, RC, lsl #3]
@@ -2782,6 +2957,28 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  b >5
     |
     |4:  // RA int, RC not int
+#if LJ_54
+    |  cmp TISNUMhi, CARG2, lsr #32
+    |  bhi >6
+    |  asr ITYPE, CARG2, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and TMP0, CARG2, #LJ_GCVMASK
+    |  bne ->vmeta_comp
+    |  ldr CARG2, INT64:TMP0->i
+    |  sxtw CARG1, CARG1w
+    |  cmp CARG1, CARG2
+    if (op == BC_ISLT) {
+      |  csel PC, RB, PC, lt
+    } else if (op == BC_ISGE) {
+      |  csel PC, RB, PC, ge
+    } else if (op == BC_ISLE) {
+      |  csel PC, RB, PC, le
+    } else {
+      |  csel PC, RB, PC, gt
+    }
+    |  b <1
+    |6:
+#endif
     |    ldr FARG2, [BASE, RC, lsl #3]
     |   blo ->vmeta_comp
     |  // RA int, RC number.
@@ -2829,7 +3026,21 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |.endif
 #if LJ_54
     |  cmn ITYPE, #-LJ_TINT64
-    |  beq ->vmeta_equal_i64
+    |  bne >7
+    |  cmn TMP0, #-LJ_TINT64
+    |  bne ->vmeta_equal_i64
+    |  and CARG2, CARG3, #LJ_GCVMASK
+    |  and TMP1, CARG1, #LJ_GCVMASK
+    |  ldr CARG2, INT64:CARG2->i
+    |  ldr TMP1, INT64:TMP1->i
+    |  cmp TMP1, CARG2
+    if (vk) {
+      |  csel PC, RB, PC, eq
+    } else {
+      |  csel PC, RB, PC, ne
+    }
+    |  b >1
+    |7:
     |  cmn TMP0, #-LJ_TINT64
     |  beq ->vmeta_equal_i64
 #endif
@@ -2960,13 +3171,22 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
       |->BC_ISNEN_Z:
     }
 #if LJ_54
+    |  checkint CARG3, >9
+#endif
+    |  checkint CARG1, >4
+#if LJ_54
+    |  cmp CARG1w, CARG3w
+    |  b >1
+    |9:  // Numeric constant is not a tagged int32.
     |  asr ITYPE, CARG3, #47
     |  cmn ITYPE, #-LJ_TINT64
     |  beq ->vmeta_equal_i64
-#endif
     |  checkint CARG1, >4
+    |  b >6
+#else
     |   checkint CARG3, >6
     |  cmp CARG1w, CARG3w
+#endif
     |1:
     if (vk) {
       |  csel PC, RB, PC, eq
@@ -2982,7 +3202,16 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
 #if LJ_54
     |  asr ITYPE, CARG1, #47
     |  cmn ITYPE, #-LJ_TINT64
-    |  beq ->vmeta_equal_i64
+    |  bne >8
+    |  checkint CARG3, >9
+    |  and TMP0, CARG1, #LJ_GCVMASK
+    |  ldr CARG1, INT64:TMP0->i
+    |  sxtw CARG3, CARG3w
+    |  cmp CARG1, CARG3
+    |  b <1
+    |9:
+    |  b ->vmeta_equal_i64
+    |8:
     |  cmp TISNUMhi, CARG1, lsr #32
 #endif
     |.if FFI
@@ -3109,7 +3338,11 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  ldr TMP0, [BASE, RC, lsl #3]
     |  asr ITYPE, TMP0, #47
     |  cmn ITYPE, #-LJ_TISNUM
+#if LJ_54
+    |  bhi >6
+#else
     |  bhi ->vmeta_unm
+#endif
   |  eor TMP0, TMP0, #U64x(80000000,00000000)
   |  bne >5
   |  negs TMP0w, TMP0w
@@ -3117,7 +3350,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
   |   movz CARG3, #0x41e0, lsl #48	// 2^31.
 #endif
 #if LJ_54
-  |  bvs ->vmeta_unm
+  |  bvs >7
 #endif
   |   add_TISNUM TMP0, TMP0
 #if !LJ_54
@@ -3130,6 +3363,19 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |5:
     |  str TMP0, [BASE, RA, lsl #3]
     |  ins_next
+#if LJ_54
+    |6:
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and TMP0, TMP0, #LJ_GCVMASK
+    |  bne ->vmeta_unm
+    |  ldr CARG1, INT64:TMP0->i
+    |  neg CARG1, CARG1
+    |  store_int64_result
+|7:
+    |  mov CARG1, #1
+    |  lsl CARG1, CARG1, #31
+    |  store_int64_result
+#endif
     break;
   case BC_LEN:
     |  // RA = dst, RC = src
@@ -3331,12 +3577,12 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  bne target
     |  ldr CARG2, INT64:CARG2->i
     |  b >2
-    |1:
-    |  sxtw CARG2, CARG2w
-    |2:
-    |.endmacro
-    |
-    |.macro store_arithint64_1
+	    |1:
+	    |  sxtw CARG2, CARG2w
+	    |2:
+	    |.endmacro
+	    |
+	    |.macro store_arithint64_1
     |  cmp CARG1, CARG1, sxtw
     |  bne >9
     |  mov CARG1w, CARG1w
@@ -3350,12 +3596,12 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |   and TMP0, TMP0, #LJ_GCVMASK
     |  bne >8
     |  add TMP1, BASE, RA, lsl #3
-    |  ldr TMP2, INT64:TMP0->owner
-    |  cmp TMP1, TMP2
-    |  bne >8
-    |  str CARG1, INT64:TMP0->i
-    |  ins_next
-    |8:
+  |  ldr TMP2, INT64:TMP0->owner
+  |  cmp TMP1, TMP2
+  |  bne >8
+  |  str CARG1, INT64:TMP0->i
+  |  ins_next
+|8:
     |  ldr LFUNC:TMP1, [BASE, FRAME_FUNC]
     |   add CARG2, BASE, RA, lsl #3
     |  and LFUNC:TMP1, TMP1, #LJ_GCVMASK
@@ -3371,6 +3617,434 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  ldr BASE, L->base
     |  ins_next
     |.endmacro
+    |
+#if LJ_54
+    |.macro fuse_arithint64_eq_next
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  cmp CARG1, CARG1, sxtw
+    |  beq >9				// Keep int32 results represented as ints.
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_ISEQV
+    |  beq >1
+    |  cmp TMP0w, #BC_ISNEV
+    |  bne >9
+    |1:
+    |  ldrb TMP1w, [PC, # 4+OFS_OP]
+    |  cmp TMP1w, #BC_JMP
+    |  bne >9
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  and TMP2w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  beq >2
+    |  cmp TMP2w, RAw
+    |  bne >9
+    |  mov TMP2w, TMP1w
+    |2:
+    |  ldr TMP1, [BASE, RA, lsl #3]
+    |  asr ITYPE, TMP1, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and TMP1, TMP1, #LJ_GCVMASK
+    |  bne >9
+    |  add TMP3, BASE, RA, lsl #3
+    |  ldr CARG2, INT64:TMP1->owner
+    |  cmp TMP3, CARG2
+    |  bne >9
+    |  str CARG1, INT64:TMP1->i
+    |  ldr CARG2, [BASE, TMP2, lsl #3]
+    |  load_arithint64_2 >9
+    |  ldrh RBw, [PC, # 4+OFS_RD]
+    |  add CARG4, PC, #8
+    |  add RB, CARG4, RB, lsl #2
+    |  sub RB, RB, #0x20000
+    |  cmp TMP0w, #BC_ISEQV
+    |  beq >3
+    |  cmp CARG1, CARG2
+    |  csel PC, RB, CARG4, ne
+    |  ins_next
+    |3:
+    |  cmp CARG1, CARG2
+    |  csel PC, RB, CARG4, eq
+    |  ins_next
+    |9:
+    |.endmacro
+    |
+    |.macro fuse_arithint64_ord_next
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  cmp CARG1, CARG1, sxtw
+    |  beq >9				// Keep int32 results represented as ints.
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_ISLT
+    |  beq >1
+    |  cmp TMP0w, #BC_ISGE
+    |  beq >1
+    |  cmp TMP0w, #BC_ISLE
+    |  beq >1
+    |  cmp TMP0w, #BC_ISGT
+    |  bne >9
+    |1:
+    |  ldrb TMP1w, [PC, #4+OFS_OP]
+    |  cmp TMP1w, #BC_JMP
+    |  bne >9
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  cmp TMP1w, RAw
+    |  bne >2
+    |  mov CARG4w, wzr		// Arithmetic result is compare lhs.
+    |  mov TMP2w, TMP3w
+    |  b >3
+|2:
+    |  cmp TMP3w, RAw
+    |  bne >9
+    |  mov CARG4w, #1			// Arithmetic result is compare rhs.
+    |  mov TMP2w, TMP1w
+|3:
+    |  ldr TMP1, [BASE, RA, lsl #3]
+    |  asr ITYPE, TMP1, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and TMP1, TMP1, #LJ_GCVMASK
+    |  bne >9
+    |  add TMP3, BASE, RA, lsl #3
+    |  ldr CARG2, INT64:TMP1->owner
+    |  cmp TMP3, CARG2
+	    |  bne >9
+	    |  str CARG1, INT64:TMP1->i		// Preserve the arithmetic result.
+	    |  ldr CARG2, [BASE, TMP2, lsl #3]
+	    |  load_arithint64_2 >9
+	    |  ldrh RBw, [PC, #4+OFS_RD]
+    |  add CARG3, PC, #8
+    |  add RB, CARG3, RB, lsl #2
+    |  sub RB, RB, #0x20000
+    |  cbnz CARG4w, >5
+    |  cmp TMP0w, #BC_ISLT
+    |  bne >1
+    |  cmp CARG1, CARG2
+    |  csel PC, RB, CARG3, lt
+    |  ins_next
+|1:
+    |  cmp TMP0w, #BC_ISGE
+    |  bne >2
+    |  cmp CARG1, CARG2
+    |  csel PC, RB, CARG3, ge
+    |  ins_next
+|2:
+    |  cmp TMP0w, #BC_ISLE
+    |  bne >3
+    |  cmp CARG1, CARG2
+    |  csel PC, RB, CARG3, le
+    |  ins_next
+|3:
+    |  cmp CARG1, CARG2
+    |  csel PC, RB, CARG3, gt
+    |  ins_next
+|5:
+    |  cmp TMP0w, #BC_ISLT
+    |  bne >1
+    |  cmp CARG1, CARG2
+    |  csel PC, RB, CARG3, gt
+    |  ins_next
+|1:
+    |  cmp TMP0w, #BC_ISGE
+    |  bne >2
+    |  cmp CARG1, CARG2
+    |  csel PC, RB, CARG3, le
+    |  ins_next
+|2:
+    |  cmp TMP0w, #BC_ISLE
+    |  bne >3
+    |  cmp CARG1, CARG2
+    |  csel PC, RB, CARG3, ge
+    |  ins_next
+|3:
+    |  cmp CARG1, CARG2
+    |  csel PC, RB, CARG3, lt
+    |  ins_next
+    |9:
+    |.endmacro
+    |
+    |.macro fuse_arithint64_addvn_ord_next
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  cmp CARG1, CARG1, sxtw
+    |  beq >9				// Keep int32 results represented as ints.
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_ADDVN
+    |  bne >9
+    |  ldrb CARG5w, [PC, # OFS_RA]	// Threshold temp.
+    |  cmp CARG5w, RAw
+    |  beq >9
+    |  ldrb TMP2w, [PC, # OFS_RB]
+    |  cmp TMP2w, RAw
+    |  beq >9
+    |  ldrb TMP3w, [PC, # OFS_RD]
+    |  ldrb TMP0w, [PC, #4+OFS_OP]
+    |  cmp TMP0w, #BC_ISLT
+    |  beq >1
+    |  cmp TMP0w, #BC_ISGE
+    |  beq >1
+    |  cmp TMP0w, #BC_ISLE
+    |  beq >1
+    |  cmp TMP0w, #BC_ISGT
+    |  bne >9
+|1:
+    |  ldrb TMP1w, [PC, #4+OFS_RA]
+    |  ldrh CARG4w, [PC, #4+OFS_RD]
+    |  cmp TMP1w, RAw
+    |  bne >2
+    |  cmp CARG4w, CARG5w
+    |  bne >9
+    |  mov CARG4w, wzr		// Current ADD result is compare lhs.
+    |  b >3
+|2:
+    |  cmp CARG4w, RAw
+    |  bne >9
+    |  cmp TMP1w, CARG5w
+    |  bne >9
+    |  mov CARG4w, #1			// Current ADD result is compare rhs.
+|3:
+    |  ldrb TMP1w, [PC, #8+OFS_OP]
+    |  cmp TMP1w, #BC_JMP
+    |  bne >9
+    |  ldr CARG2, [BASE, TMP2, lsl #3]
+    |  load_arithint64_2 >9
+    |  ldr CARG3, [KBASE, TMP3, lsl #3]
+    |  cmp TISNUMhi, CARG3, lsr #32
+    |  beq >4
+    |  bhi >9
+    |  asr ITYPE, CARG3, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and CARG3, CARG3, #LJ_GCVMASK
+    |  bne >9
+    |  ldr CARG3, INT64:CARG3->i
+    |  b >5
+|4:
+    |  sxtw CARG3, CARG3w
+|5:
+    |  add CARG2, CARG2, CARG3		// Threshold from skipped ADDVN.
+    |  ldr TMP1, [BASE, RA, lsl #3]
+    |  asr ITYPE, TMP1, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and TMP1, TMP1, #LJ_GCVMASK
+    |  bne >9
+    |  add TMP3, BASE, RA, lsl #3
+    |  ldr CARG3, INT64:TMP1->owner
+    |  cmp TMP3, CARG3
+    |  bne >9
+    |  str CARG1, INT64:TMP1->i		// Preserve current ADD result.
+    |  ldrh RBw, [PC, #8+OFS_RD]
+    |  add CARG3, PC, #12
+    |  add RB, CARG3, RB, lsl #2
+    |  sub RB, RB, #0x20000
+    |  cbnz CARG4w, >6
+    |  cmp TMP0w, #BC_ISLT
+    |  bne >1
+    |  cmp CARG1, CARG2
+    |  csel PC, RB, CARG3, lt
+    |  ins_next
+|1:
+    |  cmp TMP0w, #BC_ISGE
+    |  bne >2
+    |  cmp CARG1, CARG2
+    |  csel PC, RB, CARG3, ge
+    |  ins_next
+|2:
+    |  cmp TMP0w, #BC_ISLE
+    |  bne >3
+    |  cmp CARG1, CARG2
+    |  csel PC, RB, CARG3, le
+    |  ins_next
+|3:
+    |  cmp CARG1, CARG2
+    |  csel PC, RB, CARG3, gt
+    |  ins_next
+|6:
+    |  cmp TMP0w, #BC_ISLT
+    |  bne >1
+    |  cmp CARG1, CARG2
+    |  csel PC, RB, CARG3, gt
+    |  ins_next
+|1:
+    |  cmp TMP0w, #BC_ISGE
+    |  bne >2
+    |  cmp CARG1, CARG2
+    |  csel PC, RB, CARG3, le
+    |  ins_next
+|2:
+    |  cmp TMP0w, #BC_ISLE
+    |  bne >3
+    |  cmp CARG1, CARG2
+    |  csel PC, RB, CARG3, ge
+    |  ins_next
+|3:
+    |  cmp CARG1, CARG2
+    |  csel PC, RB, CARG3, lt
+    |  ins_next
+|9:
+    |.endmacro
+    |
+    |.macro fuse_arithint64_bnot_knum_band_next
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_BNOT
+    |  bne >9
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP2w, [PC, # OFS_RD]
+    |  cmp TMP2w, RAw
+    |  bne >9
+    |  ldrb TMP0w, [PC, #4+OFS_OP]
+    |  cmp TMP0w, #BC_KNUM
+    |  bne >9
+    |  ldrb TMP1w, [PC, #4+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  beq >9
+    |  ldrb TMP0w, [PC, #8+OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  bne >9
+    |  ldrh TMP2w, [PC, #8+OFS_RD]
+    |  and TMP3w, TMP2w, #255
+    |  cmp TMP3w, RAw
+    |  beq >1
+    |  lsr TMP3w, TMP2w, #8
+    |  cmp TMP3w, RAw
+    |  bne >9
+    |  and TMP3w, TMP2w, #255
+    |  b >2
+|1:
+    |  lsr TMP3w, TMP2w, #8
+|2:
+    |  cmp TMP3w, TMP1w
+    |  bne >9
+    |  ldrh TMP2w, [PC, #4+OFS_RD]
+    |  ldr CARG2, [KBASE, TMP2, lsl #3]
+    |  load_arithint64_2 >9
+    |  mvn CARG1, CARG1
+    |  and CARG1, CARG1, CARG2
+    |  ldrb RAw, [PC, #8+OFS_RA]
+    |  add PC, PC, #12
+    |  store_arithint64_1
+|9:
+    |.endmacro
+    |
+    |.macro fuse_arithint64_kshort_band_zero_branch_next
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_KSHORT
+    |  bne >9
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  cmp CARG1, CARG1, sxtw
+    |  beq >9				// Keep int32 results represented as ints.
+    |  ldrb TMP1w, [PC, # OFS_RA]	// Mask/result temp.
+    |  cmp TMP1w, RAw
+    |  beq >9
+    |  ldrh CARG4w, [PC, # OFS_RD]
+    |  sxth CARG4w, CARG4w
+    |  tbnz CARG4w, #31, >9
+    |  ldrb TMP0w, [PC, #4+OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  bne >9
+    |  ldrb TMP2w, [PC, #4+OFS_RA]
+    |  cmp TMP2w, TMP1w
+    |  bne >9
+    |  ldrh TMP3w, [PC, #4+OFS_RD]
+    |  and TMP2w, TMP3w, #255
+    |  lsr TMP3w, TMP3w, #8
+    |  cmp TMP2w, RAw
+    |  bne >1
+    |  cmp TMP3w, TMP1w
+    |  beq >2
+    |  b >9
+|1:
+    |  cmp TMP3w, RAw
+    |  bne >9
+    |  cmp TMP2w, TMP1w
+    |  bne >9
+|2:
+    |  ldrb TMP0w, [PC, #8+OFS_OP]
+    |  cmp TMP0w, #BC_ISEQN
+    |  beq >3
+    |  cmp TMP0w, #BC_ISNEN
+    |  bne >9
+|3:
+    |  ldrb TMP2w, [PC, #8+OFS_RA]
+    |  cmp TMP2w, TMP1w
+    |  bne >9
+    |  ldrh TMP3w, [PC, #8+OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  checkint CARG2, >9
+    |  cbnz CARG2w, >9
+    |  ldrb TMP2w, [PC, #12+OFS_OP]
+    |  cmp TMP2w, #BC_JMP
+    |  bne >9
+    |  ldr TMP2, [BASE, RA, lsl #3]
+    |  asr ITYPE, TMP2, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and TMP2, TMP2, #LJ_GCVMASK
+    |  bne >9
+    |  add TMP3, BASE, RA, lsl #3
+    |  ldr CARG2, INT64:TMP2->owner
+    |  cmp TMP3, CARG2
+    |  bne >9
+    |  str CARG1, INT64:TMP2->i		// Preserve the ADD result local.
+    |  and TMP2, CARG1, CARG4
+    |  add_TISNUM TMP2, TMP2
+    |  str TMP2, [BASE, TMP1, lsl #3]	// Preserve the BAND result local.
+    |  ldrh RBw, [PC, #12+OFS_RD]
+    |  add CARG3, PC, #16
+    |  add RB, CARG3, RB, lsl #2
+    |  sub RB, RB, #0x20000
+    |  cmp TMP0w, #BC_ISEQN
+    |  bne >4
+    |  tst CARG1, CARG4
+    |  csel PC, RB, CARG3, eq
+    |  ins_next
+|4:
+    |  tst CARG1, CARG4
+    |  csel PC, RB, CARG3, ne
+    |  ins_next
+|9:
+    |.endmacro
+    |
+    |.macro fuse_arithint64_kint_band_next
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_KNUM
+    |  bne >9
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  beq >9
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  str CARG2, [BASE, TMP1, lsl #3]	// Preserve skipped KNUM write.
+    |  load_arithint64_2 >9
+    |  ldrb TMP0w, [PC, # 4+OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  bne >9
+    |  ldrh TMP3w, [PC, # 4+OFS_RD]
+    |  and TMP2w, TMP3w, #255
+    |  lsr TMP3w, TMP3w, #8
+    |  cmp TMP2w, RAw
+    |  bne >1
+    |  cmp TMP3w, TMP1w
+    |  beq >2
+    |  b >9
+    |1:
+    |  cmp TMP3w, RAw
+    |  bne >9
+    |  cmp TMP2w, TMP1w
+    |  bne >9
+|2:
+    |  and CARG1, CARG1, CARG2
+    |  ldrb RAw, [PC, # 4+OFS_RA]
+    |  add PC, PC, #8
+|9:
+    |.endmacro
+#endif
 
   case BC_ADDVN: case BC_ADDNV: case BC_ADDVV:
 #if LJ_54
@@ -3379,8 +4053,14 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  load_arithint64_1 >7
     |  load_arithint64_2 >7
     |  add CARG1, CARG1, CARG2
+    |  fuse_arithint64_kint_band_next
+    |  fuse_arithint64_kshort_band_zero_branch_next
+    |  fuse_arithint64_addvn_ord_next
+    |  fuse_arithint64_bnot_knum_band_next
+    |  fuse_arithint64_ord_next
+    |  fuse_arithint64_eq_next
     |  store_arithint64_1
-    |7:
+|7:
 #endif
     |  ins_arithdn adds, fadd
     break;
@@ -3391,8 +4071,10 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  load_arithint64_1 >7
     |  load_arithint64_2 >7
     |  sub CARG1, CARG1, CARG2
+    |  fuse_arithint64_ord_next
+    |  fuse_arithint64_eq_next
     |  store_arithint64_1
-    |7:
+|7:
 #endif
     |  ins_arithdn subs, fsub
     break;
@@ -3403,8 +4085,10 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  load_arithint64_1 >7
     |  load_arithint64_2 >7
     |  mul CARG1, CARG1, CARG2
+    |  fuse_arithint64_ord_next
+    |  fuse_arithint64_eq_next
     |  store_arithint64_1
-    |7:
+|7:
 #endif
     |  ins_arithdn smull, fmul
     break;
@@ -3419,6 +4103,124 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  ins_arithhead
     |  ins_arithload CARG1, CARG2
     |  load_arithint64_1 >5
+    if (op == BC_MODVN) {
+      |  cmp TISNUMhi, CARG2, lsr #32
+      |  bls >4
+      |  fmov FARG2, CARG2
+      |  fcmp FARG2, #0.0
+      |  bls >4				// Constant divisor must be positive.
+      |  fcvtzs TMP1, FARG2
+      |  cmp TMP1, TMP1, sxtw
+      |  bne >4				// Keep the result in tagged-int range.
+      |  scvtf d2, TMP1
+      |  fcmp d2, FARG2
+      |  bne >4				// Constant must be an exact integer.
+      |  sub TMP0, TMP1, #1
+      |  tst TMP0, TMP1
+      |  bne >1
+      |  and CARG3, CARG1, TMP0
+      |  b >3
+      |1:
+      |  cmp CARG1, CARG1, sxtw
+      |  bne >2
+      |  sdiv CARG3w, CARG1w, TMP1w
+      |  msub CARG3w, CARG3w, TMP1w, CARG1w
+      |  cbz CARG3w, >3
+      |  tbz CARG3w, #31, >3
+      |  add CARG3w, CARG3w, TMP1w
+      |  b >3
+      |2:
+      |  sdiv CARG3, CARG1, TMP1
+      |  msub CARG3, CARG3, TMP1, CARG1
+      |  cbz CARG3, >3
+      |  tbz CARG3, #63, >3
+      |  add CARG3, CARG3, TMP1		// Floor modulo for negative dividends.
+|3:
+      |  ldr CARG1w, [GL, #GL_J(flags)]
+      |  tbnz CARG1w, #0, >3		// JIT_F_ON: preserve JIT-on behavior.
+      |  ldrb TMP0w, [PC, # OFS_OP]
+      |  cmp TMP0w, #BC_KSHORT
+      |  bne >3
+      |  ldrb TMP0w, [PC, #4+OFS_OP]
+      |  cmp TMP0w, #BC_ISLT
+      |  beq >2
+      |  cmp TMP0w, #BC_ISGE
+      |  beq >2
+      |  cmp TMP0w, #BC_ISLE
+      |  beq >2
+      |  cmp TMP0w, #BC_ISGT
+      |  bne >3
+      |2:
+      |  ldrb TMP2w, [PC, #8+OFS_OP]
+      |  cmp TMP2w, #BC_JMP
+      |  bne >3
+      |  ldrb TMP1w, [PC, # OFS_RA]	// KSHORT slot.
+      |  ldrh CARG2w, [PC, # OFS_RD]
+      |  sxth CARG2w, CARG2w
+      |  ldrb CARG4w, [PC, #4+OFS_RA]
+      |  ldrh TMP2w, [PC, #4+OFS_RD]
+      |  cmp CARG4w, RAw
+      |  bne >1
+      |  cmp TMP2w, TMP1w
+      |  bne >3
+      |  mov CARG1w, wzr		// Modulo result is compare lhs.
+      |  b >2
+      |1:
+      |  cmp CARG4w, TMP1w
+      |  bne >3
+      |  cmp TMP2w, RAw
+      |  bne >3
+      |  mov CARG1w, #1			// KSHORT literal is compare lhs.
+      |2:
+      |  add_TISNUM TMP2, CARG2
+      |  str TMP2, [BASE, TMP1, lsl #3]
+	      |  sxtw CARG2, CARG2w
+	      |  mov TMP2w, CARG3w
+	      |  add_TISNUM TMP2, TMP2
+	      |  str TMP2, [BASE, RA, lsl #3]
+	      |  ldrh RBw, [PC, #8+OFS_RD]
+	      |  add CARG4, PC, #12
+	      |  add RB, CARG4, RB, lsl #2
+      |  sub RB, RB, #0x20000
+      |  cbnz CARG1w, >7
+      |  cmp TMP0w, #BC_ISLT
+      |  beq >6
+      |  cmp TMP0w, #BC_ISGE
+      |  beq >7
+      |  cmp TMP0w, #BC_ISLE
+      |  beq >8
+      |  b >9
+      |7:
+      |  cmp TMP0w, #BC_ISLT
+      |  beq >9
+      |  cmp TMP0w, #BC_ISGE
+      |  beq >8
+      |  cmp TMP0w, #BC_ISLE
+      |  beq >7
+      |  b >6
+      |6:
+      |  cmp CARG3, CARG2
+      |  csel PC, RB, CARG4, lt
+      |  ins_next
+      |7:
+      |  cmp CARG3, CARG2
+      |  csel PC, RB, CARG4, ge
+      |  ins_next
+      |8:
+      |  cmp CARG3, CARG2
+      |  csel PC, RB, CARG4, le
+      |  ins_next
+      |9:
+      |  cmp CARG3, CARG2
+      |  csel PC, RB, CARG4, gt
+      |  ins_next
+      |3:
+      |  mov CARG3w, CARG3w
+      |  add_TISNUM TMP0, CARG3
+      |  str TMP0, [BASE, RA, lsl #3]
+      |  ins_next
+      |4:
+    }
     |  load_arithint64_2 >5
     |  ins_arithfallback ins_arithcheck_nzdiv64	// n%0: C error path.
     |  cmn CARG2, #1			// a % -1 == 0: skip the division.
@@ -3435,7 +4237,29 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |7:
     |  mov CARG3, #0
     |  b <6
-    |5:  // Float, string or metamethod: C path.
+    |5:  // FP modulo fast path; strings and metamethods use the C path.
+    |  ins_arithload CARG1, CARG2
+    |  checknum CARG1, >8
+    |  checknum CARG2, >8
+    |  fmov FARG1, CARG1
+    |  fmov FARG2, CARG2
+    |  movz TMP0, #0x4330, lsl #48	// 2^52.
+    |  cmp CARG1, TMP0			// Non-negative finite and < 2^52?
+    |  bhs >7
+    |  fcmp FARG2, #0.0
+    |  bls >7				// Divisor must be positive and ordered.
+    |  fcvtzs TMP1, FARG2
+    |  scvtf d2, TMP1
+    |  fcmp d2, FARG2
+    |  bne >7				// Divisor must be an integer.
+    |  ins_arithmod FARG1, FARG1, FARG2
+    |  str FARG1, [BASE, RA, lsl #3]
+    |  ins_next
+    |7:
+    |  bl extern lj_vm_lua54fmod
+    |  str FARG1, [BASE, RA, lsl #3]
+    |  ins_next
+    |8:
     |  ins_arithfallback b
     break;
 #endif
@@ -3453,6 +4277,24 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |   str BASE, L->base
     |  sub CARG3, RC, RB
     |  add CARG2, BASE, RC, lsl #3
+#if LJ_54
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, ->BC_CAT_Z	// JIT_F_ON: preserve JIT-on behavior.
+    |  cmp CARG3, #1
+    |  bne ->BC_CAT_Z
+    |  ldr TMP0, [CARG2]
+    |   ldr TMP1, [CARG2, #-8]
+    |  checkstr TMP0, ->BC_CAT_Z
+    |  checkstr TMP1, ->BC_CAT_Z
+    |  mov CARG1, L
+    |   str PC, SAVE_PC
+    |  bl extern lj_meta_cat2str		// (lua_State *L, TValue *top)
+    |  ldrb RBw, [PC, #-4+OFS_RB]
+    |   ldr BASE, L->base
+    |  ldr TMP0, [BASE, RB, lsl #3]
+    |  str TMP0, [BASE, RA, lsl #3]	// Copy result to RA.
+    |  ins_next
+#endif
     |->BC_CAT_Z:
     |  // RA = dst, CARG2 = top-1, CARG3 = left
     |  mov CARG1, L
@@ -3500,27 +4342,27 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |.endmacro
     |
     |.macro store_bitint64_1
+    |  ldr TMP0, [BASE, RA, lsl #3]
+    |  asr ITYPE, TMP0, #47
+    |  cmn ITYPE, #-LJ_TINT64
+     |   and TMP0, TMP0, #LJ_GCVMASK
+    |  bne >7
+    |  add TMP1, BASE, RA, lsl #3
+    |  ldr TMP2, INT64:TMP0->owner
+    |  cmp TMP1, TMP2
+    |  bne >7
+    |  str CARG1, INT64:TMP0->i
+    |  ins_next
+    |7:
     |  cmp CARG1, CARG1, sxtw
-    |  bne >9
+    |  bne >8
     |  mov CARG1w, CARG1w
     |  add_TISNUM CARG1, CARG1
     |  str CARG1, [BASE, RA, lsl #3]
     |  ins_next
-    |9:
-    |  ldr TMP0, [BASE, RA, lsl #3]
-    |  asr ITYPE, TMP0, #47
-    |  cmn ITYPE, #-LJ_TINT64
-    |   and TMP0, TMP0, #LJ_GCVMASK
-    |  bne >8
-    |  add TMP1, BASE, RA, lsl #3
-    |  ldr TMP2, INT64:TMP0->owner
-    |  cmp TMP1, TMP2
-    |  bne >8
-    |  str CARG1, INT64:TMP0->i
-    |  ins_next
     |8:
     |  ldr LFUNC:TMP1, [BASE, FRAME_FUNC]
-    |   add CARG2, BASE, RA, lsl #3
+     |   add CARG2, BASE, RA, lsl #3
     |  and LFUNC:TMP1, TMP1, #LJ_GCVMASK
     |   mov CARG3, CARG1
     |  ldr TMP1, LFUNC:TMP1->pc
@@ -3535,12 +4377,3244 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  ins_next
     |.endmacro
     |
+#if LJ_54
+    |.macro fuse_bitint64_next_same_ra
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  beq >5
+    |  cmp TMP0w, #BC_BOR
+    |  beq >5
+    |  cmp TMP0w, #BC_BXOR
+    |  bne >9
+    |5:
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  and TMP2w, TMP3w, #255
+    |  cmp TMP2w, RAw
+    |  beq >6
+    |  lsr TMP2w, TMP3w, #8
+    |  cmp TMP2w, RAw
+    |  bne >9
+    |  and TMP2w, TMP3w, #255
+    |  b >7
+    |6:
+    |  lsr TMP2w, TMP3w, #8
+    |7:
+    |  cmp TMP2w, RAw
+    |  beq >9
+    |  ldr CARG2, [BASE, TMP2, lsl #3]
+    |  load_bitint64_2 >9
+    |  cmp TMP0w, #BC_BAND
+    |  beq >6
+    |  cmp TMP0w, #BC_BOR
+    |  beq >7
+    |  eor CARG1, CARG1, CARG2
+    |  b >8
+    |6:
+    |  and CARG1, CARG1, CARG2
+    |  b >8
+    |7:
+    |  orr CARG1, CARG1, CARG2
+    |8:
+    |  ldrb RAw, [PC, # OFS_RA]
+    |  add PC, PC, #4
+    |9:
+    |.endmacro
+    |
+    |.macro fuse_bitint64_kconst_next
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_KSHORT
+    |  beq >1
+    |  cmp TMP0w, #BC_KNUM
+    |  bne >9
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  beq >9
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  str CARG2, [BASE, TMP1, lsl #3]
+    |  load_bitint64_2 >9
+    |  b >2
+    |1:
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  beq >9
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  sxth TMP3w, TMP3w
+    |  sxtw CARG2, TMP3w
+    |  add_TISNUM TMP2, TMP3
+    |  str TMP2, [BASE, TMP1, lsl #3]
+    |2:
+    |  ldrb TMP0w, [PC, #4+OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  beq >3
+    |  cmp TMP0w, #BC_BOR
+    |  beq >3
+    |  cmp TMP0w, #BC_BXOR
+    |  bne >9
+    |3:
+    |  ldrh TMP3w, [PC, #4+OFS_RD]
+    |  and TMP2w, TMP3w, #255
+    |  lsr TMP3w, TMP3w, #8
+    |  cmp TMP2w, RAw
+    |  bne >4
+    |  cmp TMP3w, TMP1w
+    |  beq >5
+    |  b >9
+    |4:
+    |  cmp TMP3w, RAw
+    |  bne >9
+    |  cmp TMP2w, TMP1w
+    |  bne >9
+    |5:
+    |  cmp TMP0w, #BC_BAND
+    |  beq >6
+    |  cmp TMP0w, #BC_BOR
+    |  beq >7
+    |  eor CARG1, CARG1, CARG2
+    |  b >8
+    |6:
+    |  and CARG1, CARG1, CARG2
+    |  b >8
+    |7:
+    |  orr CARG1, CARG1, CARG2
+    |8:
+    |  ldrb RAw, [PC, #4+OFS_RA]
+    |  add PC, PC, #8
+    |9:
+    |.endmacro
+    |
+    |.macro fuse_bitint64_kshort_band_next_int
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_KSHORT
+    |  bne >9
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  beq >9
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  sxth TMP3w, TMP3w
+    |  tbnz TMP3w, #31, >9
+    |  add_TISNUM TMP2, TMP3
+    |  str TMP2, [BASE, TMP1, lsl #3]	// Preserve skipped KSHORT write.
+    |  ldrb TMP0w, [PC, #4+OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  bne >9
+    |  ldrh TMP2w, [PC, #4+OFS_RD]
+    |  and TMP0w, TMP2w, #255
+    |  cmp TMP0w, RAw
+    |  bne >1
+    |  lsr TMP2w, TMP2w, #8
+    |  cmp TMP2w, TMP1w
+    |  bne >9
+    |  b >2
+    |1:
+    |  lsr TMP2w, TMP2w, #8
+    |  cmp TMP2w, RAw
+    |  bne >9
+    |  cmp TMP0w, TMP1w
+    |  bne >9
+	|2:
+	    |  and CARG1, CARG1, TMP3
+	    |  ldrb RAw, [PC, #4+OFS_RA]
+	    |  add PC, PC, #8
+	    |  add_TISNUM CARG1, CARG1
+	    |  str CARG1, [BASE, RA, lsl #3]
+	    |  ins_next
+    |9:
+    |.endmacro
+    |
+    |.macro fuse_bitint64_knum_band_next_store
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_KNUM
+    |  bne >9
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  beq >9
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  str CARG2, [BASE, TMP1, lsl #3]	// Preserve skipped KNUM write.
+    |  load_bitint64_2 >9
+    |  ldrb TMP0w, [PC, #4+OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  bne >9
+    |  ldrh TMP3w, [PC, #4+OFS_RD]
+    |  and TMP2w, TMP3w, #255
+    |  cmp TMP2w, RAw
+    |  bne >1
+    |  lsr TMP2w, TMP3w, #8
+    |  cmp TMP2w, TMP1w
+    |  bne >9
+    |  b >2
+    |1:
+    |  lsr TMP3w, TMP3w, #8
+    |  cmp TMP3w, RAw
+    |  bne >9
+    |  cmp TMP2w, TMP1w
+    |  bne >9
+    |2:
+    |  and CARG1, CARG1, CARG2
+    |  ldrb RAw, [PC, #4+OFS_RA]
+    |  add PC, PC, #8
+    |  store_bitint64_1
+    |9:
+    |.endmacro
+    |
+    |.macro fuse_bitint64_addvn_knum_band_next
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_ADDVN
+    |  bne >9
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrb TMP2w, [PC, # OFS_RB]
+    |  cmp TMP2w, RAw
+    |  bne >9
+    |  ldrb TMP3w, [PC, # OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  load_bitint64_2 >9
+    |  add CARG4, CARG1, CARG2
+    |  ldrb TMP0w, [PC, #4+OFS_OP]
+    |  cmp TMP0w, #BC_KNUM
+    |  bne >9
+    |  ldrb TMP1w, [PC, #4+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  beq >9
+    |  ldrh TMP3w, [PC, #4+OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  str CARG2, [BASE, TMP1, lsl #3]	// Preserve skipped KNUM write.
+    |  load_bitint64_2 >9
+    |  ldrb TMP0w, [PC, #8+OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  bne >9
+    |  ldrh TMP3w, [PC, #8+OFS_RD]
+    |  and TMP2w, TMP3w, #255
+    |  lsr TMP3w, TMP3w, #8
+    |  cmp TMP2w, RAw
+    |  bne >1
+    |  cmp TMP3w, TMP1w
+    |  beq >2
+    |  b >9
+    |1:
+    |  cmp TMP3w, RAw
+    |  bne >9
+    |  cmp TMP2w, TMP1w
+    |  bne >9
+    |2:
+    |  and CARG1, CARG4, CARG2
+    |  ldrb RAw, [PC, #8+OFS_RA]
+    |  add PC, PC, #12
+    |9:
+    |.endmacro
+    |
+    |.macro fuse_bitint64_bnot_next_same_ra
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_BNOT
+    |  bne >9
+    |  ldrh TMP2w, [PC, # OFS_RD]
+    |  cmp TMP2w, RAw
+    |  bne >9
+    |  mvn CARG1, CARG1
+    |  ldrb RAw, [PC, # OFS_RA]
+    |  add PC, PC, #4
+    |9:
+    |.endmacro
+    |
+    |.macro store_bitint32_owned_jitoff, ownreg
+    |  ldr CARG3w, [GL, #GL_J(flags)]
+    |  tbnz CARG3w, #0, >5		// JIT_F_ON: preserve JIT-on behavior.
+    |  cmp RA, ownreg
+    |  bne >5
+    |  add CARG3, BASE, RA, lsl #3
+    |  ldr TMP1, INT64:TMP2->owner
+    |  cmp CARG3, TMP1
+    |  bne >5
+    |  ldrb CARG3w, [PC, # OFS_OP]
+    |  sub CARG3w, CARG3w, #BC_ADDVN
+    |  cmp CARG3w, #11
+    |  bhi >5
+    |  mov TMP1w, #0xc63		// ADD/SUB VN, NV and VV opcodes.
+    |  lsr TMP1w, TMP1w, CARG3w
+    |  tbz TMP1w, #0, >5
+    |  ldrb CARG3w, [PC, # OFS_RA]
+    |  cmp CARG3w, RAw
+    |  bne >5
+    |  ldrb CARG3w, [PC, # OFS_RB]
+    |  cmp CARG3w, RAw
+    |  cset CARG3w, eq
+    |  ldrh TMP1w, [PC, # OFS_RD]
+    |  and TMP1w, TMP1w, #255
+    |  cmp TMP1w, RAw
+    |  cset TMP1w, eq
+    |  orr CARG3w, CARG3w, TMP1w
+    |  cbz CARG3w, >5
+    |  mov TMP0w, TMP0w
+    |  str TMP0, INT64:TMP2->i
+    |  ins_next
+    |  str xzr, INT64:TMP2->owner
+    |  mov TMP0w, TMP0w
+    |  add_TISNUM TMP0, TMP0
+    |  str TMP0, [BASE, RA, lsl #3]
+    |  ins_next
+    |5:
+    |.endmacro
+    |
+    |.macro fuse_bitint32_bxor_next_jitoff, raw
+    |  ldr CARG3w, [GL, #GL_J(flags)]
+    |  tbnz CARG3w, #0, >5		// JIT_F_ON: preserve JIT-on behavior.
+    |  ldrb CARG3w, [PC, # OFS_OP]
+    |  cmp CARG3w, #BC_BXOR
+    |  bne >5
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  beq >6
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >5
+    |  and TMP1w, TMP3w, #255
+    |  b >7
+    |6:
+    |  lsr TMP1w, TMP3w, #8
+    |7:
+    |  cmp TMP1w, RAw
+    |  beq >5
+    |  ldr CARG3, [BASE, TMP1, lsl #3]
+    |  checkint CARG3, >5
+    |  eor raw, raw, CARG3w
+    |  ldrb RAw, [PC, # OFS_RA]
+    |  ldr TMP3, [BASE, RA, lsl #3]
+    |  clear_int64_owner TMP3, TMP1, CARG3
+    |  add PC, PC, #4
+    |  mov raw, raw
+    |  add_TISNUM TMP0, TMP0
+    |  str TMP0, [BASE, RA, lsl #3]
+    |  ins_next
+|5:
+    |.endmacro
+    |
+    |.macro fuse_bitint32_kconst_band_next, raw
+    |  ldr TMP2w, [GL, #GL_J(flags)]
+    |  tbnz TMP2w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  ldrb TMP2w, [PC, # OFS_OP]
+    |  cmp TMP2w, #BC_KNUM
+    |  bne >9
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  beq >9
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  checkint CARG2, >9
+    |  ldrb TMP2w, [PC, #4+OFS_OP]
+    |  cmp TMP2w, #BC_BAND
+    |  bne >9
+    |  ldrh TMP3w, [PC, #4+OFS_RD]
+    |  and TMP2w, TMP3w, #255
+    |  lsr TMP3w, TMP3w, #8
+    |  cmp TMP2w, RAw
+    |  bne >4
+    |  cmp TMP3w, TMP1w
+    |  beq >5
+    |  b >9
+    |4:
+    |  cmp TMP3w, RAw
+    |  bne >9
+    |  cmp TMP2w, TMP1w
+    |  bne >9
+    |5:
+    |  and raw, raw, CARG2w
+    |  ldrb RAw, [PC, #4+OFS_RA]
+    |  add PC, PC, #8
+    |9:
+    |.endmacro
+    |
+    |.macro fuse_bitint64_kshift_next_same_ra
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_KSHORT
+    |  bne >9
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  beq >9
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  sxth TMP3w, TMP3w
+    |  cmp TMP3w, #63
+    |  bhi >9
+    |  ldrb TMP0w, [PC, #4+OFS_OP]
+    |  cmp TMP0w, #BC_BSHL
+    |  beq >1
+    |  cmp TMP0w, #BC_BSHR
+    |  bne >9
+    |1:
+    |  ldrb TMP2w, [PC, #4+OFS_RA]
+    |  cmp TMP2w, TMP1w
+    |  bne >9
+    |  ldrh TMP2w, [PC, #4+OFS_RD]
+    |  and CARG3w, TMP2w, #255
+    |  cmp CARG3w, TMP1w
+    |  bne >9
+    |  lsr TMP2w, TMP2w, #8
+    |  cmp TMP2w, RAw
+    |  beq >9
+    |  ldr CARG2, [BASE, TMP2, lsl #3]
+    |  load_bitint64_2 >9
+    |  cmp TMP0w, #BC_BSHL
+    |  beq >2
+    |  lsr CARG2, CARG2, TMP3
+    |  b >3
+    |2:
+    |  lsl CARG2, CARG2, TMP3
+    |3:
+    |  ldrb TMP0w, [PC, #8+OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  beq >4
+    |  cmp TMP0w, #BC_BOR
+    |  beq >4
+    |  cmp TMP0w, #BC_BXOR
+    |  bne >9
+    |4:
+    |  ldrh TMP3w, [PC, #8+OFS_RD]
+    |  and TMP2w, TMP3w, #255
+    |  lsr TMP3w, TMP3w, #8
+    |  cmp TMP2w, RAw
+    |  bne >5
+    |  cmp TMP3w, TMP1w
+    |  beq >6
+    |  b >9
+    |5:
+    |  cmp TMP3w, RAw
+    |  bne >9
+    |  cmp TMP2w, TMP1w
+    |  bne >9
+    |6:
+    |  cmp TMP0w, #BC_BAND
+    |  beq >7
+    |  cmp TMP0w, #BC_BOR
+    |  beq >8
+    |  eor CARG1, CARG1, CARG2
+    |  ldrb RAw, [PC, #8+OFS_RA]
+    |  add PC, PC, #12
+    |  b >9
+    |7:
+    |  and CARG1, CARG1, CARG2
+    |  ldrb RAw, [PC, #8+OFS_RA]
+    |  add PC, PC, #12
+    |  b >9
+    |8:
+    |  orr CARG1, CARG1, CARG2
+    |  ldrb RAw, [PC, #8+OFS_RA]
+    |  add PC, PC, #12
+    |9:
+    |.endmacro
+    |
+    |.macro fuse_knum_bit_mixed_const32_forl
+    |  ldr CARG3w, [GL, #GL_J(flags)]
+    |  tbnz CARG3w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  ldrb CARG3w, [PC, # OFS_OP]
+    |  cmp CARG3w, #BC_BAND
+    |  bne >9
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  beq >1
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  and CARG4w, TMP3w, #255		// Loop-carried value slot.
+    |  b >2
+|1:
+    |  lsr CARG4w, TMP3w, #8
+|2:
+    |  cmp CARG4w, RAw
+    |  beq >9
+    |  ldrb CARG3w, [PC, #4+OFS_OP]
+    |  cmp CARG3w, #BC_KNUM
+    |  bne >9
+    |  ldrb RBw, [PC, #4+OFS_RA]	// Second mask temp.
+    |  cmp RBw, RAw
+    |  beq >9
+    |  cmp RBw, CARG4w
+    |  beq >9
+    |  ldrb CARG3w, [PC, #8+OFS_OP]
+    |  cmp CARG3w, #BC_BAND
+    |  bne >9
+    |  ldrb TMP1w, [PC, #8+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #8+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RBw
+    |  beq >3
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  and CARG5w, TMP3w, #255		// Loop index slot.
+    |  b >4
+|3:
+    |  lsr CARG5w, TMP3w, #8
+|4:
+    |  cmp CARG5w, RAw
+    |  beq >9
+    |  cmp CARG5w, CARG4w
+    |  beq >9
+    |  ldrb CARG3w, [PC, #12+OFS_OP]
+    |  cmp CARG3w, #BC_BOR
+    |  bne >9
+    |  ldrb TMP1w, [PC, #12+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #12+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  beq >5
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  and TMP1w, TMP3w, #255
+    |  b >6
+|5:
+    |  lsr TMP1w, TMP3w, #8
+|6:
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrb CARG3w, [PC, #16+OFS_OP]
+    |  cmp CARG3w, #BC_KNUM
+    |  bne >9
+    |  ldrb TMP1w, [PC, #16+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrb CARG3w, [PC, #20+OFS_OP]
+    |  cmp CARG3w, #BC_BXOR
+    |  bne >9
+    |  ldrb TMP1w, [PC, #20+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #20+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  beq >7
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  and TMP1w, TMP3w, #255
+    |  b >8
+|7:
+    |  lsr TMP1w, TMP3w, #8
+|8:
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrb CARG3w, [PC, #24+OFS_OP]
+    |  cmp CARG3w, #BC_KNUM
+    |  bne >9
+    |  ldrb TMP1w, [PC, #24+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrb CARG3w, [PC, #28+OFS_OP]
+    |  cmp CARG3w, #BC_BAND
+    |  bne >9
+    |  ldrb TMP1w, [PC, #28+OFS_RA]
+    |  cmp TMP1w, CARG4w
+    |  bne >9
+    |  ldrh TMP3w, [PC, #28+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  beq >1
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  and TMP1w, TMP3w, #255
+    |  b >2
+|1:
+    |  lsr TMP1w, TMP3w, #8
+|2:
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrb CARG3w, [PC, #32+OFS_OP]
+    |  cmp CARG3w, #BC_FORL
+    |  bne >9
+    |  checkint TMP0, >9
+    |  ldr CARG1, [BASE, CARG4, lsl #3]
+    |  checkint CARG1, >9
+    |  ldr CARG2, [BASE, CARG5, lsl #3]
+    |  checkint CARG2, >9
+    |  ldrh TMP3w, [PC, #4+OFS_RD]
+    |  ldr CARG3, [KBASE, TMP3, lsl #3]
+    |  checkint CARG3, >9
+    |  ldrh TMP3w, [PC, #16+OFS_RD]
+    |  ldr TMP1, [KBASE, TMP3, lsl #3]
+    |  checkint TMP1, >9
+    |  ldrh TMP3w, [PC, #24+OFS_RD]
+    |  ldr TMP2, [KBASE, TMP3, lsl #3]
+    |  checkint TMP2, >9
+    |  and CARG1w, CARG1w, TMP0w
+    |  and CARG2w, CARG2w, CARG3w
+    |  orr CARG1w, CARG1w, CARG2w
+    |  eor CARG1w, CARG1w, TMP1w
+    |  and CARG1w, CARG1w, TMP2w
+    |  add_TISNUM CARG1, CARG1
+    |  str CARG1, [BASE, CARG4, lsl #3]
+    |  add PC, PC, #32
+    |  ins_next
+|9:
+    |.endmacro
+    |
+    |.macro fuse_knum_const_mask_shift_xor_forl
+    |  ldr CARG3w, [GL, #GL_J(flags)]
+    |  tbnz CARG3w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  ldrb CARG3w, [PC, # OFS_OP]
+    |  cmp CARG3w, #BC_BAND
+    |  bne >9
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  beq >1
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  and CARG5w, TMP3w, #255		// Loop-carried value slot.
+    |  b >2
+|1:
+    |  lsr CARG5w, TMP3w, #8
+|2:
+    |  cmp CARG5w, RAw
+    |  beq >9
+    |  ldrb CARG3w, [PC, #4+OFS_OP]
+    |  cmp CARG3w, #BC_KNUM
+    |  bne >9
+    |  ldrb RBw, [PC, #4+OFS_RA]	// Constant and shifted-index temp.
+    |  cmp RBw, RAw
+    |  beq >9
+    |  cmp RBw, CARG5w
+    |  beq >9
+    |  ldrb CARG3w, [PC, #8+OFS_OP]
+    |  cmp CARG3w, #BC_BOR
+    |  bne >9
+    |  ldrb TMP1w, [PC, #8+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #8+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  beq >3
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  and TMP1w, TMP3w, #255
+    |  b >4
+|3:
+    |  lsr TMP1w, TMP3w, #8
+|4:
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrb CARG3w, [PC, #12+OFS_OP]
+    |  cmp CARG3w, #BC_KSHORT
+    |  bne >9
+    |  ldrb TMP1w, [PC, #12+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #12+OFS_RD]
+    |  sxth TMP3w, TMP3w
+    |  cmp TMP3w, #9
+    |  bne >9
+    |  ldrb CARG3w, [PC, #16+OFS_OP]
+    |  cmp CARG3w, #BC_BSHL
+    |  bne >9
+    |  ldrb TMP1w, [PC, #16+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #16+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  lsr CARG4w, TMP3w, #8		// Loop index slot.
+    |  cmp CARG4w, RAw
+    |  beq >9
+    |  cmp CARG4w, RBw
+    |  beq >9
+    |  cmp CARG4w, CARG5w
+    |  beq >9
+    |  ldrb CARG3w, [PC, #20+OFS_OP]
+    |  cmp CARG3w, #BC_BXOR
+    |  bne >9
+    |  ldrb TMP1w, [PC, #20+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #20+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  beq >5
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  and TMP1w, TMP3w, #255
+    |  b >6
+|5:
+    |  lsr TMP1w, TMP3w, #8
+|6:
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrb CARG3w, [PC, #24+OFS_OP]
+    |  cmp CARG3w, #BC_KNUM
+    |  bne >9
+    |  ldrb TMP1w, [PC, #24+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrb CARG3w, [PC, #28+OFS_OP]
+    |  cmp CARG3w, #BC_BAND
+    |  bne >9
+    |  ldrb TMP1w, [PC, #28+OFS_RA]
+    |  cmp TMP1w, CARG5w
+    |  bne >9
+    |  ldrh TMP3w, [PC, #28+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  beq >7
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  and TMP1w, TMP3w, #255
+    |  b >8
+|7:
+    |  lsr TMP1w, TMP3w, #8
+|8:
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrb CARG3w, [PC, #32+OFS_OP]
+    |  cmp CARG3w, #BC_FORL
+    |  bne >9
+    |  mov CARG2, TMP0
+    |  load_bitint64_2 >9
+    |  mov TMP1, CARG2		// First constant mask.
+    |  ldrh TMP3w, [PC, #4+OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  load_bitint64_2 >9
+    |  mov CARG3, CARG2		// OR constant.
+    |  ldrh TMP3w, [PC, #24+OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  load_bitint64_2 >9
+    |  mov RB, CARG2		// Final mask.
+    |  ldr CARG1, [BASE, CARG4, lsl #3]
+    |  checkint CARG1, >9
+    |  sxtw TMP2, CARG1w
+    |  lsl TMP2, TMP2, #9
+    |  ldr CARG2, [BASE, CARG5, lsl #3]
+    |  asr ITYPE, CARG2, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and CARG2, CARG2, #LJ_GCVMASK
+    |  bne >8
+    |  add TMP3, BASE, CARG5, lsl #3
+    |  ldr CARG1, INT64:CARG2->owner
+    |  cmp CARG1, TMP3
+    |  bne >8
+    |  ldr CARG1, INT64:CARG2->i
+    |  and CARG1, CARG1, TMP1
+    |  orr CARG1, CARG1, CARG3
+    |  eor CARG1, CARG1, TMP2
+    |  and CARG1, CARG1, RB
+    |  str CARG1, INT64:CARG2->i
+    |  add PC, PC, #32
+    |  ins_next
+|8:
+    |  ldr CARG1, [BASE, CARG5, lsl #3]
+    |  load_bitint64_1 >9
+    |  and CARG1, CARG1, TMP1
+    |  orr CARG1, CARG1, CARG3
+    |  eor CARG1, CARG1, TMP2
+    |  and CARG1, CARG1, RB
+    |  mov RAw, CARG5w
+    |  add PC, PC, #32
+    |  store_bitint64_1
+|9:
+    |.endmacro
+    |
+    |.macro fuse_knum_const_or_xor_xor_forl
+    |  ldr CARG3w, [GL, #GL_J(flags)]
+    |  tbnz CARG3w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  ldrb CARG3w, [PC, # OFS_OP]
+    |  cmp CARG3w, #BC_BOR
+    |  bne >9
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  beq >1
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  and CARG5w, TMP3w, #255		// Loop-carried value slot.
+    |  b >2
+|1:
+    |  lsr CARG5w, TMP3w, #8
+|2:
+    |  cmp CARG5w, RAw
+    |  beq >9
+    |  ldrb CARG3w, [PC, #4+OFS_OP]
+    |  cmp CARG3w, #BC_KNUM
+    |  bne >9
+    |  ldrb RBw, [PC, #4+OFS_RA]	// Extra constant and mask temp.
+    |  cmp RBw, RAw
+    |  beq >9
+    |  cmp RBw, CARG5w
+    |  beq >9
+    |  ldrb CARG3w, [PC, #8+OFS_OP]
+    |  cmp CARG3w, #BC_BXOR
+    |  bne >9
+    |  ldrb TMP1w, [PC, #8+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #8+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  beq >3
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  and TMP1w, TMP3w, #255
+    |  b >4
+|3:
+    |  lsr TMP1w, TMP3w, #8
+|4:
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrb CARG3w, [PC, #12+OFS_OP]
+    |  cmp CARG3w, #BC_BXOR
+    |  bne >9
+    |  ldrb TMP1w, [PC, #12+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #12+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  beq >5
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  and CARG4w, TMP3w, #255		// Loop index slot.
+    |  b >6
+|5:
+    |  lsr CARG4w, TMP3w, #8
+|6:
+    |  cmp CARG4w, RAw
+    |  beq >9
+    |  cmp CARG4w, RBw
+    |  beq >9
+    |  cmp CARG4w, CARG5w
+    |  beq >9
+    |  ldrb CARG3w, [PC, #16+OFS_OP]
+    |  cmp CARG3w, #BC_KNUM
+    |  bne >9
+    |  ldrb TMP1w, [PC, #16+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrb CARG3w, [PC, #20+OFS_OP]
+    |  cmp CARG3w, #BC_BAND
+    |  bne >9
+    |  ldrb TMP1w, [PC, #20+OFS_RA]
+    |  cmp TMP1w, CARG5w
+    |  bne >9
+    |  ldrh TMP3w, [PC, #20+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  beq >7
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  and TMP1w, TMP3w, #255
+    |  b >8
+|7:
+    |  lsr TMP1w, TMP3w, #8
+|8:
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrb CARG3w, [PC, #24+OFS_OP]
+    |  cmp CARG3w, #BC_FORL
+    |  bne >9
+    |  mov CARG2, TMP0
+    |  load_bitint64_2 >9
+    |  mov TMP1, CARG2		// OR constant.
+    |  ldrh TMP3w, [PC, #4+OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  load_bitint64_2 >9
+    |  mov CARG3, CARG2		// XOR constant.
+    |  ldrh TMP3w, [PC, #16+OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  load_bitint64_2 >9
+    |  mov RB, CARG2		// Final mask.
+    |  ldr CARG1, [BASE, CARG4, lsl #3]
+    |  checkint CARG1, >9
+    |  sxtw TMP2, CARG1w
+    |  ldr CARG2, [BASE, CARG5, lsl #3]
+    |  asr ITYPE, CARG2, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and CARG2, CARG2, #LJ_GCVMASK
+    |  bne >8
+    |  add TMP3, BASE, CARG5, lsl #3
+    |  ldr CARG1, INT64:CARG2->owner
+    |  cmp CARG1, TMP3
+    |  bne >8
+    |  ldr CARG1, INT64:CARG2->i
+    |  orr CARG1, CARG1, TMP1
+    |  eor CARG1, CARG1, CARG3
+    |  eor CARG1, CARG1, TMP2
+    |  and CARG1, CARG1, RB
+    |  str CARG1, INT64:CARG2->i
+    |  add PC, PC, #24
+    |  ins_next
+|8:
+    |  ldr CARG1, [BASE, CARG5, lsl #3]
+    |  load_bitint64_1 >9
+    |  orr CARG1, CARG1, TMP1
+    |  eor CARG1, CARG1, CARG3
+    |  eor CARG1, CARG1, TMP2
+    |  and CARG1, CARG1, RB
+    |  mov RAw, CARG5w
+    |  add PC, PC, #24
+    |  store_bitint64_1
+|9:
+    |.endmacro
+    |
+    |.macro fuse_knum_bitop_bitop_forl
+    |  ldr CARG3w, [GL, #GL_J(flags)]
+    |  tbnz CARG3w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  ldrb CARG3w, [PC, # OFS_OP]
+    |  cmp CARG3w, #BC_BAND
+    |  bne >9
+    |  asr ITYPE, TMP0, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and CARG2, TMP0, #LJ_GCVMASK
+    |  bne >9
+    |  ldr CARG2, INT64:CARG2->i
+|1:
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  beq >2
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  and CARG4w, TMP3w, #255		// Source slot for first bitop.
+    |  b >3
+|2:
+    |  lsr CARG4w, TMP3w, #8
+    |  cmp CARG4w, RAw
+    |  beq >9
+|3:
+    |  ldrb TMP1w, [PC, #4+OFS_OP]
+    |  cmp TMP1w, #BC_BAND
+    |  beq >4
+    |  cmp TMP1w, #BC_BOR
+    |  beq >4
+    |  cmp TMP1w, #BC_BXOR
+    |  bne >9
+|4:
+    |  ldrb TMP2w, [PC, #4+OFS_RA]
+    |  cmp TMP2w, CARG4w		// Final result updates the source slot.
+    |  bne >9
+    |  ldrh TMP3w, [PC, #4+OFS_RD]
+    |  and TMP2w, TMP3w, #255
+    |  cmp TMP2w, RAw
+    |  beq >5
+    |  lsr TMP2w, TMP3w, #8
+    |  cmp TMP2w, RAw
+    |  bne >9
+    |  and TMP2w, TMP3w, #255		// Other operand for second bitop.
+    |  b >6
+|5:
+    |  lsr TMP2w, TMP3w, #8
+|6:
+    |  cmp TMP2w, RAw
+    |  beq >9
+    |  ldrb TMP3w, [PC, #8+OFS_OP]
+    |  cmp TMP3w, #BC_FORL
+    |  bne >9
+    |  ldr CARG1, [BASE, CARG4, lsl #3]
+    |  load_bitint64_1 >9
+    |  cmp CARG3w, #BC_BAND
+    |  beq >1
+    |  cmp CARG3w, #BC_BOR
+    |  beq >2
+    |  eor CARG1, CARG1, CARG2
+    |  b >3
+|1:
+    |  and CARG1, CARG1, CARG2
+    |  b >3
+|2:
+    |  orr CARG1, CARG1, CARG2
+|3:
+    |  ldr CARG2, [BASE, TMP2, lsl #3]
+    |  checkint CARG2, >9
+    |  sxtw CARG2, CARG2w
+    |  cmp TMP1w, #BC_BAND
+    |  beq >4
+    |  cmp TMP1w, #BC_BOR
+    |  beq >5
+    |  eor CARG1, CARG1, CARG2
+    |  b >6
+|4:
+    |  and CARG1, CARG1, CARG2
+    |  b >6
+|5:
+    |  orr CARG1, CARG1, CARG2
+|6:
+    |  mov RAw, CARG4w
+    |  add PC, PC, #8
+    |  store_bitint64_1
+|9:
+    |.endmacro
+    |
+    |.macro fuse_knum_bitop_bitop_knum_band_forl
+    |  ldr CARG3w, [GL, #GL_J(flags)]
+    |  tbnz CARG3w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  ldrb CARG3w, [PC, # OFS_OP]
+    |  cmp CARG3w, #BC_BOR
+    |  beq >1
+    |  cmp CARG3w, #BC_BXOR
+    |  bne >9
+|1:
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  beq >2
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  and CARG4w, TMP3w, #255
+    |  b >3
+|2:
+    |  lsr CARG4w, TMP3w, #8
+|3:
+    |  cmp CARG4w, RAw
+    |  beq >9
+    |  ldrb TMP1w, [PC, #4+OFS_OP]
+    |  cmp TMP1w, #BC_BAND
+    |  beq >4
+    |  cmp TMP1w, #BC_BOR
+    |  beq >4
+    |  cmp TMP1w, #BC_BXOR
+    |  bne >9
+|4:
+    |  ldrb TMP2w, [PC, #4+OFS_RA]
+    |  cmp TMP2w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #4+OFS_RD]
+    |  and TMP2w, TMP3w, #255
+    |  cmp TMP2w, RAw
+    |  beq >5
+    |  lsr TMP2w, TMP3w, #8
+    |  cmp TMP2w, RAw
+    |  bne >9
+    |  and TMP2w, TMP3w, #255
+    |  b >6
+|5:
+    |  lsr TMP2w, TMP3w, #8
+|6:
+    |  cmp TMP2w, RAw
+    |  beq >9
+    |  ldrb TMP3w, [PC, #8+OFS_OP]
+    |  cmp TMP3w, #BC_KNUM
+    |  bne >9
+    |  ldrb CARG5w, [PC, #8+OFS_RA]
+    |  cmp CARG5w, RAw
+    |  beq >9
+    |  cmp CARG5w, CARG4w
+    |  beq >9
+    |  cmp CARG5w, TMP2w
+    |  beq >9
+    |  ldrb TMP3w, [PC, #12+OFS_OP]
+    |  cmp TMP3w, #BC_BAND
+    |  bne >9
+    |  ldrb TMP3w, [PC, #12+OFS_RA]
+    |  cmp TMP3w, CARG4w		// Final result updates the loop-carried slot.
+    |  bne >9
+    |  ldrh TMP3w, [PC, #12+OFS_RD]
+    |  and CARG5w, TMP3w, #255
+    |  cmp CARG5w, RAw
+    |  beq >7
+    |  lsr CARG5w, TMP3w, #8
+    |  cmp CARG5w, RAw
+    |  bne >9
+    |  and CARG5w, TMP3w, #255
+    |  b >8
+|7:
+    |  lsr CARG5w, TMP3w, #8
+|8:
+    |  ldrb TMP3w, [PC, #8+OFS_RA]
+    |  cmp CARG5w, TMP3w
+    |  bne >9
+    |  ldrb TMP3w, [PC, #16+OFS_OP]
+    |  cmp TMP3w, #BC_FORL
+    |  bne >9
+    |  asr ITYPE, TMP0, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and CARG2, TMP0, #LJ_GCVMASK
+    |  bne >9
+    |  ldr CARG2, INT64:CARG2->i
+    |  ldr CARG1, [BASE, CARG4, lsl #3]
+    |  load_bitint64_1 >9
+    |  cmp CARG3w, #BC_BOR
+    |  beq >1
+    |  eor CARG1, CARG1, CARG2
+    |  b >2
+|1:
+    |  orr CARG1, CARG1, CARG2
+|2:
+    |  ldr CARG2, [BASE, TMP2, lsl #3]
+    |  checkint CARG2, >9
+    |  sxtw CARG2, CARG2w
+    |  cmp TMP1w, #BC_BAND
+    |  beq >3
+    |  cmp TMP1w, #BC_BOR
+    |  beq >4
+    |  eor CARG1, CARG1, CARG2
+    |  b >5
+|3:
+    |  and CARG1, CARG1, CARG2
+    |  b >5
+|4:
+    |  orr CARG1, CARG1, CARG2
+|5:
+    |  ldrh TMP3w, [PC, #8+OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  asr ITYPE, CARG2, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and CARG2, CARG2, #LJ_GCVMASK
+    |  bne >9
+    |  ldr CARG2, INT64:CARG2->i
+    |  and CARG1, CARG1, CARG2
+    |  mov RAw, CARG4w
+    |  add PC, PC, #16
+    |  store_bitint64_1
+|9:
+    |.endmacro
+    |
+    |.macro fuse_knum_bitop_knum_bitop_bitop_knum_band_forl
+    |  ldr CARG3w, [GL, #GL_J(flags)]
+    |  tbnz CARG3w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  ldrb CARG3w, [PC, # OFS_OP]
+    |  cmp CARG3w, #BC_BOR
+    |  beq >1
+    |  cmp CARG3w, #BC_BXOR
+    |  bne >9
+|1:
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  beq >2
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  and CARG4w, TMP3w, #255
+    |  b >3
+|2:
+    |  lsr CARG4w, TMP3w, #8
+|3:
+    |  cmp CARG4w, RAw
+    |  beq >9
+    |  ldrb TMP1w, [PC, #4+OFS_OP]
+    |  cmp TMP1w, #BC_KNUM
+    |  bne >9
+    |  ldrb CARG5w, [PC, #4+OFS_RA]
+    |  cmp CARG5w, RAw
+    |  beq >9
+    |  cmp CARG5w, CARG4w
+    |  beq >9
+    |  ldrb TMP1w, [PC, #8+OFS_OP]
+    |  cmp TMP1w, #BC_BAND
+    |  beq >4
+    |  cmp TMP1w, #BC_BOR
+    |  beq >4
+    |  cmp TMP1w, #BC_BXOR
+    |  bne >9
+|4:
+    |  ldrb TMP2w, [PC, #8+OFS_RA]
+    |  cmp TMP2w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #8+OFS_RD]
+    |  and TMP2w, TMP3w, #255
+    |  cmp TMP2w, RAw
+    |  beq >5
+    |  lsr TMP2w, TMP3w, #8
+    |  cmp TMP2w, RAw
+    |  bne >9
+    |  and TMP2w, TMP3w, #255
+    |  b >6
+|5:
+    |  lsr TMP2w, TMP3w, #8
+|6:
+    |  cmp TMP2w, CARG5w
+    |  bne >9
+    |  ldrb RBw, [PC, #12+OFS_OP]
+    |  cmp RBw, #BC_BAND
+    |  beq >7
+    |  cmp RBw, #BC_BOR
+    |  beq >7
+    |  cmp RBw, #BC_BXOR
+    |  bne >9
+|7:
+    |  ldrb TMP2w, [PC, #12+OFS_RA]
+    |  cmp TMP2w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #12+OFS_RD]
+    |  and TMP2w, TMP3w, #255
+    |  cmp TMP2w, RAw
+    |  beq >8
+    |  lsr TMP2w, TMP3w, #8
+    |  cmp TMP2w, RAw
+    |  bne >9
+    |  and TMP2w, TMP3w, #255
+    |  b >1
+|8:
+    |  lsr TMP2w, TMP3w, #8
+|1:
+    |  cmp TMP2w, RAw
+    |  beq >9
+    |  cmp TMP2w, CARG4w
+    |  beq >9
+    |  cmp TMP2w, CARG5w
+    |  beq >9
+    |  ldrb TMP3w, [PC, #16+OFS_OP]
+    |  cmp TMP3w, #BC_KNUM
+    |  bne >9
+    |  ldrb CARG5w, [PC, #16+OFS_RA]
+    |  cmp CARG5w, RAw
+    |  beq >9
+    |  cmp CARG5w, CARG4w
+    |  beq >9
+    |  cmp CARG5w, TMP2w
+    |  beq >9
+    |  ldrb TMP3w, [PC, #20+OFS_OP]
+    |  cmp TMP3w, #BC_BAND
+    |  bne >9
+    |  ldrb TMP3w, [PC, #20+OFS_RA]
+    |  cmp TMP3w, CARG4w
+    |  bne >9
+    |  ldrh TMP3w, [PC, #20+OFS_RD]
+    |  and CARG5w, TMP3w, #255
+    |  cmp CARG5w, RAw
+    |  beq >2
+    |  lsr CARG5w, TMP3w, #8
+    |  cmp CARG5w, RAw
+    |  bne >9
+    |  and CARG5w, TMP3w, #255
+    |  b >3
+|2:
+    |  lsr CARG5w, TMP3w, #8
+|3:
+    |  ldrb TMP3w, [PC, #16+OFS_RA]
+    |  cmp CARG5w, TMP3w
+    |  bne >9
+    |  ldrb TMP3w, [PC, #24+OFS_OP]
+    |  cmp TMP3w, #BC_FORL
+    |  bne >9
+    |  asr ITYPE, TMP0, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and CARG2, TMP0, #LJ_GCVMASK
+    |  bne >9
+    |  ldr CARG2, INT64:CARG2->i
+    |  ldr CARG1, [BASE, CARG4, lsl #3]
+    |  load_bitint64_1 >9
+    |  cmp CARG3w, #BC_BOR
+    |  beq >4
+    |  eor CARG1, CARG1, CARG2
+    |  b >5
+|4:
+    |  orr CARG1, CARG1, CARG2
+|5:
+    |  ldrh TMP3w, [PC, #4+OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  asr ITYPE, CARG2, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and CARG2, CARG2, #LJ_GCVMASK
+    |  bne >9
+    |  ldr CARG2, INT64:CARG2->i
+    |  cmp TMP1w, #BC_BAND
+    |  beq >6
+    |  cmp TMP1w, #BC_BOR
+    |  beq >7
+    |  eor CARG1, CARG1, CARG2
+    |  b >8
+|6:
+    |  and CARG1, CARG1, CARG2
+    |  b >8
+|7:
+    |  orr CARG1, CARG1, CARG2
+|8:
+    |  ldr CARG2, [BASE, TMP2, lsl #3]
+    |  checkint CARG2, >9
+    |  sxtw CARG2, CARG2w
+    |  cmp RBw, #BC_BAND
+    |  beq >6
+    |  cmp RBw, #BC_BOR
+    |  beq >7
+    |  eor CARG1, CARG1, CARG2
+    |  b >8
+|6:
+    |  and CARG1, CARG1, CARG2
+    |  b >8
+|7:
+    |  orr CARG1, CARG1, CARG2
+|8:
+    |  ldrh TMP3w, [PC, #16+OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  asr ITYPE, CARG2, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and CARG2, CARG2, #LJ_GCVMASK
+    |  bne >9
+    |  ldr CARG2, INT64:CARG2->i
+    |  and CARG1, CARG1, CARG2
+    |  mov RAw, CARG4w
+    |  add PC, PC, #24
+    |  store_bitint64_1
+|9:
+    |.endmacro
+    |
+    |.macro fuse_bitint64_kshort_shift_next_same_ra
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_KSHORT
+    |  bne >9
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  beq >9
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  sxth TMP3w, TMP3w
+    |  cmp TMP3w, #63
+    |  bhi >9
+    |  ldrb TMP0w, [PC, #4+OFS_OP]
+    |  cmp TMP0w, #BC_BSHL
+    |  beq >1
+    |  cmp TMP0w, #BC_BSHR
+    |  bne >9
+|1:
+    |  ldrb TMP2w, [PC, #4+OFS_RA]
+    |  cmp TMP2w, TMP1w
+    |  bne >9
+    |  ldrh TMP2w, [PC, #4+OFS_RD]
+    |  and CARG3w, TMP2w, #255
+    |  cmp CARG3w, TMP1w
+    |  beq >2
+    |  lsr CARG3w, TMP2w, #8
+    |  cmp CARG3w, TMP1w
+    |  bne >9
+    |  and TMP2w, TMP2w, #255
+    |  b >3
+|2:
+    |  lsr TMP2w, TMP2w, #8
+|3:
+    |  cmp TMP2w, RAw
+    |  beq >9
+    |  ldr CARG2, [BASE, TMP2, lsl #3]
+    |  load_bitint64_2 >9
+    |  cmp TMP0w, #BC_BSHL
+    |  bne >4
+    |  lsl CARG2, CARG2, TMP3
+    |  b >5
+|4:
+    |  lsr CARG2, CARG2, TMP3
+|5:
+    |  ldrb TMP0w, [PC, #8+OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  beq >6
+    |  cmp TMP0w, #BC_BOR
+    |  beq >6
+    |  cmp TMP0w, #BC_BXOR
+    |  bne >9
+|6:
+    |  ldrb TMP2w, [PC, #8+OFS_RA]
+    |  cmp TMP2w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #8+OFS_RD]
+    |  and TMP2w, TMP3w, #255
+    |  cmp TMP2w, RAw
+    |  beq >7
+    |  lsr TMP2w, TMP3w, #8
+    |  cmp TMP2w, RAw
+    |  bne >9
+    |  and TMP2w, TMP3w, #255
+    |  b >8
+|7:
+    |  lsr TMP2w, TMP3w, #8
+|8:
+    |  cmp TMP2w, TMP1w
+    |  bne >9
+    |  cmp TMP0w, #BC_BAND
+    |  beq >6
+    |  cmp TMP0w, #BC_BOR
+    |  beq >7
+    |  eor CARG1, CARG1, CARG2
+    |  b >8
+|6:
+    |  and CARG1, CARG1, CARG2
+    |  b >8
+|7:
+    |  orr CARG1, CARG1, CARG2
+|8:
+    |  add PC, PC, #12
+|9:
+    |.endmacro
+    |
+    |.macro fuse_bitint64_kshort_band_shift_next_same_ra
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_KSHORT
+    |  bne >9
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  beq >9
+    |  ldrh CARG4w, [PC, # OFS_RD]
+    |  sxth CARG4w, CARG4w
+    |  cmp CARG4w, #63
+    |  bhi >9
+    |  ldrb TMP0w, [PC, #4+OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  bne >9
+    |  ldrb TMP2w, [PC, #4+OFS_RA]
+    |  cmp TMP2w, TMP1w
+    |  bne >9
+    |  ldrh TMP3w, [PC, #4+OFS_RD]
+    |  and TMP2w, TMP3w, #255
+    |  lsr TMP3w, TMP3w, #8
+    |  cmp TMP2w, TMP1w
+    |  beq >1
+    |  cmp TMP3w, TMP1w
+    |  bne >9
+    |  b >2
+|1:
+    |  mov TMP2w, TMP3w
+|2:
+    |  cmp TMP2w, RAw
+    |  beq >9
+    |  ldr CARG2, [BASE, TMP2, lsl #3]
+    |  load_bitint64_2 >9
+    |  and CARG2, CARG2, CARG4
+    |  ldrb TMP0w, [PC, #8+OFS_OP]
+    |  cmp TMP0w, #BC_BSHL
+    |  beq >3
+    |  cmp TMP0w, #BC_BSHR
+    |  bne >9
+|3:
+    |  ldrb TMP2w, [PC, #8+OFS_RA]
+    |  cmp TMP2w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #8+OFS_RD]
+    |  and TMP2w, TMP3w, #255
+    |  cmp TMP2w, TMP1w
+    |  bne >9
+    |  lsr TMP3w, TMP3w, #8
+    |  cmp TMP3w, RAw
+    |  bne >9
+    |  add_TISNUM TMP2, CARG2
+    |  str TMP2, [BASE, TMP1, lsl #3]	// Preserve skipped BAND result.
+    |  cmp TMP0w, #BC_BSHL
+    |  bne >4
+    |  lsl CARG1, CARG1, CARG2
+    |  b >5
+|4:
+    |  lsr CARG1, CARG1, CARG2
+|5:
+    |  add PC, PC, #12
+|9:
+    |.endmacro
+    |
+    |.macro fuse_bitint64_kshort_band_add_shift_xor_next_same_ra
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_KSHORT
+    |  bne >9
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  beq >9
+    |  ldrh CARG4w, [PC, # OFS_RD]
+    |  sxth CARG4w, CARG4w
+    |  cmp CARG4w, #63
+    |  bhi >9
+    |  ldrb TMP0w, [PC, #4+OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  bne >9
+    |  ldrb TMP2w, [PC, #4+OFS_RA]
+    |  cmp TMP2w, TMP1w
+    |  bne >9
+    |  ldrh TMP3w, [PC, #4+OFS_RD]
+    |  and TMP2w, TMP3w, #255
+    |  lsr TMP3w, TMP3w, #8
+    |  cmp TMP2w, TMP1w
+    |  beq >1
+    |  cmp TMP3w, TMP1w
+    |  bne >9
+    |  b >2
+|1:
+    |  mov TMP2w, TMP3w
+|2:
+    |  cmp TMP2w, RAw
+    |  beq >9
+    |  ldr CARG2, [BASE, TMP2, lsl #3]
+    |  load_bitint64_2 >9
+    |  and CARG4, CARG2, CARG4
+    |  ldrb TMP0w, [PC, #8+OFS_OP]
+    |  cmp TMP0w, #BC_ADDVN
+    |  bne >9
+    |  ldrb TMP2w, [PC, #8+OFS_RA]
+    |  cmp TMP2w, TMP1w
+    |  bne >9
+    |  ldrh TMP3w, [PC, #8+OFS_RD]
+    |  lsr TMP2w, TMP3w, #8
+    |  cmp TMP2w, TMP1w
+    |  bne >9
+    |  and TMP3w, TMP3w, #255
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  load_bitint64_2 >9
+    |  add CARG4, CARG4, CARG2
+    |  cmp CARG4w, #63
+    |  bhi >9
+    |  ldrb TMP0w, [PC, #12+OFS_OP]
+    |  cmp TMP0w, #BC_BSHL
+    |  beq >3
+    |  cmp TMP0w, #BC_BSHR
+    |  bne >9
+|3:
+    |  ldrb TMP2w, [PC, #12+OFS_RA]
+    |  cmp TMP2w, TMP1w
+    |  bne >9
+    |  ldrh TMP3w, [PC, #12+OFS_RD]
+    |  and TMP2w, TMP3w, #255
+    |  cmp TMP2w, TMP1w
+    |  bne >9
+    |  lsr TMP3w, TMP3w, #8
+    |  cmp TMP3w, RAw
+    |  beq >9
+    |  ldr CARG2, [BASE, TMP3, lsl #3]
+    |  load_bitint64_2 >9
+    |  cmp TMP0w, #BC_BSHL
+    |  bne >4
+    |  lsl CARG2, CARG2, CARG4
+    |  b >5
+|4:
+    |  lsr CARG2, CARG2, CARG4
+|5:
+    |  ldrb TMP0w, [PC, #16+OFS_OP]
+    |  cmp TMP0w, #BC_BXOR
+    |  bne >9
+    |  ldrb TMP2w, [PC, #16+OFS_RA]
+    |  cmp TMP2w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #16+OFS_RD]
+    |  and TMP2w, TMP3w, #255
+    |  cmp TMP2w, RAw
+    |  beq >6
+    |  lsr TMP2w, TMP3w, #8
+    |  cmp TMP2w, RAw
+    |  bne >9
+    |  and TMP2w, TMP3w, #255
+    |  b >7
+|6:
+    |  lsr TMP2w, TMP3w, #8
+|7:
+    |  cmp TMP2w, TMP1w
+    |  bne >9
+    |  ldrb TMP0w, [PC, #20+OFS_OP]
+    |  cmp TMP0w, #BC_KSHORT
+    |  beq >8
+    |  cmp TMP0w, #BC_KNUM
+    |  bne >9
+|8:
+    |  ldrb TMP2w, [PC, #20+OFS_RA]
+    |  cmp TMP2w, TMP1w
+    |  bne >9
+    |  eor CARG1, CARG1, CARG2
+    |  add PC, PC, #20
+|9:
+    |.endmacro
+    |
+    |.macro fuse_kshort_idiv_add_shifts_xor_mask_forl
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  cmp RCw, #5
+    |  bne >9
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_IDIV
+    |  bne >9
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  lsr CARG4w, TMP3w, #8		// Loop index slot.
+    |  cmp CARG4w, RAw
+    |  beq >9
+    |  ldrb TMP0w, [PC, #4+OFS_OP]
+    |  cmp TMP0w, #BC_ADDVV
+    |  bne >9
+    |  ldrb TMP1w, [PC, #4+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #4+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  beq >1
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  and CARG5w, TMP3w, #255		// Loop-carried value slot.
+    |  b >2
+|1:
+    |  lsr CARG5w, TMP3w, #8
+|2:
+    |  cmp CARG5w, RAw
+    |  beq >9
+    |  cmp CARG5w, CARG4w
+    |  beq >9
+    |  ldrb TMP0w, [PC, #8+OFS_OP]
+    |  cmp TMP0w, #BC_KSHORT
+    |  bne >9
+    |  ldrb RBw, [PC, #8+OFS_RA]	// Shift temp.
+    |  cmp RBw, RAw
+    |  beq >9
+    |  cmp RBw, CARG4w
+    |  beq >9
+    |  cmp RBw, CARG5w
+    |  beq >9
+    |  ldrh TMP3w, [PC, #8+OFS_RD]
+    |  sxth TMP3w, TMP3w
+    |  cmp TMP3w, #2
+    |  bne >9
+    |  ldrb TMP0w, [PC, #12+OFS_OP]
+    |  cmp TMP0w, #BC_BSHL
+    |  bne >9
+    |  ldrb TMP1w, [PC, #12+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #12+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, CARG4w
+    |  bne >9
+    |  ldrb TMP0w, [PC, #16+OFS_OP]
+    |  cmp TMP0w, #BC_BXOR
+    |  bne >9
+    |  ldrb TMP1w, [PC, #16+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #16+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RBw
+    |  beq >3
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  and TMP1w, TMP3w, #255
+    |  b >4
+|3:
+    |  lsr TMP1w, TMP3w, #8
+|4:
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrb TMP0w, [PC, #20+OFS_OP]
+    |  cmp TMP0w, #BC_KSHORT
+    |  bne >9
+    |  ldrb TMP1w, [PC, #20+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #20+OFS_RD]
+    |  sxth TMP3w, TMP3w
+    |  cmp TMP3w, #1
+    |  bne >9
+    |  ldrb TMP0w, [PC, #24+OFS_OP]
+    |  cmp TMP0w, #BC_BSHR
+    |  bne >9
+    |  ldrb TMP1w, [PC, #24+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #24+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, CARG4w
+    |  bne >9
+    |  ldrb TMP0w, [PC, #28+OFS_OP]
+    |  cmp TMP0w, #BC_BXOR
+    |  bne >9
+    |  ldrb TMP1w, [PC, #28+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #28+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RBw
+    |  beq >5
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  and TMP1w, TMP3w, #255
+    |  b >6
+|5:
+    |  lsr TMP1w, TMP3w, #8
+|6:
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrb TMP0w, [PC, #32+OFS_OP]
+    |  cmp TMP0w, #BC_KNUM
+    |  bne >9
+    |  ldrb TMP1w, [PC, #32+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrb TMP0w, [PC, #36+OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  bne >9
+    |  ldrb TMP1w, [PC, #36+OFS_RA]
+    |  cmp TMP1w, CARG5w
+    |  bne >9
+    |  ldrh TMP3w, [PC, #36+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RBw
+    |  beq >7
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  and TMP1w, TMP3w, #255
+    |  b >8
+|7:
+    |  lsr TMP1w, TMP3w, #8
+|8:
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrb TMP0w, [PC, #40+OFS_OP]
+    |  cmp TMP0w, #BC_FORL
+    |  bne >9
+    |  ldr CARG1, [BASE, CARG4, lsl #3]
+    |  checkint CARG1, >9
+    |  ldr TMP0, [BASE, CARG5, lsl #3]
+    |  checkint TMP0, >9
+    |  mov TMP1w, #5
+    |  sdiv CARG2w, CARG1w, TMP1w
+    |  add TMP0w, TMP0w, CARG2w
+    |  lsl CARG2w, CARG1w, #2
+    |  eor TMP0w, TMP0w, CARG2w
+    |  lsr CARG2w, CARG1w, #1
+    |  eor TMP0w, TMP0w, CARG2w
+    |  ldrh TMP3w, [PC, #32+OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  checkint CARG2, >9
+    |  and TMP0w, TMP0w, CARG2w
+    |  add_TISNUM TMP0, TMP0
+    |  str TMP0, [BASE, CARG5, lsl #3]
+    |  add PC, PC, #40
+    |  ins_next
+|9:
+    |.endmacro
+    |
+    |.macro fuse_kshort_lshift_xor_idiv_add_mask_forl
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  cmp RCw, #7
+    |  bne >9
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_BSHL
+    |  bne >9
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  lsr CARG4w, TMP3w, #8		// Loop index slot.
+    |  cmp CARG4w, RAw
+    |  beq >9
+    |  ldrb TMP0w, [PC, #4+OFS_OP]
+    |  cmp TMP0w, #BC_BXOR
+    |  bne >9
+    |  ldrb TMP1w, [PC, #4+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #4+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  beq >1
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  and CARG5w, TMP3w, #255		// Loop-carried value slot.
+    |  b >2
+|1:
+    |  lsr CARG5w, TMP3w, #8
+|2:
+    |  cmp CARG5w, RAw
+    |  beq >9
+    |  cmp CARG5w, CARG4w
+    |  beq >9
+    |  ldrb TMP0w, [PC, #8+OFS_OP]
+    |  cmp TMP0w, #BC_KSHORT
+    |  bne >9
+    |  ldrb RBw, [PC, #8+OFS_RA]	// IDIV divisor/result temp.
+    |  cmp RBw, RAw
+    |  beq >9
+    |  cmp RBw, CARG4w
+    |  beq >9
+    |  cmp RBw, CARG5w
+    |  beq >9
+    |  ldrh TMP3w, [PC, #8+OFS_RD]
+    |  sxth TMP3w, TMP3w
+    |  cmp TMP3w, #3
+    |  bne >9
+    |  ldrb TMP0w, [PC, #12+OFS_OP]
+    |  cmp TMP0w, #BC_IDIV
+    |  bne >9
+    |  ldrb TMP1w, [PC, #12+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #12+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, CARG4w
+    |  bne >9
+    |  ldrb TMP0w, [PC, #16+OFS_OP]
+    |  cmp TMP0w, #BC_ADDVV
+    |  bne >9
+    |  ldrb TMP1w, [PC, #16+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #16+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RBw
+    |  beq >3
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  and TMP1w, TMP3w, #255
+    |  b >4
+|3:
+    |  lsr TMP1w, TMP3w, #8
+|4:
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrb TMP0w, [PC, #20+OFS_OP]
+    |  cmp TMP0w, #BC_KNUM
+    |  bne >9
+    |  ldrb TMP1w, [PC, #20+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrb TMP0w, [PC, #24+OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  bne >9
+    |  ldrb TMP1w, [PC, #24+OFS_RA]
+    |  cmp TMP1w, CARG5w
+    |  bne >9
+    |  ldrh TMP3w, [PC, #24+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RBw
+    |  beq >5
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  and TMP1w, TMP3w, #255
+    |  b >6
+|5:
+    |  lsr TMP1w, TMP3w, #8
+|6:
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrb TMP0w, [PC, #28+OFS_OP]
+    |  cmp TMP0w, #BC_FORL
+    |  bne >9
+    |  ldr CARG1, [BASE, CARG4, lsl #3]
+    |  checkint CARG1, >9
+    |  ldr TMP0, [BASE, CARG5, lsl #3]
+    |  checkint TMP0, >9
+    |  mov TMP1w, CARG1w
+    |  lsl TMP1w, TMP1w, #7
+    |  eor TMP0w, TMP0w, TMP1w
+    |  mov TMP1w, #3
+    |  sdiv CARG2w, CARG1w, TMP1w
+    |  add TMP0w, TMP0w, CARG2w
+    |  ldrh TMP3w, [PC, #20+OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  checkint CARG2, >9
+    |  and TMP0w, TMP0w, CARG2w
+    |  add_TISNUM TMP0, TMP0
+    |  str TMP0, [BASE, CARG5, lsl #3]
+    |  add PC, PC, #28
+    |  ins_next
+|9:
+    |.endmacro
+    |
+    |.macro fuse_kshort_rshift_lshift_xor_knum_band_forl
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  cmp RCw, #1
+    |  bne >9
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_BSHR
+    |  bne >9
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  lsr CARG5w, TMP3w, #8		// Loop-carried value slot.
+    |  cmp CARG5w, RAw
+    |  beq >9
+    |  ldrb TMP0w, [PC, #4+OFS_OP]
+    |  cmp TMP0w, #BC_KSHORT
+    |  bne >9
+    |  ldrb RBw, [PC, #4+OFS_RA]	// Left-shift temp.
+    |  cmp RBw, RAw
+    |  beq >9
+    |  cmp RBw, CARG5w
+    |  beq >9
+    |  ldrh TMP3w, [PC, #4+OFS_RD]
+    |  sxth TMP3w, TMP3w
+    |  cmp TMP3w, #33
+    |  bne >9
+    |  ldrb TMP0w, [PC, #8+OFS_OP]
+    |  cmp TMP0w, #BC_BSHL
+    |  bne >9
+    |  ldrb TMP1w, [PC, #8+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #8+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  lsr CARG4w, TMP3w, #8		// Loop index slot.
+    |  cmp CARG4w, RAw
+    |  beq >9
+    |  cmp CARG4w, CARG5w
+    |  beq >9
+    |  ldrb TMP0w, [PC, #12+OFS_OP]
+    |  cmp TMP0w, #BC_BXOR
+    |  bne >9
+    |  ldrb TMP1w, [PC, #12+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #12+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RBw
+    |  beq >1
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  and TMP1w, TMP3w, #255
+    |  b >2
+|1:
+    |  lsr TMP1w, TMP3w, #8
+|2:
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrb TMP0w, [PC, #16+OFS_OP]
+    |  cmp TMP0w, #BC_KNUM
+    |  bne >9
+    |  ldrb TMP1w, [PC, #16+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrb TMP0w, [PC, #20+OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  bne >9
+    |  ldrb TMP1w, [PC, #20+OFS_RA]
+    |  cmp TMP1w, CARG5w
+    |  bne >9
+    |  ldrh TMP3w, [PC, #20+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RBw
+    |  beq >3
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  and TMP1w, TMP3w, #255
+    |  b >4
+|3:
+    |  lsr TMP1w, TMP3w, #8
+|4:
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrb TMP0w, [PC, #24+OFS_OP]
+    |  cmp TMP0w, #BC_FORL
+    |  bne >9
+    |  ldr CARG1, [BASE, CARG4, lsl #3]
+    |  checkint CARG1, >8
+    |  sxtw CARG1, CARG1w
+    |  lsl CARG1, CARG1, #33
+    |  ldr TMP0, [BASE, CARG5, lsl #3]
+    |  asr ITYPE, TMP0, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and TMP0, TMP0, #LJ_GCVMASK
+    |  bne >8
+    |  add TMP2, BASE, CARG5, lsl #3
+    |  ldr TMP3, INT64:TMP0->owner
+    |  cmp TMP2, TMP3
+    |  bne >8
+    |  ldr CARG2, INT64:TMP0->i
+    |  lsr CARG2, CARG2, #1
+    |  eor CARG1, CARG2, CARG1
+    |  ldrh TMP3w, [PC, #16+OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  load_bitint64_2 >8
+    |  and CARG1, CARG1, CARG2
+    |  str CARG1, INT64:TMP0->i
+    |  add PC, PC, #24
+    |  ins_next
+|8:
+    |  ldr CARG1, [BASE, CARG5, lsl #3]
+    |  load_bitint64_1 >9
+    |  lsr CARG1, CARG1, #1
+    |  ldr CARG2, [BASE, CARG4, lsl #3]
+    |  load_bitint64_2 >9
+    |  lsl CARG2, CARG2, #33
+    |  eor CARG1, CARG1, CARG2
+    |  ldrh TMP3w, [PC, #16+OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  load_bitint64_2 >9
+    |  and CARG1, CARG1, CARG2
+    |  mov RAw, CARG5w
+    |  add PC, PC, #24
+    |  store_bitint64_1
+|9:
+    |.endmacro
+    |
+    |.macro fuse_kshort_shift_xor_bnot_knum_band_forl
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  cmp RCw, #8
+    |  bne >9
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_BSHL
+    |  bne >9
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  lsr CARG4w, TMP3w, #8		// Shifted loop-index slot.
+    |  cmp CARG4w, RAw
+    |  beq >9
+    |  ldrb TMP0w, [PC, #4+OFS_OP]
+    |  cmp TMP0w, #BC_BXOR
+    |  bne >9
+    |  ldrb TMP1w, [PC, #4+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #4+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  beq >1
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  and CARG5w, TMP3w, #255		// Loop-carried value slot.
+    |  b >2
+|1:
+    |  lsr CARG5w, TMP3w, #8
+|2:
+    |  cmp CARG5w, RAw
+    |  beq >9
+    |  cmp CARG5w, CARG4w
+    |  beq >9
+    |  ldrb TMP0w, [PC, #8+OFS_OP]
+    |  cmp TMP0w, #BC_BNOT
+    |  bne >9
+    |  ldrb TMP1w, [PC, #8+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #8+OFS_RD]
+    |  cmp TMP3w, RAw
+    |  bne >9
+    |  ldrb TMP0w, [PC, #12+OFS_OP]
+    |  cmp TMP0w, #BC_KNUM
+    |  bne >9
+    |  ldrb RBw, [PC, #12+OFS_RA]
+    |  cmp RBw, RAw
+    |  beq >9
+    |  cmp RBw, CARG4w
+    |  beq >9
+    |  cmp RBw, CARG5w
+    |  beq >9
+    |  ldrb TMP0w, [PC, #16+OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  bne >9
+    |  ldrb TMP1w, [PC, #16+OFS_RA]
+    |  cmp TMP1w, CARG5w
+    |  bne >9
+    |  ldrh TMP3w, [PC, #16+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RBw
+    |  beq >3
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  and TMP1w, TMP3w, #255
+    |  b >4
+|3:
+    |  lsr TMP1w, TMP3w, #8
+|4:
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrb TMP0w, [PC, #20+OFS_OP]
+    |  cmp TMP0w, #BC_FORL
+    |  bne >9
+    |  ldr CARG1, [BASE, CARG4, lsl #3]
+    |  checkint CARG1, >8
+    |  sxtw CARG1, CARG1w
+    |  lsl CARG1, CARG1, RC
+    |  ldr TMP0, [BASE, CARG5, lsl #3]
+    |  asr ITYPE, TMP0, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and TMP0, TMP0, #LJ_GCVMASK
+    |  bne >8
+    |  add TMP2, BASE, CARG5, lsl #3
+    |  ldr TMP3, INT64:TMP0->owner
+    |  cmp TMP2, TMP3
+    |  bne >8
+    |  ldr CARG2, INT64:TMP0->i
+    |  eor CARG1, CARG2, CARG1
+    |  mvn CARG1, CARG1
+    |  ldrh TMP3w, [PC, #12+OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  load_bitint64_2 >8
+    |  and CARG1, CARG1, CARG2
+    |  str CARG1, INT64:TMP0->i
+    |  add PC, PC, #20
+    |  ins_next
+|8:
+    |  ldr CARG1, [BASE, CARG4, lsl #3]
+    |  load_bitint64_1 >9
+    |  lsl CARG1, CARG1, RC
+    |  ldr CARG2, [BASE, CARG5, lsl #3]
+    |  load_bitint64_2 >9
+    |  eor CARG1, CARG2, CARG1
+    |  mvn CARG1, CARG1
+    |  ldrh TMP3w, [PC, #12+OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  load_bitint64_2 >9
+    |  and CARG1, CARG1, CARG2
+    |  mov RAw, CARG5w
+    |  add PC, PC, #20
+    |  store_bitint64_1
+|9:
+    |.endmacro
+    |
+    |.macro fuse_kshort_shift_bitop_knum_band_forl
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  cmp RCw, #63
+    |  bhi >9
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_BSHL
+    |  beq >1
+    |  cmp TMP0w, #BC_BSHR
+    |  bne >9
+|1:
+    |  ldrb CARG3w, [PC, #4+OFS_OP]
+    |  cmp CARG3w, #BC_BAND
+    |  beq >2
+    |  cmp CARG3w, #BC_BOR
+    |  beq >2
+    |  cmp CARG3w, #BC_BXOR
+    |  bne >9
+|2:
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  lsr CARG5w, TMP3w, #8		// Loop-carried value slot.
+    |  cmp CARG5w, RAw
+    |  beq >9
+    |  ldrb TMP1w, [PC, #4+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #4+OFS_RD]
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  and CARG4w, TMP3w, #255		// Other operand slot.
+    |  cmp CARG4w, RAw
+    |  beq >9
+    |  cmp CARG4w, CARG5w
+    |  beq >9
+    |  ldrb TMP1w, [PC, #8+OFS_OP]
+    |  cmp TMP1w, #BC_KNUM
+    |  bne >9
+    |  ldrb RBw, [PC, #8+OFS_RA]
+    |  cmp RBw, RAw
+    |  beq >9
+    |  cmp RBw, CARG4w
+    |  beq >9
+    |  cmp RBw, CARG5w
+    |  beq >9
+    |  ldrb TMP1w, [PC, #12+OFS_OP]
+    |  cmp TMP1w, #BC_BAND
+    |  bne >9
+    |  ldrb TMP1w, [PC, #12+OFS_RA]
+    |  cmp TMP1w, CARG5w
+    |  bne >9
+    |  ldrh TMP3w, [PC, #12+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrb TMP1w, [PC, #16+OFS_OP]
+    |  cmp TMP1w, #BC_FORL
+    |  bne >9
+    |  ldr CARG1, [BASE, CARG5, lsl #3]
+    |  load_bitint64_1 >9
+    |  cmp TMP0w, #BC_BSHL
+    |  bne >3
+    |  lsl CARG1, CARG1, RC
+    |  b >4
+|3:
+    |  lsr CARG1, CARG1, RC
+|4:
+    |  ldr CARG2, [BASE, CARG4, lsl #3]
+    |  load_bitint64_2 >9
+    |  cmp CARG3w, #BC_BAND
+    |  beq >5
+    |  cmp CARG3w, #BC_BOR
+    |  beq >6
+    |  eor CARG1, CARG1, CARG2
+    |  b >7
+|5:
+    |  and CARG1, CARG1, CARG2
+    |  b >7
+|6:
+    |  orr CARG1, CARG1, CARG2
+|7:
+    |  ldrh TMP3w, [PC, #8+OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  load_bitint64_2 >9
+    |  and CARG1, CARG1, CARG2
+    |  mov RAw, CARG5w
+    |  add PC, PC, #16
+    |  store_bitint64_1
+|9:
+    |.endmacro
+    |
+    |.macro fuse_kshort_shift_xor_bitop_mask_forl
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  cmp RCw, #1
+    |  beq >9
+    |  cmp RCw, #63
+    |  bhi >9
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_BSHL
+    |  bne >9
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  lsr CARG4w, TMP3w, #8		// Loop index slot.
+    |  cmp CARG4w, RAw
+    |  beq >9
+    |  ldrb TMP0w, [PC, #4+OFS_OP]
+    |  cmp TMP0w, #BC_KNUM
+    |  bne >9
+    |  ldrb RBw, [PC, #4+OFS_RA]	// Constant temp.
+    |  cmp RBw, RAw
+    |  beq >9
+    |  cmp RBw, CARG4w
+    |  beq >9
+    |  ldrb TMP0w, [PC, #8+OFS_OP]
+    |  cmp TMP0w, #BC_BXOR
+    |  bne >9
+    |  ldrb TMP1w, [PC, #8+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #8+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrb CARG3w, [PC, #12+OFS_OP]
+    |  cmp CARG3w, #BC_BAND
+    |  beq >1
+    |  cmp CARG3w, #BC_BOR
+    |  beq >1
+    |  cmp CARG3w, #BC_BXOR
+    |  bne >9
+|1:
+    |  ldrb TMP1w, [PC, #12+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #12+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  lsr CARG5w, TMP3w, #8		// Loop-carried value slot.
+    |  cmp CARG5w, RAw
+    |  beq >9
+    |  cmp CARG5w, CARG4w
+    |  beq >9
+    |  ldrb TMP0w, [PC, #16+OFS_OP]
+    |  cmp TMP0w, #BC_BXOR
+    |  beq >2
+    |  cmp TMP0w, #BC_KNUM
+    |  bne >9
+    |  mov TMP2w, wzr			// No extra loop-index xor.
+    |  mov TMP1w, #16
+    |  b >4
+|2:
+    |  ldrb TMP1w, [PC, #16+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #16+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, CARG4w
+    |  bne >9
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  mov TMP2w, #1			// Apply extra loop-index xor.
+    |  ldrb TMP0w, [PC, #20+OFS_OP]
+    |  cmp TMP0w, #BC_KNUM
+    |  bne >9
+    |  mov TMP1w, #20
+|4:
+    |  add TMP3, PC, TMP1, lsl #0
+    |  ldrb TMP0w, [TMP3, # OFS_RA]
+    |  cmp TMP0w, RBw
+    |  bne >9
+    |  ldrb TMP0w, [TMP3, #4+OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  bne >9
+    |  ldrb TMP0w, [TMP3, #4+OFS_RA]
+    |  cmp TMP0w, CARG5w
+    |  bne >9
+    |  ldrh TMP3w, [TMP3, #4+OFS_RD]
+    |  and TMP0w, TMP3w, #255
+    |  cmp TMP0w, RBw
+    |  bne >9
+    |  lsr TMP0w, TMP3w, #8
+    |  cmp TMP0w, RAw
+    |  bne >9
+    |  add TMP3, TMP1, #8
+    |  ldrb TMP0w, [PC, TMP3]
+    |  cmp TMP0w, #BC_FORL
+    |  bne >9
+    |  ldr CARG1, [BASE, CARG4, lsl #3]
+    |  load_bitint64_1 >9
+    |  lsl CARG1, CARG1, RC
+    |  ldrh TMP3w, [PC, #4+OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  load_bitint64_2 >9
+    |  eor CARG1, CARG1, CARG2
+    |  ldr CARG2, [BASE, CARG5, lsl #3]
+    |  load_bitint64_2 >9
+    |  cmp CARG3w, #BC_BAND
+    |  beq >5
+    |  cmp CARG3w, #BC_BOR
+    |  beq >6
+    |  eor CARG1, CARG2, CARG1
+    |  b >7
+|5:
+    |  and CARG1, CARG2, CARG1
+    |  b >7
+|6:
+    |  orr CARG1, CARG2, CARG1
+|7:
+    |  cbz TMP2w, >8
+    |  ldr CARG2, [BASE, CARG4, lsl #3]
+    |  load_bitint64_2 >9
+    |  eor CARG1, CARG1, CARG2
+|8:
+    |  add TMP3, PC, TMP1, lsl #0
+    |  ldrh TMP3w, [TMP3, # OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  load_bitint64_2 >9
+    |  and CARG1, CARG1, CARG2
+    |  mov RAw, CARG5w
+    |  add PC, PC, TMP1
+    |  add PC, PC, #8
+    |  store_bitint64_1
+|9:
+    |.endmacro
+    |
+    |.macro fuse_kshort_shift_or_xor_masks_index_forl
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  cmp RCw, #21
+    |  bne >9
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_BSHL
+    |  bne >9
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  lsr CARG4w, TMP3w, #8		// Loop index slot.
+    |  cmp CARG4w, RAw
+    |  beq >9
+    |  ldrb TMP0w, [PC, #4+OFS_OP]
+    |  cmp TMP0w, #BC_KSHORT
+    |  bne >9
+    |  ldrb RBw, [PC, #4+OFS_RA]	// Right-shift and low-bit temp.
+    |  cmp RBw, RAw
+    |  beq >9
+    |  cmp RBw, CARG4w
+    |  beq >9
+    |  ldrh TMP3w, [PC, #4+OFS_RD]
+    |  sxth TMP3w, TMP3w
+    |  cmp TMP3w, #5
+    |  bne >9
+    |  ldrb TMP0w, [PC, #8+OFS_OP]
+    |  cmp TMP0w, #BC_BSHR
+    |  bne >9
+    |  ldrb TMP1w, [PC, #8+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #8+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, CARG4w
+    |  bne >9
+    |  ldrb TMP0w, [PC, #12+OFS_OP]
+    |  cmp TMP0w, #BC_BOR
+    |  bne >9
+    |  ldrb TMP1w, [PC, #12+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #12+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  beq >1
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  and TMP1w, TMP3w, #255
+    |  b >2
+|1:
+    |  lsr TMP1w, TMP3w, #8
+|2:
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrb TMP0w, [PC, #16+OFS_OP]
+    |  cmp TMP0w, #BC_BXOR
+    |  bne >9
+    |  ldrb TMP1w, [PC, #16+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #16+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  beq >3
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  and CARG5w, TMP3w, #255		// Loop-carried value slot.
+    |  b >4
+|3:
+    |  lsr CARG5w, TMP3w, #8
+|4:
+    |  cmp CARG5w, RAw
+    |  beq >9
+    |  cmp CARG5w, RBw
+    |  beq >9
+    |  cmp CARG5w, CARG4w
+    |  beq >9
+    |  ldrb TMP0w, [PC, #20+OFS_OP]
+    |  cmp TMP0w, #BC_KNUM
+    |  bne >9
+    |  ldrb TMP1w, [PC, #20+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  beq >9
+    |  cmp TMP1w, RBw
+    |  beq >9
+    |  cmp TMP1w, CARG4w
+    |  beq >9
+    |  cmp TMP1w, CARG5w
+    |  beq >9
+    |  mov TMP2w, TMP1w		// Mask temp.
+    |  ldrb TMP0w, [PC, #24+OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  bne >9
+    |  ldrb TMP1w, [PC, #24+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #24+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RBw
+    |  beq >5
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  and TMP1w, TMP3w, #255
+    |  b >6
+|5:
+    |  lsr TMP1w, TMP3w, #8
+|6:
+    |  cmp TMP1w, TMP2w
+    |  bne >9
+    |  ldrb TMP0w, [PC, #28+OFS_OP]
+    |  cmp TMP0w, #BC_KSHORT
+    |  bne >9
+    |  ldrb TMP1w, [PC, #28+OFS_RA]
+    |  cmp TMP1w, TMP2w
+    |  bne >9
+    |  ldrh TMP3w, [PC, #28+OFS_RD]
+    |  sxth TMP3w, TMP3w
+    |  cmp TMP3w, #1
+    |  bne >9
+    |  ldrb TMP0w, [PC, #32+OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  bne >9
+    |  ldrb TMP1w, [PC, #32+OFS_RA]
+    |  cmp TMP1w, TMP2w
+    |  bne >9
+    |  ldrh TMP3w, [PC, #32+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, TMP2w
+    |  beq >7
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, TMP2w
+    |  bne >9
+    |  and TMP1w, TMP3w, #255
+    |  b >8
+|7:
+    |  lsr TMP1w, TMP3w, #8
+|8:
+    |  cmp TMP1w, CARG4w
+    |  bne >9
+    |  ldrb TMP0w, [PC, #36+OFS_OP]
+    |  cmp TMP0w, #BC_BOR
+    |  bne >9
+    |  ldrb TMP1w, [PC, #36+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #36+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RBw
+    |  beq >1
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  and TMP1w, TMP3w, #255
+    |  b >2
+|1:
+    |  lsr TMP1w, TMP3w, #8
+|2:
+    |  cmp TMP1w, TMP2w
+    |  bne >9
+    |  ldrb TMP0w, [PC, #40+OFS_OP]
+    |  cmp TMP0w, #BC_KNUM
+    |  bne >9
+    |  ldrb TMP1w, [PC, #40+OFS_RA]
+    |  cmp TMP1w, TMP2w
+    |  bne >9
+    |  ldrb TMP0w, [PC, #44+OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  bne >9
+    |  ldrb TMP1w, [PC, #44+OFS_RA]
+    |  cmp TMP1w, CARG5w
+    |  bne >9
+    |  ldrh TMP3w, [PC, #44+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RBw
+    |  beq >3
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  and TMP1w, TMP3w, #255
+    |  b >4
+|3:
+    |  lsr TMP1w, TMP3w, #8
+|4:
+    |  cmp TMP1w, TMP2w
+    |  bne >9
+    |  ldrb TMP0w, [PC, #48+OFS_OP]
+    |  cmp TMP0w, #BC_FORL
+    |  bne >9
+    |  ldr CARG1, [BASE, CARG4, lsl #3]
+    |  checkint CARG1, >9
+    |  sxtw TMP2, CARG1w
+    |  lsl CARG2, TMP2, #21
+    |  lsr CARG3, TMP2, #5
+    |  orr CARG2, CARG2, CARG3		// x = (i << 21) | (i >> 5).
+    |  ldr TMP0, [BASE, CARG5, lsl #3]
+    |  asr ITYPE, TMP0, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and TMP0, TMP0, #LJ_GCVMASK
+    |  bne >8
+    |  add TMP1, BASE, CARG5, lsl #3
+    |  ldr TMP3, INT64:TMP0->owner
+    |  cmp TMP1, TMP3
+    |  bne >8
+    |  ldr CARG1, INT64:TMP0->i
+    |  eor CARG1, CARG1, CARG2
+    |  ldrh TMP3w, [PC, #20+OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  load_bitint64_2 >9
+    |  and CARG1, CARG1, CARG2
+    |  and CARG2, TMP2, #1
+    |  orr CARG1, CARG1, CARG2
+    |  ldrh TMP3w, [PC, #40+OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  load_bitint64_2 >9
+    |  and CARG1, CARG1, CARG2
+    |  str CARG1, INT64:TMP0->i
+    |  add PC, PC, #48
+    |  ins_next
+|8:
+    |  ldr CARG1, [BASE, CARG5, lsl #3]
+    |  load_bitint64_1 >9
+    |  eor CARG1, CARG1, CARG2
+    |  ldrh TMP3w, [PC, #20+OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  load_bitint64_2 >9
+    |  and CARG1, CARG1, CARG2
+    |  and CARG2, TMP2, #1
+    |  orr CARG1, CARG1, CARG2
+    |  ldrh TMP3w, [PC, #40+OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  load_bitint64_2 >9
+    |  and CARG1, CARG1, CARG2
+    |  mov RAw, CARG5w
+    |  add PC, PC, #48
+    |  store_bitint64_1
+|9:
+    |.endmacro
+    |
+    |.macro fuse_kshort_parity_sign_branch_forl
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  cmp RCw, #1
+    |  bne >9
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  bne >9
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  beq >1
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  and CARG4w, TMP3w, #255		// Loop index slot.
+    |  b >2
+|1:
+    |  lsr CARG4w, TMP3w, #8
+|2:
+    |  cmp CARG4w, RAw
+    |  beq >9
+    |  ldrb TMP0w, [PC, #4+OFS_OP]
+    |  cmp TMP0w, #BC_ISNEN
+    |  bne >9
+    |  ldrb TMP1w, [PC, #4+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrb TMP0w, [PC, #8+OFS_OP]
+    |  cmp TMP0w, #BC_JMP
+    |  bne >9
+    |  ldrb TMP0w, [PC, #12+OFS_OP]
+    |  cmp TMP0w, #BC_ADDVV
+    |  beq >8
+    |  cmp TMP0w, #BC_SUBVV
+    |  bne >9
+    |  ldrb RBw, [PC, #12+OFS_RA]	// Temporary int64 value slot.
+    |  ldrh TMP3w, [PC, #12+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, CARG4w
+    |  bne >9				// Match hi - i, not i - hi.
+    |  ldrb TMP0w, [PC, #16+OFS_OP]
+    |  cmp TMP0w, #BC_IST
+    |  bne >9
+    |  ldrh TMP1w, [PC, #16+OFS_RD]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrb TMP0w, [PC, #20+OFS_OP]
+    |  cmp TMP0w, #BC_JMP
+    |  bne >9
+    |  ldrb TMP0w, [PC, #24+OFS_OP]
+    |  cmp TMP0w, #BC_ADDVV
+    |  bne >9
+    |  ldrb TMP1w, [PC, #24+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #24+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, CARG4w
+    |  bne >9
+    |  ldrb TMP0w, [PC, #28+OFS_OP]
+    |  cmp TMP0w, #BC_KSHORT
+    |  bne >9
+    |  ldrb CARG5w, [PC, #28+OFS_RA]	// Zero literal slot.
+    |  ldrh TMP3w, [PC, #28+OFS_RD]
+    |  sxth TMP3w, TMP3w
+    |  cbnz TMP3w, >9
+    |  ldrb TMP0w, [PC, #32+OFS_OP]
+    |  cmp TMP0w, #BC_ISGE
+    |  bne >9
+    |  ldrb TMP0w, [PC, #32+OFS_RA]
+    |  cmp TMP0w, RBw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #32+OFS_RD]
+    |  cmp TMP3w, CARG5w
+    |  bne >9
+    |  ldrb TMP0w, [PC, #36+OFS_OP]
+    |  cmp TMP0w, #BC_JMP
+    |  bne >9
+    |  ldrb TMP0w, [PC, #40+OFS_OP]
+    |  cmp TMP0w, #BC_ADDVN
+    |  bne >9
+    |  ldrb CARG5w, [PC, #40+OFS_RA]	// Loop-carried accumulator slot.
+    |  ldrh TMP3w, [PC, #40+OFS_RD]
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, CARG5w
+    |  bne >9
+    |  and TMP1w, TMP3w, #255
+    |  ldr CARG2, [KBASE, TMP1, lsl #3]	// Increment when v < 0.
+    |  checkint CARG2, >9
+    |  sxtw RB, CARG2w
+    |  ldrb TMP0w, [PC, #44+OFS_OP]
+    |  cmp TMP0w, #BC_JMP
+    |  bne >9
+    |  ldrb TMP0w, [PC, #48+OFS_OP]
+    |  cmp TMP0w, #BC_ADDVN
+    |  bne >9
+    |  ldrb TMP0w, [PC, #48+OFS_RA]
+    |  cmp TMP0w, CARG5w
+    |  bne >9
+    |  ldrh TMP3w, [PC, #48+OFS_RD]
+    |  lsr TMP0w, TMP3w, #8
+    |  cmp TMP0w, CARG5w
+    |  bne >9
+    |  and TMP0w, TMP3w, #255
+    |  ldr CARG2, [KBASE, TMP0, lsl #3]	// Increment when v >= 0.
+    |  checkint CARG2, >9
+    |  sxtw CARG2, CARG2w
+    |  ldrb TMP0w, [PC, #52+OFS_OP]
+    |  cmp TMP0w, #BC_FORL
+    |  bne >9
+    |  ldr CARG1, [BASE, CARG4, lsl #3]
+    |  checkint CARG1, >9
+    |  ldr TMP0, [BASE, CARG5, lsl #3]
+    |  checkint TMP0, >9
+    |  tbnz CARG1w, #0, >3
+    |  mov RB, CARG2			// Even i: hi - i is non-negative.
+|3:
+    |  sxtw TMP0, TMP0w
+    |  add TMP0, TMP0, RB
+    |  cmp TMP0, TMP0, sxtw
+    |  bne >9
+    |  mov TMP0w, TMP0w
+    |  add_TISNUM TMP0, TMP0
+    |  str TMP0, [BASE, CARG5, lsl #3]
+    |  add PC, PC, #52
+    |  ins_next
+|8:
+    |  ldrb RBw, [PC, #12+OFS_RA]	// Temporary int64 value slot.
+    |  cmp RBw, CARG4w
+    |  beq >9
+    |  ldrh TMP3w, [PC, #12+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, CARG4w
+    |  beq >3
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, CARG4w
+    |  bne >9
+    |  b >4
+|3:
+    |  lsr TMP1w, TMP3w, #8
+|4:
+    |  mov CARG5w, TMP1w		// Int64 base local.
+    |  ldrb TMP0w, [PC, #16+OFS_OP]
+    |  cmp TMP0w, #BC_IST
+    |  bne >9
+    |  ldrh TMP1w, [PC, #16+OFS_RD]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrb TMP0w, [PC, #20+OFS_OP]
+    |  cmp TMP0w, #BC_JMP
+    |  bne >9
+    |  ldrb TMP0w, [PC, #24+OFS_OP]
+    |  cmp TMP0w, #BC_ADDVV
+    |  bne >9
+    |  ldrb TMP1w, [PC, #24+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #24+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, CARG4w
+    |  beq >5
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, CARG4w
+    |  bne >9
+    |  and TMP1w, TMP3w, #255
+    |  b >6
+|5:
+    |  lsr TMP1w, TMP3w, #8
+|6:
+    |  cmp TMP1w, CARG5w
+    |  bne >9
+    |  ldrb TMP0w, [PC, #28+OFS_OP]
+    |  cmp TMP0w, #BC_UNM
+    |  bne >9
+    |  ldrb TMP1w, [PC, #28+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #28+OFS_RD]
+    |  cmp TMP3w, RBw
+    |  bne >9
+    |  ldrb TMP0w, [PC, #32+OFS_OP]
+    |  cmp TMP0w, #BC_KSHORT
+    |  bne >9
+    |  ldrb TMP1w, [PC, #32+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  beq >9
+    |  cmp TMP1w, RBw
+    |  beq >9
+    |  cmp TMP1w, CARG4w
+    |  beq >9
+    |  cmp TMP1w, CARG5w
+    |  beq >9
+    |  ldrh TMP3w, [PC, #32+OFS_RD]
+    |  sxth TMP3w, TMP3w
+    |  cbnz TMP3w, >9
+    |  ldrb TMP0w, [PC, #36+OFS_OP]
+    |  cmp TMP0w, #BC_ISGT
+    |  bne >9
+    |  ldrb TMP0w, [PC, #36+OFS_RA]
+    |  cmp TMP0w, TMP1w
+    |  bne >9
+    |  ldrh TMP3w, [PC, #36+OFS_RD]
+    |  cmp TMP3w, RBw
+    |  bne >9
+    |  ldrb TMP0w, [PC, #40+OFS_OP]
+    |  cmp TMP0w, #BC_JMP
+    |  bne >9
+    |  ldrb TMP0w, [PC, #44+OFS_OP]
+    |  cmp TMP0w, #BC_ADDVN
+    |  bne >9
+    |  ldrb CARG5w, [PC, #44+OFS_RA]	// Loop-carried accumulator slot.
+    |  cmp CARG5w, RAw
+    |  beq >9
+    |  cmp CARG5w, RBw
+    |  beq >9
+    |  cmp CARG5w, CARG4w
+    |  beq >9
+    |  ldrh TMP3w, [PC, #44+OFS_RD]
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, CARG5w
+    |  bne >9
+    |  and TMP1w, TMP3w, #255
+    |  ldr CARG2, [KBASE, TMP1, lsl #3]	// Increment for even i.
+    |  checkint CARG2, >9
+    |  sxtw RB, CARG2w
+    |  ldrb TMP0w, [PC, #48+OFS_OP]
+    |  cmp TMP0w, #BC_JMP
+    |  bne >9
+    |  ldrb TMP0w, [PC, #52+OFS_OP]
+    |  cmp TMP0w, #BC_ADDVN
+    |  bne >9
+    |  ldrb TMP0w, [PC, #52+OFS_RA]
+    |  cmp TMP0w, CARG5w
+    |  bne >9
+    |  ldrh TMP3w, [PC, #52+OFS_RD]
+    |  lsr TMP0w, TMP3w, #8
+    |  cmp TMP0w, CARG5w
+    |  bne >9
+    |  and TMP0w, TMP3w, #255
+    |  ldr CARG2, [KBASE, TMP0, lsl #3]	// Increment for odd i.
+    |  checkint CARG2, >9
+    |  sxtw CARG2, CARG2w
+    |  ldrb TMP0w, [PC, #56+OFS_OP]
+    |  cmp TMP0w, #BC_FORL
+    |  bne >9
+    |  ldr CARG1, [BASE, CARG4, lsl #3]
+    |  checkint CARG1, >9
+    |  ldr TMP0, [BASE, CARG5, lsl #3]
+    |  checkint TMP0, >9
+    |  tbnz CARG1w, #0, >7
+    |  mov CARG2, RB
+    |  b >8
+|7:
+|8:
+    |  sxtw TMP0, TMP0w
+    |  add TMP0, TMP0, CARG2
+    |  cmp TMP0, TMP0, sxtw
+    |  bne >9
+    |  mov TMP0w, TMP0w
+    |  add_TISNUM TMP0, TMP0
+    |  str TMP0, [BASE, CARG5, lsl #3]
+    |  add PC, PC, #56
+    |  ins_next
+    |9:
+    |.endmacro
+    |
+    |.macro fuse_kshort_large_shift_zero_chain_forl
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  cmp RCw, #63
+    |  bne >9
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  bne >9
+    |  ldrb TMP1w, [PC, # OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  and TMP2w, TMP3w, #255
+    |  cmp TMP2w, RAw
+    |  bne >9
+    |  lsr CARG4w, TMP3w, #8		// Loop index slot.
+    |  cmp CARG4w, RAw
+    |  beq >9
+    |  ldrb TMP0w, [PC, #4+OFS_OP]
+    |  cmp TMP0w, #BC_ADDVN
+    |  bne >9
+    |  ldrb TMP1w, [PC, #4+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #4+OFS_RD]
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  and TMP2w, TMP3w, #255
+    |  ldr CARG2, [KBASE, TMP2, lsl #3]
+    |  load_bitint64_2 >9
+    |  cmp CARG2, #64
+    |  bne >9
+    |  ldrb TMP0w, [PC, #8+OFS_OP]
+    |  cmp TMP0w, #BC_BSHL
+    |  bne >9
+    |  ldrb TMP1w, [PC, #8+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #8+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  lsr CARG5w, TMP3w, #8		// Loop-carried value slot.
+    |  cmp CARG5w, RAw
+    |  beq >9
+    |  cmp CARG5w, CARG4w
+    |  beq >9
+    |  ldrb TMP0w, [PC, #12+OFS_OP]
+    |  cmp TMP0w, #BC_KSHORT
+    |  bne >9
+    |  ldrb TMP1w, [PC, #12+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  beq >9
+    |  cmp TMP1w, CARG4w
+    |  beq >9
+    |  cmp TMP1w, CARG5w
+    |  beq >9
+    |  mov RBw, TMP1w			// Second shift-count temp.
+    |  ldrh TMP3w, [PC, #12+OFS_RD]
+    |  sxth TMP3w, TMP3w
+    |  cmp TMP3w, #63
+    |  bne >9
+    |  ldrb TMP0w, [PC, #16+OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  bne >9
+    |  ldrb TMP1w, [PC, #16+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #16+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, CARG4w
+    |  bne >9
+    |  ldrb TMP0w, [PC, #20+OFS_OP]
+    |  cmp TMP0w, #BC_ADDVN
+    |  bne >9
+    |  ldrb TMP1w, [PC, #20+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #20+OFS_RD]
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  and TMP2w, TMP3w, #255
+    |  ldr CARG2, [KBASE, TMP2, lsl #3]
+    |  load_bitint64_2 >9
+    |  cmp CARG2, #64
+    |  bne >9
+    |  ldrb TMP0w, [PC, #24+OFS_OP]
+    |  cmp TMP0w, #BC_BSHR
+    |  bne >9
+    |  ldrb TMP1w, [PC, #24+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #24+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, CARG5w
+    |  bne >9
+    |  ldrb TMP0w, [PC, #28+OFS_OP]
+    |  cmp TMP0w, #BC_BXOR
+    |  bne >9
+    |  ldrb TMP1w, [PC, #28+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #28+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrb TMP0w, [PC, #32+OFS_OP]
+    |  cmp TMP0w, #BC_BXOR
+    |  bne >9
+    |  ldrb TMP1w, [PC, #32+OFS_RA]
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrh TMP3w, [PC, #32+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, CARG4w
+    |  bne >9
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrb TMP0w, [PC, #36+OFS_OP]
+    |  cmp TMP0w, #BC_KNUM
+    |  bne >9
+    |  ldrb TMP1w, [PC, #36+OFS_RA]
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  ldrb TMP0w, [PC, #40+OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  bne >9
+    |  ldrb TMP1w, [PC, #40+OFS_RA]
+    |  cmp TMP1w, CARG5w
+    |  bne >9
+    |  ldrh TMP3w, [PC, #40+OFS_RD]
+    |  and TMP1w, TMP3w, #255
+    |  cmp TMP1w, RBw
+    |  bne >9
+    |  lsr TMP1w, TMP3w, #8
+    |  cmp TMP1w, RAw
+    |  bne >9
+    |  ldrb TMP0w, [PC, #44+OFS_OP]
+    |  cmp TMP0w, #BC_FORL
+    |  bne >9
+    |  ldr CARG1, [BASE, CARG4, lsl #3]
+    |  load_bitint64_1 >9
+    |  ldrh TMP3w, [PC, #36+OFS_RD]
+    |  ldr CARG2, [KBASE, TMP3, lsl #3]
+    |  load_bitint64_2 >9
+    |  and CARG1, CARG1, CARG2
+    |  mov RAw, CARG5w
+    |  add PC, PC, #44
+    |  store_bitint64_1
+|9:
+    |.endmacro
+    |
+#endif
+    |
   case BC_BAND: case BC_BOR: case BC_BXOR:
     |  decode_RB RB, INS
     |   and RC, RC, #255
     |  // RA = dst, RB = src1, RC = src2
     |  ldr CARG1, [BASE, RB, lsl #3]
      |   ldr CARG2, [BASE, RC, lsl #3]
+    |  cmp TISNUMhi, CARG1, lsr #32
+    |  bne >1
+    |  cmp TISNUMhi, CARG2, lsr #32
+    |  bne >1
+    switch (op) {
+	    case BC_BAND:
+	      |  and CARG1w, CARG1w, CARG2w
+	      break;
+    case BC_BOR:
+      |  orr CARG1w, CARG1w, CARG2w
+      break;
+    default:
+      |  eor CARG1w, CARG1w, CARG2w
+      break;
+    }
+    |  mov CARG1w, CARG1w
+    |  add_TISNUM CARG1, CARG1
+    |  str CARG1, [BASE, RA, lsl #3]
+    |  ins_next
+    |1:
+    if (op != BC_BAND) {
+#if LJ_54
+      |  ldr TMP0w, [GL, #GL_J(flags)]
+      |  tbnz TMP0w, #0, >4		// JIT_F_ON: preserve JIT-on behavior.
+      |  ldrb TMP0w, [PC, # OFS_OP]
+      |  cmp TMP0w, #BC_KNUM
+      |  bne >4
+      |  ldrb TMP2w, [PC, # OFS_RA]
+      |  cmp TMP2w, RAw
+      |  beq >4
+      |  ldrh TMP3w, [PC, # OFS_RD]
+      |  ldr CARG3, [KBASE, TMP3, lsl #3]
+      |  checkint CARG3, >4
+      |  ldrb TMP0w, [PC, #4+OFS_OP]
+      |  cmp TMP0w, #BC_BAND
+      |  bne >4
+      |  ldrh TMP3w, [PC, #4+OFS_RD]
+      |  and TMP1w, TMP3w, #255
+      |  lsr TMP3w, TMP3w, #8
+      |  cmp TMP1w, RAw
+      |  bne >5
+      |  cmp TMP3w, TMP2w
+      |  beq >6
+      |  b >4
+      |5:
+      |  cmp TMP3w, RAw
+      |  bne >4
+      |  cmp TMP1w, TMP2w
+      |  bne >4
+      |6:
+      |  cmp TISNUMhi, CARG1, lsr #32
+      |  bne >7
+      |  asr ITYPE, CARG2, #47
+      |  cmn ITYPE, #-LJ_TINT64
+      |   and TMP2, CARG2, #LJ_GCVMASK
+      |  bne >4
+      |  ldr TMP0, INT64:TMP2->i
+      |  mov TMP1w, CARG1w
+      |  b >8
+      |7:
+      |  cmp TISNUMhi, CARG2, lsr #32
+      |  bne >4
+      |  asr ITYPE, CARG1, #47
+      |  cmn ITYPE, #-LJ_TINT64
+      |   and TMP2, CARG1, #LJ_GCVMASK
+      |  bne >4
+      |  ldr TMP0, INT64:TMP2->i
+      |  mov TMP1w, CARG2w
+      |8:
+      if (op == BC_BOR) {
+	|  orr TMP0w, TMP0w, TMP1w
+      } else {
+	|  eor TMP0w, TMP0w, TMP1w
+      }
+      |  and TMP0w, TMP0w, CARG3w
+      |  ldrb RAw, [PC, #4+OFS_RA]
+      |  add PC, PC, #8
+      |  add_TISNUM TMP0, TMP0
+      |  str TMP0, [BASE, RA, lsl #3]
+      |  ins_next
+      |4:
+#endif
+    }
+    if (op == BC_BAND) {
+      |  cmp TISNUMhi, CARG1, lsr #32
+      |  bne >2
+      |  tbnz CARG1w, #31, >2
+      |  asr ITYPE, CARG2, #47
+      |  cmn ITYPE, #-LJ_TINT64
+      |   and TMP2, CARG2, #LJ_GCVMASK
+      |  bne >2
+      |  ldr TMP0, INT64:TMP2->i
+      |  mov TMP1w, CARG1w
+      |  and TMP0, TMP0, TMP1
+#if LJ_54
+      |  fuse_bitint32_bxor_next_jitoff TMP0w
+      |  store_bitint32_owned_jitoff RC
+#endif
+      |  cmp RA, RC
+      |  bne >9
+      |  add TMP1, BASE, RA, lsl #3
+      |  ldr CARG3, INT64:TMP2->owner
+      |  cmp TMP1, CARG3
+      |  bne >9
+      |  str TMP0, INT64:TMP2->i
+      |  ins_next
+      |9:
+#if LJ_54
+      |  fuse_bitint32_kconst_band_next TMP0w
+#endif
+      |  mov TMP0w, TMP0w
+      |  add_TISNUM TMP0, TMP0
+      |  str TMP0, [BASE, RA, lsl #3]
+      |  ins_next
+      |2:
+      |  cmp TISNUMhi, CARG2, lsr #32
+      |  bne >3
+      |  tbnz CARG2w, #31, >3
+      |  asr ITYPE, CARG1, #47
+      |  cmn ITYPE, #-LJ_TINT64
+      |   and TMP2, CARG1, #LJ_GCVMASK
+      |  bne >3
+      |  ldr TMP0, INT64:TMP2->i
+      |  mov TMP1w, CARG2w
+      |  and TMP0, TMP0, TMP1
+#if LJ_54
+      |  fuse_bitint32_bxor_next_jitoff TMP0w
+      |  store_bitint32_owned_jitoff RB
+#endif
+      |  cmp RA, RB
+      |  bne >9
+      |  add TMP1, BASE, RA, lsl #3
+      |  ldr CARG3, INT64:TMP2->owner
+      |  cmp TMP1, CARG3
+      |  bne >9
+      |  str TMP0, INT64:TMP2->i
+      |  ins_next
+      |9:
+#if LJ_54
+      |  fuse_bitint32_kconst_band_next TMP0w
+#endif
+      |  mov TMP0w, TMP0w
+      |  add_TISNUM TMP0, TMP0
+      |  str TMP0, [BASE, RA, lsl #3]
+      |  ins_next
+      |3:
+    }
     |  load_bitint64_1 ->vmeta_bitop
     |  load_bitint64_2 ->vmeta_bitop
     switch (op) {
@@ -3554,32 +7628,150 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
       |  eor CARG1, CARG1, CARG2
       break;
     }
+#if LJ_54
+    |  ldr TMP0w, [GL, #GL_J(flags)]
+    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  ldrb TMP0w, [PC, # OFS_OP]
+    |  cmp TMP0w, #BC_BAND
+    |  beq >6
+    |  cmp TMP0w, #BC_BOR
+    |  beq >6
+    |  cmp TMP0w, #BC_BXOR
+    |  bne >9
+    |6:
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  and TMP2w, TMP3w, #255
+    |  cmp TMP2w, RAw
+    |  beq >7
+    |  lsr TMP2w, TMP3w, #8
+    |  cmp TMP2w, RAw
+    |  bne >9
+    |  and TMP2w, TMP3w, #255
+    |  b >8
+    |7:
+    |  lsr TMP2w, TMP3w, #8
+    |8:
+    |  cmp TMP2w, RAw
+    |  beq >9
+    |  ldr CARG2, [BASE, TMP2, lsl #3]
+    |  load_bitint64_2 >9
+    |  cmp TMP0w, #BC_BAND
+    |  beq >6
+    |  cmp TMP0w, #BC_BOR
+    |  beq >7
+    |  eor CARG1, CARG1, CARG2
+    |  b >8
+    |6:
+    |  and CARG1, CARG1, CARG2
+    |  b >8
+    |7:
+    |  orr CARG1, CARG1, CARG2
+    |8:
+    |  ldrb RAw, [PC, # OFS_RA]
+    |  add PC, PC, #4
+|9:
+    |  fuse_bitint64_kconst_next
+    |  fuse_bitint64_next_same_ra
+    |  fuse_bitint64_kshort_shift_next_same_ra
+    |  fuse_bitint64_kshort_band_shift_next_same_ra
+    |  fuse_bitint64_kshort_band_add_shift_xor_next_same_ra
+    |  fuse_bitint64_addvn_knum_band_next
+    |  fuse_bitint64_kconst_next
+    |  fuse_bitint64_bnot_next_same_ra
+    |  fuse_bitint64_kconst_next
+#endif
     |  store_bitint64_1
     break;
 
   case BC_BSHL: case BC_BSHR:
     |  decode_RB RB, INS
-    |   and RC, RC, #255
+     |   and RC, RC, #255
     |  // RA = dst, RB = value, RC = shift count
+    |  ldr CARG1, [BASE, RB, lsl #3]
+    |   ldr CARG2, [BASE, RC, lsl #3]
+    |  cmp TISNUMhi, CARG1, lsr #32
+    |  bne >1
+    |  cmp TISNUMhi, CARG2, lsr #32
+    |  bne >1
+    |  sxtw TMP0, CARG1w
+    |  sxtw TMP1, CARG2w
+    |  cmp TMP1w, #63
+    |  bhi >1
+    if (op == BC_BSHL) {
+      |  lsl TMP0, TMP0, TMP1
+    } else {
+      |  lsr TMP0, TMP0, TMP1
+    }
+    |  cmp TMP0, TMP0, sxtw
+    |  bne >1
+    |  mov CARG1w, TMP0w
+    |  add_TISNUM CARG1, CARG1
+    |  str CARG1, [BASE, RA, lsl #3]
+    |  ins_next
+    |1:
     |  ldr CARG1, [BASE, RB, lsl #3]
     |   ldr CARG2, [BASE, RC, lsl #3]
     |  load_bitint64_1 ->vmeta_bitop
     |  load_bitint64_2 ->vmeta_bitop
-    |  cmp CARG2w, #63			// Negative or wide counts: C semantics.
-    |  bhi ->vmeta_bitop
+    |  cmp CARG2, #64
+    |  bge >3
+    |  cmp CARG2, #0
+    |  bge >2
+    |  movn TMP0, #63			// -64: out-of-width negative count.
+    |  cmp CARG2, TMP0
+    |  ble >3
+    |  neg CARG2, CARG2
+    /* Negative counts reverse the shift direction. */
+    if (op == BC_BSHL) {
+      |  lsr CARG1, CARG1, CARG2
+    } else {
+      |  lsl CARG1, CARG1, CARG2
+    }
+    |  b >4
+    |2:
     if (op == BC_BSHL) {
       |  lsl CARG1, CARG1, CARG2
     } else {
       |  lsr CARG1, CARG1, CARG2
     }
+    |  b >4
+    |3:
+    |  mov CARG1, xzr
+    |4:
+#if LJ_54
+    |  fuse_bitint64_kshift_next_same_ra
+    |  fuse_bitint64_kshort_band_next_int
+    |  fuse_bitint64_next_same_ra
+    |  fuse_bitint64_addvn_knum_band_next
+    |  fuse_bitint64_next_same_ra
+    |  fuse_bitint64_addvn_knum_band_next
+    |  fuse_bitint64_bnot_next_same_ra
+    |  fuse_bitint64_knum_band_next_store
+#endif
     |  store_bitint64_1
     break;
 
   case BC_BNOT:
     |  // RA = dst, RC = src
     |  ldr CARG1, [BASE, RC, lsl #3]
+    |  cmp TISNUMhi, CARG1, lsr #32
+    |  bne >1
+    |  mvn CARG1w, CARG1w
+    |  mov CARG1w, CARG1w
+    |  add_TISNUM CARG1, CARG1
+    |  str CARG1, [BASE, RA, lsl #3]
+    |  ins_next
+    |1:
     |  load_bitint64_1 ->vmeta_bnot
     |  mvn CARG1, CARG1
+#if LJ_54
+    |  fuse_bitint64_next_same_ra
+    |  fuse_bitint64_addvn_knum_band_next
+    |  fuse_bitint64_kconst_next
+    |  fuse_bitint64_next_same_ra
+    |  fuse_bitint64_addvn_knum_band_next
+    |  fuse_bitint64_kconst_next
+#endif
     |  store_bitint64_1
     break;
 
@@ -3590,6 +7782,24 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  ldr CARG1, [BASE, RB, lsl #3]
     |  ldr CARG2, [BASE, RC, lsl #3]
 #if LJ_54
+    |  checkint CARG1, >7
+    |  checkint CARG2, >7
+    |  cbz CARG2w, >7		// n//0: C error path.
+    |  eor TMP0w, CARG1w, #0x80000000	// INT_MIN // -1 needs int64.
+    |  mvn TMP1w, CARG2w
+    |  orr TMP0w, TMP0w, TMP1w
+    |  cbz TMP0w, >7
+    |  sdiv CARG3w, CARG1w, CARG2w
+    |  msub TMP0w, CARG3w, CARG2w, CARG1w
+    |  cbz TMP0w, >8
+    |  eor TMP1w, TMP0w, CARG2w		// Floor adjust toward -inf.
+    |  tbz TMP1w, #31, >8
+    |  sub CARG3w, CARG3w, #1
+    |8:
+    |  add_TISNUM CARG1, CARG3
+    |  str CARG1, [BASE, RA, lsl #3]
+    |  ins_next
+    |7:
     |  load_arithint64_1 ->vmeta_arith_vv
     |  load_arithint64_2 ->vmeta_arith_vv
     |  cbz CARG2, ->vmeta_arith_vv	// n//0: C error path.
@@ -3656,6 +7866,191 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
   case BC_KSHORT:
     |  // RA = dst, RC = int16_literal
     |  sxth RCw, RCw
+#if LJ_54
+    |  fuse_kshort_shift_or_xor_masks_index_forl
+    |  fuse_kshort_parity_sign_branch_forl
+    |  fuse_kshort_large_shift_zero_chain_forl
+    |  fuse_kshort_idiv_add_shifts_xor_mask_forl
+    |  fuse_kshort_lshift_xor_idiv_add_mask_forl
+    |  fuse_kshort_shift_xor_bnot_knum_band_forl
+    |  fuse_kshort_shift_xor_bitop_mask_forl
+    |  fuse_kshort_rshift_lshift_xor_knum_band_forl
+    |  fuse_kshort_shift_bitop_knum_band_forl
+    |  cbnz RCw, >9
+    |  ldr TMP2w, [GL, #GL_J(flags)]
+    |  tbnz TMP2w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  ldrb TMP2w, [PC, # OFS_OP]
+    |  cmp TMP2w, #BC_ISLT
+    |  beq >2
+    |  cmp TMP2w, #BC_ISGE
+    |  beq >2
+    |  cmp TMP2w, #BC_ISLE
+    |  beq >2
+    |  cmp TMP2w, #BC_ISGT
+    |  bne >9
+    |2:
+    |  ldrb TMP3w, [PC, # OFS_RA]
+    |  ldrh CARG2w, [PC, # OFS_RD]
+    |  cmp TMP3w, RAw
+    |  bne >3
+    |  cmp CARG2w, RAw
+    |  beq >9
+    |  mov CARG4w, #1		// Literal zero is compare lhs.
+    |  mov TMP1w, CARG2w
+    |  b >4
+|3:
+    |  cmp CARG2w, RAw
+    |  bne >9
+    |  mov CARG4w, wzr		// Literal zero is compare rhs.
+    |  mov TMP1w, TMP3w
+    |4:
+    |  ldr CARG1, [BASE, TMP1, lsl #3]
+    |  checkint CARG1, >5
+    |  sxtw CARG1, CARG1w
+    |  b >6
+    |5:
+    |  cmp TISNUMhi, CARG1, lsr #32
+    |  bhi >9
+    |  asr ITYPE, CARG1, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and TMP0, CARG1, #LJ_GCVMASK
+    |  bne >9
+    |  ldr CARG1, INT64:TMP0->i
+|6:
+    |  add_TISNUM TMP0, RC
+    |  str TMP0, [BASE, RA, lsl #3]
+    |  ldrh RBw, [PC, #4+OFS_RD]
+    |  add CARG2, PC, #8
+    |  add RB, CARG2, RB, lsl #2
+    |  sub RB, RB, #0x20000
+    |  cbnz CARG4w, >7
+    |  cmp TMP2w, #BC_ISLT
+    |  bne >3
+    |  cmp CARG1, #0
+    |  csel PC, RB, CARG2, lt
+    |  ins_next
+|3:
+    |  cmp TMP2w, #BC_ISGE
+    |  bne >4
+    |  cmp CARG1, #0
+    |  csel PC, RB, CARG2, ge
+    |  ins_next
+|4:
+    |  cmp TMP2w, #BC_ISLE
+    |  bne >5
+    |  cmp CARG1, #0
+    |  csel PC, RB, CARG2, le
+    |  ins_next
+|5:
+    |  cmp CARG1, #0
+    |  csel PC, RB, CARG2, gt
+    |  ins_next
+|7:
+    |  cmp TMP2w, #BC_ISLT
+    |  bne >3
+    |  cmp CARG1, #0
+    |  csel PC, RB, CARG2, gt
+    |  ins_next
+|3:
+    |  cmp TMP2w, #BC_ISGE
+    |  bne >4
+    |  cmp CARG1, #0
+    |  csel PC, RB, CARG2, le
+    |  ins_next
+|4:
+    |  cmp TMP2w, #BC_ISLE
+    |  bne >5
+    |  cmp CARG1, #0
+    |  csel PC, RB, CARG2, ge
+    |  ins_next
+|5:
+    |  cmp CARG1, #0
+    |  csel PC, RB, CARG2, lt
+    |  ins_next
+    |9:
+    |  ldr TMP2w, [GL, #GL_J(flags)]
+    |  tbnz TMP2w, #0, >8		// JIT_F_ON: preserve JIT-on behavior.
+    |  cbz RCw, >8
+    |  ldrb TMP2w, [PC, # OFS_OP]
+    |  cmp TMP2w, #BC_IDIV
+    |  bne >8
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  and TMP2w, TMP3w, #255
+    |  cmp TMP2w, RAw
+    |  bne >8
+    |  lsr TMP1w, TMP3w, #8
+    |  ldr CARG1, [BASE, TMP1, lsl #3]
+    |  checkint CARG1, >8
+    |  sxtw CARG1, CARG1w
+    |  eor TMP0w, CARG1w, #0x80000000	// INT_MIN // -1 needs int64.
+    |  mvn TMP1w, RCw
+    |  orr TMP0w, TMP0w, TMP1w
+    |  cbz TMP0w, >8
+    |  cmp RCw, #0
+    |  ble >3
+    |  sub TMP0w, RCw, #1
+    |  tst TMP0w, RCw
+    |  bne >3
+    |  rbit TMP0w, RCw
+    |  clz TMP0w, TMP0w
+    |  asr CARG3w, CARG1w, TMP0w
+    |  b >4
+    |3:
+    |  sdiv CARG3w, CARG1w, RCw
+    |  msub TMP0w, CARG3w, RCw, CARG1w
+    |  cbz TMP0w, >4
+    |  eor TMP1w, TMP0w, RCw		// Floor adjust toward -inf.
+    |  tbz TMP1w, #31, >4
+    |  sub CARG3w, CARG3w, #1
+    |4:
+    |  ldrb TMP2w, [PC, # OFS_RA]
+    |  cmp TMP2w, RAw
+    |  beq >5
+    |  add_TISNUM TMP0, RC
+    |  str TMP0, [BASE, RA, lsl #3]
+    |5:
+    |  mov CARG3w, CARG3w
+    |  add_TISNUM TMP0, CARG3
+    |  str TMP0, [BASE, TMP2, lsl #3]
+    |  add PC, PC, #4
+    |  ins_next
+|8:
+    |  ldr TMP2w, [GL, #GL_J(flags)]
+    |  tbnz TMP2w, #0, >1		// JIT_F_ON: preserve JIT-on behavior.
+    |  ldrb TMP2w, [PC, # OFS_OP]
+    |  cmp TMP2w, #BC_BAND
+    |  beq >2
+    |  cmp TMP2w, #BC_BOR
+    |  beq >2
+    |  cmp TMP2w, #BC_BXOR
+    |  beq >2
+    |  cmp TMP2w, #BC_BSHL
+    |  beq >2
+    |  cmp TMP2w, #BC_BSHR
+    |  bne >1
+    |2:
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  and TMP2w, TMP3w, #255
+    |  cmp TMP2w, RAw
+    |  beq >2
+    |  lsr TMP3w, TMP3w, #8
+    |  cmp TMP3w, RAw
+    |  bne >1
+    |2:
+    |  ldr TMP1, [BASE, RA, lsl #3]
+    |  asr ITYPE, TMP1, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |  bne >1
+    |  and TMP1, TMP1, #LJ_GCVMASK
+    |  add TMP2, BASE, RA, lsl #3
+    |  ldr CARG1, INT64:TMP1->owner
+    |  cmp CARG1, TMP2
+    |  bne >1
+    |  sxtw TMP0, RCw
+    |  str TMP0, INT64:TMP1->i
+    |  ins_next
+    |1:
+#endif
     |  add_TISNUM TMP0, RC
     |  str TMP0, [BASE, RA, lsl #3]
     |  ins_next
@@ -3663,6 +8058,48 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
   case BC_KNUM:
     |  // RA = dst, RC = num_const
     |  ldr TMP0, [KBASE, RC, lsl #3]
+#if LJ_54
+    |  fuse_knum_bit_mixed_const32_forl
+    |  fuse_knum_const_mask_shift_xor_forl
+    |  fuse_knum_const_or_xor_xor_forl
+    |  fuse_knum_bitop_bitop_forl
+    |  fuse_knum_bitop_bitop_knum_band_forl
+    |  fuse_knum_bitop_knum_bitop_bitop_knum_band_forl
+    |  ldrb TMP2w, [PC, # OFS_OP]
+    |  cmp TMP2w, #BC_BAND
+    |  beq >2
+    |  cmp TMP2w, #BC_BOR
+    |  beq >2
+    |  cmp TMP2w, #BC_BXOR
+    |  beq >2
+    |  cmp TMP2w, #BC_BSHL
+    |  beq >2
+    |  cmp TMP2w, #BC_BSHR
+    |  bne >1
+    |2:
+    |  ldrh TMP3w, [PC, # OFS_RD]
+    |  and TMP2w, TMP3w, #255
+    |  cmp TMP2w, RAw
+    |  beq >2
+    |  lsr TMP3w, TMP3w, #8
+    |  cmp TMP3w, RAw
+    |  bne >1
+    |2:
+    |  ldr TMP1, [BASE, RA, lsl #3]
+    |  asr ITYPE, TMP1, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |  bne >1
+    |  and TMP1, TMP1, #LJ_GCVMASK
+    |  add TMP2, BASE, RA, lsl #3
+    |  ldr CARG1, INT64:TMP1->owner
+    |  cmp CARG1, TMP2
+    |  bne >1
+    |  and TMP3, TMP0, #LJ_GCVMASK
+    |  ldr CARG1, INT64:TMP3->i
+    |  str CARG1, INT64:TMP1->i
+    |  ins_next
+    |1:
+#endif
     |  str TMP0, [BASE, RA, lsl #3]
     |  ins_next
     break;
@@ -3915,10 +8352,65 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  b ->vmeta_tgetv
     |
     |9:
+#if LJ_54
+    |  asr ITYPE, TMP1, #47
+    |  cmn ITYPE, #-LJ_TINT64		// Boxed int64 key?
+    |  bne >2
+    |   and INT64:CARG4, TMP1, #LJ_GCVMASK
+    |  ldr CARG4, INT64:CARG4->i
+    |  cmp CARG4, CARG4, sxtw
+    |  beq ->vmeta_tgetv		// Keep int32-compatible boxes on slow path.
+    |  ldr TMP1w, TAB:CARG2->hmask
+    |   ldr NODE:CARG3, TAB:CARG2->node
+    |  mov TMP2w, CARG4w
+    |   lsr CARG1, CARG4, #32
+    |  // hashrot((uint32_t)key, (uint32_t)(key >> 32)).
+    |  eor TMP2w, TMP2w, CARG1w
+    |   ror TMP0w, CARG1w, #18
+    |  sub TMP2w, TMP2w, TMP0w
+    |   ror TMP0w, CARG1w, #13
+    |  eor CARG1w, TMP2w, TMP0w
+    |   ror TMP0w, TMP2w, #19
+    |  sub CARG1w, CARG1w, TMP0w
+    |  and TMP1w, TMP1w, CARG1w
+    |  add TMP1, TMP1, TMP1, lsl #1
+    |  add NODE:CARG3, NODE:CARG3, TMP1, lsl #3
+|6:
+    |  ldp TMP0, CARG1, NODE:CARG3->val
+    |   ldr NODE:CARG3, NODE:CARG3->next
+    |  asr ITYPE, CARG1, #47
+    |  cmn ITYPE, #-LJ_TINT64
+    |   and INT64:TMP2, CARG1, #LJ_GCVMASK
+    |  bne >7
+    |  ldr TMP2, INT64:TMP2->i
+    |  cmp TMP2, CARG4
+    |  bne >7
+    |  cmp_nil TMP0
+    |  beq >8
+    |  str TMP0, [BASE, RA, lsl #3]
+    |  ins_next
+    |
+    |7:  // Follow hash chain.
+    |  cbnz NODE:CARG3, <6
+    |  mov_nil TMP0
+    |
+    |8:  // Check for __index if table value is nil or key is absent.
+    |  ldr TAB:CARG1, TAB:CARG2->metatable
+    |  cbz TAB:CARG1, >3		// No metatable: done.
+    |  ldrb TMP1w, TAB:CARG1->nomm
+    |  tbnz TMP1w, #MM_index, >3	// 'no __index' flag set: done.
+    |  b ->vmeta_tgetv
+    |
+    |3:
+    |  str TMP0, [BASE, RA, lsl #3]
+    |  ins_next
+    |
+    |2:
+#endif
     |  asr ITYPE, TMP1, #47
     |  cmn ITYPE, #-LJ_TSTR		// String key?
     |  bne ->vmeta_tgetv
-    |   and STR:CARG4, TMP1, #LJ_GCVMASK
+     |   and STR:CARG4, TMP1, #LJ_GCVMASK
 #if LJ_54
     |  ldr TMP2w, STR:CARG4->len
     |  cmp TMP2w, #LJ_STR_MAXSHORT

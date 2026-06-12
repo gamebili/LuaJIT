@@ -19,10 +19,13 @@
 #include "lj_debug.h"
 #include "lj_meta.h"
 #include "lj_tab.h"
+#include "lj_str.h"
+#include "lj_udata.h"
 #include "lj_strscan.h"
 #include "lj_strfmt.h"
 #include "lj_ff.h"
 #include "lj_lib.h"
+#include "lj_trace.h"
 
 #include "luajit.h"
 
@@ -35,6 +38,15 @@ static TValue *debug_checkany_named54(lua_State *L, int narg,
 				      const char *fname);
 static void debug_argtype_named54(lua_State *L, int narg, const char *fname,
 				  const char *xname);
+#endif
+
+#if LJ_54 && LJ_TARGET_ARM64
+static void debug_mutation_flush54_arm64(lua_State *L)
+{
+  lj_trace_flushall(L);
+}
+#else
+#define debug_mutation_flush54_arm64(L)	UNUSED(L)
 #endif
 
 LJLIB_CF(debug_getregistry)
@@ -114,6 +126,49 @@ static void settabss(lua_State *L, const char *i, const char *v)
   lua_pushstring(L, v);
   lua_setfield(L, -2, i);
 }
+
+#if LJ_54 && LJ_TARGET_ARM64
+static char debug_shortsrc_cache_key54_arm64;
+
+static void settabstr(lua_State *L, const char *i, GCstr *v)
+{
+  setstrV(L, L->top++, v);
+  lua_setfield(L, -2, i);
+}
+
+static GCstr *debug_shortsrc_cached54_arm64(lua_State *L, GCproto *pt,
+					    const char *short_src)
+{
+  GCtab *registry = tabV(registry(L));
+  GCstr *name = proto_chunkname(pt);
+  GCtab *cache;
+  TValue key;
+  cTValue *tv;
+  setrawlightudV(&key, lj_lightud_intern(L, &debug_shortsrc_cache_key54_arm64));
+  tv = lj_tab_get(L, registry, &key);
+  if (tvistab(tv)) {
+    cache = tabV(tv);
+  } else {
+    cache = lj_tab_new(L, 4, 0);
+    settabV(L, lj_tab_set(L, registry, &key), cache);
+    lj_gc_anybarriert(L, registry);
+  }
+  tv = lj_tab_getint(cache, 1);
+  if (tvisstr(tv) && strV(tv) == name) {
+    cTValue *line = lj_tab_getint(cache, 2);
+    tv = lj_tab_getint(cache, 3);
+    if (line && tv && tvisint(line) &&
+	intV(line) == (int32_t)pt->firstline && tvisstr(tv))
+      return strV(tv);
+  }
+  name = lj_str_newz(L, short_src);
+  setstrV(L, lj_tab_setint(L, cache, 1), proto_chunkname(pt));
+  setintV(lj_tab_setint(L, cache, 2), (int32_t)pt->firstline);
+  setstrV(L, lj_tab_setint(L, cache, 3), name);
+  lj_gc_anybarriert(L, cache);
+  return name;
+}
+#endif
 
 static void settabsi(lua_State *L, const char *i, int v)
 {
@@ -283,12 +338,39 @@ LJLIB_CF(debug_getinfo)
 #if LJ_54
   GCstr *optstr = debug_optstr_named54(L, arg+2, "debug.getinfo");
   const char *options = optstr ? strdata(optstr) : "flnSrtu";
+#if LJ_TARGET_ARM64
+  char optbuf[64];
+  GCfunc *funcarg = NULL;
+#endif
   if (options[0] == '>')
     debug_argerror_named54(L, arg+2, "debug.getinfo",
 			   "invalid option '>'");
   if (L->base+arg < L->top && tvisfunc(L->base+arg)) {
+#if LJ_TARGET_ARM64
+    funcarg = funcV(L->base+arg);
+#endif
+#if LJ_TARGET_ARM64
+    MSize optlen = optstr ? optstr->len : (MSize)(sizeof("flnSrtu")-1);
+    if (optlen + 1 < sizeof(optbuf)) {
+      MSize i;
+      optbuf[0] = '>';
+      for (i = 0; i < optlen; i++)
+	optbuf[i+1] = options[i];
+      optbuf[optlen+1] = '\0';
+      options = optbuf;
+    } else {
+      options = lua_pushfstring(L, ">%s", options);
+    }
+#else
     options = lua_pushfstring(L, ">%s", options);
-    setfuncV(L1, L1->top++, funcV(L->base+arg));
+#endif
+    setfuncV(L1, L1->top++,
+#if LJ_TARGET_ARM64
+	     funcarg
+#else
+	     funcV(L->base+arg)
+#endif
+	    );
   } else {
     int32_t level = debug_checkint_named54(L, arg+1, "debug.getinfo");
     if (!lua_getstack(L1, level, (lua_Debug *)&ar)) {
@@ -322,8 +404,20 @@ LJLIB_CF(debug_getinfo)
   for (; *options; options++) {
     switch (*options) {
     case 'S':
+#if LJ_54 && LJ_TARGET_ARM64
+      if (funcarg && isluafunc(funcarg)) {
+	GCproto *pt = funcproto(funcarg);
+	settabstr(L, "source", proto_chunkname(pt));
+	settabstr(L, "short_src",
+		  debug_shortsrc_cached54_arm64(L, pt, ar.short_src));
+      } else {
+	settabss(L, "source", ar.source);
+	settabss(L, "short_src", ar.short_src);
+      }
+#else
       settabss(L, "source", ar.source);
       settabss(L, "short_src", ar.short_src);
+#endif
       settabsi(L, "linedefined", ar.linedefined);
       settabsi(L, "lastlinedefined", ar.lastlinedefined);
       settabss(L, "what", ar.what);
@@ -400,6 +494,7 @@ LJLIB_CF(debug_setlocal)
   lua_State *L1 = getthread(L, &arg);
   lua_Debug ar;
   TValue *tv;
+  const char *name;
 #if LJ_54
   if (!lua_getstack(L1,
 		    debug_checkint_named54(L, arg+1, "debug.setlocal"),
@@ -415,14 +510,17 @@ LJLIB_CF(debug_setlocal)
   tv = lj_lib_checkany(L, arg+3);
 #endif
   copyTV(L1, L1->top++, tv);
-  lua_pushstring(L, lua_setlocal(L1, &ar,
+  name = lua_setlocal(L1, &ar,
 #if LJ_54
 				 debug_checkint_named54(L, arg+2,
 							"debug.setlocal")
 #else
 				 lj_lib_checkint(L, arg+2)
 #endif
-				 ));
+				 );
+  if (name)
+    debug_mutation_flush54_arm64(L);
+  lua_pushstring(L, name);
   return 1;
 }
 
@@ -576,17 +674,20 @@ LJLIB_CF(debug_upvaluejoin)
     }
     setgcref(fn[0]->c.env, obj2gco(t));
     lj_gc_objbarrier(L, fn[0], t);
+    debug_mutation_flush54_arm64(L);
     return 0;
   } else if (envuv[1]) {
     GCupval *uv = &gcref(*p[0])->uv;
     TValue *tv = uvval(uv);
     settabV(L, tv, tabref(fn[1]->c.env));
     lj_gc_barrier(L, obj2gco(uv), tv);
+    debug_mutation_flush54_arm64(L);
     return 0;
   }
 #endif
   setgcrefr(*p[0], *p[1]);
   lj_gc_objbarrier(L, fn[0], gcref(*p[1]));
+  debug_mutation_flush54_arm64(L);
   return 0;
 }
 
@@ -910,4 +1011,3 @@ LUALIB_API int luaopen_debug(lua_State *L)
 #endif
   return 1;
 }
-

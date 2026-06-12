@@ -29,6 +29,9 @@ LJ_FUNCA TValue *lj_meta_arith(lua_State *L, TValue *ra, cTValue *rb,
 			       cTValue *rc, BCReg op);
 LJ_FUNCA TValue *lj_meta_bitop(lua_State *L, TValue *ra, cTValue *rb,
 			       cTValue *rc, BCReg op);
+#if LJ_54 && LJ_TARGET_ARM64
+LJ_FUNCA void lj_meta_cat2str(lua_State *L, TValue *top);
+#endif
 LJ_FUNCA TValue *lj_meta_cat(lua_State *L, TValue *top, int left);
 LJ_FUNCA TValue * LJ_FASTCALL lj_meta_len(lua_State *L, cTValue *o);
 LJ_FUNCA TValue *lj_meta_equal(lua_State *L, GCobj *o1, GCobj *o2, int ne);

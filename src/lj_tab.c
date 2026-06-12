@@ -30,6 +30,10 @@ static LJ_AINLINE int strkeyeq(const GCstr *a, const GCstr *b)
 
 static LJ_AINLINE Node *hashi64(const GCtab *t, int64_t key)
 {
+#if LJ_54 && LJ_TARGET_ARM64
+  if (!checki32(key))
+    return hashlohi(t, (uint32_t)key, (uint32_t)((uint64_t)key >> 32));
+#endif
   TValue k;
   setnumV(&k, (lua_Number)key);
   return hashnum(t, &k);
@@ -626,7 +630,14 @@ cTValue *lj_tab_get(lua_State *L, GCtab *t, cTValue *key)
       return tv;
     return niltv(L);
   } else if (tvisi64(key)) {
+#if LJ_54 && LJ_TARGET_ARM64
+    cTValue *tv = tab_getint64key(t, i64V(key));
+    if (tv)
+      return tv;
+    return niltv(L);
+#else
     goto genlookup;
+#endif
   } else if (tvisnum(key)) {
     int64_t i64;
     int32_t k;
@@ -731,6 +742,7 @@ TValue *lj_tab_newkey(lua_State *L, GCtab *t, cTValue *key)
   n->key.u64 = key->u64;
   if (LJ_UNLIKELY(tvismzero(&n->key)))
     n->key.u64 = 0;
+  clearint64owner(&n->key);
   lj_gc_anybarriert(L, t);
   lj_assertL(tvisnil(&n->val), "new hash slot is not empty");
   return &n->val;
@@ -797,7 +809,14 @@ TValue *lj_tab_set(lua_State *L, GCtab *t, cTValue *key)
   } else if (tvisint(key)) {
     return lj_tab_setint(L, t, intV(key));
   } else if (tvisi64(key)) {
+#if LJ_54 && LJ_TARGET_ARM64
+    cTValue *oldv = tab_getint64key(t, i64V(key));
+    if (oldv)
+      return (TValue *)oldv;
+    return lj_tab_newkey(L, t, key);
+#else
     /* Use the generic numeric key. */
+#endif
   } else if (tvisnum(key)) {
     int64_t i64;
     int32_t k;
@@ -926,6 +945,28 @@ int lj_tab_next(GCtab *t, cTValue *key, TValue *o)
   return (int32_t)idx < 0 ? -1 : 0;  /* Invalid key or end of traversal. */
 }
 
+#if LJ_54 && LJ_TARGET_ARM64
+static LJ_AINLINE int tab_isenvkey54(cTValue *o)
+{
+  if (tvisstr(o)) {
+    GCstr *k = strV(o);
+    return k->len == 4 && strdata(k)[0] == '_' && strdata(k)[1] == 'E' &&
+	   strdata(k)[2] == 'N' && strdata(k)[3] == 'V';
+  }
+  return 0;
+}
+
+int lj_tab_next_global54(GCtab *t, cTValue *key, TValue *o)
+{
+  int more = lj_tab_next(t, key, o);
+  while (more > 0 && tab_isenvkey54(o)) {
+    TValue skip = o[0];
+    more = lj_tab_next(t, &skip, o);
+  }
+  return more;
+}
+#endif
+
 /* -- Table length calculation -------------------------------------------- */
 
 /* Compute table length. Slow path with mixed array/hash lookups. */
@@ -986,4 +1027,3 @@ MSize LJ_FASTCALL lj_tab_len_hint(GCtab *t, size_t hint)
   return lj_tab_len(t);
 }
 #endif
-

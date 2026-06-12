@@ -694,10 +694,35 @@ TValue *lj_meta_bitop(lua_State *L, TValue *ra, cTValue *rb, cTValue *rc,
 #endif
 
 /* Helper for CAT. Coercion, iterative concat, __concat metamethod. */
+#if LJ_54 && LJ_TARGET_ARM64
+static void meta_cat2str(lua_State *L, TValue *top, int fromc)
+{
+  GCstr *s1 = strV(top-1), *s2 = strV(top);
+  size_t len = (size_t)s1->len + (size_t)s2->len;
+  setstrV(L, top-1, len > LJ_STR_MAXSHORT ?
+	  lj_str_new_cat2(L, s1, s2) : lj_buf_cat2str(L, s1, s2));
+  if (LJ_UNLIKELY(G(L)->gc.total >= G(L)->gc.threshold)) {
+    if (!fromc) L->top = curr_topL(L);
+    lj_gc_step(L);
+  }
+}
+
+void lj_meta_cat2str(lua_State *L, TValue *top)
+{
+  meta_cat2str(L, top, 0);
+}
+#endif
+
 TValue *lj_meta_cat(lua_State *L, TValue *top, int left)
 {
   int fromc = 0;
   if (left < 0) { left = -left; fromc = 1; }
+#if LJ_54 && LJ_TARGET_ARM64
+  if (left == 1 && tvisstr(top) && tvisstr(top-1)) {
+    meta_cat2str(L, top, fromc);
+    return NULL;
+  }
+#endif
   do {
     if (!(tvisstr(top) || tvisnumber(top) || tvisi64(top) || tvisbuf(top)) ||
 	!(tvisstr(top-1) || tvisnumber(top-1) || tvisi64(top-1) ||
