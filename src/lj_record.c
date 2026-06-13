@@ -294,21 +294,6 @@ static int rec_lua54_loopback_op(BCOp op)
   return op == BC_FORL || op == BC_IFORL || op == BC_JFORL;
 }
 
-static int rec_lua54_next_loopback(jit_State *J)
-{
-  const BCIns *next = J->pc + 1;
-  BCOp op = bc_op(*next);
-  if (rec_lua54_loopback_op(op))
-    return 1;
-  if (op == BC_JMP) {
-    const BCIns *start = proto_bc(J->pt);
-    const BCIns *target = next + bc_j(*next) + 1;
-    if (target >= start && target < start + J->pt->sizebc)
-      return rec_lua54_loopback_op(bc_op(*target));
-  }
-  return 0;
-}
-
 static int rec_lua54_next_loopback_keeps_slot(jit_State *J, BCReg ra)
 {
   const BCIns *start = proto_bc(J->pt);
@@ -330,8 +315,22 @@ static int rec_lua54_next_loopback_keeps_slot(jit_State *J, BCReg ra)
     }
     switch (bcmode_a(op)) {
     case BCMdst:
-      if (bc_a(ins) == ra && !(op == BC_ISTC || op == BC_ISFC))
-	return 0;
+      if (bc_a(ins) == ra && !(op == BC_ISTC || op == BC_ISFC)) {
+	/* Further integer arith/bitop writes to the same loop-carried slot
+	** stay in-place owned int64 stores (the accumulator keeps its box),
+	** so they do not break ownership before the loop-back. Any other
+	** write replaces the value and ends the owned chain. */
+	switch (op) {
+	case BC_ADDVN: case BC_SUBVN: case BC_MULVN:
+	case BC_ADDNV: case BC_SUBNV: case BC_MULNV:
+	case BC_ADDVV: case BC_SUBVV: case BC_MULVV:
+	case BC_BAND: case BC_BOR: case BC_BXOR:
+	case BC_BSHL: case BC_BSHR: case BC_BNOT:
+	  break;
+	default:
+	  return 0;
+	}
+      }
       break;
     case BCMbase:
       if (op == BC_KNIL && bc_a(ins) <= ra && ra <= bc_d(ins))
@@ -574,12 +573,17 @@ static int rec_lua54_loopcarried_arith_i64(jit_State *J, BCIns ins,
 					   TRef rb, TRef rc, cTValue *lbase)
 {
   BCReg ra = bc_a(ins);
-  TRef old = J->base[ra];
-  if (!rec_lua54_next_loopback(J))
+  /* Store the result in place into the box the slot already owns whenever the
+  ** slot stays a loop-carried owned int64 through to the loop-back, even when
+  ** the writing op's operands are temporaries (e.g. "s = (s + i) - (i % 7)")
+  ** and across an intervening comparison and conditional reset. The runtime
+  ** owner guard in rec_lua54_store_owned_i64 keeps this correct; keeps_slot
+  ** tolerates further owned int64 writes to the same slot. Without this such
+  ** loops box per iteration and abort the trace with type instability. */
+  UNUSED(rb); UNUSED(rc);
+  if (!rec_lua54_next_loopback_keeps_slot(J, ra))
     return 0;
-  if (!rec_lua54_box_loopcarried_i64(J, ra, lbase))
-    return 0;
-  return rb == old || rc == old;
+  return rec_lua54_box_loopcarried_i64(J, ra, lbase);
 }
 
 static int rec_lua54_tgets_minmax(jit_State *J, BCIns ins)
