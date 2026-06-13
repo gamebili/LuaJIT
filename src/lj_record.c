@@ -1919,6 +1919,18 @@ void lj_record_ret(jit_State *J, BCReg rbase, ptrdiff_t gotresults)
     /* NYI: specialize to frame type and return directly, not via RET*. */
     for (i = 0; i < (ptrdiff_t)rbase; i++)
       J->base[i] = 0;  /* Purge dead slots. */
+#if LJ_54 && LJ_DUALNUM && LJ_TARGET_ARM64
+    /* A Lua 5.4 bitop/arith result that was kept as an unboxed IRT_I64 for an
+    ** in-trace consumer must be materialized before returning to the
+    ** interpreter (e.g. a bitwise metamethod result crossing lj_cont_ra): the
+    ** RETURN tail-link's asm_stack_restore would otherwise store the raw 64-bit
+    ** value tagged as an integer TValue, truncating it to the low 32 bits.
+    ** Side exits already box via snap_restoreval; this is its tail-link
+    ** counterpart, mirroring the raw-i64 boxing done for table-value stores. */
+    for (i = 0; i < gotresults; i++)
+      if (J->base[rbase+i])
+	J->base[rbase+i] = rec_lua54_boxraw_i64(J, J->base[rbase+i]);
+#endif
     J->maxslot = rbase + (BCReg)gotresults;
     lj_record_stop(J, LJ_TRLINK_RETURN, 0);  /* Return to interpreter. */
     return;
