@@ -7683,7 +7683,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
 #if LJ_54
     |.macro fuse_arithint64_eq_next
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  cmp CARG1, CARG1, sxtw
     |  beq >9				// Keep int32 results represented as ints.
     |  ldrb TMP0w, [PC, # OFS_OP]
@@ -7734,7 +7735,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_arithint64_ord_next
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  cmp CARG1, CARG1, sxtw
     |  beq >9				// Keep int32 results represented as ints.
     |  ldrb TMP0w, [PC, # OFS_OP]
@@ -7828,7 +7830,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_arithint64_addvn_ord_next
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  cmp CARG1, CARG1, sxtw
     |  beq >9				// Keep int32 results represented as ints.
     |  ldrb TMP0w, [PC, # OFS_OP]
@@ -7948,7 +7951,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_arithint64_bnot_knum_band_next
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  ldrb TMP0w, [PC, # OFS_OP]
     |  cmp TMP0w, #BC_BNOT
     |  bne >9
@@ -7997,7 +8001,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  cmp TMP0w, #BC_KSHORT
     |  bne >9
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  cmp CARG1, CARG1, sxtw
     |  beq >9				// Keep int32 results represented as ints.
     |  ldrb TMP1w, [PC, # OFS_RA]	// Mask/result temp.
@@ -8073,7 +8078,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_arithint64_kint_band_next
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  ldrb TMP0w, [PC, # OFS_OP]
     |  cmp TMP0w, #BC_KNUM
     |  bne >9
@@ -8482,7 +8488,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
 #if LJ_54
     |.macro fuse_bitint64_next_same_ra
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  ldrb TMP0w, [PC, # OFS_OP]
     |  cmp TMP0w, #BC_BAND
     |  beq >5
@@ -8526,7 +8533,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_bitint64_kconst_next
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  ldrb TMP0w, [PC, # OFS_OP]
     |  cmp TMP0w, #BC_KSHORT
     |  beq >1
@@ -8591,7 +8599,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_bitint64_kshort_band_next_int
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  ldrb TMP0w, [PC, # OFS_OP]
     |  cmp TMP0w, #BC_KSHORT
     |  bne >9
@@ -8632,7 +8641,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_bitint64_knum_band_next_store
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  ldrb TMP0w, [PC, # OFS_OP]
     |  cmp TMP0w, #BC_KNUM
     |  bne >9
@@ -8670,7 +8680,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_bitint64_addvn_knum_band_next
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  ldrb TMP0w, [PC, # OFS_OP]
     |  cmp TMP0w, #BC_ADDVN
     |  bne >9
@@ -8719,7 +8730,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_bitint64_bnot_next_same_ra
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  ldrb TMP0w, [PC, # OFS_OP]
     |  cmp TMP0w, #BC_BNOT
     |  bne >9
@@ -8773,7 +8785,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_bitint32_bxor_next_jitoff, raw
     |  ldr CARG3w, [GL, #GL_J(flags)]
-    |  tbnz CARG3w, #0, >5		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >5  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  ldrb CARG3w, [PC, # OFS_OP]
     |  cmp CARG3w, #BC_BXOR
     |  bne >5
@@ -8807,7 +8820,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_bitint32_kconst_band_next, raw
     |  ldr TMP2w, [GL, #GL_J(flags)]
-    |  tbnz TMP2w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  ldrb TMP2w, [PC, # OFS_OP]
     |  cmp TMP2w, #BC_KNUM
     |  bne >9
@@ -8842,7 +8856,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_bitint64_kshift_next_same_ra
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  ldrb TMP0w, [PC, # OFS_OP]
     |  cmp TMP0w, #BC_KSHORT
     |  bne >9
@@ -8922,7 +8937,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_knum_bit_mixed_const32_forl
     |  ldr CARG3w, [GL, #GL_J(flags)]
-    |  tbnz CARG3w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  ldrb CARG3w, [PC, # OFS_OP]
     |  cmp CARG3w, #BC_BAND
     |  bne >9
@@ -9076,7 +9092,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_knum_const_mask_shift_xor_forl
     |  ldr CARG3w, [GL, #GL_J(flags)]
-    |  tbnz CARG3w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  ldrb CARG3w, [PC, # OFS_OP]
     |  cmp CARG3w, #BC_BAND
     |  bne >9
@@ -9248,7 +9265,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_knum_const_or_xor_xor_forl
     |  ldr CARG3w, [GL, #GL_J(flags)]
-    |  tbnz CARG3w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  ldrb CARG3w, [PC, # OFS_OP]
     |  cmp CARG3w, #BC_BOR
     |  bne >9
@@ -9396,7 +9414,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_knum_bitop_bitop_forl
     |  ldr CARG3w, [GL, #GL_J(flags)]
-    |  tbnz CARG3w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  ldrb CARG3w, [PC, # OFS_OP]
     |  cmp CARG3w, #BC_BAND
     |  bne >9
@@ -9488,7 +9507,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_knum_bitop_bitop_knum_band_forl
     |  ldr CARG3w, [GL, #GL_J(flags)]
-    |  tbnz CARG3w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  ldrb CARG3w, [PC, # OFS_OP]
     |  cmp CARG3w, #BC_BOR
     |  beq >1
@@ -9616,7 +9636,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_knum_bitop_knum_bitop_bitop_knum_band_forl
     |  ldr CARG3w, [GL, #GL_J(flags)]
-    |  tbnz CARG3w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  ldrb CARG3w, [PC, # OFS_OP]
     |  cmp CARG3w, #BC_BOR
     |  beq >1
@@ -9800,7 +9821,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_bitint64_kshort_shift_next_same_ra
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  ldrb TMP0w, [PC, # OFS_OP]
     |  cmp TMP0w, #BC_KSHORT
     |  bne >9
@@ -9886,7 +9908,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_bitint64_kshort_band_shift_next_same_ra
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  ldrb TMP0w, [PC, # OFS_OP]
     |  cmp TMP0w, #BC_KSHORT
     |  bne >9
@@ -9950,7 +9973,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_bitint64_kshort_band_add_shift_xor_next_same_ra
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  ldrb TMP0w, [PC, # OFS_OP]
     |  cmp TMP0w, #BC_KSHORT
     |  bne >9
@@ -10060,7 +10084,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_kshort_idiv_add_shifts_xor_mask_forl
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  cmp RCw, #5
     |  bne >9
     |  ldrb TMP0w, [PC, # OFS_OP]
@@ -10241,7 +10266,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_kshort_lshift_xor_idiv_add_mask_forl
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  cmp RCw, #7
     |  bne >9
     |  ldrb TMP0w, [PC, # OFS_OP]
@@ -10378,7 +10404,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_kshort_rshift_lshift_xor_knum_band_forl
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  cmp RCw, #1
     |  bne >9
     |  ldrb TMP0w, [PC, # OFS_OP]
@@ -10513,7 +10540,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_kshort_shift_xor_bnot_knum_band_forl
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  cmp RCw, #8
     |  bne >9
     |  ldrb TMP0w, [PC, # OFS_OP]
@@ -10636,7 +10664,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_kshort_shift_bitop_knum_band_forl
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  cmp RCw, #63
     |  bhi >9
     |  ldrb TMP0w, [PC, # OFS_OP]
@@ -10736,7 +10765,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_kshort_shift_xor_bitop_mask_forl
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  cmp RCw, #1
     |  beq >9
     |  cmp RCw, #63
@@ -10881,7 +10911,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_kshort_shift_or_xor_masks_index_forl
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  cmp RCw, #21
     |  bne >9
     |  ldrb TMP0w, [PC, # OFS_OP]
@@ -11130,7 +11161,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_kshort_parity_sign_branch_forl
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  cmp RCw, #1
     |  bne >9
     |  ldrb TMP0w, [PC, # OFS_OP]
@@ -11400,7 +11432,8 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
     |.macro fuse_kshort_large_shift_zero_chain_forl
     |  ldr TMP0w, [GL, #GL_J(flags)]
-    |  tbnz TMP0w, #0, >9		// JIT_F_ON: preserve JIT-on behavior.
+    |  b >9  // Lua 5.4 jit.off integer-fusion disabled: unsound for
+    |         // live-local source slots (skips the producer-result store).
     |  cmp RCw, #63
     |  bne >9
     |  ldrb TMP0w, [PC, # OFS_OP]
