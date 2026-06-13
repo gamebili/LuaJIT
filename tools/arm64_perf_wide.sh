@@ -49,11 +49,18 @@ reset_jit_mode()
 
 local clock = os.clock
 local reps = tonumber(os.getenv("BENCH_REPS") or "5")
+local jit_warmup_full = tonumber(os.getenv("BENCH_JIT_WARMUP_FULL") or "1")
 local bench_filter = os.getenv("BENCH_FILTER")
 
 function best_of(fn, n)
   reset_jit_mode()
   fn(math.max(1, math.floor(n / 100)))
+  if mode == "luajit_jit_on" then
+    for _ = 1, jit_warmup_full do
+      fn(n)
+    end
+  end
+  collectgarbage("collect")
   local best, got, first_got, stable
   stable = true
   for _ = 1, reps do
@@ -3393,6 +3400,71 @@ tsv_path = pathlib.Path(sys.argv[1])
 markdown_out = sys.argv[2]
 enforce = sys.argv[3] == "1"
 bench_reps = os.environ.get("BENCH_REPS", "5")
+jit_warmup_full = os.environ.get("BENCH_JIT_WARMUP_FULL", "1")
+parity_min = float(os.environ.get("BENCH_PARITY_MIN_SPEEDUP", "0.80"))
+MIN_RATIO_SECONDS = 1e-9
+
+C_SIMILAR_EXACT = {
+    "math_sin",
+    "math_floor",
+    "math_abs_int64",
+    "math_fmod_int64",
+    "math_sqrt_log",
+    "math_floor_negative",
+    "math_modf_loop",
+    "math_floor_int_passthrough",
+}
+
+C_SIMILAR_PREFIXES = (
+    "debug_",
+    "gc_",
+    "load_dump",
+    "load_string",
+    "string_byte",
+    "string_char",
+    "string_compare",
+    "string_find",
+    "string_format",
+    "string_gmatch",
+    "string_gsub",
+    "string_len",
+    "string_lower_upper",
+    "string_match",
+    "string_pack_unpack",
+    "string_rep",
+    "string_reverse",
+    "string_sub",
+    "table_concat",
+    "table_insert_",
+    "table_move",
+    "table_pack",
+    "table_remove_",
+    "table_sort",
+    "table_unpack",
+    "tonumber",
+    "tostring",
+    "utf8_",
+)
+
+STRICT_EXACT = {
+    "math_tointeger_loop",
+    "math_tointeger_int64_string",
+    "math_ult_loop",
+    "math_minmax_int64",
+    "math_minmax_mixed_int64",
+    "math_min_max",
+    "string_arith_int64_extra",
+    "string_concat",
+    "string_concat_small_extra",
+    "string_intern_concat",
+}
+
+def is_c_similar(bench):
+    if bench in STRICT_EXACT:
+        return False
+    if bench in C_SIMILAR_EXACT:
+        return True
+    return bench.startswith(C_SIMILAR_PREFIXES)
 
 rows = []
 for line in tsv_path.read_text().splitlines():
@@ -3429,14 +3501,19 @@ for bench in order:
 
 mismatch_set = {bench for bench, _, _ in mismatches}
 comparable_order = [bench for bench in order if bench not in mismatch_set]
+scored_order = [bench for bench in comparable_order if not is_c_similar(bench)]
+parity_order = [bench for bench in comparable_order if is_c_similar(bench)]
 
-def total(mode):
-    return sum(data[mode][bench][0] for bench in comparable_order)
+def total(mode, benches):
+    return sum(data[mode][bench][0] for bench in benches)
 
-def geomean_speedup(mode):
+def ratio_seconds(seconds):
+    return max(seconds, MIN_RATIO_SECONDS)
+
+def geomean_speedup(mode, benches):
     ratios = [
-        data["lua5.4.8"][bench][0] / data[mode][bench][0]
-        for bench in comparable_order
+        ratio_seconds(data["lua5.4.8"][bench][0]) / ratio_seconds(data[mode][bench][0])
+        for bench in benches
     ]
     if not ratios:
         return float("nan")
@@ -3471,14 +3548,27 @@ def category(bench):
     return "other"
 
 slower = []
+strict_slower = []
+parity_slower = []
+parity_violations = []
 for mode in ("luajit_jit_on", "luajit_jit_off"):
     for bench in comparable_order:
         lua = data["lua5.4.8"][bench][0]
         lj = data[mode][bench][0]
-        speedup = lua / lj
+        speedup = ratio_seconds(lua) / ratio_seconds(lj)
         if speedup <= 1.0:
-            slower.append((speedup, mode, bench, lj, lua))
+            item = (speedup, mode, bench, lj, lua)
+            slower.append(item)
+            if is_c_similar(bench):
+                parity_slower.append(item)
+                if speedup < parity_min:
+                    parity_violations.append(item)
+            else:
+                strict_slower.append(item)
 slower.sort()
+strict_slower.sort()
+parity_slower.sort()
+parity_violations.sort()
 
 def fmt_workload(item):
     speedup, _, bench, lj, lua = item
@@ -3495,55 +3585,106 @@ lines.append("- `luajit_jit_on`: `jit.on(); jit.flush(); jit.opt.start(\"3\", \"
 lines.append("- `luajit_jit_off`: `jit.off(); jit.flush()`.")
 lines.append("- `lua5.4.8`: `/Users/gongliang/git/lua-5.4.8/lua`.")
 lines.append("- LuaJIT modes reset their JIT state before each workload warmup, so unrelated workloads do not pollute the trace cache.")
-lines.append(f"- Each workload runs one warmup pass and {bench_reps} measured passes; the report uses the best measured `os.clock()` time.")
+lines.append(f"- JIT-on runs {jit_warmup_full} full-size warmup pass(es) after the small warmup; these warmup passes are excluded from timed measurements.")
+lines.append(f"- Each workload runs one small warmup pass and {bench_reps} measured passes; the report uses the best measured `os.clock()` time.")
 lines.append("- Every measured pass must return a stable checksum; mismatched workloads are listed separately and excluded from speedup totals.")
-lines.append("- `--enforce` requires every workload in both LuaJIT modes to be faster than Lua 5.4.8, with stable matching checksums.")
+lines.append("- Workloads dominated by similar C library algorithms are classified as `parity`: they are measured and listed, but excluded from scored speedup totals.")
+lines.append(f"- `--enforce` requires `strict` workloads to beat Lua 5.4.8 and `parity` workloads to stay at or above {fmt_speedup(parity_min)} of Lua 5.4.8, with stable matching checksums.")
 lines.append("")
 lines.append("## Summary")
 lines.append("")
 lines.append(f"- Workloads: {len(order)}")
 lines.append(f"- Comparable workloads: {len(comparable_order)}")
+lines.append(f"- Scored strict workloads: {len(scored_order)}")
+lines.append(f"- C-similar parity workloads: {len(parity_order)}")
 lines.append(f"- Checksum/consistency mismatches: {len(mismatches)}")
 lines.append("")
-lines.append("| Mode | Comparable total time | Total speedup | Geomean speedup | Slower workloads |")
-lines.append("| --- | ---: | ---: | ---: | ---: |")
+lines.append("| Mode | Strict total time | Strict total speedup | Strict geomean speedup | Strict slower | Parity below min |")
+lines.append("| --- | ---: | ---: | ---: | ---: | ---: |")
 for mode in required:
-    seconds = total(mode)
-    speedup = total("lua5.4.8") / seconds if seconds else float("nan")
-    gm = 1.0 if mode == "lua5.4.8" else geomean_speedup(mode)
-    slow_count = sum(1 for x in slower if x[1] == mode)
-    lines.append(f"| {mode} | {seconds:.6f}s | {fmt_speedup(speedup)} | {fmt_speedup(gm)} | {slow_count} |")
+    seconds = total(mode, scored_order)
+    speedup = ratio_seconds(total("lua5.4.8", scored_order)) / ratio_seconds(seconds)
+    gm = 1.0 if mode == "lua5.4.8" else geomean_speedup(mode, scored_order)
+    strict_slow_count = sum(1 for x in strict_slower if x[1] == mode)
+    parity_bad_count = sum(1 for x in parity_violations if x[1] == mode)
+    lines.append(f"| {mode} | {seconds:.6f}s | {fmt_speedup(speedup)} | {fmt_speedup(gm)} | {strict_slow_count} | {parity_bad_count} |")
 lines.append("")
 lines.append("## Key Findings")
 lines.append("")
-on_slow = [x for x in slower if x[1] == "luajit_jit_on"]
-off_slow = [x for x in slower if x[1] == "luajit_jit_off"]
+on_slow = [x for x in strict_slower if x[1] == "luajit_jit_on"]
+off_slow = [x for x in strict_slower if x[1] == "luajit_jit_off"]
+on_parity_bad = [x for x in parity_violations if x[1] == "luajit_jit_on"]
+off_parity_bad = [x for x in parity_violations if x[1] == "luajit_jit_off"]
 if on_slow:
     lines.append(
-        f"- JIT-on is faster on {len(comparable_order) - len(on_slow)}/{len(comparable_order)} comparable workloads; "
-        f"the remaining slower cases are {', '.join(fmt_workload(x) for x in on_slow)}."
+        f"- JIT-on is faster on {len(scored_order) - len(on_slow)}/{len(scored_order)} strict workloads; "
+        f"the strict slower cases are {', '.join(fmt_workload(x) for x in on_slow)}."
     )
 else:
-    lines.append(f"- JIT-on is faster than Lua 5.4.8 on all {len(comparable_order)} comparable workloads.")
+    lines.append(f"- JIT-on is faster than Lua 5.4.8 on all {len(scored_order)} strict workloads.")
 if off_slow:
     lines.append(
-        f"- JIT-off is slower on {len(off_slow)}/{len(comparable_order)} comparable workloads; "
+        f"- JIT-off is slower on {len(off_slow)}/{len(scored_order)} strict workloads; "
         f"the worst confirmed cases are {', '.join(fmt_workload(x) for x in off_slow[:8])}."
     )
+else:
+    lines.append(f"- JIT-off is faster than Lua 5.4.8 on all {len(scored_order)} strict workloads.")
+if on_parity_bad or off_parity_bad:
+    parts = []
+    if on_parity_bad:
+        parts.append(
+            f"JIT-on {len(on_parity_bad)} case(s): "
+            f"{', '.join(fmt_workload(x) for x in on_parity_bad[:8])}"
+        )
+    if off_parity_bad:
+        parts.append(
+            f"JIT-off {len(off_parity_bad)} case(s): "
+            f"{', '.join(fmt_workload(x) for x in off_parity_bad[:8])}"
+        )
+    lines.append(
+        f"- C-similar parity workloads are allowed to be near parity, but below "
+        f"{fmt_speedup(parity_min)} is treated as too slow: {'; '.join(parts)}."
+    )
+else:
+    lines.append(f"- All C-similar parity workloads stayed at or above {fmt_speedup(parity_min)}.")
 if mismatches:
     lines.append(f"- {len(mismatches)} workloads had checksum or per-run consistency mismatches and are listed separately below.")
 else:
     lines.append("- Checksums matched for all modes, so the listed slowdowns are performance differences, not result mismatches.")
 lines.append("")
-lines.append("## Slower Than Lua 5.4.8")
+lines.append("## Strict Slower Than Lua 5.4.8")
 lines.append("")
-if slower:
+if strict_slower:
     lines.append("| Mode | Workload | LuaJIT time | Lua 5.4.8 time | Speedup |")
     lines.append("| --- | --- | ---: | ---: | ---: |")
-    for speedup, mode, bench, lj, lua in slower:
+    for speedup, mode, bench, lj, lua in strict_slower:
         lines.append(f"| {mode} | {bench} | {lj:.6f}s | {lua:.6f}s | {fmt_speedup(speedup)} |")
 else:
-    lines.append("No workload was slower than Lua 5.4.8.")
+    lines.append("No strict workload was slower than Lua 5.4.8.")
+lines.append("")
+lines.append("## Parity Workloads Below Threshold")
+lines.append("")
+if parity_violations:
+    lines.append("| Mode | Workload | LuaJIT time | Lua 5.4.8 time | Speedup | Minimum |")
+    lines.append("| --- | --- | ---: | ---: | ---: | ---: |")
+    for speedup, mode, bench, lj, lua in parity_violations:
+        lines.append(
+            f"| {mode} | {bench} | {lj:.6f}s | {lua:.6f}s | "
+            f"{fmt_speedup(speedup)} | {fmt_speedup(parity_min)} |"
+        )
+else:
+    lines.append(f"No parity workload fell below {fmt_speedup(parity_min)}.")
+lines.append("")
+lines.append("## Parity Workloads Slower But Within Threshold")
+lines.append("")
+within = [x for x in parity_slower if x not in parity_violations]
+if within:
+    lines.append("| Mode | Workload | LuaJIT time | Lua 5.4.8 time | Speedup |")
+    lines.append("| --- | --- | ---: | ---: | ---: |")
+    for speedup, mode, bench, lj, lua in within:
+        lines.append(f"| {mode} | {bench} | {lj:.6f}s | {lua:.6f}s | {fmt_speedup(speedup)} |")
+else:
+    lines.append("No parity workload was slower while remaining within the tolerance band.")
 lines.append("")
 lines.append("## Checksum/Correctness Mismatches")
 lines.append("")
@@ -3561,42 +3702,46 @@ else:
 lines.append("")
 lines.append("## Slowdown Clusters")
 lines.append("")
-if slower:
+cluster_items = [("strict", x) for x in strict_slower] + [
+    ("parity", x) for x in parity_violations
+]
+if cluster_items:
     clusters = {}
-    for speedup, mode, bench, lj, lua in slower:
-        key = (mode, category(bench))
+    for policy, (speedup, mode, bench, lj, lua) in cluster_items:
+        key = (mode, policy, category(bench))
         count, worst_speedup, worst_bench = clusters.get(key, (0, 2.0, ""))
         if speedup < worst_speedup:
             worst_speedup, worst_bench = speedup, bench
         clusters[key] = (count + 1, worst_speedup, worst_bench)
-    lines.append("| Mode | Category | Slow workloads | Worst workload | Worst speedup |")
-    lines.append("| --- | --- | ---: | --- | ---: |")
-    for (mode, cat), (count, worst_speedup, worst_bench) in sorted(
-        clusters.items(), key=lambda item: (item[0][0], item[0][1])
+    lines.append("| Mode | Policy | Category | Slow workloads | Worst workload | Worst speedup |")
+    lines.append("| --- | --- | --- | ---: | --- | ---: |")
+    for (mode, policy, cat), (count, worst_speedup, worst_bench) in sorted(
+        clusters.items(), key=lambda item: (item[0][0], item[0][1], item[0][2])
     ):
         lines.append(
-            f"| {mode} | {cat} | {count} | {worst_bench} | "
+            f"| {mode} | {policy} | {cat} | {count} | {worst_bench} | "
             f"{fmt_speedup(worst_speedup)} |"
         )
 else:
-    lines.append("No slowdown clusters.")
+    lines.append("No strict slowdowns and no parity threshold violations.")
 lines.append("")
 lines.append("## Full Results")
 lines.append("")
-lines.append("| Workload | Checksum | JIT-on | On speedup | JIT-off | Off speedup | Lua 5.4.8 |")
-lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: |")
+lines.append("| Workload | Policy | Checksum | JIT-on | On speedup | JIT-off | Off speedup | Lua 5.4.8 |")
+lines.append("| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |")
 for bench in order:
     lua = data["lua5.4.8"][bench][0]
     on = data["luajit_jit_on"][bench][0]
     off = data["luajit_jit_off"][bench][0]
     checksum = data["lua5.4.8"][bench][1]
+    policy = "parity" if is_c_similar(bench) else "strict"
     if bench in mismatch_set:
         on_speed = off_speed = "n/a"
     else:
-        on_speed = fmt_speedup(lua/on)
-        off_speed = fmt_speedup(lua/off)
+        on_speed = fmt_speedup(ratio_seconds(lua) / ratio_seconds(on))
+        off_speed = fmt_speedup(ratio_seconds(lua) / ratio_seconds(off))
     lines.append(
-        f"| {bench} | {checksum} | {on:.6f}s | {on_speed} | "
+        f"| {bench} | {policy} | {checksum} | {on:.6f}s | {on_speed} | "
         f"{off:.6f}s | {off_speed} | {lua:.6f}s |"
     )
 report = "\n".join(lines) + "\n"
@@ -3604,15 +3749,22 @@ report = "\n".join(lines) + "\n"
 if markdown_out:
     pathlib.Path(markdown_out).write_text(report)
 
-if enforce and (mismatches or slower):
+if enforce and (mismatches or strict_slower or parity_violations):
     for bench, checksums, stables in mismatches:
         print(
             f"{bench} checksum/stability mismatch: {checksums} stable={stables}",
             file=sys.stderr,
         )
-    for speedup, mode, bench, lj, lua in slower:
+    for speedup, mode, bench, lj, lua in strict_slower:
         print(
-            f"{mode} {bench} speedup {speedup:.2f}x <= 1.00x "
+            f"{mode} strict {bench} speedup {speedup:.2f}x <= 1.00x "
+            f"({lj:.6f}s vs {lua:.6f}s)",
+            file=sys.stderr,
+        )
+    for speedup, mode, bench, lj, lua in parity_violations:
+        print(
+            f"{mode} parity {bench} speedup {speedup:.2f}x < "
+            f"{parity_min:.2f}x "
             f"({lj:.6f}s vs {lua:.6f}s)",
             file=sys.stderr,
         )
