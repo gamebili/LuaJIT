@@ -3781,9 +3781,22 @@ void lj_record_ins(jit_State *J)
       break;
     }
 #endif
-    /* Metamethod dispatch and conversion errors stay in the interpreter. */
-    setintV(&J->errinfo, (int32_t)op);
-    lj_trace_err_info(J, LJ_TRERR_NYIBC);
+    /* An operand without an integer representation dispatches to the bitwise
+    ** metamethod (__band/__bor/__bxor/__shl/__shr/__bnot), exactly as the
+    ** arithmetic ops dispatch to __add etc. For the unary BNOT, rb was set
+    ** equal to rc above, but the operand decode left ix.tab unset. A non-table
+    ** operand has no such metamethod, so rec_mm_arith aborts to the interpreter
+    ** via NOMM, matching the previous NYI behavior (and Lua 5.4 semantics). */
+    ix.tab = rb;
+#if LJ_54 && LJ_DUALNUM && LJ_TARGET_ARM64
+    /* An operand still held as an unboxed IRT_I64 (e.g. a large mask produced
+    ** by a preceding arith op and kept raw for this bitop) must be boxed before
+    ** rec_mm_arith stores it into the metamethod's call-argument slot, where it
+    ** would otherwise be mishandled as a raw 64-bit value. */
+    ix.tab = rec_lua54_boxraw_i64(J, ix.tab);
+    ix.key = rec_lua54_boxraw_i64(J, ix.key);
+#endif
+    rc = rec_mm_arith(J, &ix, bcmode_mm(op));
     break;
   }
 #endif
