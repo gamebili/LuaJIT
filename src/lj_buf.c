@@ -232,8 +232,13 @@ SBuf * LJ_FASTCALL lj_buf_putstr_upper(SBuf *sb, GCstr *s)
 /* Lua 5.4 string.lower/upper are locale-dependent (tolower/toupper), unlike the
 ** ASCII-only helpers above. These match lj_cf_string_lower54/upper54 byte for
 ** byte so a recorded trace stays consistent with the interpreter under any
-** locale. (No CSE/hoist hazard across os.setlocale(): the recff emits a fresh
-** BUFHDR per call, which the call depends on, so it is never lifted out.) */
+** locale. Their IRCALL keeps the FL (load) kind, so a loop-invariant
+** s:upper()/s:lower() folds/hoists like lj_buf_putstr_upper does -- which is
+** safe despite reading the locale: os.setlocale() is a non-recordable C call
+** that stitches the trace, so the locale is constant within any single trace
+** and a fold/CSE can never cross a locale change. (Verified: a loop that calls
+** os.setlocale() every iteration honors the locale per iteration under the
+** JIT, matching the interpreter.) */
 SBuf * LJ_FASTCALL lj_buf_putstr_lower54(SBuf *sb, GCstr *s)
 {
   MSize len = s->len;
