@@ -294,55 +294,154 @@ static int rec_lua54_loopback_op(BCOp op)
   return op == BC_FORL || op == BC_IFORL || op == BC_JFORL;
 }
 
+/* Recognized loop-carried owned int64 arith/bitop writers (mirror the owned
+** store dispatch). These read and rewrite the accumulator slot in place. */
+static int rec_lua54_owned_arith_op(BCOp op)
+{
+  switch (op) {
+  case BC_ADDVN: case BC_SUBVN: case BC_MULVN:
+  case BC_ADDNV: case BC_SUBNV: case BC_MULNV:
+  case BC_ADDVV: case BC_SUBVV: case BC_MULVV:
+  case BC_BAND: case BC_BOR: case BC_BXOR:
+  case BC_BSHL: case BC_BSHR: case BC_BNOT:
+    return 1;
+  default:
+    return 0;
+  }
+}
+
+/* Read-only comparison/test bytecodes: reading the accumulator value here is
+** safe (no reference is copied out). ISTC/ISFC are excluded -- they copy the
+** tested operand into another slot. */
+static int rec_lua54_readonly_test_op(BCOp op)
+{
+  switch (op) {
+  case BC_ISLT: case BC_ISGE: case BC_ISLE: case BC_ISGT:
+  case BC_ISEQV: case BC_ISNEV: case BC_ISEQS: case BC_ISNES:
+  case BC_ISEQN: case BC_ISNEN: case BC_ISEQP: case BC_ISNEP:
+  case BC_IST: case BC_ISF:
+    return 1;
+  default:
+    return 0;
+  }
+}
+
+/* Calls/closures/varargs/iterators/returns can leak the accumulator box -- as
+** a call argument, a returned value, or, if the slot is captured, through an
+** inlined callee reading it via an upvalue (which exposes no operand here). The
+** owned in-place int64 store is never safe in their presence. */
+static int rec_lua54_leaky_op(BCOp op)
+{
+  switch (op) {
+  case BC_CALLM: case BC_CALL: case BC_CALLMT: case BC_CALLT:
+  case BC_ITERC: case BC_ITERN: case BC_ITERL: case BC_VARG:
+  case BC_FNEW: case BC_UCLO: case BC_TSETM:
+  case BC_RETM: case BC_RET: case BC_RET0: case BC_RET1:
+    return 1;
+  default:
+    return 0;
+  }
+}
+
+/* Does this bytecode reference stack slot ra as a register operand, or within a
+** base range? Conservative (may over-report a touch). */
+static int rec_lua54_op_touches_slot(BCIns ins, BCReg ra)
+{
+  BCOp op = bc_op(ins);
+  BCMode ma = bcmode_a(op);
+  if (ma == BCMdst || ma == BCMvar) {
+    if (bc_a(ins) == ra) return 1;
+  } else if (ma == BCMbase || ma == BCMrbase) {
+    if (bc_a(ins) <= ra) return 1;  /* Base range [A, top) may include ra. */
+  }
+  if (bcmode_b(op) == BCMvar && bc_b(ins) == ra) return 1;
+  if (bcmode_b(op) == BCMnone) {  /* AD-format op: operand D. */
+    if (bcmode_d(op) == BCMvar && bc_d(ins) == ra) return 1;
+  } else {  /* ABC-format op: operand C. */
+    if (bcmode_c(op) == BCMvar && bc_c(ins) == ra) return 1;
+  }
+  return 0;
+}
+
+/* Scan the whole loop body [header, loopback) and decide whether the owned
+** int64 accumulator in slot ra can be observed through another live reference.
+** The owned in-place store is sound only when it cannot: ra may appear solely
+** as an operand of the recognized arith/bitop writers and read-only tests. Any
+** other op that touches ra (a copy/store reading it, an overwrite) or any
+** call/closure/vararg/return means the box could be aliased -> not safe. This
+** is the fix for the owned-box aliasing corruption: the interpreter stays
+** correct because copyTV() calls clearint64owner() on every value copy, but the
+** JIT's SSA form has no runtime copy to hang an owner-clear on, so a forward
+** scan (the previous gate) missed aliases that precede the arith or escape
+** through an inlined callee's upvalue. Conservative: anything unrecognized
+** returns 0 (box fresh, always correct). */
+static int rec_lua54_body_owned_safe(const BCIns *header,
+				     const BCIns *loopback, BCReg ra)
+{
+  const BCIns *pc;
+  for (pc = header; pc < loopback; pc++) {
+    BCIns ins = *pc;
+    BCOp op = bc_op(ins);
+    if (rec_lua54_owned_arith_op(op) || rec_lua54_readonly_test_op(op))
+      continue;
+    if (rec_lua54_leaky_op(op))
+      return 0;
+    if (rec_lua54_op_touches_slot(ins, ra))
+      return 0;
+  }
+  return 1;
+}
+
 static int rec_lua54_next_loopback_keeps_slot(jit_State *J, BCReg ra)
 {
   const BCIns *start = proto_bc(J->pt);
-  const BCIns *pc = J->pc + 1;
   const BCIns *end = start + J->pt->sizebc;
-  const BCIns *limit = pc + 24;
-  for (; pc < end && pc < limit; pc++) {
+  const BCIns *loopback = NULL, *header = NULL, *pc;
+  int depth;
+  /* Find this iteration's loop-back forward from the recording pc. A backward
+  ** JMP before it means a non-FOR loop (while/repeat) -- bail conservatively. */
+  for (pc = J->pc + 1; pc < end; pc++) {
     BCIns ins = *pc;
     BCOp op = bc_op(ins);
-    if (rec_lua54_loopback_op(op))
-      return ra < bc_a(ins) + FORL_EXT;
-    if (op == BC_JMP) {
-      const BCIns *target = pc + bc_j(ins) + 1;
-      if (target >= start && target < end &&
-	  rec_lua54_loopback_op(bc_op(*target)))
-	return ra < bc_a(*target) + FORL_EXT;
-      if (target <= pc)
-	return 0;
-    }
-    switch (bcmode_a(op)) {
-    case BCMdst:
-      if (bc_a(ins) == ra && !(op == BC_ISTC || op == BC_ISFC)) {
-	/* Further integer arith/bitop writes to the same loop-carried slot
-	** stay in-place owned int64 stores (the accumulator keeps its box),
-	** so they do not break ownership before the loop-back. Any other
-	** write replaces the value and ends the owned chain. */
-	switch (op) {
-	case BC_ADDVN: case BC_SUBVN: case BC_MULVN:
-	case BC_ADDNV: case BC_SUBNV: case BC_MULNV:
-	case BC_ADDVV: case BC_SUBVV: case BC_MULVV:
-	case BC_BAND: case BC_BOR: case BC_BXOR:
-	case BC_BSHL: case BC_BSHR: case BC_BNOT:
-	  break;
-	default:
-	  return 0;
-	}
-      }
-      break;
-    case BCMbase:
-      if (op == BC_KNIL && bc_a(ins) <= ra && ra <= bc_d(ins))
-	return 0;
-      if (op >= BC_CALLM && op <= BC_ITERN && bc_a(ins) <= ra)
-	return 0;
-      break;
-    default:
-      break;
+    if (rec_lua54_loopback_op(op)) { loopback = pc; break; }
+    if (op == BC_JMP && pc + bc_j(ins) + 1 <= pc)
+      return 0;
+  }
+  /* Require a FORL-style loop-back with the accumulator below the loop-control
+  ** slots. (A hot loop-back may be IFORL/JFORL whose operand D is a trace
+  ** literal, not a jump, so the body start is found by matching FORI, below.) */
+  if (!loopback || !(ra < bc_a(*loopback) + FORL_EXT))
+    return 0;
+  /* Find the matching loop header by scanning back for the FORI that opens this
+  ** loop, balancing any inner FOR loops that lie before the recording pc. */
+  depth = 0;
+  for (pc = J->pc; pc > start; pc--) {
+    BCOp op = bc_op(pc[-1]);
+    if (rec_lua54_loopback_op(op)) {
+      depth++;
+    } else if (op == BC_FORI || op == BC_JFORI) {
+      if (depth == 0) { header = pc; break; }
+      depth--;
     }
   }
-  return 0;
+  if (!header || header > J->pc)
+    return 0;
+  /* Reject loops nested inside another loop: an outer loop can alias the
+  ** accumulator box in body code outside [header, loopback) that we do not
+  ** scan, so the in-place store would be unsound there. An enclosing loop opens
+  ** at a FORI seen (scanning back from our header) before its own loop-back. */
+  depth = 0;
+  for (pc = header - 1; pc > start; pc--) {
+    BCOp op = bc_op(pc[-1]);
+    if (rec_lua54_loopback_op(op))
+      depth++;
+    else if (op == BC_FORI || op == BC_JFORI) {
+      if (depth == 0)
+	return 0;
+      depth--;
+    }
+  }
+  return rec_lua54_body_owned_safe(header, loopback, ra);
 }
 #endif
 
