@@ -2440,6 +2440,17 @@ static TRef rec_idx_key(jit_State *J, RecordIndex *ix, IRRef *rbref,
   TRef key;
   GCtab *t = tabV(&ix->tabv);
   ix->oldv = lj_tab_get(J->L, t, &ix->keyv);  /* Lookup previous value. */
+  /* lj_tab_getstr skips present keys whose value is nil (weak-table GC safety),
+  ** but the HREFK fast path below needs the node address for a present key even
+  ** with a nil value -- e.g. a constructor template field. Without it the store
+  ** falls back to NEWREF, which breaks store->load forwarding and blocks
+  ** allocation sinking of loop-carried constructors. Re-find the node for
+  ** non-weak tables (no metatable => keys are live, so this is GC-safe). */
+  if (ix->oldv == niltvg(J2G(J)) && tvisstr(&ix->keyv) &&
+      gcref(t->metatable) == NULL) {
+    cTValue *nv = lj_tab_getstr_node(t, strV(&ix->keyv));
+    if (nv) ix->oldv = nv;
+  }
   *rbref = 0;
   rbguard->irt = 0;
 

@@ -605,6 +605,22 @@ cTValue *lj_tab_getstr(GCtab *t, const GCstr *key)
   return NULL;
 }
 
+/* Find a string key's node value, returning it even when the value is nil so
+** the JIT recorder can take the HREFK fast path on a present key (e.g. a
+** constructor template field). Unlike lj_tab_getstr this does not skip
+** nil-value nodes, so the CALLER must ensure the key is live (a non-weak
+** table) -- otherwise it could byte-compare a GC-freed dead key. Returns NULL
+** if the key is genuinely absent. */
+cTValue *lj_tab_getstr_node(GCtab *t, const GCstr *key)
+{
+  Node *n = hashstr(t, key);
+  do {
+    if (tvisstr(&n->key) && strkeyeq(strV(&n->key), key))
+      return &n->val;
+  } while ((n = nextnode(n)));
+  return NULL;
+}
+
 cTValue *lj_tab_geti64(GCtab *t, int64_t key)
 {
 #if LJ_54
