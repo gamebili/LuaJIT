@@ -4778,6 +4778,41 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     break;
 
   /* -- Lua 5.4 bitwise ops: C fallback only on this backend. ------------- */
+  /* TODO(x86 team): port the inline int64 fast paths from vm_arm64.dasc.
+  **
+  ** STATUS: x86/x64 takes the slowest possible route for every Lua 5.4 64-bit
+  ** integer bit/idiv op -- an unconditional `jmp ->vmeta_bitop` (resp.
+  ** ->vmeta_bnot / ->vmeta_arith_vvo) which calls the C helper lj_meta_bitop()
+  ** (resp. lj_meta_arith) once PER OP, including the int32 case. ARM64 instead
+  ** computes int32 and boxed-int64 operands inline and only falls to C for
+  ** metamethods/errors. Measured on ARM64 this is the difference between
+  ** ~0.78ns/op (lua5.4.8 inline) and a ~50-instr C call; the inline path lands
+  ** at ~3.7x of PUC (the irreducible cost of boxing a 64-bit int in an 8-byte
+  ** NaN-tagged TValue), while the current x86 C-call route is several times
+  ** worse again. jit.off bit64 workloads are the largest such gap.
+  **
+  ** WHAT TO PORT (reference: src/vm_arm64.dasc):
+  **  - macros: load_bitint64_1/2, load_arithint64_1/2 (decode int32 inline or
+  **    deref the GCint64 box, else jump to the C fallback), store_bitint64_1 /
+  **    store_int64_result (narrow-to-int32 if it fits, else reuse the slot's
+  **    owned GCint64 box in place, else box fresh via lj_obj_setint64), and
+  **    clear_int64_owner.
+  **  - handlers: BC_BAND/BOR/BXOR (~vm_arm64.dasc:11600), BC_BSHL/BSHR (~11821),
+  **    BC_BNOT (~11889), BC_IDIV (~11913). The integer-fusion macros there are
+  **    DISABLED (unsound; see commit 3fca7b65) -- do NOT port them; port only
+  **    the plain inline path (load -> compute -> store_*).
+  **  - REQUIRED for the owner-box reuse to be both fast AND correct: the
+  **    interpreter must clear the box owner on every value copy, mirroring
+  **    copyTV()/clearint64owner(). On ARM64 that is the clear_int64_owner calls
+  **    in BC_MOV, the table-store path, USETV, etc. Without them, in-place box
+  **    mutation corrupts Lua 5.4 integer value semantics (`local x=s; s=s|m`).
+  **    With them, copied int64 temps re-box per copy (a fundamental boxing cost
+  **    that 16-byte TValue would avoid; not fixable here).
+  **
+  ** FUNDAMENTAL FLOOR: even fully inlined, boxed int64 stays ~3.7x of PUC's
+  ** inline 64-bit integer. Closing that gap needs a 16-byte TValue (a different
+  ** VM) -- out of scope; inlining only removes the extra C-call multiplier.
+  */
 
   case BC_BAND: case BC_BOR: case BC_BXOR: case BC_BSHL: case BC_BSHR:
     |  jmp ->vmeta_bitop

@@ -233,6 +233,10 @@
   - 当前进展：C API smoke 已固定 Lua 5.4 `luaL_Buffer` placeholder/box 栈形边界；缺失或错误 placeholder、缺失待添加值、非 string/number 待添加值都会在 release 构建下稳定报 `invalid value`，不再静默弹错槽位或继续读错对象。默认 ABI 也固定 `luaL_addvalue()` 的缺失/非法值边界。
   - 需要补测试：剩余 C API 深边界、ABI/跨平台 runtime 验证；allocator shrink/grow 主路径已有 strict allocator 回归，parser 模板表精确数组重分配路径和运行期短字符串 intern / 字符串表增长失败也已进入 strict allocator 回归。
   - 实现重点：需要统一 TValue 表示、数值转换、字符串扫描、格式化、运算符和库函数的整数路径。
+  - TODO（x86/x64 解释器 int64 运算性能 — 交 x86 团队）：x86/x64 解释器对所有 Lua 5.4 int64 位运算和整除（`BC_BAND/BOR/BXOR/BSHL/BSHR/BNOT`、`BC_IDIV`）都无条件 `jmp ->vmeta_bitop` / `->vmeta_arith_vvo`，**每个操作（含 int32）都调一次 C 函数** `lj_meta_bitop` / `lj_meta_arith`，是 x86 上 int64/位运算远慢于 PUC 的根本原因。ARM64 已有完整内联快路径（已本地实现+测试），x86 需照搬。
+    - 照搬参考（`src/vm_arm64.dasc`，按名字 grep）：宏 `load_bitint64_1/2`、`load_arithint64_1/2`（int32 内联或解引用 `GCint64` box，否则跳 C 回退）、`store_bitint64_1` / `store_int64_result`（能塞进 int32 就内联存；否则复用槽位已拥有的 box 原地存=0 分配；否则 `lj_obj_setint64` 新装箱）、`clear_int64_owner`；处理器 `BC_BAND/BOR/BXOR`、`BC_BSHL/BSHR`、`BC_BNOT`、`BC_IDIV`。只移植朴素 `load → compute → store_*` 路径。
+    - 三条铁律：(1) **必须同时移植 `clear_int64_owner` 到 x86 的 `BC_MOV` / 表写入 / `USETV` 等所有值拷贝点**，否则 owner-box 原地复用会破坏 Lua 5.4 整数值语义（`local x=s; s=s|m` 静默损坏 x，与 JIT 侧 commit `cc1b9f83` 同类别名 bug）。(2) **不要移植被禁用的 `fuse_*` 融合宏**（commit `3fca7b65`：融合跳过中间结果存储，对 live local 不健全）。(3) 验证须含**别名正确性**（`local x=s; s=s OP m` 后 x 保持旧值，jit-off==解释器）和**累加器 0 分配/op**，不只测性能。
+    - 预期与上限：移植后消除“每 op 一次 C 调用”乘数，x86 落到和 ARM64 一样的**装箱地板（约 PUC Lua 5.4.8 的 3.7x）**；**到不了 parity**——这 ~3.7x 是 8 字节 NaN-tag TValue 装箱 64 位整数的 box 解引用 + 标签提取的物理代价，只有 16 字节 TValue（=重做 VM、且会拖慢其余一切，不划算）才能消除，不在范围内。详见 `src/vm_x86.dasc` 第 4780 行的 in-code TODO 与 `src/vm_arm64.dasc` int64 装箱宏处的说明注释。
 
 - [x] 数值 `for` 的 Lua 5.4 整数/浮点控制变量语义。
   - 当前状态：Lua 5.4 数值 for 的运行期控制变量语义已覆盖 64 位 boxed integer 边界；JIT 已能记录正/负步长、integer-only boxed int64 FORL 子集，并覆盖可取整 float limit 归一后的 boxed int64 边界；float init/step 形成的 2^40 级别 float-mode 热循环已进入 JIT 回归，防止被 boxed-int64 FORL 路径重新窄化；对向越界 float limit、完整 SCEV 和更多后端 artifact 验证仍归入“完整 Lua 5.4 64 位整数语义”大项。

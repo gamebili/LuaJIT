@@ -304,6 +304,28 @@
 |  blo target
 |.endmacro
 #if LJ_54
+|// Lua 5.4 boxed-int64 interpreter support (ARM64 reference implementation).
+|//
+|// A 64-bit integer does not fit alongside a type tag in the 8-byte NaN-tagged
+|// TValue, so values outside int32 range are heap-boxed as a GCint64. The macros
+|// below keep that boxing as cheap as it can be in this design:
+|//  - store_int64_result narrows to an inline tagged int32 when the result fits;
+|//    otherwise it reuses the GCint64 the destination slot already OWNS, storing
+|//    the new value in place with no allocation; otherwise it boxes fresh.
+|//  - GCint64.owner records the single stack slot allowed to mutate the box in
+|//    place. clear_int64_owner drops that ownership on every value COPY (BC_MOV,
+|//    table/upvalue stores) so an aliased box is never mutated under another
+|//    live reference -- this is what keeps `local x=s; s=s|m` correct.
+|//
+|// CONSEQUENCES (both fundamental to the 8-byte representation, not bugs):
+|//  - A loop-carried int64 accumulator (x=x|y, x=x+y, ...) stays 0-alloc via the
+|//    owner reuse, but each op still pays a box deref + NaN-tag extraction, so it
+|//    runs ~3.7x of PUC Lua 5.4's inline 64-bit integer. That floor is only
+|//    removable with a 16-byte inline TValue (i.e. a different VM).
+|//  - Copying an int64 value (s=t) clears t's owner, so a temp that is copied
+|//    re-boxes on its next assignment. PUC copies the inline value for free;
+|//    avoiding the re-box here would need interpreter liveness info.
+|// The x86/x64 backend has none of this yet -- see the TODO in vm_x86.dasc.
 |.macro clear_int64_owner, val, obj, safe
 |  asr ITYPE, val, #47
 |   and obj, val, #LJ_GCVMASK
