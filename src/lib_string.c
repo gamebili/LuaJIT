@@ -2473,7 +2473,7 @@ static int lj_cf_string_packsize(lua_State *L)
 /* ------------------------------------------------------------------------ */
 
 #if LJ_54
-static int lj_cf_string_char54(lua_State *L)
+int lj_cf_string_char54(lua_State *L)
 {
   int i, nargs = lua_gettop(L);
   char *buf = lj_buf_tmp(L, (MSize)nargs);
@@ -2521,14 +2521,14 @@ static int lj_cf_string_sub54(lua_State *L)
 }
 #endif
 
-static int lj_cf_string_len54(lua_State *L)
+int lj_cf_string_len54(lua_State *L)
 {
   GCstr *s = string_checkstr_named54(L, 1, "string.len");
   lua_pushinteger(L, (lua_Integer)s->len);
   return 1;
 }
 
-static int lj_cf_string_reverse54(lua_State *L)
+int lj_cf_string_reverse54(lua_State *L)
 {
   size_t len, i;
   const char *s = string_checklstring_named54(L, 1, &len, "string.reverse");
@@ -2545,7 +2545,7 @@ static int lj_cf_string_reverse54(lua_State *L)
   return 1;
 }
 
-static int lj_cf_string_lower54(lua_State *L)
+int lj_cf_string_lower54(lua_State *L)
 {
   size_t len, i;
   const char *s = string_checklstring_named54(L, 1, &len, "string.lower");
@@ -2577,7 +2577,7 @@ static int lj_cf_string_lower54(lua_State *L)
   return 1;
 }
 
-static int lj_cf_string_upper54(lua_State *L)
+int lj_cf_string_upper54(lua_State *L)
 {
   size_t len, i;
   const char *s = string_checklstring_named54(L, 1, &len, "string.upper");

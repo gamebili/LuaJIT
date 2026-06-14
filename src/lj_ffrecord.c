@@ -1287,17 +1287,21 @@ static void LJ_FASTCALL recff_ipairs_aux54(jit_State *J, RecordFFData *rd)
 }
 #endif
 
-/* Handler for classic C functions: record the Lua 5.4 stable ipairs aux fast
-** path; everything else stops the trace as before. */
+#if LJ_54
+/* Record the recordable Lua 5.4 plain-C library overrides (ipairs aux and the
+** string functions swapped to C for 5.4 arg/error semantics). Defined after the
+** string recorders below. Returns 1 if the call was recorded or intentionally
+** bailed to the interpreter, 0 if this is an unknown C function. */
+static int recff_lua54_c(jit_State *J, RecordFFData *rd);
+#endif
+
+/* Handler for classic C functions: record the Lua 5.4 fast paths that have a
+** recorder; everything else stops the trace as before. */
 static void LJ_FASTCALL recff_c(jit_State *J, RecordFFData *rd)
 {
 #if LJ_54
-  cTValue *aux = lj_tab_getstr(tabV(registry(J->L)),
-			       lj_str_newlit(J->L, "_LUA54_IPAIRS_AUX"));
-  if (aux && tvisfunc(aux) && funcV(aux) == J->fn) {
-    recff_ipairs_aux54(J, rd);
+  if (recff_lua54_c(J, rd))
     return;
-  }
 #endif
   recff_nyi(J, rd);
 }
@@ -2167,6 +2171,61 @@ static void LJ_FASTCALL recff_string_op(jit_State *J, RecordFFData *rd)
   TRef tr = lj_ir_call(J, rd->data, hdr, str);
   J->base[0] = emitir(IRTG(IR_BUFSTR, IRT_STR), tr, hdr);
 }
+
+#if LJ_54
+/* The Lua 5.4 build registers these string functions as plain C functions (so
+** the interpreter can apply Lua 5.4 argument/error semantics), which loses the
+** fast-function JIT recorder. Recognise them by their C function pointer and
+** route to the matching recorder on the fast path; non-fast inputs bail to the
+** interpreter via recff_nyi, exactly as the fast functions would. */
+LJ_FUNC int lj_cf_string_char54(lua_State *L);
+LJ_FUNC int lj_cf_string_reverse54(lua_State *L);
+LJ_FUNC int lj_cf_string_lower54(lua_State *L);
+LJ_FUNC int lj_cf_string_upper54(lua_State *L);
+LJ_FUNC int lj_cf_string_len54(lua_State *L);
+
+static int recff_lua54_c(jit_State *J, RecordFFData *rd)
+{
+  lua_CFunction f = J->fn->c.f;
+  if (f == lj_cf_string_reverse54) {
+    if (tref_isstr(J->base[0])) {
+      rd->data = IRCALL_lj_buf_putstr_reverse;
+      recff_string_op(J, rd);  /* Byte reversal: locale-independent. */
+    } else {
+      recff_nyi(J, rd);
+    }
+    return 1;
+  }
+  if (f == lj_cf_string_len54) {
+    if (tref_isstr(J->base[0]))  /* Lua 5.4 string.len: integer length. */
+      J->base[0] = emitir(IRTI(IR_FLOAD), J->base[0], IRFL_STR_LEN);
+    else
+      recff_nyi(J, rd);  /* Non-string (incl. tables): interpreter throws. */
+    return 1;
+  }
+  if (f == lj_cf_string_char54) {
+    BCReg i;
+    /* Lua 5.4 string.char takes integers only; a fractional/float or
+    ** non-number arg must be handled by the interpreter (5.4 error or
+    ** integer-valued-float coercion). The ULE 255 guard in recff_string_char
+    ** keeps out-of-range integers exiting to the interpreter. */
+    for (i = 0; J->base[i] != 0; i++)
+      if (!tvisint(&rd->argv[i])) { recff_nyi(J, rd); return 1; }
+    recff_string_char(J, rd);
+    return 1;
+  }
+  /* ipairs aux is registered via a registry key (created dynamically). */
+  {
+    cTValue *aux = lj_tab_getstr(tabV(registry(J->L)),
+				 lj_str_newlit(J->L, "_LUA54_IPAIRS_AUX"));
+    if (aux && tvisfunc(aux) && funcV(aux) == J->fn) {
+      recff_ipairs_aux54(J, rd);
+      return 1;
+    }
+  }
+  return 0;
+}
+#endif
 
 static void LJ_FASTCALL recff_string_find(jit_State *J, RecordFFData *rd)
 {
