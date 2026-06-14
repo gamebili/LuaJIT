@@ -233,8 +233,10 @@ static void LJ_FASTCALL recff_nyi(jit_State *J, RecordFFData *rd)
 /* Fallback handler for unsupported variants of fast functions. */
 #define recff_nyiu	recff_nyi
 
-/* Must stop the trace for classic C functions with arbitrary side-effects. */
-#define recff_c		recff_nyi
+/* Handler for classic C functions. Defined further down (after the table
+** index recorders) so it can record the fast path of the Lua 5.4 stable
+** ipairs aux; all other C functions still stop the trace via recff_nyi. */
+static void LJ_FASTCALL recff_c(jit_State *J, RecordFFData *rd);
 
 #if LJ_54
 #if LJ_DUALNUM
@@ -1257,6 +1259,47 @@ static void LJ_FASTCALL recff_ipairs_aux(jit_State *J, RecordFFData *rd)
     J->base[1] = lj_record_idx(J, &ix);
     rd->nres = tref_isnil(J->base[1]) ? 0 : 2;
   }  /* else: Interpreter will throw. */
+}
+
+#if LJ_54
+/* Record the Lua 5.4 stable ipairs aux (lj_cf_ipairs_aux54). For a table with
+** no metatable this is the same raw advance as recff_ipairs_aux. A metatable
+** means Lua 5.4 ipairs may consult __index, so leave that to the interpreter. */
+static void LJ_FASTCALL recff_ipairs_aux54(jit_State *J, RecordFFData *rd)
+{
+  RecordIndex ix;
+  ix.tab = J->base[0];
+  if (tref_istab(ix.tab) && gcref(tabV(&rd->argv[0])->metatable) == NULL) {
+    TRef mtref = emitir(IRT(IR_FLOAD, IRT_TAB), ix.tab, IRFL_TAB_META);
+    emitir(IRTG(IR_EQ, IRT_TAB), mtref, lj_ir_knull(J, IRT_TAB));
+    if (!tvisnumber(&rd->argv[1]))  /* No support for string coercion. */
+      lj_trace_err(J, LJ_TRERR_BADTYPE);
+    setintV(&ix.keyv, numberVint(&rd->argv[1])+1);
+    settabV(J->L, &ix.tabv, tabV(&rd->argv[0]));
+    ix.val = 0; ix.idxchain = 0;
+    ix.key = lj_opt_narrow_toint(J, J->base[1]);
+    J->base[0] = ix.key = emitir(IRTI(IR_ADD), ix.key, lj_ir_kint(J, 1));
+    J->base[1] = lj_record_idx(J, &ix);
+    rd->nres = tref_isnil(J->base[1]) ? 0 : 2;
+  } else {
+    recff_nyi(J, rd);  /* Metatable/non-table: interpreter handles __index. */
+  }
+}
+#endif
+
+/* Handler for classic C functions: record the Lua 5.4 stable ipairs aux fast
+** path; everything else stops the trace as before. */
+static void LJ_FASTCALL recff_c(jit_State *J, RecordFFData *rd)
+{
+#if LJ_54
+  cTValue *aux = lj_tab_getstr(tabV(registry(J->L)),
+			       lj_str_newlit(J->L, "_LUA54_IPAIRS_AUX"));
+  if (aux && tvisfunc(aux) && funcV(aux) == J->fn) {
+    recff_ipairs_aux54(J, rd);
+    return;
+  }
+#endif
+  recff_nyi(J, rd);
 }
 
 static void LJ_FASTCALL recff_xpairs(jit_State *J, RecordFFData *rd)
