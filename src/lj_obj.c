@@ -14,7 +14,7 @@
 #include "lj_state.h"
 #include "lj_vm.h"
 
-#if LJ_54 && LJ_TARGET_ARM64
+#if LJ_HASI64OWNER
 #define LJ_I64_FREELIST_MAX	1048576
 #endif
 
@@ -32,9 +32,11 @@ LJ_DATADEF const char *const lj_obj_itypename[] = {  /* ORDER LJ_T */
 
 GCint64 *lj_obj_newint64(lua_State *L, int64_t i)
 {
-  global_State *g = G(L);
   GCint64 *i64;
-#if LJ_54 && LJ_TARGET_ARM64
+#if LJ_HASI64OWNER
+  global_State *g = G(L);
+#endif
+#if LJ_HASI64OWNER
   GCobj *o = gcref(g->i64freelist);
   if (o) {
     setgcrefr(g->i64freelist, o->gch.nextgc);
@@ -50,7 +52,7 @@ GCint64 *lj_obj_newint64(lua_State *L, int64_t i)
   }
   i64->gct = ~LJ_TINT64;
   i64->i = i;
-#if LJ_54 && LJ_TARGET_ARM64
+#if LJ_HASI64OWNER
   setmref(i64->owner, NULL);
 #endif
   return i64;
@@ -58,12 +60,10 @@ GCint64 *lj_obj_newint64(lua_State *L, int64_t i)
 
 void LJ_FASTCALL lj_obj_freeint64(global_State *g, GCint64 *i64)
 {
-#if LJ_54 && LJ_TARGET_ARM64
+#if LJ_HASI64OWNER
   if (g->i64freelistn < LJ_I64_FREELIST_MAX) {
     GCobj *o = obj2gco(i64);
-#if LJ_54 && LJ_TARGET_ARM64
     setmref(i64->owner, NULL);
-#endif
     setgcrefr(o->gch.nextgc, g->i64freelist);
     setgcref(g->i64freelist, o);
     g->i64freelistn++;
@@ -73,7 +73,7 @@ void LJ_FASTCALL lj_obj_freeint64(global_State *g, GCint64 *i64)
   lj_mem_freet(g, i64);
 }
 
-#if LJ_54 && LJ_TARGET_ARM64
+#if LJ_HASI64OWNER
 void lj_obj_freeint64_freelist(global_State *g)
 {
   GCobj *o = gcref(g->i64freelist);
@@ -95,7 +95,7 @@ void lj_obj_setint64(lua_State *L, TValue *o, int64_t i)
     GCint64 *i64;
     TValue *stk = tvref(L->stack);
     int onstack = o >= stk && o < tvref(L->maxstack);
-#if LJ_54 && LJ_TARGET_ARM64
+#if LJ_HASI64OWNER
     if (onstack && tvisi64(o)) {
       i64 = gco2i64(gcval(o));
       if (mref(i64->owner, TValue) == o) {
@@ -104,7 +104,7 @@ void lj_obj_setint64(lua_State *L, TValue *o, int64_t i)
       }
     }
 #endif
-#if LJ_54 && LJ_TARGET_ARM64
+#if LJ_HASI64OWNER
     global_State *g = G(L);
     GCobj *go = gcref(g->i64freelist);
     if (go) {
@@ -134,8 +134,10 @@ void lj_obj_setint64(lua_State *L, TValue *o, int64_t i)
     i64 = lj_obj_newint64(L, i);
     if (onstack)
       o = restorestack(L, ofs);
+#if LJ_HASI64OWNER
     if (onstack)
       setmref(i64->owner, o);
+#endif
     seti64V(L, o, i64);
   }
 }

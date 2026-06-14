@@ -401,8 +401,8 @@ static int64_t io_checkseekofs54(lua_State *L)
     io_seekargtype54(L, "number");
     k = 0;  /* Unreachable. */
   }
-#if defined(__MINGW32__) || (!LJ_TARGET_POSIX && \
-    !(defined(_MSC_VER) && _MSC_VER >= 1400))
+#if !LJ_TARGET_POSIX && !(defined(_MSC_VER) && _MSC_VER >= 1400) && \
+    !defined(__MINGW32__)
   if (k < (int64_t)LONG_MIN || k > (int64_t)LONG_MAX)
     io_methodargerror_at54(L, "seek", 3,
 			   "not an integer in proper range");

@@ -187,6 +187,10 @@
 /* Set target architecture properties. */
 #if LUAJIT_TARGET == LUAJIT_ARCH_X86
 
+#ifdef LUAJIT_ENABLE_LUA54COMPAT
+#error "Lua 5.4 compatibility mode does not support 32-bit x86; build x64 instead"
+#endif
+
 #define LJ_ARCH_NAME		"x86"
 #define LJ_ARCH_BITS		32
 #define LJ_ARCH_ENDIAN		LUAJIT_LE

@@ -3047,10 +3047,10 @@ static void rec_tsetm(jit_State *J, BCReg ra, BCReg rn, int32_t i)
 /* Check whether upvalue is immutable and ok to constify. */
 static int rec_upvalue_constify(jit_State *J, GCupval *uvp)
 {
-#if LJ_54 && LJ_TARGET_ARM64
+#if LJ_54
   /* debug.setupvalue() can mutate closed upvalues from outside recorded code.
-  ** Keep ARM64/Lua 5.4 traces loading through the upvalue instead of baking a
-  ** stale immutable value and relying on an expensive global trace flush.
+  ** Keep Lua 5.4 traces loading through the upvalue instead of baking a stale
+  ** immutable value and relying on an expensive global trace flush.
   */
   UNUSED(J); UNUSED(uvp);
   return 0;

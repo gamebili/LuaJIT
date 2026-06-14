@@ -24,6 +24,24 @@ local function readfile(path)
   return data
 end
 
+local function count_plain(data, needle)
+  local n, pos = 0, 1
+  while true do
+    pos = data:find(needle, pos, true)
+    if not pos then return n end
+    n = n + 1
+    pos = pos + #needle
+  end
+end
+
+local function assert_near(path, data, marker, needle, span)
+  local pos = assert(data:find(marker, 1, true),
+		     path .. ": missing " .. marker)
+  local chunk = data:sub(pos, pos + span)
+  assert(chunk:find(needle, 1, true),
+	 path .. ": " .. marker .. " missing nearby " .. needle)
+end
+
 local function count_lua54_long_string_guards(data)
   local n = 0
   for _ in data:gmatch("LJ_STR_MAXSHORT") do
@@ -157,7 +175,12 @@ do
 	 path .. ": boxed int64 numeric for must use Lua 5.4 helper")
   assert(data:find("mov RB, BASE", data:find("|->vmeta_binop", 1, true), true),
 	 path .. ": ARM64 binop metamethod dispatch must preserve caller base")
-  assert(data:find("#if !LJ_54\n  |   movz CARG3, #0x8000", 1, true),
+  local unm = assert(data:find("case BC_UNM:", 1, true),
+		     path .. ": missing ARM64 unary minus")
+  local negzero = data:find("movz CARG3, #0x8000", unm, true)
+  assert(negzero and
+	 data:sub(math.max(unm, negzero - 128), negzero):find("#if !LJ_54",
+							      1, true),
 	 path .. ": ARM64 Lua 5.4 unary minus must keep integer zero")
   assert(data:find("sub RC, CARG1, RA", 1, true),
 	 path .. ": coroutine resume after yield must count results from RA")
@@ -168,6 +191,38 @@ do
 	 data:find("ldr INSw, [PC, #-4]", 1, true) and
 	 data:find("decode_RD RC, INS", 1, true),
 	 path .. ": table allocation must reload destination after GC")
+end
+
+do
+  local path = "src/vm_x86.dasc"
+  local data = readfile(path)
+  assert(data:find("|.macro clear_int64_owner", 1, true),
+	 path .. ": missing boxed int64 owner clearing macro")
+  assert(data:find("|.macro clear_int64_owner_ptr", 1, true),
+	 path .. ": missing pointer boxed int64 owner clearing macro")
+  assert(count_plain(data, "clear_int64_owner") >= 8,
+	 path .. ": boxed int64 owner clearing is not wired through VM paths")
+  assert(data:find("|.macro load_bitint64_1", 1, true) and
+	 data:find("|.macro load_bitint64_2", 1, true) and
+	 data:find("|.macro load_arithint64_1", 1, true) and
+	 data:find("|.macro load_arithint64_2", 1, true) and
+	 data:find("|.macro store_bitint64_1", 1, true) and
+	 data:find("|.macro store_arithint64_1", 1, true),
+	 path .. ": missing x64 boxed int64 fast-path macros")
+  assert_near(path, data, "case BC_BAND:", "load_bitint64_2", 2400)
+  assert_near(path, data, "case BC_BAND:", "store_bitint64_1", 2400)
+  assert_near(path, data, "case BC_BOR:", "load_bitint64_2", 2400)
+  assert_near(path, data, "case BC_BOR:", "store_bitint64_1", 2400)
+  assert_near(path, data, "case BC_BXOR:", "load_bitint64_2", 2400)
+  assert_near(path, data, "case BC_BXOR:", "store_bitint64_1", 2400)
+  assert_near(path, data, "case BC_BSHL:", "load_bitint64_2", 2400)
+  assert_near(path, data, "case BC_BSHL:", "store_bitint64_1", 2400)
+  assert_near(path, data, "case BC_BSHR:", "load_bitint64_2", 2400)
+  assert_near(path, data, "case BC_BSHR:", "store_bitint64_1", 2400)
+  assert_near(path, data, "case BC_BNOT:", "load_bitint64_1", 1800)
+  assert_near(path, data, "case BC_BNOT:", "store_bitint64_1", 1800)
+  assert_near(path, data, "case BC_IDIV:", "load_arithint64_2", 2600)
+  assert_near(path, data, "case BC_IDIV:", "store_arithint64_1", 2600)
 end
 
 do

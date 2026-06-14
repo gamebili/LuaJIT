@@ -2253,8 +2253,9 @@ static int bcemit_lua54_is_private_helper_call(FuncState *fs, ExpDesc *e)
   return 0;
 }
 
-static void bcemit_lua54_helper(FuncState *fs, const char *field, size_t len,
-				ExpDesc *e1, ExpDesc *e2, BCReg nargs)
+static LJ_AINLINE void bcemit_lua54_helper(FuncState *fs, const char *field,
+					   size_t len, ExpDesc *e1,
+					   ExpDesc *e2, BCReg nargs)
 {
   LexState *ls = fs->ls;
   BCReg base;

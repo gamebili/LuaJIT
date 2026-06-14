@@ -240,7 +240,7 @@ static void close_state(lua_State *L)
 #endif
   lj_func_closeuv(L, tvref(L->stack));
   lj_gc_freeall(g);
-#if LJ_54 && LJ_TARGET_ARM64
+#if LJ_HASI64OWNER
   lj_obj_freeint64_freelist(g);
 #endif
   lj_assertG(gcref(g->gc.root) == obj2gco(L),

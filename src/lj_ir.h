@@ -190,7 +190,7 @@ IRFPMDEF(FPMENUM)
 } IRFPMathOp;
 
 /* FLOAD fields. */
-#if LJ_54 && LJ_TARGET_ARM64
+#if LJ_HASI64OWNER
 #define IRFL_INT64_OWNER(_) _(INT64_OWNER, offsetof(GCint64, owner))
 #else
 #define IRFL_INT64_OWNER(_)

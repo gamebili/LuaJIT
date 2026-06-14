@@ -108,6 +108,7 @@
 |.type GCOBJ,		GCobj
 |.type STR,		GCstr
 |.type TAB,		GCtab
+|.type INT64,		GCint64
 |.type LFUNC,		GCfuncL
 |.type CFUNC,		GCfuncC
 |.type PROTO,		GCproto
@@ -393,6 +394,87 @@
 |.macro checkint, reg, target; checktp reg, LJ_TISNUM; jne target; .endmacro
 |.macro checkstr, reg, target; checktp reg, LJ_TSTR; jne target; .endmacro
 |.macro checktab, reg, target; checktp reg, LJ_TTAB; jne target; .endmacro
+|
+#if LJ_54
+|// Lua 5.4 boxed-int64 owner support for x86/x64 split TValue layout.
+|.macro clear_int64_owner, base, idx, tmp
+|  cmp dword [base+idx*8+4], LJ_TINT64
+|  jne >1
+|  mov INT64:tmp, [base+idx*8]
+|  mov aword INT64:tmp->owner, 0
+|1:
+|.endmacro
+|.macro clear_int64_owner_ptr, ptr, tmp
+|  cmp dword [ptr+4], LJ_TINT64
+|  jne >1
+|  mov INT64:tmp, [ptr]
+|  mov aword INT64:tmp->owner, 0
+|1:
+|.endmacro
+|.if X64
+|.macro load_bitint64_1, target
+|  cmp dword [BASE+RB*8+4], LJ_TISNUM
+|  jne >1
+|  movsxd CARG3, dword [BASE+RB*8]
+|  jmp >2
+|1:
+|  cmp dword [BASE+RB*8+4], LJ_TINT64
+|  jne target
+|  mov INT64:CARG3d, [BASE+RB*8]
+|  mov CARG3, qword INT64:CARG3d->i
+|2:
+|.endmacro
+|.macro load_bitint64_2, target
+|  cmp dword [BASE+RC*8+4], LJ_TISNUM
+|  jne >1
+|  movsxd CARG2, dword [BASE+RC*8]
+|  jmp >2
+|1:
+|  cmp dword [BASE+RC*8+4], LJ_TINT64
+|  jne target
+|  mov INT64:CARG2d, [BASE+RC*8]
+|  mov CARG2, qword INT64:CARG2d->i
+|2:
+|.endmacro
+|.macro load_arithint64_1, target; load_bitint64_1 target; .endmacro
+|.macro load_arithint64_2, target; load_bitint64_2 target; .endmacro
+|.macro store_int64_result
+|  movsxd CARG1, CARG3d
+|  cmp CARG3, CARG1
+|  movzx RA, PC_RA
+|  jne >9
+|  mov dword [BASE+RA*8+4], LJ_TISNUM
+|  mov dword [BASE+RA*8], CARG3d
+|  ins_next
+|9:
+|  cmp dword [BASE+RA*8+4], LJ_TINT64
+|  jne >8
+|  mov INT64:CARG2d, [BASE+RA*8]
+|  lea CARG1, [BASE+RA*8]
+|  cmp INT64:CARG2d->owner, CARG1d
+|  jne >8
+|  mov qword INT64:CARG2d->i, CARG3
+|  ins_next
+|8:
+|  mov LFUNC:CARG1d, [BASE-8]
+|  mov CARG1d, LFUNC:CARG1d->pc
+|  movzx CARG1d, byte [CARG1d+PC2PROTO(framesize)]
+|  lea CARG1d, [BASE+CARG1d*8]
+|  mov L:RB, SAVE_L
+|  mov L:RB->base, BASE
+|  mov L:RB->top, CARG1d
+|  mov SAVE_PC, PC
+|  movzx RA, PC_RA
+|  lea CARG2d, [BASE+RA*8]
+|  mov L:CARG1d, SAVE_L
+|  call extern lj_obj_setint64	// (lua_State *L, TValue *o, int64_t i)
+|  mov BASE, L:RB->base
+|  ins_next
+|.endmacro
+|.macro store_bitint64_1; store_int64_result; .endmacro
+|.macro store_arithint64_1; store_int64_result; .endmacro
+|.endif
+#endif
 |
 |// These operands must be used with movzx.
 |.define PC_OP, byte [PC-4]
@@ -1303,6 +1385,10 @@ static void build_subroutines(BuildCtx *ctx)
   |  jz >3
   |  // NOBARRIER: lj_meta_tset ensures the table is not black.
   |  movzx RA, PC_RA
+#if LJ_54
+  |  clear_int64_owner BASE, RA, RB
+  |  movzx RA, PC_RA
+#endif
   |.if X64
   |  mov RBa, [BASE+RA*8]
   |  mov [RC], RBa
@@ -4467,6 +4553,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
       |  mov [BASE+RA*8+4], RB
       |  mov RB, [BASE+RD*8]
       |  mov [BASE+RA*8], RB
+#if LJ_54
+      |  clear_int64_owner BASE, RD, RB
+#endif
     }
     |  movzx RD, PC_RD
     |  branchPC RD
@@ -4490,6 +4579,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
 
   case BC_MOV:
     |  ins_AD	// RA = dst, RD = src
+#if LJ_54
+    |  clear_int64_owner BASE, RD, RB
+#endif
     |.if X64
     |  mov RBa, [BASE+RD*8]
     |  mov [BASE+RA*8], RBa
@@ -4765,6 +4857,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  jnz ->vmeta_binop
     |  movzx RB, PC_RB			// Copy result to Stk[RA] from Stk[RB].
     |  movzx RA, PC_RA
+#if LJ_54
+    |  clear_int64_owner BASE, RB, RC
+#endif
     |.if X64
     |  mov RCa, [BASE+RB*8]
     |  mov [BASE+RA*8], RCa
@@ -4777,52 +4872,123 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  ins_next
     break;
 
-  /* -- Lua 5.4 bitwise ops: C fallback only on this backend. ------------- */
-  /* TODO(x86 team): port the inline int64 fast paths from vm_arm64.dasc.
-  **
-  ** STATUS: x86/x64 takes the slowest possible route for every Lua 5.4 64-bit
-  ** integer bit/idiv op -- an unconditional `jmp ->vmeta_bitop` (resp.
-  ** ->vmeta_bnot / ->vmeta_arith_vvo) which calls the C helper lj_meta_bitop()
-  ** (resp. lj_meta_arith) once PER OP, including the int32 case. ARM64 instead
-  ** computes int32 and boxed-int64 operands inline and only falls to C for
-  ** metamethods/errors. Measured on ARM64 this is the difference between
-  ** ~0.78ns/op (lua5.4.8 inline) and a ~50-instr C call; the inline path lands
-  ** at ~3.7x of PUC (the irreducible cost of boxing a 64-bit int in an 8-byte
-  ** NaN-tagged TValue), while the current x86 C-call route is several times
-  ** worse again. jit.off bit64 workloads are the largest such gap.
-  **
-  ** WHAT TO PORT (reference: src/vm_arm64.dasc):
-  **  - macros: load_bitint64_1/2, load_arithint64_1/2 (decode int32 inline or
-  **    deref the GCint64 box, else jump to the C fallback), store_bitint64_1 /
-  **    store_int64_result (narrow-to-int32 if it fits, else reuse the slot's
-  **    owned GCint64 box in place, else box fresh via lj_obj_setint64), and
-  **    clear_int64_owner.
-  **  - handlers: BC_BAND/BOR/BXOR (~vm_arm64.dasc:11600), BC_BSHL/BSHR (~11821),
-  **    BC_BNOT (~11889), BC_IDIV (~11913). The integer-fusion macros there are
-  **    DISABLED (unsound; see commit 3fca7b65) -- do NOT port them; port only
-  **    the plain inline path (load -> compute -> store_*).
-  **  - REQUIRED for the owner-box reuse to be both fast AND correct: the
-  **    interpreter must clear the box owner on every value copy, mirroring
-  **    copyTV()/clearint64owner(). On ARM64 that is the clear_int64_owner calls
-  **    in BC_MOV, the table-store path, USETV, etc. Without them, in-place box
-  **    mutation corrupts Lua 5.4 integer value semantics (`local x=s; s=s|m`).
-  **    With them, copied int64 temps re-box per copy (a fundamental boxing cost
-  **    that 16-byte TValue would avoid; not fixable here).
-  **
-  ** FUNDAMENTAL FLOOR: even fully inlined, boxed int64 stays ~3.7x of PUC's
-  ** inline 64-bit integer. Closing that gap needs a 16-byte TValue (a different
-  ** VM) -- out of scope; inlining only removes the extra C-call multiplier.
-  */
+  /* -- Lua 5.4 bitwise and integer division ops -------------------------- */
 
-  case BC_BAND: case BC_BOR: case BC_BXOR: case BC_BSHL: case BC_BSHR:
+  case BC_BAND: case BC_BOR: case BC_BXOR:
+#if LJ_54
+    |.if X64
+    |  ins_ABC
+    |  load_bitint64_1 ->vmeta_bitop
+    |  load_bitint64_2 ->vmeta_bitop
+    switch (op) {
+    case BC_BAND:
+      |  and CARG3, CARG2
+      break;
+    case BC_BOR:
+      |  or CARG3, CARG2
+      break;
+    default:
+      |  xor CARG3, CARG2
+      break;
+    }
+    |  store_bitint64_1
+    |.else
     |  jmp ->vmeta_bitop
+    |.endif
+#else
+    |  jmp ->vmeta_bitop
+#endif
+    break;
+  case BC_BSHL: case BC_BSHR:
+#if LJ_54
+    |.if X64
+    |  ins_ABC
+    |  load_bitint64_1 ->vmeta_bitop
+    |  load_bitint64_2 ->vmeta_bitop
+    |  cmp CARG2, 64
+    |  jge >3
+    |  cmp CARG2, 0
+    |  jge >2
+    |  cmp CARG2, -64
+    |  jle >3
+    |  neg CARG2
+    |  mov RA, CARG2d
+    if (op == BC_BSHL) {
+      |  shr CARG3, cl
+    } else {
+      |  shl CARG3, cl
+    }
+    |  jmp >4
+    |2:
+    |  mov RA, CARG2d
+    if (op == BC_BSHL) {
+      |  shl CARG3, cl
+    } else {
+      |  shr CARG3, cl
+    }
+    |  jmp >4
+    |3:
+    |  xor CARG3d, CARG3d
+    |4:
+    |  store_bitint64_1
+    |.else
+    |  jmp ->vmeta_bitop
+    |.endif
+#else
+    |  jmp ->vmeta_bitop
+#endif
     break;
   case BC_BNOT:
+#if LJ_54
+    |.if X64
+    |  ins_AD
+    |  mov RB, RD
+    |  load_bitint64_1 ->vmeta_bnot
+    |  not CARG3
+    |  store_bitint64_1
+    |.else
     |  jmp ->vmeta_bnot
+    |.endif
+#else
+    |  jmp ->vmeta_bnot
+#endif
     break;
   case BC_IDIV:
+#if LJ_54
+    |.if X64
+    |  ins_ABC
+    |  load_arithint64_1 ->vmeta_arith_vv
+    |  load_arithint64_2 ->vmeta_arith_vv
+    |  test CARG2, CARG2
+    |  jz ->vmeta_arith_vv
+    |  mov64 CARG1, U64x(80000000,00000000)
+    |  cmp CARG3, CARG1
+    |  jne >2
+    |  cmp CARG2, -1
+    |  je >3
+    |2:
+    |  mov rax, CARG3
+    |  mov CARG4, CARG2
+    |  cqo
+    |  idiv CARG4
+    |  test rdx, rdx
+    |  jz >1
+    |  mov CARG1, rdx
+    |  xor CARG1, CARG4
+    |  jns >1
+    |  sub rax, 1
+    |1:
+    |  mov CARG3, rax
+    |3:
+    |  store_arithint64_1
+    |.else
     |  ins_ABC
     |  jmp ->vmeta_arith_vvo
+    |.endif
+#else
+    |  ins_ABC
+    |  jmp ->vmeta_arith_vvo
+#endif
     break;
 
   /* -- Constant ops ------------------------------------------------------ */
@@ -4888,6 +5054,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  mov LFUNC:RB, [BASE-8]
     |  mov UPVAL:RB, [LFUNC:RB+RD*4+offsetof(GCfuncL, uvptr)]
     |  mov RB, UPVAL:RB->v
+#if LJ_54
+    |  clear_int64_owner_ptr RB, RD
+#endif
     |.if X64
     |  mov RDa, [RB]
     |  mov [BASE+RA*8], RDa
@@ -4907,6 +5076,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  mov UPVAL:RB, [LFUNC:RB+RA*4+offsetof(GCfuncL, uvptr)]
     |  cmp byte UPVAL:RB->closed, 0
     |  mov RB, UPVAL:RB->v
+#if LJ_54
+    |  clear_int64_owner BASE, RD, RA
+#endif
     |  mov RA, [BASE+RD*8]
     |  mov RD, [BASE+RD*8+4]
     |  mov [RB], RA
@@ -5313,6 +5485,10 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  test byte TAB:RB->marked, LJ_GC_BLACK	// isblack(table)
     |  jnz >7
     |2:  // Set array slot.
+#if LJ_54
+    |  clear_int64_owner BASE, RA, RA
+    |  movzx RA, PC_RA
+#endif
     |.if X64
     |  mov RBa, [BASE+RA*8]
     |  mov [RC], RBa
@@ -5376,6 +5552,10 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  jnz >7
     |3:  // Set node value.
     |  movzx RC, PC_RA
+#if LJ_54
+    |  clear_int64_owner BASE, RC, RC
+    |  movzx RC, PC_RA
+#endif
     |.if X64
     |  mov RBa, [BASE+RC*8]
     |  mov [RA], RBa
@@ -5453,6 +5633,10 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  test byte TAB:RB->marked, LJ_GC_BLACK	// isblack(table)
     |  jnz >7
     |2:	 // Set array slot.
+#if LJ_54
+    |  clear_int64_owner BASE, RA, RA
+    |  movzx RA, PC_RA
+#endif
     |.if X64
     |  mov RAa, [BASE+RA*8]
     |  mov [RC], RAa
@@ -5495,6 +5679,10 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  add RC, TAB:RB->array
     |  // Set array slot.
     |->BC_TSETR_Z:
+#if LJ_54
+    |  clear_int64_owner BASE, RA, RA
+    |  movzx RA, PC_RA
+#endif
     |.if X64
     |  mov RBa, [BASE+RA*8]
     |  mov [RC], RBa
@@ -5532,6 +5720,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  shl KBASE, 3
     |  add KBASE, TAB:RB->array
     |3:  // Copy result slots to table.
+#if LJ_54
+    |  clear_int64_owner_ptr RA, RC
+#endif
     |.if X64
     |  mov RBa, [RA]
     |  add RA, 8
@@ -6013,6 +6204,13 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
       |  sub RD, 1
       |  jz >3
       |2:  // Move results down.
+#if LJ_54
+      |  cmp dword [KBASE+RA+4], LJ_TINT64
+      |  jne >8
+      |  mov INT64:RB, [KBASE+RA]
+      |  mov aword INT64:RB->owner, 0
+      |8:
+#endif
       |.if X64
       |  mov RBa, [KBASE+RA]
       |  mov [KBASE-8], RBa
@@ -6033,6 +6231,13 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
       |  ja >6
       break;
     case BC_RET1:
+#if LJ_54
+      |  cmp dword [BASE+RA+4], LJ_TINT64
+      |  jne >8
+      |  mov INT64:RB, [BASE+RA]
+      |  mov aword INT64:RB->owner, 0
+      |8:
+#endif
       |.if X64
       |  mov RBa, [BASE+RA]
       |  mov [BASE-8], RBa

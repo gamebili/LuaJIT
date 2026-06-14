@@ -447,10 +447,11 @@ static int lj_cf_package_searchpath(lua_State *L)
 {
 #if LJ_54
   const char *fname = "package.searchpath";
-  const char *f = searchpath(L, package_checkstr_named54(L, 1, fname),
-				package_checkstr_named54(L, 2, fname),
-				package_optstr_named54(L, 3, fname, "."),
-				package_optstr_named54(L, 4, fname, LUA_DIRSEP));
+  const char *name = package_checkstr_named54(L, 1, fname);
+  const char *path = package_checkstr_named54(L, 2, fname);
+  const char *sep = package_optstr_named54(L, 3, fname, ".");
+  const char *dirsep = package_optstr_named54(L, 4, fname, LUA_DIRSEP);
+  const char *f = searchpath(L, name, path, sep, dirsep);
 #else
   const char *f = searchpath(L, luaL_checkstring(L, 1),
 				luaL_checkstring(L, 2),

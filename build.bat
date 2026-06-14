@@ -253,7 +253,11 @@ if /I "%~1"=="lua54compat53full" (
   set "MAKE_ARGS=smoketest-lua54compat53-full!REST_ARGS!"
   goto :FORWARD
 )
-if /I "%~1"=="lua54perf" goto :LUA54PERF
+if /I "%~1"=="lua54perf" (
+  call :SET_REST %*
+  set "MAKE_ARGS=smoketest-perf-lua54compat!REST_ARGS!"
+  goto :FORWARD
+)
 if /I "%~1"=="official54" goto :OFFICIAL54
 if /I "%~1"=="official54full" goto :OFFICIAL54_FULL
 if /I "%~1"=="lua54official" goto :OFFICIAL54
@@ -380,11 +384,6 @@ exit /b !ERRORLEVEL!
 :LUA54_NOGC64_FULL
 call :SET_REST %*
 call :RUN smoketest-lua54compat-nogc64-full%REST_ARGS%
-exit /b !ERRORLEVEL!
-
-:LUA54PERF
-call :SET_REST %*
-call :RUN smoketest-perf-lua54compat%REST_ARGS%
 exit /b !ERRORLEVEL!
 
 :OFFICIAL54

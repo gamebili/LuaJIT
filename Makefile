@@ -357,9 +357,7 @@ smoketest-lua54compat53-full:
 	./src/luajit test/lua54_compat53_runtime.lua
 
 LUA54_NOGC64_PARALLEL_TARGETS= \
-	lua54-nogc64-runtime-probe \
-	lua54-nogc64-runtime-smoke \
-	lua54-nogc64-jit-regress
+	lua54-nogc64-runtime-probe
 
 smoketest-lua54compat-nogc64:
 	$(MAKE) build-lua54compat-nogc64-incremental

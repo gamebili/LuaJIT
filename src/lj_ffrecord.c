@@ -1035,9 +1035,13 @@ static void recff_lua54_tonumber_strref(jit_State *J, RecordFFData *rd,
       ** Use a side-effect helper for them so os.setlocale() cannot leave a
       ** stale folded STRTO result in the trace.
       */
-      J->base[0] = (runtime_locale || LJ_TARGET_ARM64) ?
+#if LJ_TARGET_ARM64
+      J->base[0] = lj_ir_call(J, IRCALL_lj_strscan_tonum54s, tr);
+#else
+      J->base[0] = runtime_locale ?
 		   lj_ir_call(J, IRCALL_lj_strscan_tonum54s, tr) :
 		   emitir(IRTG(IR_STRTO, IRT_NUM), tr, 0);
+#endif
     }
   } else if (lj_strscan_rejectnum54(strdata(str), str->len)) {
     /* `inf`/`nan`/`0b` are stable LuaJIT extensions rejected by Lua 5.4.

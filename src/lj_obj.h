@@ -32,6 +32,9 @@ typedef struct MRef {
 #endif
 } MRef;
 
+#define LJ_HASI64OWNER \
+  (LJ_54 && (LJ_TARGET_ARM64 || LJ_TARGET_X86 || (LJ_TARGET_X64 && !LJ_GC64)))
+
 #if LJ_GC64
 #define mref(r, t)	((t *)(void *)(r).ptr64)
 #define mrefu(r)	((r).ptr64)
@@ -376,7 +379,7 @@ typedef struct GCcdataVar {
 typedef struct GCint64 {
   GCHeader;
   int64_t i;
-#if LJ_54 && LJ_TARGET_ARM64
+#if LJ_HASI64OWNER
   MRef owner;		/* Stack slot allowed to update this object in place. */
 #endif
 } GCint64;
@@ -691,7 +694,7 @@ typedef struct global_State {
   GCRef gc_genold154;  /* First OLD1 root object. */
   GCRef gc_genreallyold54;  /* First really-old root object. */
   GCRef gc_genfirstold154;  /* First OLD1 object to mark next minor. */
-#if LJ_54 && LJ_TARGET_ARM64
+#if LJ_HASI64OWNER
   GCRef i64freelist;	/* Reusable boxed int64 objects. */
   MSize i64freelistn;	/* Number of cached boxed int64 objects. */
 #endif
@@ -979,7 +982,7 @@ static LJ_AINLINE void *lightudV(global_State *g, cTValue *o)
 #define numV(o)		check_exp(tvisnum(o), (o)->n)
 #define intV(o)		check_exp(tvisint(o), (int32_t)(o)->i)
 
-#if LJ_54 && LJ_TARGET_ARM64
+#if LJ_HASI64OWNER
 static LJ_AINLINE void clearint64owner(cTValue *o)
 {
   if (LJ_UNLIKELY(tvisi64(o)))
@@ -1203,7 +1206,7 @@ LJ_DATA const char *const lj_obj_itypename[~LJ_TNUMX+1];
 
 LJ_FUNC GCint64 *lj_obj_newint64(lua_State *L, int64_t i);
 LJ_FUNC void LJ_FASTCALL lj_obj_freeint64(global_State *g, GCint64 *i64);
-#if LJ_54 && LJ_TARGET_ARM64
+#if LJ_HASI64OWNER
 LJ_FUNC void lj_obj_freeint64_freelist(global_State *g);
 #endif
 LJ_FUNC void lj_obj_setint64(lua_State *L, TValue *o, int64_t i);
