@@ -2196,6 +2196,20 @@ static int recff_lua54_c(jit_State *J, RecordFFData *rd)
     }
     return 1;
   }
+  if (f == lj_cf_string_upper54 || f == lj_cf_string_lower54) {
+    if (tref_isstr(J->base[0])) {
+      /* Lua 5.4 string.upper/lower are locale-dependent (toupper/tolower); use
+      ** the matching buffer helpers so the recorded trace agrees with the
+      ** interpreter under any locale (the ASCII-only lj_buf_putstr_upper/lower
+      ** would diverge on bytes >= 0x80 under a non-C locale). */
+      rd->data = (f == lj_cf_string_upper54) ? IRCALL_lj_buf_putstr_upper54
+					     : IRCALL_lj_buf_putstr_lower54;
+      recff_string_op(J, rd);
+    } else {
+      recff_nyi(J, rd);  /* Non-string (e.g. number coercion): interpreter. */
+    }
+    return 1;
+  }
   if (f == lj_cf_string_len54) {
     if (tref_isstr(J->base[0]))  /* Lua 5.4 string.len: integer length. */
       J->base[0] = emitir(IRTI(IR_FLOAD), J->base[0], IRFL_STR_LEN);

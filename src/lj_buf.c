@@ -6,6 +6,8 @@
 #define lj_buf_c
 #define LUA_CORE
 
+#include <ctype.h>
+
 #include "lj_obj.h"
 #include "lj_gc.h"
 #include "lj_err.h"
@@ -223,6 +225,33 @@ SBuf * LJ_FASTCALL lj_buf_putstr_upper(SBuf *sb, GCstr *s)
     *w = c;
 #endif
   }
+  sb->w = w;
+  return sb;
+}
+
+/* Lua 5.4 string.lower/upper are locale-dependent (tolower/toupper), unlike the
+** ASCII-only helpers above. These match lj_cf_string_lower54/upper54 byte for
+** byte so a recorded trace stays consistent with the interpreter under any
+** locale. (No CSE/hoist hazard across os.setlocale(): the recff emits a fresh
+** BUFHDR per call, which the call depends on, so it is never lifted out.) */
+SBuf * LJ_FASTCALL lj_buf_putstr_lower54(SBuf *sb, GCstr *s)
+{
+  MSize len = s->len;
+  char *w = lj_buf_more(sb, len), *e = w+len;
+  const char *q = strdata(s);
+  for (; w < e; w++, q++)
+    *w = (char)tolower(*(unsigned char *)q);
+  sb->w = w;
+  return sb;
+}
+
+SBuf * LJ_FASTCALL lj_buf_putstr_upper54(SBuf *sb, GCstr *s)
+{
+  MSize len = s->len;
+  char *w = lj_buf_more(sb, len), *e = w+len;
+  const char *q = strdata(s);
+  for (; w < e; w++, q++)
+    *w = (char)toupper(*(unsigned char *)q);
   sb->w = w;
   return sb;
 }
