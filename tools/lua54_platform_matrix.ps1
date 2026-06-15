@@ -638,23 +638,30 @@ function Invoke-EmscriptenWasm {
       Invoke-EmscriptenArchProbe $emcc "wasm32-unknown-emscripten"
       Invoke-EmscriptenArchProbe $emcc "wasm64-unknown-emscripten"
     )
-    $unexpectedFailures = @($probes | Where-Object { $_.ExitCode -ne 0 -and -not $_.KnownBackendMissing })
-    $unexpectedSuccesses = @($probes | Where-Object { $_.ExitCode -eq 0 })
+    foreach ($probe in $probes) {
+      $isWasm32 = $probe.Target -like "wasm32-*"
+      $targetName = if ($isWasm32) {
+        "emscripten-wasm32-lua54compat"
+      } else {
+        "emscripten-wasm64-lua54compat"
+      }
+      $role = if ($isWasm32) {
+        "primary mobile/web target"
+      } else {
+        "experimental probe target; mobile browsers should not depend on wasm64"
+      }
 
-    if ($unexpectedFailures.Count -gt 0) {
-      $details = ($unexpectedFailures | ForEach-Object {
-        "{0}: {1}" -f $_.Target, $_.Summary
-      }) -join " | "
-      Add-Result "emscripten-wasm-lua54compat" "FAIL" "emcc probe failed before the expected LuaJIT target-backend error: $details"
-    } elseif ($unexpectedSuccesses.Count -gt 0) {
-      $targets = ($unexpectedSuccesses | ForEach-Object { $_.Target }) -join ", "
-      Add-Result "emscripten-wasm-lua54compat" "FAIL" "emcc probe no longer reports the known missing LuaJIT target backend for $targets; wire a real Emscripten artifact build and smoke before marking this target complete."
-    } else {
-      $targets = ($probes | ForEach-Object { $_.Target }) -join ", "
-      Add-Result "emscripten-wasm-lua54compat" "SKIP" "$version; $targets probes reach LuaJIT target selection but fail because this tree has no wasm/wasm64 LuaJIT target or VM backend yet."
+      if ($probe.ExitCode -ne 0 -and -not $probe.KnownBackendMissing) {
+        Add-Result $targetName "FAIL" "$version; $($probe.Target) emcc probe failed before LuaJIT target selection ($role): $($probe.Summary)"
+      } elseif ($probe.ExitCode -eq 0) {
+        Add-Result $targetName "FAIL" "$version; $($probe.Target) preprocessor probe succeeded ($role), but no Emscripten artifact build and wasm smoke are wired yet."
+      } else {
+        Add-Result $targetName "SKIP" "$version; $($probe.Target) reaches LuaJIT target selection but fails because this tree has no wasm VM backend yet ($role)."
+      }
     }
   } else {
-    Add-Result "emscripten-wasm-lua54compat" "SKIP" "emcc not found; Emscripten build path also needs interpreter/wasm support."
+    Add-Result "emscripten-wasm32-lua54compat" "SKIP" "emcc not found; wasm32 is the primary mobile/web target, and the build path still needs a wasm VM backend."
+    Add-Result "emscripten-wasm64-lua54compat" "SKIP" "emcc not found; wasm64 is experimental and should not block the mobile/web wasm32 target."
   }
 }
 
