@@ -399,61 +399,97 @@
 |// Lua 5.4 boxed-int64 owner support for x86/x64 split TValue layout.
 |.macro clear_int64_owner, base, idx, tmp
 |  cmp dword [base+idx*8+4], LJ_TINT64
-|  jne >1
+|  jne >9
 |  mov INT64:tmp, [base+idx*8]
 |  mov aword INT64:tmp->owner, 0
-|1:
+|9:
 |.endmacro
 |.macro clear_int64_owner_ptr, ptr, tmp
 |  cmp dword [ptr+4], LJ_TINT64
-|  jne >1
+|  jne >9
 |  mov INT64:tmp, [ptr]
 |  mov aword INT64:tmp->owner, 0
-|1:
+|9:
 |.endmacro
 |.if X64
 |.macro load_bitint64_1, target
 |  cmp dword [BASE+RB*8+4], LJ_TISNUM
 |  jne >1
-|  movsxd CARG3, dword [BASE+RB*8]
+|  movsxd r8, dword [BASE+RB*8]
 |  jmp >2
 |1:
 |  cmp dword [BASE+RB*8+4], LJ_TINT64
 |  jne target
-|  mov INT64:CARG3d, [BASE+RB*8]
-|  mov CARG3, qword INT64:CARG3d->i
+|  mov INT64:r10d, [BASE+RB*8]
+|  mov r8, qword INT64:r10d->i
 |2:
 |.endmacro
 |.macro load_bitint64_2, target
 |  cmp dword [BASE+RC*8+4], LJ_TISNUM
 |  jne >1
-|  movsxd CARG2, dword [BASE+RC*8]
+|  movsxd r9, dword [BASE+RC*8]
 |  jmp >2
 |1:
 |  cmp dword [BASE+RC*8+4], LJ_TINT64
 |  jne target
-|  mov INT64:CARG2d, [BASE+RC*8]
-|  mov CARG2, qword INT64:CARG2d->i
+|  mov INT64:r10d, [BASE+RC*8]
+|  mov r9, qword INT64:r10d->i
+|2:
+|.endmacro
+|.macro load_kint64_1, target
+|  cmp dword [KBASE+RC*8+4], LJ_TISNUM
+|  jne >1
+|  movsxd r8, dword [KBASE+RC*8]
+|  jmp >2
+|1:
+|  cmp dword [KBASE+RC*8+4], LJ_TINT64
+|  jne target
+|  mov INT64:r10d, [KBASE+RC*8]
+|  mov r8, qword INT64:r10d->i
+|2:
+|.endmacro
+|.macro load_kint64_2, target
+|  cmp dword [KBASE+RC*8+4], LJ_TISNUM
+|  jne >1
+|  movsxd r9, dword [KBASE+RC*8]
+|  jmp >2
+|1:
+|  cmp dword [KBASE+RC*8+4], LJ_TINT64
+|  jne target
+|  mov INT64:r10d, [KBASE+RC*8]
+|  mov r9, qword INT64:r10d->i
+|2:
+|.endmacro
+|.macro load_rbint64_2, target
+|  cmp dword [BASE+RB*8+4], LJ_TISNUM
+|  jne >1
+|  movsxd r9, dword [BASE+RB*8]
+|  jmp >2
+|1:
+|  cmp dword [BASE+RB*8+4], LJ_TINT64
+|  jne target
+|  mov INT64:r10d, [BASE+RB*8]
+|  mov r9, qword INT64:r10d->i
 |2:
 |.endmacro
 |.macro load_arithint64_1, target; load_bitint64_1 target; .endmacro
 |.macro load_arithint64_2, target; load_bitint64_2 target; .endmacro
 |.macro store_int64_result
-|  movsxd CARG1, CARG3d
-|  cmp CARG3, CARG1
+|  movsxd r10, r8d
+|  cmp r8, r10
 |  movzx RA, PC_RA
 |  jne >9
 |  mov dword [BASE+RA*8+4], LJ_TISNUM
-|  mov dword [BASE+RA*8], CARG3d
+|  mov dword [BASE+RA*8], r8d
 |  ins_next
 |9:
 |  cmp dword [BASE+RA*8+4], LJ_TINT64
 |  jne >8
-|  mov INT64:CARG2d, [BASE+RA*8]
-|  lea CARG1, [BASE+RA*8]
-|  cmp INT64:CARG2d->owner, CARG1d
+|  mov INT64:r10d, [BASE+RA*8]
+|  lea r11d, [BASE+RA*8]
+|  cmp INT64:r10d->owner, r11d
 |  jne >8
-|  mov qword INT64:CARG2d->i, CARG3
+|  mov qword INT64:r10d->i, r8
 |  ins_next
 |8:
 |  mov LFUNC:CARG1d, [BASE-8]
@@ -4770,12 +4806,114 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
 
     |  // RA = dst, RB = src1 or num const, RC = src2 or num const
   case BC_ADDVN: case BC_ADDNV: case BC_ADDVV:
+#if LJ_54
+    |.if X64
+    |  ins_ABC
+    ||vk = ((int)op - BC_ADDVN) / (BC_ADDNV-BC_ADDVN);
+    ||switch (vk) {
+    ||case 0:
+    |   load_arithint64_1 >7
+    |   load_kint64_2 >7
+    ||  break;
+    ||case 1:
+    |   load_kint64_1 >7
+    |   load_rbint64_2 >7
+    ||  break;
+    ||default:
+    |   load_arithint64_1 >7
+    |   load_arithint64_2 >7
+    ||  break;
+    ||}
+    |  add r8, r9
+    |  store_arithint64_1
+|7:
+    ||switch (vk) {
+    ||case 0:
+    |  jmp ->vmeta_arith_vn
+    ||  break;
+    ||case 1:
+    |  jmp ->vmeta_arith_nv
+    ||  break;
+    ||default:
+    |  jmp ->vmeta_arith_vv
+    ||  break;
+    ||}
+    |.endif
+#endif
     |  ins_arith add, addsd
     break;
   case BC_SUBVN: case BC_SUBNV: case BC_SUBVV:
+#if LJ_54
+    |.if X64
+    |  ins_ABC
+    ||vk = ((int)op - BC_ADDVN) / (BC_ADDNV-BC_ADDVN);
+    ||switch (vk) {
+    ||case 0:
+    |   load_arithint64_1 >7
+    |   load_kint64_2 >7
+    ||  break;
+    ||case 1:
+    |   load_kint64_1 >7
+    |   load_rbint64_2 >7
+    ||  break;
+    ||default:
+    |   load_arithint64_1 >7
+    |   load_arithint64_2 >7
+    ||  break;
+    ||}
+    |  sub r8, r9
+    |  store_arithint64_1
+|7:
+    ||switch (vk) {
+    ||case 0:
+    |  jmp ->vmeta_arith_vn
+    ||  break;
+    ||case 1:
+    |  jmp ->vmeta_arith_nv
+    ||  break;
+    ||default:
+    |  jmp ->vmeta_arith_vv
+    ||  break;
+    ||}
+    |.endif
+#endif
     |  ins_arith sub, subsd
     break;
   case BC_MULVN: case BC_MULNV: case BC_MULVV:
+#if LJ_54
+    |.if X64
+    |  ins_ABC
+    ||vk = ((int)op - BC_ADDVN) / (BC_ADDNV-BC_ADDVN);
+    ||switch (vk) {
+    ||case 0:
+    |   load_arithint64_1 >7
+    |   load_kint64_2 >7
+    ||  break;
+    ||case 1:
+    |   load_kint64_1 >7
+    |   load_rbint64_2 >7
+    ||  break;
+    ||default:
+    |   load_arithint64_1 >7
+    |   load_arithint64_2 >7
+    ||  break;
+    ||}
+    |  imul r8, r9
+    |  store_arithint64_1
+|7:
+    ||switch (vk) {
+    ||case 0:
+    |  jmp ->vmeta_arith_vn
+    ||  break;
+    ||case 1:
+    |  jmp ->vmeta_arith_nv
+    ||  break;
+    ||default:
+    |  jmp ->vmeta_arith_vv
+    ||  break;
+    ||}
+    |.endif
+#endif
     |  ins_arith imul, mulsd
     break;
   case BC_DIVVN: case BC_DIVNV: case BC_DIVVV:
@@ -4784,10 +4922,37 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
   case BC_MODVN:
 #if LJ_54
     /* Lua 5.4 modulo: integer subtype rules and the official fmod float
-    ** formula live in lj_meta_arith(). The label is kept (unreferenced)
-    ** because buildvm requires all global labels defined.
+    ** formula live in lj_meta_arith(). Keep the integer path inline on x64;
+    ** strings, floats and zero-divisor error formatting use the C path.
     */
     |  ins_ABC
+    |.if X64
+    |  load_arithint64_1 ->BC_MODVN_Z
+    |  load_kint64_2 ->BC_MODVN_Z
+    |  test r9, r9
+    |  jz ->BC_MODVN_Z
+    |  cmp r9, -1
+    |  je >3
+    |  mov rax, r8
+    |  mov r10, r9
+    |  push rdx
+    |  cqo
+    |  idiv r10
+    |  test rdx, rdx
+    |  jz >1
+    |  mov r11, rdx
+    |  xor r11, r10
+    |  jns >1
+    |  add rdx, r10
+    |1:
+    |  mov r8, rdx
+    |  pop rdx
+    |  jmp >2
+    |3:
+    |  xor r8d, r8d
+    |2:
+    |  store_arithint64_1
+    |.endif
     |->BC_MODVN_Z:
     |  jmp ->vmeta_arith_vno
     break;
@@ -4801,6 +4966,39 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
   case BC_MODNV: case BC_MODVV:
 #if LJ_54
     |  ins_ABC
+    |.if X64
+    if (op == BC_MODNV) {
+      |  load_kint64_1 >7
+      |  load_rbint64_2 >7
+    } else {
+      |  load_arithint64_1 >7
+      |  load_arithint64_2 >7
+    }
+    |  test r9, r9
+    |  jz >7
+    |  cmp r9, -1
+    |  je >3
+    |  mov rax, r8
+    |  mov r10, r9
+    |  push rdx
+    |  cqo
+    |  idiv r10
+    |  test rdx, rdx
+    |  jz >1
+    |  mov r11, rdx
+    |  xor r11, r10
+    |  jns >1
+    |  add rdx, r10
+    |1:
+    |  mov r8, rdx
+    |  pop rdx
+    |  jmp >2
+    |3:
+    |  xor r8d, r8d
+    |2:
+    |  store_arithint64_1
+|7:
+    |.endif
     if (op == BC_MODNV) {
       |  jmp ->vmeta_arith_nvo
     } else {
@@ -4882,13 +5080,13 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  load_bitint64_2 ->vmeta_bitop
     switch (op) {
     case BC_BAND:
-      |  and CARG3, CARG2
+      |  and r8, r9
       break;
     case BC_BOR:
-      |  or CARG3, CARG2
+      |  or r8, r9
       break;
     default:
-      |  xor CARG3, CARG2
+      |  xor r8, r9
       break;
     }
     |  store_bitint64_1
@@ -4905,30 +5103,30 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  ins_ABC
     |  load_bitint64_1 ->vmeta_bitop
     |  load_bitint64_2 ->vmeta_bitop
-    |  cmp CARG2, 64
+    |  cmp r9, 64
     |  jge >3
-    |  cmp CARG2, 0
+    |  cmp r9, 0
     |  jge >2
-    |  cmp CARG2, -64
+    |  cmp r9, -64
     |  jle >3
-    |  neg CARG2
-    |  mov RA, CARG2d
+    |  neg r9
+    |  mov RA, r9d
     if (op == BC_BSHL) {
-      |  shr CARG3, cl
+      |  shr r8, cl
     } else {
-      |  shl CARG3, cl
+      |  shl r8, cl
     }
     |  jmp >4
     |2:
-    |  mov RA, CARG2d
+    |  mov RA, r9d
     if (op == BC_BSHL) {
-      |  shl CARG3, cl
+      |  shl r8, cl
     } else {
-      |  shr CARG3, cl
+      |  shr r8, cl
     }
     |  jmp >4
     |3:
-    |  xor CARG3d, CARG3d
+    |  xor r8d, r8d
     |4:
     |  store_bitint64_1
     |.else
@@ -4944,7 +5142,7 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  ins_AD
     |  mov RB, RD
     |  load_bitint64_1 ->vmeta_bnot
-    |  not CARG3
+    |  not r8
     |  store_bitint64_1
     |.else
     |  jmp ->vmeta_bnot
@@ -4959,27 +5157,29 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  ins_ABC
     |  load_arithint64_1 ->vmeta_arith_vv
     |  load_arithint64_2 ->vmeta_arith_vv
-    |  test CARG2, CARG2
+    |  test r9, r9
     |  jz ->vmeta_arith_vv
-    |  mov64 CARG1, U64x(80000000,00000000)
-    |  cmp CARG3, CARG1
+    |  mov64 r10, U64x(80000000,00000000)
+    |  cmp r8, r10
     |  jne >2
-    |  cmp CARG2, -1
+    |  cmp r9, -1
     |  je >3
     |2:
-    |  mov rax, CARG3
-    |  mov CARG4, CARG2
+    |  mov rax, r8
+    |  mov r10, r9
+    |  push rdx
     |  cqo
-    |  idiv CARG4
+    |  idiv r10
     |  test rdx, rdx
     |  jz >1
-    |  mov CARG1, rdx
-    |  xor CARG1, CARG4
+    |  mov r11, rdx
+    |  xor r11, r10
     |  jns >1
     |  sub rax, 1
     |1:
-    |  mov CARG3, rax
-    |3:
+    |  pop rdx
+    |  mov r8, rax
+|3:
     |  store_arithint64_1
     |.else
     |  ins_ABC

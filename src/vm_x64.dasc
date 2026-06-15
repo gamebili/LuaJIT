@@ -310,6 +310,93 @@
 |.macro checknumtp, src, target; checknumx src, target, jae; .endmacro
 |.macro checknumber, src, target; checknumx src, target, ja; .endmacro
 |
+#if LJ_54
+|// Lua 5.4 boxed-int64 support for the GC64 x64 backend.
+|// The active int64 result is kept untagged in r8. r9/r10/r11 are scratch.
+|// clear_int64_owner_val must be used whenever an int64 TValue is copied out of
+|// its owning stack slot, otherwise a later in-place update can corrupt aliases.
+|.macro clear_int64_owner_val, val, tmp
+|  mov tmp, val
+|  sar tmp, 47
+|  cmp tmp, LJ_TINT64
+|  jne >9
+|  mov tmp, val
+|  cleartp tmp
+|  mov aword INT64:tmp->owner, 0
+|9:
+|.endmacro
+|.macro load_int64_1, base, idx, target
+|  mov r8, [base+idx*8]
+|  mov ITYPE, r8
+|  sar ITYPE, 47
+|  cmp ITYPE, LJ_TISNUM
+|  je >1
+|  cmp ITYPE, LJ_TINT64
+|  jne target
+|  cleartp r8
+|  mov r8, qword INT64:r8->i
+|  jmp >2
+|1:
+|  movsxd r8, r8d
+|2:
+|.endmacro
+|.macro load_int64_2, base, idx, target
+|  mov r9, [base+idx*8]
+|  mov ITYPE, r9
+|  sar ITYPE, 47
+|  cmp ITYPE, LJ_TISNUM
+|  je >1
+|  cmp ITYPE, LJ_TINT64
+|  jne target
+|  cleartp r9
+|  mov r9, qword INT64:r9->i
+|  jmp >2
+|1:
+|  movsxd r9, r9d
+|2:
+|.endmacro
+|.macro store_int64_result
+|  movsxd TMPR, r8d
+|  cmp r8, TMPR
+|  movzx RAd, PC_RA
+|  jne >9
+|  mov TMPRd, r8d
+|  setint TMPR
+|  mov [BASE+RA*8], TMPR
+|  ins_next
+|9:
+|  mov TMPR, [BASE+RA*8]
+|  mov ITYPE, TMPR
+|  sar ITYPE, 47
+|  cmp ITYPE, LJ_TINT64
+|  jne >8
+|  cleartp TMPR
+|  lea r9, [BASE+RA*8]
+|  cmp INT64:TMPR->owner, r9
+|  jne >8
+|  mov qword INT64:TMPR->i, r8
+|  ins_next
+|8:
+|  mov LFUNC:TMPR, [BASE-16]
+|  cleartp LFUNC:TMPR
+|  mov TMPR, LFUNC:TMPR->pc
+|  movzx TMPRd, byte [TMPR+PC2PROTO(framesize)]
+|  lea TMPR, [BASE+TMPR*8]
+|  mov L:RB, SAVE_L
+|  mov L:RB->base, BASE
+|  mov L:RB->top, TMPR
+|  mov SAVE_PC, PC
+|  movzx RAd, PC_RA
+|  lea CARG2, [BASE+RA*8]
+|  mov CARG3, r8
+|  mov CARG1, L:RB
+|  call extern lj_obj_setint64	// (lua_State *L, TValue *o, int64_t i)
+|  mov L:RB, SAVE_L
+|  mov BASE, L:RB->base
+|  ins_next
+|.endmacro
+#endif
+|
 |.macro mov_false, reg; mov64 reg, (int64_t)~((uint64_t)1<<47); .endmacro
 |.macro mov_true, reg; mov64 reg, (int64_t)~((uint64_t)2<<47); .endmacro
 |
@@ -1092,8 +1179,11 @@ static void build_subroutines(BuildCtx *ctx)
   |  // NOBARRIER: lj_meta_tset ensures the table is not black.
   |  movzx RAd, PC_RA
   |  mov RB, [BASE+RA*8]
+#if LJ_54
+  |  clear_int64_owner_val RB, ITYPE
+#endif
   |  mov [RC], RB
-  |->cont_nop:				// BASE = base, (RC = result)
+|->cont_nop:				// BASE = base, (RC = result)
   |  endbr
   |  ins_next
   |
@@ -3849,6 +3939,11 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
       |  jb >1
     }
     if (op == BC_ISTC || op == BC_ISFC) {
+      |.if DUALNUM
+#if LJ_54
+      |  clear_int64_owner_val RB, ITYPE
+#endif
+      |.endif
       |  mov [BASE+RA*8], RB
     }
     |  movzx RDd, PC_RD
@@ -3876,6 +3971,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
   case BC_MOV:
     |  ins_AD	// RA = dst, RD = src
     |  mov RB, [BASE+RD*8]
+#if LJ_54
+    |  clear_int64_owner_val RB, ITYPE
+#endif
     |  mov [BASE+RA*8], RB
     |  ins_next_
     break;
@@ -4061,12 +4159,108 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
 
     |  // RA = dst, RB = src1 or num const, RC = src2 or num const
   case BC_ADDVN: case BC_ADDNV: case BC_ADDVV:
+#if LJ_54
+    |  ins_ABC
+    ||vk = ((int)op - BC_ADDVN) / (BC_ADDNV-BC_ADDVN);
+    ||switch (vk) {
+    ||case 0:
+    |   load_int64_1 BASE, RB, >7
+    |   load_int64_2 KBASE, RC, >7
+    ||  break;
+    ||case 1:
+    |   load_int64_1 KBASE, RC, >7
+    |   load_int64_2 BASE, RB, >7
+    ||  break;
+    ||default:
+    |   load_int64_1 BASE, RB, >7
+    |   load_int64_2 BASE, RC, >7
+    ||  break;
+    ||}
+    |  add r8, r9
+    |  store_int64_result
+|7:
+    ||switch (vk) {
+    ||case 0:
+    |  jmp ->vmeta_arith_vn
+    ||  break;
+    ||case 1:
+    |  jmp ->vmeta_arith_nv
+    ||  break;
+    ||default:
+    |  jmp ->vmeta_arith_vv
+    ||  break;
+    ||}
+#endif
     |  ins_arith add, addsd
     break;
   case BC_SUBVN: case BC_SUBNV: case BC_SUBVV:
+#if LJ_54
+    |  ins_ABC
+    ||vk = ((int)op - BC_ADDVN) / (BC_ADDNV-BC_ADDVN);
+    ||switch (vk) {
+    ||case 0:
+    |   load_int64_1 BASE, RB, >7
+    |   load_int64_2 KBASE, RC, >7
+    ||  break;
+    ||case 1:
+    |   load_int64_1 KBASE, RC, >7
+    |   load_int64_2 BASE, RB, >7
+    ||  break;
+    ||default:
+    |   load_int64_1 BASE, RB, >7
+    |   load_int64_2 BASE, RC, >7
+    ||  break;
+    ||}
+    |  sub r8, r9
+    |  store_int64_result
+|7:
+    ||switch (vk) {
+    ||case 0:
+    |  jmp ->vmeta_arith_vn
+    ||  break;
+    ||case 1:
+    |  jmp ->vmeta_arith_nv
+    ||  break;
+    ||default:
+    |  jmp ->vmeta_arith_vv
+    ||  break;
+    ||}
+#endif
     |  ins_arith sub, subsd
     break;
   case BC_MULVN: case BC_MULNV: case BC_MULVV:
+#if LJ_54
+    |  ins_ABC
+    ||vk = ((int)op - BC_ADDVN) / (BC_ADDNV-BC_ADDVN);
+    ||switch (vk) {
+    ||case 0:
+    |   load_int64_1 BASE, RB, >7
+    |   load_int64_2 KBASE, RC, >7
+    ||  break;
+    ||case 1:
+    |   load_int64_1 KBASE, RC, >7
+    |   load_int64_2 BASE, RB, >7
+    ||  break;
+    ||default:
+    |   load_int64_1 BASE, RB, >7
+    |   load_int64_2 BASE, RC, >7
+    ||  break;
+    ||}
+    |  imul r8, r9
+    |  store_int64_result
+|7:
+    ||switch (vk) {
+    ||case 0:
+    |  jmp ->vmeta_arith_vn
+    ||  break;
+    ||case 1:
+    |  jmp ->vmeta_arith_nv
+    ||  break;
+    ||default:
+    |  jmp ->vmeta_arith_vv
+    ||  break;
+    ||}
+#endif
     |  ins_arith imul, mulsd
     break;
   case BC_DIVVN: case BC_DIVNV: case BC_DIVVV:
@@ -4106,20 +4300,37 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |
   case BC_MODVN:
 #if LJ_54
-    /* Lua 5.4 modulo: integer fast path inline, everything else (floats with
-    ** the official fmod formula, boxed int64, strings, metamethods) goes to
-    ** lj_meta_arith(). The BC_MODVN_Z label is kept (unreferenced) because
-    ** buildvm requires all global labels defined.
+    /* Lua 5.4 modulo: integer floor modulo inline; floats, strings and
+    ** metamethods route to lj_meta_arith().
     */
     |  ins_ABC
+    |  load_int64_1 BASE, RB, ->BC_MODVN_Z
+    |  load_int64_2 KBASE, RC, ->BC_MODVN_Z
+    |  test r9, r9
+    |  jz ->BC_MODVN_Z
+    |  cmp r9, -1
+    |  je >3
+    |  mov rax, r8
+    |  mov TMPR, r9
+    |  push rdx
+    |  cqo
+    |  idiv TMPR
+    |  test rdx, rdx
+    |  jz >1
+    |  mov ITYPE, rdx
+    |  xor ITYPE, TMPR
+    |  jns >1
+    |  add rdx, TMPR
+    |1:
+    |  mov r8, rdx
+    |  pop rdx
+    |  jmp >2
+    |3:
+    |  xor r8d, r8d
+    |2:
+    |  store_int64_result
     |->BC_MODVN_Z:
-    |.if DUALNUM
-    |  mov RB, [BASE+RB*8]
-    |  mov RC, [KBASE+RC*8]
-    |  ins_modint ->vmeta_arith_vno
-    |.else
     |  jmp ->vmeta_arith_vno
-    |.endif
     break;
 #endif
     |  ins_arithpre movsd, xmm1
@@ -4131,14 +4342,33 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
   case BC_MODNV:
 #if LJ_54
     |  ins_ABC
-    |.if DUALNUM
-    |  mov TMPR, [BASE+RB*8]		// Divisor (variable).
-    |  mov RB, [KBASE+RC*8]		// Dividend (constant).
-    |  mov RC, TMPR
-    |  ins_modint ->vmeta_arith_nvo
-    |.else
+    |  load_int64_1 KBASE, RC, >7
+    |  load_int64_2 BASE, RB, >7
+    |  test r9, r9
+    |  jz >7
+    |  cmp r9, -1
+    |  je >3
+    |  mov rax, r8
+    |  mov TMPR, r9
+    |  push rdx
+    |  cqo
+    |  idiv TMPR
+    |  test rdx, rdx
+    |  jz >1
+    |  mov ITYPE, rdx
+    |  xor ITYPE, TMPR
+    |  jns >1
+    |  add rdx, TMPR
+    |1:
+    |  mov r8, rdx
+    |  pop rdx
+    |  jmp >2
+    |3:
+    |  xor r8d, r8d
+    |2:
+    |  store_int64_result
+|7:
     |  jmp ->vmeta_arith_nvo
-    |.endif
     break;
 #endif
     |  ins_arithpre movsd, xmm1
@@ -4147,13 +4377,33 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
   case BC_MODVV:
 #if LJ_54
     |  ins_ABC
-    |.if DUALNUM
-    |  mov RB, [BASE+RB*8]
-    |  mov RC, [BASE+RC*8]
-    |  ins_modint ->vmeta_arith_vvo
-    |.else
+    |  load_int64_1 BASE, RB, >7
+    |  load_int64_2 BASE, RC, >7
+    |  test r9, r9
+    |  jz >7
+    |  cmp r9, -1
+    |  je >3
+    |  mov rax, r8
+    |  mov TMPR, r9
+    |  push rdx
+    |  cqo
+    |  idiv TMPR
+    |  test rdx, rdx
+    |  jz >1
+    |  mov ITYPE, rdx
+    |  xor ITYPE, TMPR
+    |  jns >1
+    |  add rdx, TMPR
+    |1:
+    |  mov r8, rdx
+    |  pop rdx
+    |  jmp >2
+    |3:
+    |  xor r8d, r8d
+    |2:
+    |  store_int64_result
+|7:
     |  jmp ->vmeta_arith_vvo
-    |.endif
     break;
 #endif
     |  ins_arithpre movsd, xmm1
@@ -4195,6 +4445,22 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
 
   case BC_BAND: case BC_BOR: case BC_BXOR:
     |  ins_ABC	// RA = dst, RB = src1, RC = src2
+#if LJ_54
+    |  load_int64_1 BASE, RB, ->vmeta_bitop
+    |  load_int64_2 BASE, RC, ->vmeta_bitop
+    switch (op) {
+    case BC_BAND:
+      |  and r8, r9
+      break;
+    case BC_BOR:
+      |  or r8, r9
+      break;
+    default:
+      |  xor r8, r9
+      break;
+    }
+    |  store_int64_result
+#endif
     |.if DUALNUM
     |  mov RB, [BASE+RB*8]
     |  mov RC, [BASE+RC*8]
@@ -4221,6 +4487,19 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
 
   case BC_BSHL: case BC_BSHR:
     |  ins_ABC	// RA = dst, RB = value, RC = shift count
+#if LJ_54
+    |  load_int64_1 BASE, RB, ->vmeta_bitop
+    |  load_int64_2 BASE, RC, ->vmeta_bitop
+    |  cmp r9, 63			// Negative or wide counts: C semantics.
+    |  ja ->vmeta_bitop
+    |  mov RAd, r9d			// Count to cl; dst index re-decoded.
+    if (op == BC_BSHL) {
+      |  shl r8, cl
+    } else {
+      |  shr r8, cl
+    }
+    |  store_int64_result
+#endif
     |.if DUALNUM
     |  mov RB, [BASE+RB*8]
     |  mov RC, [BASE+RC*8]
@@ -4250,6 +4529,11 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
 
   case BC_BNOT:
     |  ins_AD	// RA = dst, RD = src
+#if LJ_54
+    |  load_int64_1 BASE, RD, ->vmeta_bnot
+    |  not r8
+    |  store_int64_result
+#endif
     |.if DUALNUM
     |  mov RD, [BASE+RD*8]
     |  checkint RD, ->vmeta_bnot
@@ -4264,6 +4548,34 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
 
   case BC_IDIV:
     |  ins_ABC	// RA = dst, RB = dividend, RC = divisor
+#if LJ_54
+    |  load_int64_1 BASE, RB, ->vmeta_arith_vvo
+    |  load_int64_2 BASE, RC, ->vmeta_arith_vvo
+    |  test r9, r9
+    |  jz ->vmeta_arith_vvo
+    |  mov64 TMPR, U64x(80000000,00000000)
+    |  cmp r8, TMPR
+    |  jne >2
+    |  cmp r9, -1
+    |  je >3
+    |2:
+    |  mov rax, r8
+    |  mov TMPR, r9
+    |  push rdx
+    |  cqo
+    |  idiv TMPR
+    |  test rdx, rdx
+    |  jz >1
+    |  mov ITYPE, rdx
+    |  xor ITYPE, TMPR
+    |  jns >1
+    |  sub rax, 1
+    |1:
+    |  pop rdx
+    |  mov r8, rax
+    |3:
+    |  store_int64_result
+#endif
     |.if DUALNUM
     |  mov RB, [BASE+RB*8]
     |  mov RC, [BASE+RC*8]
@@ -4362,6 +4674,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  mov UPVAL:RB, [LFUNC:RB+RD*8+offsetof(GCfuncL, uvptr)]
     |  mov RB, UPVAL:RB->v
     |  mov RD, [RB]
+#if LJ_54
+    |  clear_int64_owner_val RD, ITYPE
+#endif
     |  mov [BASE+RA*8], RD
     |  ins_next
     break;
@@ -4375,6 +4690,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  cmp byte UPVAL:RB->closed, 0
     |  mov RB, UPVAL:RB->v
     |  mov RA, [BASE+RD*8]
+#if LJ_54
+    |  clear_int64_owner_val RA, RD
+#endif
     |  mov [RB], RA
     |  jz >1
     |  // Check barrier for closed upvalue.
@@ -4726,8 +5044,11 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |1:
     |  test byte TAB:RB->marked, LJ_GC_BLACK	// isblack(table)
     |  jnz >7
-    |2:  // Set array slot.
+|2:  // Set array slot.
     |  mov RB, [BASE+RA*8]
+#if LJ_54
+    |  clear_int64_owner_val RB, ITYPE
+#endif
     |  mov [RC], RB
     |  ins_next
     |
@@ -4778,8 +5099,11 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |2:
     |  test byte TAB:RB->marked, LJ_GC_BLACK	// isblack(table)
     |  jnz >7
-    |3:  // Set node value.
+|3:  // Set node value.
     |  mov ITYPE, [BASE+RA*8]
+#if LJ_54
+    |  clear_int64_owner_val ITYPE, RD
+#endif
     |  mov [TMPR], ITYPE
     |  ins_next
     |
@@ -4835,8 +5159,11 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |1:
     |  test byte TAB:RB->marked, LJ_GC_BLACK	// isblack(table)
     |  jnz >7
-    |2:	 // Set array slot.
+|2:	 // Set array slot.
     |  mov ITYPE, [BASE+RA*8]
+#if LJ_54
+    |  clear_int64_owner_val ITYPE, RB
+#endif
     |  mov [RC], ITYPE
     |  ins_next
     |
@@ -4869,8 +5196,11 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  shl RCd, 3
     |  add RC, TAB:RB->array
     |  // Set array slot.
-    |->BC_TSETR_Z:
+|->BC_TSETR_Z:
     |  mov ITYPE, [BASE+RA*8]
+#if LJ_54
+    |  clear_int64_owner_val ITYPE, RB
+#endif
     |  mov [RC], ITYPE
     |  ins_next
     |
@@ -4898,8 +5228,11 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
     |  sub RDd, TMPRd
     |  shl TMPRd, 3
     |  add TMPR, TAB:RB->array
-    |3:  // Copy result slots to table.
+|3:  // Copy result slots to table.
     |  mov RB, [RA]
+#if LJ_54
+    |  clear_int64_owner_val RB, ITYPE
+#endif
     |  add RA, 8
     |  mov [TMPR], RB
     |  add TMPR, 8
@@ -5298,6 +5631,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
       |  jz >3
       |2:  // Move results down.
       |  mov RB, [KBASE+RA]
+#if LJ_54
+      |  clear_int64_owner_val RB, TMPR
+#endif
       |  mov [KBASE-16], RB
       |  add KBASE, 8
       |  sub RDd, 1
@@ -5311,6 +5647,9 @@ static void build_ins(BuildCtx *ctx, BCOp op, int defop)
       break;
     case BC_RET1:
       |  mov RB, [BASE+RA]
+#if LJ_54
+      |  clear_int64_owner_val RB, TMPR
+#endif
       |  mov [BASE-16], RB
       /* fallthrough */
     case BC_RET0:

@@ -33,7 +33,7 @@ typedef struct MRef {
 } MRef;
 
 #define LJ_HASI64OWNER \
-  (LJ_54 && (LJ_TARGET_ARM64 || LJ_TARGET_X86 || (LJ_TARGET_X64 && !LJ_GC64)))
+  (LJ_54 && (LJ_TARGET_ARM64 || LJ_TARGET_X86 || LJ_TARGET_X64))
 
 #if LJ_GC64
 #define mref(r, t)	((t *)(void *)(r).ptr64)
