@@ -226,6 +226,43 @@ do
 end
 
 do
+  local path = "src/vm_x64.dasc"
+  local data = readfile(path)
+  assert(data:find("|.macro clear_int64_owner_val", 1, true),
+	 path .. ": missing GC64 boxed int64 owner clearing macro")
+  assert(data:find("|.macro load_int64_1", 1, true) and
+	 data:find("|.macro load_int64_2", 1, true) and
+	 data:find("|.macro store_int64_result", 1, true),
+	 path .. ": missing GC64 boxed int64 fast-path macros")
+  assert(count_plain(data, "clear_int64_owner_val") >= 10,
+	 path .. ": GC64 boxed int64 owner clearing is not wired through VM copy paths")
+  assert_near(path, data, "case BC_ADDVN:", "store_int64_result", 2600)
+  assert_near(path, data, "case BC_SUBVN:", "store_int64_result", 2600)
+  assert_near(path, data, "case BC_MULVN:", "store_int64_result", 2600)
+  assert_near(path, data, "case BC_MODVN:", "store_int64_result", 3600)
+  assert_near(path, data, "case BC_MODNV:", "store_int64_result", 3600)
+  assert_near(path, data, "case BC_MODVV:", "store_int64_result", 3600)
+  assert_near(path, data, "case BC_BAND:", "load_int64_2", 2600)
+  assert_near(path, data, "case BC_BAND:", "store_int64_result", 2600)
+  assert_near(path, data, "case BC_BSHL:", "load_int64_2", 2600)
+  assert_near(path, data, "case BC_BSHL:", "store_int64_result", 2600)
+  assert_near(path, data, "case BC_BNOT:", "load_int64_1", 1800)
+  assert_near(path, data, "case BC_BNOT:", "store_int64_result", 1800)
+  assert_near(path, data, "case BC_IDIV:", "load_int64_2", 3000)
+  assert_near(path, data, "case BC_IDIV:", "store_int64_result", 3000)
+  assert(data:find("push rdx", 1, true) and data:find("pop rdx", 1, true),
+	 path .. ": GC64 idiv paths must preserve BASE in rdx")
+end
+
+do
+  local path = "src/lj_obj.h"
+  local data = readfile(path)
+  assert(data:find("LJ_TARGET_X64", 1, true) and
+	 not data:find("LJ_TARGET_X64 && !LJ_GC64", 1, true),
+	 path .. ": x64 GC64 must keep boxed int64 owner support enabled")
+end
+
+do
   local path = "src/lj_dispatch.c"
   local data = readfile(path)
   assert(data:find("#if LJ_54 && LJ_TARGET_ARM64", 1, true),
